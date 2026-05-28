@@ -14177,6 +14177,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? mainWindowContexts.values.first else {
             return false
         }
+        // Short-circuit the built-in `newWorkspace` action: it must go through
+        // createWorkspaceInGroup so the new workspace inherits the anchor's
+        // cwd and honors the group's per-cwd placement (top/end), matching
+        // the bare `+` button. The generic executor below uses addWorkspace()
+        // which skips both behaviors.
+        if case .builtIn(.newWorkspace) = action.action {
+            let placement: WorkspaceGroupNewPlacement = {
+                let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
+                let cwd = anchorId.flatMap { id in
+                    tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
+                }
+                let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
+                return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            }()
+            return tabManager.createWorkspaceInGroup(groupId: groupId, placement: placement) != nil
+        }
         // Snapshot tab ids BEFORE the action fires so the onExecuted callback
         // (which runs after any confirmation/authorization flow completes) can
         // diff against the pre-action state and join the newly-created

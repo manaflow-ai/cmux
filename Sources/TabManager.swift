@@ -6239,10 +6239,19 @@ class TabManager: ObservableObject {
             if !hiddenMemberIds.isEmpty,
                !sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
                 sidebarSelectedWorkspaceIds.subtract(hiddenMemberIds)
+                // Use the "did hide" notification (not collapse-to-one) so the
+                // SwiftUI sidebar only strips the hidden ids and keeps any
+                // visible multi-selection entries that sit outside the group.
+                var userInfo: [AnyHashable: Any] = [
+                    SidebarMultiSelectionHideKey.hiddenWorkspaceIds: hiddenMemberIds
+                ]
+                if let selectedTabId, selectedTabId == anchorId {
+                    userInfo[SidebarMultiSelectionHideKey.focusedWorkspaceId] = anchorId
+                }
                 NotificationCenter.default.post(
-                    name: .sidebarMultiSelectionShouldCollapse,
+                    name: .sidebarMultiSelectionDidHide,
                     object: self,
-                    userInfo: [SidebarMultiSelectionCollapseKey.focusedWorkspaceId: anchorId]
+                    userInfo: userInfo
                 )
             }
         }
@@ -11103,12 +11112,24 @@ enum SidebarMultiSelectionCollapseKey {
     static let focusedWorkspaceId = "focusedWorkspaceId"
 }
 
+enum SidebarMultiSelectionHideKey {
+    static let hiddenWorkspaceIds = "hiddenWorkspaceIds"
+    static let focusedWorkspaceId = "focusedWorkspaceId"
+}
+
 extension Notification.Name {
     /// Posted when keyboard-nav focuses a single workspace and the sidebar's
     /// multi-selection state (SwiftUI @State Set<UUID> in VerticalTabsSidebar)
     /// should collapse to that workspace. Subscribers read
     /// `SidebarMultiSelectionCollapseKey.focusedWorkspaceId` from userInfo.
     static let sidebarMultiSelectionShouldCollapse = Notification.Name("cmux.sidebarMultiSelectionShouldCollapse")
+    /// Posted when specific workspaces become hidden (group collapse). The
+    /// SwiftUI sidebar should drop only those ids from its multi-selection
+    /// without disturbing other entries. userInfo:
+    /// `SidebarMultiSelectionHideKey.hiddenWorkspaceIds` (Set<UUID>), and
+    /// optionally `SidebarMultiSelectionHideKey.focusedWorkspaceId` (UUID)
+    /// when focus moved (so the focused row stays in the selection set).
+    static let sidebarMultiSelectionDidHide = Notification.Name("cmux.sidebarMultiSelectionDidHide")
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
