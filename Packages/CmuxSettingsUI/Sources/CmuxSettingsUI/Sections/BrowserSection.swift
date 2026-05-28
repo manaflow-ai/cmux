@@ -2,7 +2,14 @@ import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// **Browser** section.
+/// **Browser** section — mirrors the legacy in-app section
+/// row-for-row inside a single `SettingsCard`: Enable cmux Browser,
+/// Default Search Engine, conditional Custom Search Engine fields,
+/// Show Search Suggestions, Browser Theme, Browser Memory Saver +
+/// Memory Saver Delay, Open Terminal Links / Intercept open,
+/// conditional Hosts / External Patterns text editors, HTTP Hosts
+/// Allowed in Embedded Browser editor, Import Browser Data
+/// subsection, React Grab Version, Browsing History.
 @MainActor
 public struct BrowserSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -21,174 +28,358 @@ public struct BrowserSection: View {
         self.hostActions = hostActions
     }
 
+    private static let columnWidth: CGFloat = 240
+
     public var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsSectionHeader("Browser")
-            SettingsCard {
-                toggleRow("Disable cmux Browser",
-                    subtitle: "Routes every web URL to the system default browser.",
-                    json: "browser.disabled", key: catalog.browser.disabled)
-            }
-
-            SettingsSectionHeader("Search")
-            SettingsCard {
-                pickerRow("Default Search Engine",
-                    json: "browser.defaultSearchEngine",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine),
-                    cases: BrowserSearchEngine.allCases,
-                    label: searchEngineLabel)
-                SettingsCardDivider()
-                toggleRow("Show Search Suggestions", subtitle: nil,
-                    json: "browser.showSearchSuggestions", key: catalog.browser.showSearchSuggestions)
-                SettingsCardDivider()
-                textRow("Custom Search Engine Name", subtitle: nil,
-                    placeholder: "My Engine",
-                    json: "browser.customSearchEngineName", key: catalog.browser.customSearchEngineName)
-                SettingsCardDivider()
-                textRow("Custom Search Engine URL Template",
-                    subtitle: "Use {query} as the placeholder.",
-                    placeholder: "https://example.com/search?q={query}",
-                    json: "browser.customSearchEngineURLTemplate", key: catalog.browser.customSearchEngineURLTemplate)
-            }
-
-            SettingsSectionHeader("Appearance")
-            SettingsCard {
-                pickerRow("Web Content Theme",
-                    json: "browser.theme",
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme),
-                    cases: BrowserThemeMode.allCases,
-                    label: { $0 == .system ? "Follow System" : ($0 == .light ? "Light" : "Dark") })
-            }
-
-            SettingsSectionHeader("Memory")
-            SettingsCard {
-                toggleRow("Discard Hidden Web Views",
-                    subtitle: "Unload background tabs after they have been hidden for a while to save memory.",
-                    json: "browser.discardHiddenWebViews", key: catalog.browser.discardHiddenWebViews)
-                SettingsCardDivider()
-                doubleStepperRow("Hidden WebView Discard Delay",
-                    subtitle: nil,
-                    json: "browser.hiddenWebViewDiscardDelaySeconds",
-                    key: catalog.browser.hiddenWebViewDiscardDelaySeconds,
-                    range: 5...3_600, step: 5,
-                    format: { "\(Int($0))s" })
-            }
-
-            SettingsSectionHeader("Link Routing")
-            SettingsCard {
-                toggleRow("Open Terminal Links in cmux Browser", subtitle: nil,
-                    json: "browser.openTerminalLinksInCmuxBrowser", key: catalog.browser.openTerminalLinksInCmuxBrowser)
-                SettingsCardDivider()
-                toggleRow("Intercept `open` http(s) in Terminal", subtitle: nil,
-                    json: "browser.interceptTerminalOpenCommandInCmuxBrowser",
-                    key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser)
-                SettingsCardDivider()
-                toggleRow("Show Import Hint on Blank Tabs", subtitle: nil,
-                    json: "browser.showImportHintOnBlankTabs", key: catalog.browser.showImportHintOnBlankTabs)
-            }
-
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"))
+                .accessibilityIdentifier("SettingsBrowserSection")
+            mainCard
+        }
+        .confirmationDialog(
+            String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
+            isPresented: $confirmClearHistory,
+            titleVisibility: .visible
+        ) {
             if let hostActions {
-                SettingsSectionHeader("History")
-                SettingsCard {
-                    SettingsCardRow(configurationReview: .action, "Browsing History",
-                        subtitle: "Remove visited-page suggestions from the browser omnibar.") {
-                        Button("Clear History…", role: .destructive) {
-                            confirmClearHistory = true
-                        }
-                        .controlSize(.small)
+                Button(String(localized: "settings.browser.history.clearDialog.confirm", defaultValue: "Clear History"), role: .destructive) {
+                    hostActions.clearBrowserHistory()
+                }
+            }
+            Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
+        }
+    }
+
+    @ViewBuilder
+    private var mainCard: some View {
+        let disabled = DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled)
+        let engine = DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine)
+        let customName = DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName)
+        let customURL = DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate)
+        let suggestions = DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions)
+        let theme = DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme)
+        let discardEnabled = DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews)
+        let discardDelay = DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds)
+        let openTermLinks = DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser)
+        let interceptOpen = DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser)
+        let hosts = DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser)
+        let external = DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally)
+        let httpAllowlist = DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser)
+        let importHint = DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs)
+        let reactGrab = DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion)
+
+        SettingsCard {
+            // Enable cmux Browser
+            SettingsCardRow(
+                configurationReview: .json("browser.disabled"),
+                String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
+                subtitle: !disabled.current
+                    ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "The cmux browser is available alongside the system browser.")
+                    : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Disabled. Web URLs route to your system default browser.")
+            ) {
+                Toggle("", isOn: Binding(get: { !disabled.current }, set: { disabled.set(!$0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Default Search Engine
+            SettingsCardRow(
+                configurationReview: .json("browser.defaultSearchEngine"),
+                String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
+                subtitle: String(localized: "settings.browser.searchEngine.subtitle", defaultValue: "Used by the browser address bar when input is not a URL."),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { engine.current }, set: { engine.set($0) })) {
+                    ForEach(BrowserSearchEngine.allCases, id: \.self) { value in
+                        Text(searchEngineLabel(value)).tag(value)
                     }
                 }
-                .confirmationDialog(
-                    "Clear browser history?",
-                    isPresented: $confirmClearHistory,
-                    titleVisibility: .visible
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Custom Search Engine Name + URL (only when custom)
+            if engine.current == .custom {
+                SettingsCardRow(
+                    configurationReview: .json("browser.customSearchEngineName"),
+                    String(localized: "settings.browser.customSearchEngineName", defaultValue: "Custom Search Engine Name"),
+                    subtitle: String(localized: "settings.browser.customSearchEngineName.subtitle", defaultValue: "Shown in browser address bar search suggestions."),
+                    controlWidth: Self.columnWidth
                 ) {
-                    Button("Clear History", role: .destructive) { hostActions.clearBrowserHistory() }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("This removes visited-page suggestions from the browser omnibar.")
+                    TextField("", text: Binding(get: { customName.current }, set: { customName.set($0) }))
+                        .textFieldStyle(.roundedBorder)
+                }
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .json("browser.customSearchEngineURLTemplate"),
+                    String(localized: "settings.browser.customSearchEngineURLTemplate", defaultValue: "Custom Search URL"),
+                    subtitle: String(localized: "settings.browser.customSearchEngineURLTemplate.subtitle", defaultValue: "Use {query} or %s for the search terms. Without a placeholder, cmux appends q=."),
+                    controlWidth: 330
+                ) {
+                    TextField("", text: Binding(get: { customURL.current }, set: { customURL.set($0) }))
+                        .textFieldStyle(.roundedBorder)
+                }
+                SettingsCardDivider()
+            }
+
+            // Show Search Suggestions
+            SettingsCardRow(
+                configurationReview: .json("browser.showSearchSuggestions"),
+                String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions")
+            ) {
+                Toggle("", isOn: Binding(get: { suggestions.current }, set: { suggestions.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Browser Theme
+            SettingsCardRow(
+                configurationReview: .json("browser.theme"),
+                String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
+                subtitle: theme.current == .system
+                    ? String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
+                    : String(localized: "settings.browser.theme.subtitleForced", defaultValue: "Forces that color scheme for compatible pages."),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
+                    Text(String(localized: "settings.browser.theme.system", defaultValue: "System")).tag(BrowserThemeMode.system)
+                    Text(String(localized: "settings.browser.theme.light", defaultValue: "Light")).tag(BrowserThemeMode.light)
+                    Text(String(localized: "settings.browser.theme.dark", defaultValue: "Dark")).tag(BrowserThemeMode.dark)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Browser Memory Saver
+            SettingsCardRow(
+                configurationReview: .json("browser.discardHiddenWebViews"),
+                String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
+                subtitle: discardEnabled.current
+                    ? String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden tabs unload after the delay to save memory.")
+                    : String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden tabs stay loaded.")
+            ) {
+                Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
+            }
+            SettingsCardDivider()
+
+            // Memory Saver Delay
+            SettingsCardRow(
+                configurationReview: .json("browser.hiddenWebViewDiscardDelaySeconds"),
+                String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a tab can be hidden before it is unloaded."),
+                controlWidth: Self.columnWidth
+            ) {
+                HStack(spacing: 8) {
+                    Text("\(Int(discardDelay.current))s")
+                        .font(.system(.body, design: .monospaced))
+                        .monospacedDigit()
+                        .frame(width: 56, alignment: .trailing)
+                    Stepper(
+                        "",
+                        value: Binding(get: { discardDelay.current }, set: { discardDelay.set($0) }),
+                        in: 5...3_600,
+                        step: 30
+                    )
+                    .labelsHidden()
+                }
+                .disabled(!discardEnabled.current)
+                .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
+            }
+            SettingsCardDivider()
+
+            // Open Terminal Links
+            SettingsCardRow(
+                configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
+                String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
+                subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
+            ) {
+                Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Intercept open
+            SettingsCardRow(
+                configurationReview: .json("browser.interceptTerminalOpenCommandInCmuxBrowser"),
+                String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"),
+                subtitle: String(localized: "settings.browser.interceptOpen.subtitle", defaultValue: "When off, `open https://...` and `open http://...` always use your default browser.")
+            ) {
+                Toggle("", isOn: Binding(get: { interceptOpen.current }, set: { interceptOpen.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            // Hosts + External Patterns (only when relevant)
+            if openTermLinks.current || interceptOpen.current {
+                SettingsCardDivider()
+                hostnameEditor(
+                    title: String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
+                    subtitle: String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux."),
+                    json: "browser.hostsToOpenInEmbeddedBrowser",
+                    model: hosts
+                )
+                SettingsCardDivider()
+                hostnameEditor(
+                    title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                    subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
+                    json: "browser.urlsToAlwaysOpenExternally",
+                    model: external
+                )
+            }
+            SettingsCardDivider()
+
+            // HTTP Hosts Allowed in Embedded Browser
+            httpAllowlistRow(model: httpAllowlist)
+
+            SettingsCardDivider()
+
+            // Import Browser Data subsection
+            if let hostActions {
+                importBrowserDataBlock(
+                    importHintModel: importHint,
+                    onImport: { hostActions.openBrowserImportFlow() }
+                )
+                SettingsCardDivider()
+            }
+
+            // React Grab Version
+            SettingsCardRow(
+                configurationReview: .json("browser.reactGrabVersion"),
+                String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"),
+                subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted.")
+            ) {
+                TextField("", text: Binding(get: { reactGrab.current }, set: { reactGrab.set($0) }))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 100)
+                    .font(.system(.body, design: .monospaced))
+                    .accessibilityIdentifier("SettingsReactGrabVersionField")
+            }
+
+            // Browsing History
+            if let hostActions {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .action,
+                    String(localized: "settings.browser.history", defaultValue: "Browsing History"),
+                    subtitle: String(localized: "settings.browser.history.subtitle", defaultValue: "Clear visited-page suggestions from the browser omnibar.")
+                ) {
+                    Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
+                        _ = hostActions
+                        confirmClearHistory = true
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
+        }
+    }
 
-            SettingsSectionHeader("Hostname Patterns")
-            SettingsCard {
-                multilineRow("Hosts to Open in Embedded Browser",
-                    subtitle: "Newline-delimited host patterns. `*.example.com` matches all subdomains.",
-                    json: "browser.hostsToOpenInEmbeddedBrowser",
-                    key: catalog.browser.hostsToOpenInEmbeddedBrowser)
-                SettingsCardDivider()
-                multilineRow("URLs to Always Open Externally",
-                    subtitle: "Newline-delimited URL patterns matched before any in-app routing.",
-                    json: "browser.urlsToAlwaysOpenExternally",
-                    key: catalog.browser.urlsToAlwaysOpenExternally)
-                SettingsCardDivider()
-                multilineRow("HTTP Hosts Allowed in Embedded Browser",
-                    subtitle: "Hosts cmux's embedded browser may load over plain HTTP. Use sparingly.",
-                    json: "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-                    key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser)
+    @ViewBuilder
+    private func hostnameEditor(title: String, subtitle: String, json: String, model: DefaultsValueModel<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
+                EmptyView()
             }
+            TextEditor(text: Binding(get: { model.current }, set: { model.set($0) }))
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 60, maxHeight: 120)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
         }
     }
 
     @ViewBuilder
-    private func toggleRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
-            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
+    private func httpAllowlistRow(model: DefaultsValueModel<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
+                .font(.system(size: 13, weight: .semibold))
+            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: Binding(get: { model.current }, set: { model.set($0) }))
+                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                .frame(minHeight: 86)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
+            Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
-    private func textRow(_ title: String, subtitle: String?, placeholder: String, json: String, key: DefaultsKey<String>) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 240) {
-            TextField(placeholder, text: Binding(get: { model.current }, set: { model.set($0) }))
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-        }
-    }
-
-    @ViewBuilder
-    private func pickerRow<Value: SettingCodable & Hashable & CaseIterable>(
-        _ title: String,
-        json: String,
-        model: DefaultsValueModel<Value>,
-        cases: [Value],
-        label: @escaping (Value) -> String
-    ) -> some View {
-        SettingsCardRow(configurationReview: .json(json), title, controlWidth: 200) {
-            Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
-                ForEach(cases, id: \.self) { value in Text(label(value)).tag(value) }
+    private func importBrowserDataBlock(importHintModel: DefaultsValueModel<Bool>, onImport: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
+                    .font(.system(size: 13, weight: .semibold))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
+                        .font(.system(size: 12.5, weight: .semibold))
+                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1)
+                )
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-        }
-    }
-
-    @ViewBuilder
-    private func doubleStepperRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Double>, range: ClosedRange<Double>, step: Double, format: @escaping (Double) -> String) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 140) {
-            Stepper(value: Binding(get: { model.current }, set: { model.set($0) }), in: range, step: step) {
-                Text(format(model.current)).monospacedDigit()
+            HStack(spacing: 8) {
+                Button(String(localized: "settings.browser.import.choose", defaultValue: "Choose…")) { onImport() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserImportChooseButton")
             }
+            Toggle(
+                String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
+                isOn: Binding(get: { importHintModel.current }, set: { importHintModel.set($0) })
+            )
             .controlSize(.small)
+            .accessibilityIdentifier("SettingsBrowserImportHintToggle")
         }
-    }
-
-    @ViewBuilder
-    private func multilineRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<String>) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
-            EmptyView()
-        }
-        TextEditor(text: Binding(get: { model.current }, set: { model.set($0) }))
-            .frame(minHeight: 70, maxHeight: 140)
-            .font(.system(.body, design: .monospaced))
-            .padding(.horizontal, 14)
-            .padding(.bottom, 9)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     private func searchEngineLabel(_ engine: BrowserSearchEngine) -> String {
@@ -209,7 +400,7 @@ public struct BrowserSection: View {
         case .github: return "GitHub"
         case .baidu: return "Baidu"
         case .yandex: return "Yandex"
-        case .custom: return "Custom"
+        case .custom: return String(localized: "settings.browser.searchEngine.custom", defaultValue: "Custom")
         }
     }
 }
