@@ -9391,6 +9391,16 @@ final class Workspace: Identifiable, ObservableObject {
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+            // Notify the sidebar so anchor-cwd-driven group config (color,
+            // icon, context menu, newWorkspacePlacement) refreshes even
+            // when the anchor isn't the visible/selected workspace. Group
+            // headers are the anchor's only sidebar surface, so a
+            // TabItemView-style observation isn't mounted for them.
+            NotificationCenter.default.post(
+                name: .workspaceCurrentDirectoryDidChange,
+                object: self,
+                userInfo: ["workspaceId": id]
+            )
         }
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
