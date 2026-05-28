@@ -9,6 +9,7 @@ import {
   type FooterCollapseState,
 } from "../shared/footerCollapse";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
+import { promptTextWithPlanMode } from "../shared/promptModes";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   formatRateLimitPercent,
@@ -283,16 +284,21 @@ function SessionSurface({
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const [isPickingFiles, setIsPickingFiles] = useState(false);
+  const [isPlanMode, setIsPlanMode] = useState(false);
   const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
   const isSingleLineComposer = composerLayout.isSingleLine;
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
+    if (!canSend) {
+      return;
+    }
     setMenuKind(null);
     setMenuQuery("");
     setProviderMenuOpen(false);
     setAddContextMenuOpen(false);
-    const text = promptTextWithAttachments(state.input, attachments);
+    const providerInput = promptTextWithPlanMode(state.input, isPlanMode);
+    const text = promptTextWithAttachments(providerInput, attachments);
     void sendInput(state, dispatch, {
       attachments,
       clearInput: state.input,
@@ -324,6 +330,11 @@ function SessionSurface({
     if (item) {
       insertComposerMenuItem(item);
     }
+    editorRef.current?.focus();
+  };
+  const togglePlanMode = () => {
+    setIsPlanMode((value) => !value);
+    setAddContextMenuOpen(false);
     editorRef.current?.focus();
   };
   const pickLocalFiles = async () => {
@@ -521,6 +532,8 @@ function SessionSurface({
       onOpenChange: setAddContextMenuOpen,
       onChoose: insertComposerMenuItem,
       onPickFiles: () => void pickLocalFiles(),
+      onTogglePlanMode: togglePlanMode,
+      isPlanMode,
       state,
     }),
     h(ComposerFooterButton, {
@@ -531,8 +544,16 @@ function SessionSurface({
     h(ComposerFooterButton, {
       ariaLabel: state.context?.copy.skillPlan ?? "Plan",
       icon: sparkleIcon(),
-      onClick: () => insertSkillMenuItem("plan"),
+      isSelected: isPlanMode,
+      onClick: togglePlanMode,
     }),
+    isPlanMode
+      ? h(ComposerModeIndicator, {
+          icon: sparkleIcon("icon-xs"),
+          label: state.context?.copy.skillPlan ?? "Plan",
+          onClear: () => setIsPlanMode(false),
+        })
+      : null,
     h(ComposerFooterButton, {
       ariaLabel: state.context?.copy.tools ?? "Tools",
       icon: toolsIcon(),
@@ -1030,10 +1051,12 @@ function ComposerTopTray({
 function ComposerFooterButton({
   ariaLabel,
   icon,
+  isSelected = false,
   onClick,
 }: {
   ariaLabel: string;
   icon: React.ReactNode;
+  isSelected?: boolean;
   onClick: () => void;
 }) {
   return h(
@@ -1043,25 +1066,59 @@ function ComposerFooterButton({
         `codex-tool ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
       type: "button",
       "aria-label": ariaLabel,
+      "aria-pressed": isSelected,
+      "data-state": isSelected ? "open" : "closed",
       onClick,
     },
     icon,
   );
 }
 
+function ComposerModeIndicator({
+  icon,
+  label,
+  onClear,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClear: () => void;
+}) {
+  return h(
+    "div",
+    { className: "composer-mode-indicator flex min-w-0 items-center gap-1" },
+    h("div", { className: "composer-mode-divider", "aria-hidden": true }),
+    h(
+      "button",
+      {
+        className:
+          `composer-mode-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
+        type: "button",
+        "aria-label": label,
+        onClick: onClear,
+      },
+      h("span", { className: "composer-mode-icon", "aria-hidden": true }, icon),
+      h("span", { className: "composer-mode-label" }, label),
+    ),
+  );
+}
+
 function AddContextDropdown({
   isOpen,
   isPickingFiles,
+  isPlanMode,
   onChoose,
   onOpenChange,
   onPickFiles,
+  onTogglePlanMode,
   state,
 }: {
   isOpen: boolean;
   isPickingFiles: boolean;
+  isPlanMode: boolean;
   onChoose: (item: ComposerMenuItem) => void;
   onOpenChange: (isOpen: boolean) => void;
   onPickFiles: () => void;
+  onTogglePlanMode: () => void;
   state: SessionState;
 }) {
   const copy = state.context?.copy;
@@ -1134,11 +1191,11 @@ function AddContextDropdown({
             : null,
           workspaceItem || planItem ? h("div", { className: "add-context-separator", role: "separator" }) : null,
           planItem
-            ? h(AddContextMenuItem, {
+            ? h(AddContextMenuSwitchItem, {
+                checked: isPlanMode,
                 icon: sparkleIcon(),
                 label: copy?.planMode ?? "Plan mode",
-                detail: planItem.detail,
-                onSelect: () => chooseItem(planItem),
+                onSelect: onTogglePlanMode,
               })
             : null,
         )
@@ -1178,6 +1235,33 @@ function AddContextMenuItem({
         ? h("span", { className: "add-context-item-detail min-w-0 flex-1 truncate text-token-description-foreground" }, detail)
         : null,
     ),
+  );
+}
+
+function AddContextMenuSwitchItem({
+  checked,
+  icon,
+  label,
+  onSelect,
+}: {
+  checked: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onSelect: () => void;
+}) {
+  return h(
+    "button",
+    {
+      className: "add-context-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      type: "button",
+      role: "menuitemcheckbox",
+      "aria-checked": checked,
+      onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+      onClick: onSelect,
+    },
+    h("span", { className: "add-context-item-icon icon-xs shrink-0", "aria-hidden": true }, icon),
+    h("span", { className: "add-context-item-label min-w-0 flex-1 truncate" }, label),
+    h("span", { className: "add-context-switch", "data-checked": checked ? "true" : "false", "aria-hidden": true }),
   );
 }
 
@@ -1418,10 +1502,10 @@ function globeIcon() {
   );
 }
 
-function sparkleIcon() {
+function sparkleIcon(className = "icon-sm") {
   return h(
     "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
       fillRule: "evenodd",
       clipRule: "evenodd",
