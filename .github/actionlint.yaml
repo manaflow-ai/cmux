@@ -1,7 +1,0 @@
-self-hosted-runner:
-  labels:
-    - blacksmith-6vcpu-macos-15
-    - blacksmith-6vcpu-macos-26
-    - blacksmith-6vcpu-macos-latest
-
-config-variables: null

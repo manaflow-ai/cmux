@@ -20,20 +20,17 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (macOS 15 default for GUI activation support)"
+        description: "Runner OS (Depot runners for GUI activation support)"
         required: false
-        default: "blacksmith-6vcpu-macos-15"
+        default: "depot-macos-latest"
         type: choice
         options:
-          - blacksmith-6vcpu-macos-15
-          - blacksmith-6vcpu-macos-26
-          - blacksmith-6vcpu-macos-latest
           - depot-macos-latest
           - depot-macos-14
 
 jobs:
   e2e:
-    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
     timeout-minutes: 20
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
@@ -175,8 +172,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
         run: |

@@ -28,7 +28,7 @@ on:
 
 jobs:
   tests:
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
