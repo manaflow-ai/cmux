@@ -137,7 +137,8 @@ select {
 }
 
 .agent-log,
-.log {
+.log,
+.agent-thread {
   overflow: auto;
   flex: 1 1 auto;
   min-height: 0;
@@ -147,6 +148,78 @@ select {
   background: transparent;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--agent-muted) 28%, transparent) transparent;
+}
+
+.agent-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 10px;
+  padding-bottom: 24px;
+  overflow-x: hidden;
+}
+
+.agent-thread[data-empty] {
+  justify-content: flex-end;
+}
+
+.text-size-chat {
+  font-size: var(--codex-chat-font-size);
+  line-height: calc(var(--codex-chat-font-size) + 8px);
+}
+
+.text-size-chat-sm {
+  font-size: var(--codex-chat-code-font-size);
+  line-height: calc(var(--codex-chat-code-font-size) + 6px);
+}
+
+.codex-user-turn,
+.codex-assistant-turn,
+.codex-notice-turn {
+  width: 100%;
+  min-width: 0;
+}
+
+.codex-user-bubble {
+  color: var(--color-token-foreground);
+  background: color-mix(in srgb, var(--color-token-foreground) 5%, transparent);
+}
+
+.codex-assistant-turn {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.codex-assistant-message {
+  max-width: 100%;
+  color: var(--color-token-foreground);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.codex-notice-turn {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.codex-notice-content {
+  max-width: min(100%, 44rem);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--agent-border) 74%, transparent);
+  border-radius: var(--radius-lg);
+  color: var(--agent-soft);
+  background: color-mix(in srgb, var(--agent-surface-elevated) 86%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.codex-notice-turn.error .codex-notice-content {
+  border-color: color-mix(in srgb, var(--agent-danger) 46%, transparent);
+  color: color-mix(in srgb, var(--agent-danger) 88%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-danger) 11%, transparent);
+}
+
+.codex-notice-turn.warning .codex-notice-content {
+  border-color: color-mix(in srgb, var(--agent-accent) 30%, transparent);
 }
 
 .agent-log-line,

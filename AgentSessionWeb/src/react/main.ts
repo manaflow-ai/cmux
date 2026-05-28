@@ -18,6 +18,7 @@ import {
   stopProvider,
   type Action,
   type SessionState,
+  type TranscriptEntry,
 } from "../shared/sessionModel";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 import { PromptEditor, type PromptEditorHandle } from "./proseMirrorPromptEditor";
@@ -121,7 +122,6 @@ function SessionSurface({
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = codexModelLabel(provider);
-  const visibleLogEntries = state.log.filter((entry) => entry.level !== "info");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
@@ -339,18 +339,7 @@ function SessionSurface({
   return h(
     "section",
     { className: "agent-shell", "data-codex-window-type": "electron" },
-    h(
-      "div",
-      { className: "agent-log" },
-      visibleLogEntries.map((entry) =>
-        h(
-          "div",
-          { className: `agent-log-line ${entry.level}`, key: entry.id },
-          h("span", { className: "agent-log-label" }, entry.level),
-          h("span", { className: "agent-log-text" }, entry.text),
-        ),
-      ),
-    ),
+    h(TranscriptThread, { entries: state.transcript }),
     h(
       "div",
       { className: "agent-composer-stack" },
@@ -394,6 +383,66 @@ function SessionSurface({
         ),
       ),
       h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }),
+    ),
+  );
+}
+
+function TranscriptThread({ entries }: { entries: TranscriptEntry[] }) {
+  return h(
+    "div",
+    {
+      className: "agent-thread",
+      "data-empty": entries.length === 0 ? "true" : undefined,
+    },
+    entries.map((entry) => h(TranscriptTurn, { entry, key: entry.id })),
+  );
+}
+
+function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
+  switch (entry.role) {
+    case "user":
+      return h(
+        "div",
+        { className: "codex-user-turn group flex w-full flex-col items-end justify-end gap-1" },
+        h(
+          "div",
+          {
+            className:
+              "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
+          },
+          h("div", { className: "text-size-chat mb-px" }, renderPlainText(entry.text)),
+        ),
+      );
+    case "assistant":
+      return h(
+        "div",
+        { className: "codex-assistant-turn" },
+        h(
+          "div",
+          {
+            className:
+              "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]",
+          },
+          renderPlainText(entry.text),
+        ),
+      );
+    case "notice":
+      return h(
+        "div",
+        { className: `codex-notice-turn ${entry.tone ?? "warning"}` },
+        h("div", { className: "codex-notice-content text-size-chat-sm" }, renderPlainText(entry.text)),
+      );
+  }
+}
+
+function renderPlainText(text: string): React.ReactNode[] {
+  const lines = text.split("\n");
+  return lines.map((line, index) =>
+    h(
+      React.Fragment,
+      { key: index },
+      line,
+      index < lines.length - 1 ? h("br") : null,
     ),
   );
 }

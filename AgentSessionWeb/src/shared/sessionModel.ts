@@ -9,6 +9,14 @@ export type LogEntry = {
   text: string;
 };
 
+export type TranscriptEntry = {
+  id: string;
+  role: "user" | "assistant" | "notice";
+  text: string;
+  tone?: "error" | "warning";
+  sessionId?: string;
+};
+
 export type SessionState = {
   context?: AppContext;
   providers: ProviderInfo[];
@@ -17,6 +25,7 @@ export type SessionState = {
   status: "loading" | "idle" | "starting" | "running" | "stopping" | "failed";
   input: string;
   log: LogEntry[];
+  transcript: TranscriptEntry[];
   autoStartAttemptedProviderIds: ProviderId[];
   seenSessionIds: string[];
   requestedStopSessionId?: string;
@@ -45,6 +54,7 @@ export function initialState(_renderer: AppContext["renderer"]): SessionState {
     input: "",
     providers: [],
     log: [],
+    transcript: [],
     autoStartAttemptedProviderIds: [],
     seenSessionIds: [],
   };
@@ -99,12 +109,22 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         log: appendLog(state, "info", copyText(state, "stoppingStatus", "Stopping")),
       };
     case "failed":
-      return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
+      return {
+        ...state,
+        status: "failed",
+        log: appendLog(state, "error", action.message),
+        transcript: appendNoticeTranscript(state, action.message, "error"),
+      };
     case "sendFailed":
       if (state.runningSessionId !== action.sessionId || state.requestedStopSessionId === action.sessionId) {
         return state;
       }
-      return { ...state, status: "failed", log: appendLog(state, "error", action.message) };
+      return {
+        ...state,
+        status: "failed",
+        log: appendLog(state, "error", action.message),
+        transcript: appendNoticeTranscript(state, action.message, "error"),
+      };
     case "stopFailed":
       if (state.runningSessionId !== action.sessionId && state.requestedStopSessionId !== action.sessionId) {
         return state;
@@ -114,6 +134,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         requestedStopSessionId: undefined,
         status: "failed",
         log: appendLog(state, "error", action.message),
+        transcript: appendNoticeTranscript(state, action.message, "error"),
       };
     case "stopped":
       return { ...state, status: "idle", runningSessionId: undefined, log: appendLog(state, "info", copyText(state, "stopped", "Stopped")) };
@@ -125,6 +146,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         ...state,
         input: state.input === action.submittedInput ? "" : state.input,
         log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", action.text.length)),
+        transcript: appendUserTranscript(state, action.text),
       };
     case "event":
       return applyEvent(state, action.event);
@@ -326,6 +348,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       return {
         ...state,
         log: appendLog(state, event.stream, event.text),
+        transcript: appendProviderTranscript(state, event),
       };
     case "provider.exit":
       if (!isCurrentOrPendingStartExit(state, event)) {
@@ -352,6 +375,13 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           event.status === 0 ? "info" : "error",
           formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
         ),
+        transcript: event.status === 0
+          ? state.transcript
+          : appendNoticeTranscript(
+              state,
+              formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
+              "error",
+            ),
       };
     default:
       return state;
@@ -395,6 +425,58 @@ function appendLog(state: SessionState, level: LogEntry["level"], text: string):
     },
   ];
   return next.slice(-300);
+}
+
+function appendUserTranscript(state: SessionState, text: string): TranscriptEntry[] {
+  return appendTranscript(state.transcript, {
+    id: makeClientId(),
+    role: "user",
+    text,
+  });
+}
+
+function appendProviderTranscript(
+  state: SessionState,
+  event: Extract<AgentEvent, { type: "provider.output" }>,
+): TranscriptEntry[] {
+  if (event.stream !== "stdout") {
+    return appendNoticeTranscript(state, event.text, "warning");
+  }
+
+  const previous = state.transcript.at(-1);
+  if (previous?.role === "assistant" && previous.sessionId === event.sessionId) {
+    return [
+      ...state.transcript.slice(0, -1),
+      {
+        ...previous,
+        text: previous.text + event.text,
+      },
+    ];
+  }
+
+  return appendTranscript(state.transcript, {
+    id: makeClientId(),
+    role: "assistant",
+    text: event.text,
+    sessionId: event.sessionId,
+  });
+}
+
+function appendNoticeTranscript(
+  state: SessionState,
+  text: string,
+  tone: NonNullable<TranscriptEntry["tone"]>,
+): TranscriptEntry[] {
+  return appendTranscript(state.transcript, {
+    id: makeClientId(),
+    role: "notice",
+    tone,
+    text,
+  });
+}
+
+function appendTranscript(entries: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
+  return [...entries, entry].slice(-200);
 }
 
 function copyText<K extends keyof AppContext["copy"]>(state: SessionState, key: K, fallback: string): string {

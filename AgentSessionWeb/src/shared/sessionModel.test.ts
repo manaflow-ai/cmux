@@ -158,6 +158,90 @@ test("provider output is appended without changing running session", () => {
   expect(state.status).toBe("running");
   expect(state.runningSessionId).toBe("session-1");
   expect(state.log.at(-1)?.level).toBe("stdout");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "assistant",
+    sessionId: "session-1",
+    text: "{\"type\":\"assistant\"}",
+  });
+});
+
+test("provider stdout deltas append to the current assistant transcript turn", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const first = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "codex",
+      sessionId: "session-1",
+      stream: "stdout",
+      text: "hello",
+    },
+  });
+  const second = reduceSession(first, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "codex",
+      sessionId: "session-1",
+      stream: "stdout",
+      text: " world",
+    },
+  });
+
+  expect(second.transcript).toHaveLength(1);
+  expect(second.transcript[0]).toMatchObject({
+    role: "assistant",
+    text: "hello world",
+  });
+});
+
+test("sent action appends a user transcript turn", () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+    input: "hello codex",
+  };
+  const state = reduceSession(running, {
+    type: "sent",
+    sessionId: "session-1",
+    text: "hello codex",
+    submittedInput: "hello codex",
+  });
+
+  expect(state.input).toBe("");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "user",
+    text: "hello codex",
+  });
+});
+
+test("stderr output appends a warning notice transcript turn", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "codex",
+      sessionId: "session-1",
+      stream: "stderr",
+      text: "warning text",
+    },
+  });
+
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "notice",
+    tone: "warning",
+    text: "warning text",
+  });
 });
 
 test("provider output for a different session is ignored", () => {

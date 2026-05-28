@@ -19,6 +19,7 @@ import {
   stopProvider,
   type Action,
   type SessionState,
+  type TranscriptEntry,
 } from "../shared/sessionModel";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
@@ -52,6 +53,7 @@ function pickAutoStartState(state: SessionState): SessionState {
     status: state.status,
     input: "",
     log: [],
+    transcript: [],
     autoStartAttemptedProviderIds: state.autoStartAttemptedProviderIds,
     seenSessionIds: state.seenSessionIds,
     requestedStopSessionId: state.requestedStopSessionId,
@@ -87,46 +89,34 @@ function SessionSurface({
   const root = document.createElement("section");
   root.className = "agent-shell";
 
-  const log = document.createElement("div");
-  log.className = "log";
-  root.append(log);
-  const logRows = new Map<string, HTMLDivElement>();
+  const thread = document.createElement("div");
+  thread.className = "agent-thread";
+  root.append(thread);
+  const transcriptRows = new Map<string, HTMLDivElement>();
   createEffect(() => {
-    const entries = state().log.filter((entry) => entry.level !== "info");
+    const entries = state().transcript;
+    thread.toggleAttribute("data-empty", entries.length === 0);
     const liveIds = new Set(entries.map((entry) => entry.id));
-    for (const [id, row] of logRows) {
+    for (const [id, row] of transcriptRows) {
       if (!liveIds.has(id)) {
         row.remove();
-        logRows.delete(id);
+        transcriptRows.delete(id);
       }
     }
     entries.forEach((entry, index) => {
-      let row = logRows.get(entry.id);
+      let row = transcriptRows.get(entry.id);
       if (!row) {
-        row = document.createElement("div");
-        const label = document.createElement("span");
-        label.className = "log-label";
-        const text = document.createElement("span");
-        text.className = "log-text";
-        row.append(label, text);
-        logRows.set(entry.id, row);
+        row = transcriptTurnElement(entry);
+        transcriptRows.set(entry.id, row);
       }
-      row.className = `log-line ${entry.level}`;
-      const label = row.firstElementChild;
-      const text = row.lastElementChild;
-      if (label?.textContent !== entry.level) {
-        label!.textContent = entry.level;
-      }
-      if (text?.textContent !== entry.text) {
-        text!.textContent = entry.text;
-      }
-      const current = log.children.item(index);
+      updateTranscriptTurn(row, entry);
+      const current = thread.children.item(index);
       if (current !== row) {
-        log.insertBefore(row, current);
+        thread.insertBefore(row, current);
       }
     });
-    while (log.children.length > entries.length) {
-      log.lastElementChild?.remove();
+    while (thread.children.length > entries.length) {
+      thread.lastElementChild?.remove();
     }
   });
 
@@ -306,6 +296,64 @@ function SessionSurface({
   });
 
   return root;
+}
+
+function transcriptTurnElement(entry: TranscriptEntry): HTMLDivElement {
+  const row = document.createElement("div");
+  if (entry.role === "user") {
+    const bubble = document.createElement("div");
+    bubble.className =
+      "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]";
+    const text = document.createElement("div");
+    text.className = "text-size-chat mb-px";
+    bubble.append(text);
+    row.append(bubble);
+    return row;
+  }
+
+  const content = document.createElement("div");
+  row.append(content);
+  return row;
+}
+
+function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void {
+  switch (entry.role) {
+    case "user": {
+      row.className = "codex-user-turn group flex w-full flex-col items-end justify-end gap-1";
+      const text = row.querySelector(".text-size-chat");
+      replaceTextWithBreaks(text ?? row, entry.text);
+      break;
+    }
+    case "assistant": {
+      row.className = "codex-assistant-turn";
+      const content = row.firstElementChild as HTMLDivElement | null;
+      if (content) {
+        content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
+        replaceTextWithBreaks(content, entry.text);
+      }
+      break;
+    }
+    case "notice": {
+      row.className = `codex-notice-turn ${entry.tone ?? "warning"}`;
+      const content = row.firstElementChild as HTMLDivElement | null;
+      if (content) {
+        content.className = "codex-notice-content text-size-chat-sm";
+        replaceTextWithBreaks(content, entry.text);
+      }
+      break;
+    }
+  }
+}
+
+function replaceTextWithBreaks(target: Element, text: string): void {
+  target.replaceChildren();
+  const lines = text.split("\n");
+  lines.forEach((line, index) => {
+    target.append(document.createTextNode(line));
+    if (index < lines.length - 1) {
+      target.append(document.createElement("br"));
+    }
+  });
 }
 
 function renderRateLimitFooter(target: HTMLElement, state: SessionState, providerDisplayName: string): void {
