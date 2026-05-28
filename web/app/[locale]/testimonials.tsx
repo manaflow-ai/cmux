@@ -14,7 +14,8 @@ export const testimonials = [
     key: "steipete",
     name: "Peter Steinberger",
     handle: "@steipete",
-    avatar: "/avatars/steipete.png",
+    subtitle: "OpenClaw creator. Founder of PSPDFKit.",
+    avatar: "/avatars/steipete.jpg",
     text: "I'm late to the party, but cmux is great. Current split: Codex Mac app for knowledge work, learning, reading; cmux + Codex CLI for coding.",
     lang: "en",
     url: "https://x.com/steipete/status/2058093406874689770",
@@ -432,7 +433,9 @@ export function TestimonialCard({
             alt={testimonial.name}
             width={40}
             height={40}
-            className="rounded-full shrink-0"
+            loading="lazy"
+            decoding="async"
+            className="rounded-full shrink-0 object-cover"
           />
         ) : (
           <Initials name={testimonial.name} />

@@ -276,7 +276,9 @@ function HomeContent() {
                         alt={item.name}
                         width={16}
                         height={16}
-                        className="rounded-full inline-block"
+                        loading="lazy"
+                        decoding="async"
+                        className="rounded-full inline-block object-cover"
                       />
                     )}
                     {item.name}
