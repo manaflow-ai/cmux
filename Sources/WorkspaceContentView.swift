@@ -2514,26 +2514,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             workspace.exitCanvasOverview()
             return .handled
         }
-        .backport.onKeyPress("-") { modifiers in
-            guard modifiers.contains(.command), shouldHandleCanvasOverviewShortcut() else { return .ignored }
-            _ = workspace.zoomCanvasOverviewOut()
-            return .handled
-        }
-        .backport.onKeyPress("=") { modifiers in
-            guard modifiers.contains(.command), shouldHandleCanvasOverviewShortcut() else { return .ignored }
-            _ = workspace.zoomCanvasOverviewIn()
-            return .handled
-        }
-        .backport.onKeyPress("+") { modifiers in
-            guard modifiers.contains(.command), shouldHandleCanvasOverviewShortcut() else { return .ignored }
-            _ = workspace.zoomCanvasOverviewIn()
-            return .handled
-        }
-        .backport.onKeyPress("0") { modifiers in
-            guard modifiers.contains(.command), shouldHandleCanvasOverviewShortcut() else { return .ignored }
-            _ = workspace.resetCanvasOverviewZoom()
-            return .handled
-        }
     }
 
     private func shouldHandleCanvasOverviewShortcut() -> Bool {

@@ -5381,6 +5381,81 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #endif
     }
 
+    func testCanvasZoomRoutingUsesConfiguredShortcutSettings() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let tabManager = appDelegate.tabManager,
+              let workspace = tabManager.selectedWorkspace else {
+            XCTFail("Expected test window and selected workspace")
+            return
+        }
+
+        let remappedZoomOut = StoredShortcut(
+            key: "z",
+            command: true,
+            shift: false,
+            option: true,
+            control: false,
+            keyCode: 6
+        )
+        KeyboardShortcutSettings.setShortcut(remappedZoomOut, for: .browserZoomOut)
+
+        workspace.enterCanvasOverview(policy: .freeform)
+        let initialScale = workspace.setCanvasOverviewScale(0.84)
+
+        guard let defaultZoomOut = makeKeyDownEvent(
+            key: "-",
+            modifiers: [.command],
+            keyCode: 27,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct default zoom-out event")
+            return
+        }
+
+        #if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: defaultZoomOut))
+        #else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        #endif
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, initialScale, accuracy: 0.001)
+
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+        #else
+        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        #endif
+
+        guard let remappedEvent = makeKeyDownEvent(
+            shortcut: remappedZoomOut,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct remapped zoom-out event")
+            return
+        }
+
+        #if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: remappedEvent))
+        #else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        #endif
+        XCTAssertLessThan(workspace.layoutController.canvasViewport.scale, initialScale)
+        XCTAssertTrue(
+            observedActions.contains(.browserZoomOut),
+            "Canvas zoom routing must consult KeyboardShortcutSettings instead of matching default zoom literals"
+        )
+    }
+
     // MARK: - Browser find shortcut routing tests
 
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
