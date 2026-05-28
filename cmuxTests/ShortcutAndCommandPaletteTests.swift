@@ -2136,6 +2136,25 @@ final class UpdateDriverTimeoutTests: XCTestCase {
         XCTAssertEqual(recorder.snapshot(), [])
     }
 
+    func testStaleUpdaterErrorAfterTimeoutIsAcknowledgedWithoutReplacingTimeout() {
+        let viewModel = UpdateViewModel()
+        let scheduler = ManualUpdateOperationScheduler()
+        let driver = makeDriver(viewModel: viewModel, scheduler: scheduler)
+        var acknowledgementCount = 0
+
+        driver.showUserInitiatedUpdateCheck {}
+        scheduler.advance(by: timeoutDuration)
+        let timedOutError = timeoutError(viewModel: viewModel)
+        XCTAssertNotNil(timedOutError)
+
+        driver.showUpdaterError(NSError(domain: "cmux.tests", code: 2)) {
+            acknowledgementCount += 1
+        }
+
+        XCTAssertEqual(acknowledgementCount, 1)
+        XCTAssertEqual(timeoutError(viewModel: viewModel)?.localizedDescription, timedOutError?.localizedDescription)
+    }
+
     func testPreparingForNewCheckAcknowledgesDelayedNotFoundResult() {
         let viewModel = UpdateViewModel()
         let scheduler = ManualUpdateOperationScheduler()

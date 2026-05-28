@@ -163,24 +163,35 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showUpdaterError(_ error: any Error,
                           acknowledgement: @escaping () -> Void) {
-        let details = formatErrorForLog(error)
-        UpdateLogStore.shared.append("show updater error: \(details)")
-        updateResultDidArrive?()
-        setState(.error(.init(
-            error: error,
-            retry: {
-                DispatchQueue.main.async {
-                    guard let delegate = NSApp.delegate as? AppDelegate else { return }
-                    delegate.checkForUpdates(nil)
-                }
-            },
-            dismiss: { [weak viewModel] in
-                viewModel?.state = .idle
-            },
-            technicalDetails: details,
-            feedURLString: lastFeedURLString
-        )), generation: currentOperationGeneration)
-        acknowledgement()
+        runOnMain { [weak self] in
+            guard let self else {
+                acknowledgement()
+                return
+            }
+            let generation = currentOperationGeneration
+            let details = formatErrorForLog(error)
+            UpdateLogStore.shared.append("show updater error: \(details)")
+            guard callbackCanMutateState(generation: generation, resultDescription: "updater error") else {
+                acknowledgement()
+                return
+            }
+            updateResultDidArrive?()
+            setState(.error(.init(
+                error: error,
+                retry: {
+                    DispatchQueue.main.async {
+                        guard let delegate = NSApp.delegate as? AppDelegate else { return }
+                        delegate.checkForUpdates(nil)
+                    }
+                },
+                dismiss: { [weak viewModel] in
+                    viewModel?.state = .idle
+                },
+                technicalDetails: details,
+                feedURLString: lastFeedURLString
+            )), generation: generation)
+            acknowledgement()
+        }
     }
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {

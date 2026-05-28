@@ -299,6 +299,7 @@ class UpdateController {
         readyCheckGeneration += 1
         let generation = readyCheckGeneration
         if !isCheckingState(viewModel.state) {
+            userDriver.prepareForNewCheck()
             viewModel.cancelActiveStateForNewCheck()
         }
         UpdateLogStore.shared.append("waiting for updater readiness")
@@ -352,6 +353,7 @@ class UpdateController {
 
     private func continueReadyCheckIfPossible() {
         guard readyCheckDeadline != nil else { return }
+        guard !awaitingCancelledSessionBeforeCheck else { return }
         guard updater.canCheckForUpdates else { return }
         readyCheckDeadline?.cancel()
         readyCheckDeadline = nil
@@ -388,7 +390,7 @@ class UpdateController {
         switch state {
         case .checking(let checking):
             return checking.waitsForCancellation
-        case .updateAvailable, .downloading, .notFound:
+        case .updateAvailable, .downloading:
             return true
         default:
             return false
