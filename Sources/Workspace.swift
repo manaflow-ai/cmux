@@ -9622,6 +9622,11 @@ final class WorkspaceDock: ObservableObject, Identifiable {
         controller.tabContextMoveDestinationsProvider = { [weak workspace] tabId, _ in
             workspace?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
+        controller.tabContextForkConversationAvailabilityProvider = { [weak workspace] tabId, _ in
+            guard let workspace,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId) else { return false }
+            return workspace.canForkAgentConversationFromPanel(panelId)
+        }
         controller.onExternalTabDrop = { [weak workspace, weak self] request in
             guard let workspace, let self else { return false }
             return workspace.handleExternalTabDrop(request, destinationController: self.controller)

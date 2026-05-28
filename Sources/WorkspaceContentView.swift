@@ -945,7 +945,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             }
         }
         .contextMenu {
-            Button(addDockTitle(edge: edge)) {
+            Button(WorkspaceDockToggleText.addDockTitle(edge: edge)) {
                 layout.addDock(edge: edge)
             }
         }
@@ -989,7 +989,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
         }
         .frame(height: bottomDockHeightForOpenDocks)
         .contextMenu {
-            Button(addDockTitle(edge: .bottom)) {
+            Button(WorkspaceDockToggleText.addDockTitle(edge: .bottom)) {
                 layout.addDock(edge: .bottom)
             }
         }
@@ -1039,9 +1039,26 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             .fill(Color.clear)
             .contentShape(Rectangle())
             .onDrop(of: [tabTransferType], isTargeted: revealBinding(edge: edge)) { _ in
-                layout.openEdge(edge)
-                return false
+                performRevealDrop(edge: edge)
             }
+    }
+
+    private func performRevealDrop(edge: WorkspaceDockEdge) -> Bool {
+        layout.openEdge(edge)
+        guard let transfer = BonsplitTabDragPayload.currentTransfer(),
+              let dock = layout.docksSnapshot(for: edge).first,
+              let paneId = dock.controller.focusedPaneId ?? dock.controller.allPaneIds.first else {
+            return false
+        }
+
+        return workspace.handleExternalTabDrop(
+            BonsplitController.ExternalTabDropRequest(
+                tabId: TabID(uuid: transfer.tab.id),
+                sourcePaneId: PaneID(id: transfer.sourcePaneId),
+                destination: .insert(targetPane: paneId, targetIndex: nil)
+            ),
+            destinationController: dock.controller
+        )
     }
 
     private func revealBinding(edge: WorkspaceDockEdge) -> Binding<Bool> {
@@ -1056,17 +1073,6 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 }
             }
         )
-    }
-
-    private func addDockTitle(edge: WorkspaceDockEdge) -> String {
-        switch edge {
-        case .left:
-            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
-        case .right:
-            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
-        case .bottom:
-            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
-        }
     }
 
     private func dockPaneEntries(for docks: [WorkspaceDock]) -> [WorkspaceDockPaneEntry] {
@@ -1413,6 +1419,13 @@ struct WorkspaceDockTitlebarStateBinder: NSViewRepresentable {
             bindToWindow()
         }
 
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if boundWindow !== newWindow as? CmuxMainWindow {
+                clearBoundWindow()
+            }
+            super.viewWillMove(toWindow: newWindow)
+        }
+
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
             bindToWindow()
@@ -1425,18 +1438,33 @@ struct WorkspaceDockTitlebarStateBinder: NSViewRepresentable {
 
         func bindToWindow() {
             if boundWindow !== window as? CmuxMainWindow {
-                boundWindow?.workspaceDockTitlebarLayout = nil
-                boundWindow?.workspaceDockTitlebarControlFrameInWindow = nil
+                clearBoundWindow()
                 boundWindow = window as? CmuxMainWindow
             }
             boundWindow?.workspaceDockTitlebarLayout = layout
             let controlFrame = convert(bounds, to: nil)
             boundWindow?.workspaceDockTitlebarControlFrameInWindow = controlFrame.isEmpty ? nil : controlFrame
         }
+
+        private func clearBoundWindow() {
+            boundWindow?.workspaceDockTitlebarLayout = nil
+            boundWindow?.workspaceDockTitlebarControlFrameInWindow = nil
+        }
     }
 }
 
 private enum WorkspaceDockToggleText {
+    static func addDockTitle(edge: WorkspaceDockEdge) -> String {
+        switch edge {
+        case .left:
+            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
+        case .right:
+            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
+        case .bottom:
+            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
+        }
+    }
+
     static func helpTitle(edge: WorkspaceDockEdge) -> String {
         switch edge {
         case .left:
@@ -1630,7 +1658,7 @@ private struct WorkspaceDockPaneView: View {
         dockBonsplitView
             .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
             .contextMenu {
-                Button(addDockTitle(edge: snapshot.edge)) {
+                Button(WorkspaceDockToggleText.addDockTitle(edge: snapshot.edge)) {
                     actions.addDock()
                 }
                 if snapshot.canRemove {
@@ -1722,17 +1750,6 @@ private struct WorkspaceDockPaneView: View {
 
     private var removeDockTitle: String {
         String(localized: "workspaceDock.remove", defaultValue: "Remove Dock")
-    }
-
-    private func addDockTitle(edge: WorkspaceDockEdge) -> String {
-        switch edge {
-        case .left:
-            return String(localized: "workspaceDock.add.left", defaultValue: "Add Left Dock")
-        case .right:
-            return String(localized: "workspaceDock.add.right", defaultValue: "Add Right Dock")
-        case .bottom:
-            return String(localized: "workspaceDock.add.bottom", defaultValue: "Add Bottom Dock")
-        }
     }
 }
 

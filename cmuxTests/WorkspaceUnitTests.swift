@@ -7419,6 +7419,48 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Fork Conversation context action should spawn a sibling tab"
         )
     }
+
+    func testDockForkConversationContextMenuProviderAndActionUseDockController() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanel.id))
+        let snapshot = makeForkableClaudeSnapshot()
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanel.id)
+
+        XCTAssertTrue(
+            dock.controller.tabContextForkConversationAvailabilityProvider?(sourceTabId, dockPaneId) ?? false,
+            "Dock tab context menu should advertise Fork Conversation for forkable agent tabs"
+        )
+
+        let anchorTab = try XCTUnwrap(
+            dock.controller.tabs(inPane: dockPaneId).first { $0.id == sourceTabId }
+        )
+        workspace.splitTabBar(
+            dock.controller,
+            didRequestTabContextAction: .forkConversation,
+            for: anchorTab,
+            inPane: dockPaneId
+        )
+
+        let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanelId))
+        XCTAssertNotEqual(forkPanelId, sourcePanel.id)
+        XCTAssertTrue(dock.controller.allTabIds.contains(forkTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(forkTabId))
+        XCTAssertEqual(workspace.paneId(forPanelId: forkPanelId), dockPaneId)
+        XCTAssertEqual(
+            workspace.terminalPanel(for: forkPanelId)?.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" }
+        )
+    }
 }
 
 
