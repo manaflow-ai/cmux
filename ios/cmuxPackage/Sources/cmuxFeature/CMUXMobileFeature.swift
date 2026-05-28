@@ -1762,6 +1762,7 @@ private struct WorkspaceDetailContainer: View {
                 createTerminal: store.createTerminal,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
+                sendTerminalKey: store.sendTerminalKey,
                 safeAreaContext: safeAreaContext
             )
             .onAppear {
@@ -2063,6 +2064,7 @@ struct WorkspaceDetailView: View {
     let createTerminal: () -> Void
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
+    let sendTerminalKey: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var bottomActionModifierState = MobileTerminalModifierState()
     @State private var terminalFontScale: CGFloat = 1
@@ -2091,6 +2093,7 @@ struct WorkspaceDetailView: View {
                 isKeyboardVisible: $isTerminalKeyboardVisible,
                 inputFocusRequest: terminalInputFocusRequest,
                 sendTerminalInput: sendTerminalInput,
+                sendTerminalKey: sendTerminalKey,
                 canDecreaseFont: terminalFontScale > Self.minimumTerminalFontScale,
                 canIncreaseFont: terminalFontScale < Self.maximumTerminalFontScale,
                 performBottomAction: performBottomAction,
@@ -2217,7 +2220,10 @@ struct WorkspaceDetailView: View {
             terminalFontScale = min(Self.maximumTerminalFontScale, terminalFontScale + Self.terminalFontScaleStep)
             bottomActionModifierState.clear()
         default:
-            if let input = action.inputText(modifier: bottomActionModifierState.activeModifier) {
+            if let keyName = action.keyName(modifier: bottomActionModifierState.activeModifier) {
+                sendTerminalKey(keyName)
+                bottomActionModifierState.consumeAfterInput()
+            } else if let input = action.inputText(modifier: bottomActionModifierState.activeModifier) {
                 sendTerminalInput(input)
                 bottomActionModifierState.consumeAfterInput()
             }
@@ -2708,6 +2714,30 @@ enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, 
             return baseText
         case .control, nil:
             return baseText
+        }
+    }
+
+    func keyName(modifier: MobileTerminalActionModifier?) -> String? {
+        guard modifier == nil else { return nil }
+        switch self {
+        case .upArrow:
+            return "up"
+        case .downArrow:
+            return "down"
+        case .leftArrow:
+            return "left"
+        case .rightArrow:
+            return "right"
+        case .home:
+            return "home"
+        case .end:
+            return "end"
+        case .pageUp:
+            return "page_up"
+        case .pageDown:
+            return "page_down"
+        default:
+            return nil
         }
     }
 
@@ -3333,6 +3363,7 @@ struct TerminalPreviewSurface: View {
     var isKeyboardVisible: Binding<Bool>?
     var inputFocusRequest = 0
     var sendTerminalInput: (String) -> Void = { _ in }
+    var sendTerminalKey: (String) -> Void = { _ in }
     var canDecreaseFont = true
     var canIncreaseFont = true
     var performBottomAction: (MobileTerminalBottomAction) -> Void = { _ in }
@@ -3445,6 +3476,7 @@ struct TerminalPreviewSurface: View {
                     canDecreaseFont: canDecreaseFont,
                     canIncreaseFont: canIncreaseFont,
                     sendTerminalInput: sendTerminalInput,
+                    sendTerminalKey: sendTerminalKey,
                     performBottomAction: performBottomAction
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3898,6 +3930,7 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
     let canDecreaseFont: Bool
     let canIncreaseFont: Bool
     let sendTerminalInput: (String) -> Void
+    let sendTerminalKey: (String) -> Void
     let performBottomAction: (MobileTerminalBottomAction) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -3906,6 +3939,7 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
             isKeyboardVisible: $isKeyboardVisible,
             focusRequest: focusRequest,
             sendTerminalInput: sendTerminalInput,
+            sendTerminalKey: sendTerminalKey,
             performBottomAction: performBottomAction
         )
     }
@@ -3921,6 +3955,9 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
         }
         textView.onRawInput = { input in
             context.coordinator.emitRawInput(input)
+        }
+        textView.onNamedKey = { key in
+            context.coordinator.emitNamedKey(key)
         }
         textView.onKeyboardVisibilityChange = { isVisible in
             context.coordinator.setKeyboardVisible(isVisible)
@@ -3947,6 +3984,7 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
         context.coordinator.modifierState = $modifierState
         context.coordinator.isKeyboardVisible = $isKeyboardVisible
         context.coordinator.sendTerminalInput = sendTerminalInput
+        context.coordinator.sendTerminalKey = sendTerminalKey
         context.coordinator.performBottomAction = performBottomAction
         let textView = uiView.textView
         uiView.accessibilityLabel = L10n.string("mobile.terminal.inputProxy.label", defaultValue: "Terminal input")
@@ -3979,6 +4017,7 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
         var modifierState: Binding<MobileTerminalModifierState>
         var isKeyboardVisible: Binding<Bool>
         var sendTerminalInput: (String) -> Void
+        var sendTerminalKey: (String) -> Void
         var performBottomAction: (MobileTerminalBottomAction) -> Void
         private var lastFocusRequest: Int
 
@@ -3987,12 +4026,14 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
             isKeyboardVisible: Binding<Bool>,
             focusRequest: Int,
             sendTerminalInput: @escaping (String) -> Void,
+            sendTerminalKey: @escaping (String) -> Void,
             performBottomAction: @escaping (MobileTerminalBottomAction) -> Void
         ) {
             self.modifierState = modifierState
             self.isKeyboardVisible = isKeyboardVisible
             self.lastFocusRequest = focusRequest
             self.sendTerminalInput = sendTerminalInput
+            self.sendTerminalKey = sendTerminalKey
             self.performBottomAction = performBottomAction
         }
 
@@ -4040,6 +4081,15 @@ private struct TerminalHiddenInputProxy: UIViewRepresentable {
             mobileShellUILog.debug("terminal raw input count=\(input.count, privacy: .public)")
             #endif
             sendTerminalInput(input)
+            modifierState.wrappedValue.consumeAfterInput()
+        }
+
+        func emitNamedKey(_ key: String) {
+            guard !key.isEmpty else { return }
+            #if DEBUG
+            mobileShellUILog.debug("terminal named key input key=\(key, privacy: .public)")
+            #endif
+            sendTerminalKey(key)
             modifierState.wrappedValue.consumeAfterInput()
         }
 
@@ -4117,6 +4167,7 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onRawInput: ((String) -> Void)?
+    var onNamedKey: ((String) -> Void)?
     var onKeyboardVisibilityChange: ((Bool) -> Void)?
     var onFocusRequested: (() -> Void)?
     var allowsAutomaticKeyboardFocus = false
@@ -4299,6 +4350,14 @@ private final class TerminalHiddenInputTextView: UITextView, UITextViewDelegate 
 
     @objc
     private func handleHardwareKeyCommand(_ sender: UIKeyCommand) {
+        if let input = sender.input,
+           let key = MobileTerminalHardwareKeyResolver.namedKey(
+            input,
+            modifierFlags: sender.modifierFlags
+           ) {
+            onNamedKey?(key)
+            return
+        }
         guard let input = sender.input,
               let output = MobileTerminalHardwareKeyResolver.input(
                 input,
@@ -4624,6 +4683,31 @@ enum MobileTerminalHardwareKeyResolver {
                 modifierFlags: command.modifierFlags,
                 action: action
             )
+        }
+    }
+
+    static func namedKey(_ input: String, modifierFlags: UIKeyModifierFlags) -> String? {
+        let normalizedFlags = modifierFlags.intersection([.shift, .control, .alternate])
+        guard normalizedFlags.isEmpty else { return nil }
+        switch input {
+        case UIKeyCommand.inputUpArrow:
+            return "up"
+        case UIKeyCommand.inputDownArrow:
+            return "down"
+        case UIKeyCommand.inputLeftArrow:
+            return "left"
+        case UIKeyCommand.inputRightArrow:
+            return "right"
+        case UIKeyCommand.inputHome:
+            return "home"
+        case UIKeyCommand.inputEnd:
+            return "end"
+        case UIKeyCommand.inputPageUp:
+            return "page_up"
+        case UIKeyCommand.inputPageDown:
+            return "page_down"
+        default:
+            return nil
         }
     }
 

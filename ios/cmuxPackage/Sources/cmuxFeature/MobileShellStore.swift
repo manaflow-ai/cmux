@@ -1137,6 +1137,12 @@ public final class CMUXMobileShellStore {
         }
     }
 
+    public func sendTerminalKey(_ key: String) {
+        Task { @MainActor [weak self] in
+            await self?.sendRemoteTerminalKey(key)
+        }
+    }
+
     public func submitTerminalRawInput(_ text: String) async {
         guard !text.isEmpty else { return }
         guard let workspaceID = selectedWorkspace?.id,
@@ -1839,11 +1845,11 @@ public final class CMUXMobileShellStore {
             #if DEBUG
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
-            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = max(
-                lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0,
+            let terminalKey = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            viewportEchoSettlingKeys.remove(terminalKey)
+            viewportMatchedEchoByTerminalKey.remove(terminalKey)
+            lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] = max(
+                lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] ?? 0,
                 Self.inputSettlingRefreshCount
             )
             var params: [String: Any] = [
@@ -1852,13 +1858,74 @@ public final class CMUXMobileShellStore {
                 "text": text,
                 "client_id": clientID,
             ]
-            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+            if let viewportSize = reportedViewportSizesByTerminalKey[terminalKey] {
                 params["viewport_columns"] = viewportSize.columns
                 params["viewport_rows"] = viewportSize.rows
             }
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
+                    params: params
+                )
+            )
+            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            if selectedWorkspace?.id == workspaceID, selectedTerminalID == terminalID {
+                scheduleSelectedTerminalSnapshotRefresh()
+            }
+        } catch {
+            guard generation == connectionGeneration else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            connectionError = Self.localizedConnectionError(for: error)
+        }
+    }
+
+    private func sendRemoteTerminalKey(_ key: String) async {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal key selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return
+        }
+        await sendRemoteTerminalKey(key, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    private func sendRemoteTerminalKey(
+        _ key: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal key remoteClient=0")
+            #endif
+            return
+        }
+        let generation = connectionGeneration
+        do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal key=\(key, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
+            #endif
+            let terminalKey = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            viewportEchoSettlingKeys.remove(terminalKey)
+            viewportMatchedEchoByTerminalKey.remove(terminalKey)
+            lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] = max(
+                lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] ?? 0,
+                Self.inputSettlingRefreshCount
+            )
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "key": key,
+                "client_id": clientID,
+            ]
+            if let viewportSize = reportedViewportSizesByTerminalKey[terminalKey] {
+                params["viewport_columns"] = viewportSize.columns
+                params["viewport_rows"] = viewportSize.rows
+            }
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.key",
                     params: params
                 )
             )
@@ -2759,7 +2826,8 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.snapshot", "terminal.snapshot",
-             "mobile.terminal.input", "terminal.input":
+             "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.key", "terminal.key":
             return !ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,

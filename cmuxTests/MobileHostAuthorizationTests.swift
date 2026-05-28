@@ -591,6 +591,27 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
+    func testScopedAttachTicketAcceptsNamedTerminalKey() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-key",
+            method: "terminal.key",
+            params: [
+                "workspace_id": "workspace",
+                "terminal_id": "terminal",
+                "key": "up",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
     func testTerminalScopedAttachTicketRejectsDifferentTerminalInput() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(

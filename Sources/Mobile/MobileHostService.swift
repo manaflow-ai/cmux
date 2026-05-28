@@ -687,7 +687,8 @@ final class MobileHostService {
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.snapshot", "terminal.snapshot",
-             "mobile.terminal.input", "terminal.input":
+             "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.key", "terminal.key":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,

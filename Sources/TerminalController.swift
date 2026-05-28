@@ -21100,6 +21100,8 @@ class TerminalController {
             result = v2MobileTerminalSnapshot(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.key", "terminal.key":
+            result = v2MobileTerminalKey(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -21311,7 +21313,7 @@ class TerminalController {
                             ?? mobileNonEmpty(terminal.directory)
                             ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
                     ),
-                    "is_ready": terminal.surface.surface != nil,
+                    "is_ready": terminal.surface.hasLiveSurface,
                     "is_focused": terminal.id == workspace.focusedPanelId
                 ]
             }
@@ -21582,6 +21584,56 @@ class TerminalController {
         let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
         cmuxDebugLog(
             "mobile.terminal.input workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(sendResult == .queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+        )
+        #endif
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString,
+            "queued": sendResult == .queued,
+        ])
+    }
+
+    private func v2MobileTerminalKey(params: [String: Any]) -> V2CallResult {
+        guard let key = v2String(params, "key"), !key.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing key", data: nil)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
+        #if DEBUG
+        let sendStart = ProcessInfo.processInfo.systemUptime
+        #endif
+        let sendResult = terminalPanel.sendNamedKeyResult(key)
+        invalidateMobileTerminalSnapshotAfterInput(surfaceID: terminalPanel.id)
+        switch sendResult {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalKey")
+        case .queued:
+            break
+        case .unknownKey:
+            return .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+        }
+        #if DEBUG
+        let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
+        cmuxDebugLog(
+            "mobile.terminal.key workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) key=\(key) queued=\(sendResult == .queued ? 1 : 0) ms=\(String(format: "%.2f", sendMs))"
         )
         #endif
         return .ok([

@@ -2283,6 +2283,19 @@ import UIKit
     #expect(MobileTerminalBottomAction.codex.inputText(modifier: nil)?.hasSuffix("--search\r") == true)
 }
 
+@Test func terminalBottomNavigationActionsUseNamedKeysForGhosttyModeAwareEncoding() {
+    #expect(MobileTerminalBottomAction.upArrow.keyName(modifier: nil) == "up")
+    #expect(MobileTerminalBottomAction.downArrow.keyName(modifier: nil) == "down")
+    #expect(MobileTerminalBottomAction.leftArrow.keyName(modifier: nil) == "left")
+    #expect(MobileTerminalBottomAction.rightArrow.keyName(modifier: nil) == "right")
+    #expect(MobileTerminalBottomAction.home.keyName(modifier: nil) == "home")
+    #expect(MobileTerminalBottomAction.end.keyName(modifier: nil) == "end")
+    #expect(MobileTerminalBottomAction.pageUp.keyName(modifier: nil) == "page_up")
+    #expect(MobileTerminalBottomAction.pageDown.keyName(modifier: nil) == "page_down")
+    #expect(MobileTerminalBottomAction.leftArrow.keyName(modifier: .alternate) == nil)
+    #expect(MobileTerminalBottomAction.escape.keyName(modifier: nil) == nil)
+}
+
 @Test func terminalBottomScrollableActionsReserveHideKeyboardForDedicatedButton() {
     #expect(MobileTerminalBottomAction.scrollableActionBarCases.first == .control)
     #expect(!MobileTerminalBottomAction.scrollableActionBarCases.contains(.hideKeyboard))
@@ -2413,6 +2426,16 @@ import UIKit
     #expect(MobileTerminalHardwareKeyResolver.input(UIKeyCommand.inputDelete, modifierFlags: []) == nil)
     #expect(MobileTerminalHardwareKeyResolver.input(UIKeyCommand.inputDelete, modifierFlags: .alternate) == "\u{1B}\u{7F}")
 }
+
+@Test func terminalHardwareNavigationKeysUseNamedKeysForGhosttyModeAwareEncoding() {
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputUpArrow, modifierFlags: []) == "up")
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputDownArrow, modifierFlags: []) == "down")
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputLeftArrow, modifierFlags: []) == "left")
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputRightArrow, modifierFlags: []) == "right")
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputHome, modifierFlags: []) == "home")
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputEnd, modifierFlags: []) == "end")
+    #expect(MobileTerminalHardwareKeyResolver.namedKey(UIKeyCommand.inputLeftArrow, modifierFlags: .alternate) == nil)
+}
 #endif
 
 @MainActor
@@ -2518,6 +2541,61 @@ import UIKit
 
     let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
     #expect(inputRequest.text == "\u{1B}[A")
+}
+
+@MainActor
+@Test func namedTerminalKeyUsesTerminalKeyRPCWithViewportReport() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["ready"]
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcSnapshotResultFrame(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            visibleLines: ["key sent"]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.reportTerminalViewport(
+        workspaceID: MobileWorkspacePreview.ID(rawValue: "live-workspace"),
+        terminalID: MobileTerminalPreview.ID(rawValue: "live-terminal"),
+        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    )
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.sendTerminalKey("up")
+
+    let keyRequest = try await waitForRecordedRequest(in: responses, method: "terminal.key")
+    #expect(keyRequest.key == "up")
+    #expect(keyRequest.viewportColumns == 52)
+    #expect(keyRequest.viewportRows == 24)
+    #expect(keyRequest.clientID?.isEmpty == false)
 }
 
 @MainActor
@@ -4669,6 +4747,7 @@ private actor ScriptedTransportResponses {
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
+                key: params["key"] as? String,
                 hasAuth: auth != nil,
                 attachToken: auth?["attach_token"] as? String,
                 stackAccessToken: auth?["stack_access_token"] as? String
@@ -4687,6 +4766,7 @@ private struct RecordedRPCRequest: Sendable {
     var maxScrollbackRows: Int?
     var clientID: String?
     var text: String?
+    var key: String?
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
@@ -4718,10 +4798,34 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
+        key: params["key"] as? String,
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
         stackAccessToken: auth?["stack_access_token"] as? String
     )
+}
+
+private func waitForRecordedRequest(
+    in responses: ScriptedTransportResponses,
+    method: String
+) async throws -> RecordedRPCRequest {
+    for _ in 0..<200 {
+        if let request = try await responses.sentRequests().first(where: { $0.method == method }) {
+            return request
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    let methods = try await responses.sentRequests().compactMap(\.method).joined(separator: ", ")
+    Issue.record("Timed out waiting for recorded request. Saw: \(methods)")
+    throw TestFailure("Timed out waiting for recorded request")
+}
+
+private struct TestFailure: Error, CustomStringConvertible {
+    let description: String
+
+    init(_ description: String) {
+        self.description = description
+    }
 }
 
 private actor ScriptedTransport: CmxByteTransport {
