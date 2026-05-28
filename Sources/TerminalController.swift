@@ -9569,7 +9569,7 @@ class TerminalController {
 
     private func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel,
-        bindingAction: String = "write_active_file:copy,vt",
+        bindingAction: String = "write_screen_file:copy,vt",
         lineLimit: Int?
     ) -> String? {
         var actionSucceeded = false
@@ -9634,7 +9634,11 @@ class TerminalController {
 
         let attemptedVTExport = shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now)
         if attemptedVTExport,
-           let vtText = readTerminalTextFromVTExportForSnapshot(terminalPanel: terminalPanel, lineLimit: lineLimit) {
+           let vtText = readTerminalTextFromVTExportForSnapshot(
+               terminalPanel: terminalPanel,
+               bindingAction: "write_active_file:copy,vt",
+               lineLimit: lineLimit
+           ) {
             // VT export from write_active_file emits ANSI-styled rows for
             // exactly the active area (45 rows) — the same region that
             // Ghostty's `terminal.screens.active.cursor.y` is anchored on.
