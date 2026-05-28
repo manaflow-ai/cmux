@@ -11526,6 +11526,11 @@ struct VerticalTabsSidebar: View {
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
+        // The anchor's only sidebar surface is this header, so we have to
+        // surface its unread state here — otherwise background work in the
+        // anchor goes unnoticed (no badge, no message). The TabItemView path
+        // does the same read for every other row.
+        let anchorUnreadCount = notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -11543,6 +11548,7 @@ struct VerticalTabsSidebar: View {
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
             memberCount: memberCount,
+            anchorUnreadCount: anchorUnreadCount,
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
@@ -11721,6 +11727,7 @@ private struct SidebarWorkspaceGroupHeaderView: View {
     let isPinned: Bool
     let isAnchorActive: Bool
     let memberCount: Int
+    let anchorUnreadCount: Int
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -11790,6 +11797,17 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if anchorUnreadCount > 0 {
+                    Text("\(anchorUnreadCount)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule().fill(Color.accentColor)
+                        )
+                        .accessibilityLabel(Text("\(anchorUnreadCount) unread"))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
