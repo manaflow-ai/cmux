@@ -138,21 +138,6 @@ public struct MobileTerminalViewportFit: Codable, Equatable, Sendable {
     }
 }
 
-enum MobileTerminalSnapshotRequestPolicy {
-    private static let maximumScrollbackRows = 0
-    private static let frameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
-    private static let estimatedCellByteCount = 128
-
-    static func maxScrollbackRows(viewportSize: MobileTerminalViewportSize?) -> Int {
-        let columns = max(viewportSize?.columns ?? 80, 1)
-        let visibleRows = max(viewportSize?.rows ?? 24, 1)
-        let bytesPerRow = max(columns * estimatedCellByteCount, 1)
-        let totalRowsByBudget = max(visibleRows, frameSafetyBudget / bytesPerRow)
-        let scrollbackRowsByBudget = max(0, totalRowsByBudget - visibleRows)
-        return min(maximumScrollbackRows, scrollbackRowsByBudget)
-    }
-}
-
 enum MobileTerminalInputEnqueueResult: Equatable, Sendable {
     case startDraining
     case queued
@@ -459,11 +444,6 @@ enum MobileShellRouteAuthPolicy {
 @MainActor
 @Observable
 public final class CMUXMobileShellStore {
-    private static let viewportSettlingRefreshCount = 8
-    private static let workspaceOpenSettlingRefreshCount = 2
-    private static let inputSettlingRefreshCount = 4
-    private static let terminalRefreshPollIntervalNanoseconds: UInt64 = 750_000_000
-
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
     public private(set) var connectedHostName: String
@@ -483,8 +463,6 @@ public final class CMUXMobileShellStore {
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
-            guard !isSuppressingSelectedWorkspaceRefresh else { return }
-            scheduleSelectedTerminalSnapshotRefresh()
         }
     }
     public var selectedTerminalID: MobileTerminalPreview.ID?
@@ -496,32 +474,19 @@ public final class CMUXMobileShellStore {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
-                cancelSelectedTerminalSnapshotRefresh()
                 cancelRemoteOperationTasks()
-                lowerFidelityDeferralRefreshesByTerminalKey = [:]
-                viewportEchoSettlingKeys = []
-                viewportMatchedEchoByTerminalKey = []
             }
         }
     }
-    private var terminalRefreshPollTask: Task<Void, Never>?
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
-    private var selectedTerminalSnapshotRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
-    private var isSuppressingSelectedWorkspaceRefresh: Bool
-    private var isRefreshingSelectedTerminalSnapshot: Bool
-    private var needsSelectedTerminalSnapshotRefresh: Bool
-    private var lowerFidelityDeferralRefreshesByTerminalKey: [MobileTerminalViewportKey: Int]
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
-    private var viewportSettlingRefreshesByTerminalKey: [MobileTerminalViewportKey: Int]
-    private var viewportEchoSettlingKeys: Set<MobileTerminalViewportKey>
-    private var viewportMatchedEchoByTerminalKey: Set<MobileTerminalViewportKey>
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -577,31 +542,20 @@ public final class CMUXMobileShellStore {
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
-        self.terminalRefreshPollTask = nil
         self.terminalEventListenerID = nil
-        self.selectedTerminalSnapshotRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
-        self.isSuppressingSelectedWorkspaceRefresh = false
-        self.isRefreshingSelectedTerminalSnapshot = false
-        self.needsSelectedTerminalSnapshotRefresh = false
-        self.lowerFidelityDeferralRefreshesByTerminalKey = [:]
         self.reportedViewportSizesByTerminalKey = [:]
-        self.viewportSettlingRefreshesByTerminalKey = [:]
-        self.viewportEchoSettlingKeys = []
-        self.viewportMatchedEchoByTerminalKey = []
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
 
     isolated deinit {
-        terminalRefreshPollTask?.cancel()
         terminalEventListenerTask?.cancel()
-        selectedTerminalSnapshotRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
@@ -644,14 +598,9 @@ public final class CMUXMobileShellStore {
         activeTicket = nil
         activeRoute = nil
         replaceRemoteClient(with: nil)
-        isRefreshingSelectedTerminalSnapshot = false
-        needsSelectedTerminalSnapshotRefresh = false
-        cancelSelectedTerminalSnapshotRefresh()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
-        lowerFidelityDeferralRefreshesByTerminalKey = [:]
         reportedViewportSizesByTerminalKey = [:]
-        viewportSettlingRefreshesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
@@ -660,7 +609,6 @@ public final class CMUXMobileShellStore {
     public func resumeForegroundRefresh() {
         guard remoteClient != nil, connectionState == .connected else { return }
         startTerminalRefreshPolling()
-        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     public func connectPreviewHost() {
@@ -1036,7 +984,6 @@ public final class CMUXMobileShellStore {
 
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
         selectedTerminalID = id
-        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     public func reportTerminalViewport(
@@ -1045,39 +992,11 @@ public final class CMUXMobileShellStore {
         viewportSize: MobileTerminalViewportSize
     ) {
         let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        let previousViewportSize = reportedViewportSizesByTerminalKey[key]
         reportedViewportSizesByTerminalKey[key] = viewportSize
-        let currentSnapshotClientSize = terminalSnapshotClientSize(workspaceID: workspaceID, terminalID: terminalID)
-        if previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize {
-            viewportEchoSettlingKeys.insert(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            viewportSettlingRefreshesByTerminalKey[key] = max(
-                viewportSettlingRefreshesByTerminalKey[key] ?? 0,
-                Self.viewportSettlingRefreshCount
-            )
-        }
-        guard remoteClient != nil else {
-            return
-        }
-        guard previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize else {
-            return
-        }
-        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
-        setSelectedWorkspaceID(id, refreshSnapshot: false)
-        if let terminalID = selectedTerminalID,
-           let key = selectedTerminalViewportKey(workspaceID: id, terminalID: terminalID),
-           reportedViewportSizesByTerminalKey[key] != nil {
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            viewportSettlingRefreshesByTerminalKey[key] = max(
-                viewportSettlingRefreshesByTerminalKey[key] ?? 0,
-                Self.workspaceOpenSettlingRefreshCount
-            )
-        }
-        await refreshSelectedTerminalSnapshot()
+        setSelectedWorkspaceID(id)
     }
 
     public func sendTerminalInput() {
@@ -1092,10 +1011,7 @@ public final class CMUXMobileShellStore {
             return
         }
         terminalInputText = ""
-        guard remoteClient != nil else {
-            appendPreviewInput(text)
-            return
-        }
+        guard remoteClient != nil else { return }
         await sendRemoteTerminalInput(text + "\r")
     }
 
@@ -1167,10 +1083,7 @@ public final class CMUXMobileShellStore {
         terminalID: MobileTerminalPreview.ID
     ) async {
         guard !text.isEmpty else { return }
-        guard remoteClient != nil else {
-            appendPreviewInput(Self.previewLine(forRawTerminalInput: text))
-            return
-        }
+        guard remoteClient != nil else { return }
         await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
@@ -1248,7 +1161,6 @@ public final class CMUXMobileShellStore {
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
-                    await refreshSelectedTerminalSnapshot()
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
@@ -1492,30 +1404,6 @@ public final class CMUXMobileShellStore {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func selectedTerminalViewportKey(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> MobileTerminalViewportKey? {
-        guard workspaces.contains(where: { workspace in
-            workspace.id == workspaceID && workspace.terminals.contains(where: { $0.id == terminalID })
-        }) else {
-            return nil
-        }
-        return viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-    }
-
-    private func terminalSnapshotClientSize(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> MobileTerminalViewportSize? {
-        workspaces
-            .first { $0.id == workspaceID }?
-            .terminals
-            .first { $0.id == terminalID }?
-            .viewportFit?
-            .client
-    }
-
     private func createRemoteWorkspace() async {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration
@@ -1529,13 +1417,9 @@ public final class CMUXMobileShellStore {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if let createdID = response.createdWorkspaceID {
                 let createdWorkspaceID = MobileWorkspacePreview.ID(rawValue: createdID)
-                setSelectedWorkspaceID(createdWorkspaceID, refreshSnapshot: false)
-                syncSelectedTerminalForWorkspace()
-                seedCreatedTerminalSnapshot(workspaceID: createdWorkspaceID, terminalID: selectedTerminalID)
-            } else {
-                syncSelectedTerminalForWorkspace()
+                setSelectedWorkspaceID(createdWorkspaceID)
             }
-            scheduleSelectedTerminalSnapshotRefresh()
+            syncSelectedTerminalForWorkspace()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -1559,272 +1443,15 @@ public final class CMUXMobileShellStore {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            var createdTerminalID: MobileTerminalPreview.ID?
             if selectedWorkspaceID == requestedWorkspaceID,
                let createdID = response.createdTerminalID {
-                createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
-                selectedTerminalID = createdTerminalID
+                selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
             }
-            if let createdTerminalID {
-                seedCreatedTerminalSnapshot(workspaceID: requestedWorkspaceID, terminalID: createdTerminalID)
-            }
-            scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
-    }
-
-    private func seedCreatedTerminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID?
-    ) {
-        guard let terminalID,
-              let workspace = workspaces.first(where: { $0.id == workspaceID }),
-              let terminal = workspace.terminals.first(where: { $0.id == terminalID }) else {
-            return
-        }
-        replaceTerminalSnapshot(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            snapshot: PreviewMobileHost.snapshot(
-                terminalID: terminalID.rawValue,
-                lines: [
-                    "$ cmux ios",
-                    "workspace: \(workspace.name)",
-                    "terminal: \(terminal.name)",
-                ]
-            ),
-            isReady: true
-        )
-    }
-
-    private func refreshSelectedTerminalSnapshot() async {
-        guard let client = remoteClient,
-              let workspace = selectedWorkspace,
-              let terminalID = selectedTerminalID?.rawValue else { return }
-        let generation = connectionGeneration
-        guard !isRefreshingSelectedTerminalSnapshot else {
-            needsSelectedTerminalSnapshotRefresh = true
-            return
-        }
-        isRefreshingSelectedTerminalSnapshot = true
-        defer {
-            isRefreshingSelectedTerminalSnapshot = false
-            if needsSelectedTerminalSnapshotRefresh {
-                needsSelectedTerminalSnapshotRefresh = false
-                scheduleSelectedTerminalSnapshotRefresh()
-            }
-        }
-        do {
-            mobileShellLog.info("refreshing terminal snapshot workspace=\(workspace.id.rawValue, privacy: .private) terminal=\(terminalID, privacy: .private)")
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.snapshot",
-                    params: terminalSnapshotParams(
-                        workspaceID: workspace.id.rawValue,
-                        terminalID: terminalID
-                    )
-                )
-            )
-            let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            let responseTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
-            let terminalSnapshot = terminalSnapshotByReusingStylesIfNeeded(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: response.snapshot,
-                fidelity: response.fidelity
-            )
-            if !terminalSnapshot.reusedStyles && shouldDeferLowerFidelityTerminalSnapshot(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: response.snapshot,
-                fidelity: response.fidelity
-            ) {
-                scheduleSelectedTerminalSnapshotRefresh()
-                return
-            }
-            if terminalSnapshot.reusedStyles {
-                scheduleStyledSnapshotRefreshAfterPlainTextFallback(
-                    workspaceID: workspace.id,
-                    terminalID: responseTerminalID
-                )
-            } else {
-                clearLowerFidelityDeferralIfSnapshotHasStyledCells(
-                    workspaceID: workspace.id,
-                    terminalID: responseTerminalID,
-                    snapshot: response.snapshot,
-                    fidelity: response.fidelity
-                )
-            }
-            replaceTerminalSnapshot(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: terminalSnapshot.snapshot,
-                isReady: true,
-                viewportFit: response.viewportFit
-            )
-            scheduleViewportSettlingRefreshIfNeeded(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                viewportFit: response.viewportFit
-            )
-        } catch {
-            let requestedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
-            guard generation == connectionGeneration else { return }
-            guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: requestedTerminalID) else {
-                connectionError = nil
-                return
-            }
-            mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .private)")
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            if Self.isTerminalSurfaceNotReady(error) {
-                if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
-                    connectionError = nil
-                    return
-                }
-                replaceTerminalSnapshot(
-                    workspaceID: workspace.id,
-                    terminalID: MobileTerminalPreview.ID(rawValue: terminalID),
-                    snapshot: PreviewMobileHost.snapshot(
-                        terminalID: terminalID,
-                        lines: [
-                            L10n.string("mobile.terminal.surfaceNotReady", defaultValue: "Terminal surface is still starting."),
-                        ]
-                    ),
-                    isReady: false
-                )
-                let key = viewportKey(
-                    workspaceID: workspace.id,
-                    terminalID: MobileTerminalPreview.ID(rawValue: terminalID)
-                )
-                lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
-                viewportSettlingRefreshesByTerminalKey[key] = nil
-                viewportEchoSettlingKeys.remove(key)
-                viewportMatchedEchoByTerminalKey.remove(key)
-                connectionError = nil
-                return
-            }
-            connectionError = Self.localizedConnectionError(for: error)
-        }
-    }
-
-    private func refreshReadyFallbackTerminalSnapshot(
-        in workspace: MobileWorkspacePreview,
-        excluding terminalID: String
-    ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        let generation = connectionGeneration
-        let excludedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
-        guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
-            return false
-        }
-        for candidate in terminalSnapshotFallbackCandidates(
-            preferredWorkspaceID: workspace.id,
-            excludingTerminalID: excludedTerminalID
-        ) {
-            do {
-                let resultData = try await client.sendRequest(
-                    MobileCoreRPCClient.requestData(
-                        method: "terminal.snapshot",
-                        params: terminalSnapshotParams(
-                            workspaceID: candidate.workspaceID.rawValue,
-                            terminalID: candidate.terminalID.rawValue
-                        )
-                    )
-                )
-                let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
-                guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
-                guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
-                    return false
-                }
-                let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? candidate.terminalID.rawValue)
-                replaceTerminalSnapshot(
-                    workspaceID: candidate.workspaceID,
-                    terminalID: resolvedTerminalID,
-                    snapshot: response.snapshot,
-                    isReady: true,
-                    viewportFit: response.viewportFit
-                )
-                setSelectedWorkspaceID(candidate.workspaceID, refreshSnapshot: false)
-                selectedTerminalID = resolvedTerminalID
-                mobileShellLog.info("selected fallback ready terminal workspace=\(candidate.workspaceID.rawValue, privacy: .private) terminal=\(resolvedTerminalID.rawValue, privacy: .private)")
-                return true
-            } catch {
-                guard generation == connectionGeneration else { return false }
-                guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
-                    return false
-                }
-                if Self.isTerminalSurfaceNotReady(error) {
-                    continue
-                }
-                if disconnectForAuthorizationFailureIfNeeded(error) {
-                    return false
-                }
-                mobileShellLog.error("fallback terminal snapshot failed: \(String(describing: error), privacy: .private)")
-                return false
-            }
-        }
-        return false
-    }
-
-    private func isStillSelectedTerminal(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> Bool {
-        selectedWorkspace?.id == workspaceID && selectedTerminalID == terminalID
-    }
-
-    private func terminalSnapshotFallbackCandidates(
-        preferredWorkspaceID: MobileWorkspacePreview.ID,
-        excludingTerminalID: MobileTerminalPreview.ID
-    ) -> [MobileTerminalSnapshotCandidate] {
-        let candidates = workspaces
-            .filter { $0.id == preferredWorkspaceID }
-            .flatMap { workspace in
-                workspace.terminals.compactMap { terminal -> MobileTerminalSnapshotCandidate? in
-                    guard terminal.id != excludingTerminalID else {
-                        return nil
-                    }
-                    return MobileTerminalSnapshotCandidate(
-                        workspaceID: workspace.id,
-                        terminalID: terminal.id,
-                        isReady: terminal.isReady
-                    )
-                }
-            }
-
-        let readyPreferred = candidates.filter { $0.isReady && $0.workspaceID == preferredWorkspaceID }
-        let stalePreferred = candidates.filter { !$0.isReady && $0.workspaceID == preferredWorkspaceID }
-        return readyPreferred + stalePreferred
-    }
-
-    private func terminalSnapshotParams(
-        workspaceID: String,
-        terminalID: String
-    ) -> [String: Any] {
-        let terminalID = MobileTerminalPreview.ID(rawValue: terminalID)
-        let viewportSize = reportedViewportSizesByTerminalKey[
-            viewportKey(
-                workspaceID: MobileWorkspacePreview.ID(rawValue: workspaceID),
-                terminalID: terminalID
-            )
-        ]
-        var params: [String: Any] = [
-            "workspace_id": workspaceID,
-            "surface_id": terminalID.rawValue,
-            "max_scrollback_rows": MobileTerminalSnapshotRequestPolicy.maxScrollbackRows(
-                viewportSize: viewportSize
-            ),
-            "client_id": clientID,
-        ]
-        if let viewportSize {
-            params["viewport_columns"] = viewportSize.columns
-            params["viewport_rows"] = viewportSize.rows
-        }
-        return params
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
@@ -1855,12 +1482,6 @@ public final class CMUXMobileShellStore {
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = max(
-                lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0,
-                Self.inputSettlingRefreshCount
-            )
             var params: [String: Any] = [
                 "workspace_id": workspaceID.rawValue,
                 "surface_id": terminalID.rawValue,
@@ -1878,9 +1499,6 @@ public final class CMUXMobileShellStore {
                 )
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            if selectedWorkspace?.id == workspaceID, selectedTerminalID == terminalID {
-                scheduleSelectedTerminalSnapshotRefresh()
-            }
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -1888,31 +1506,8 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func scheduleSelectedTerminalSnapshotRefresh() {
-        guard remoteClient != nil else { return }
-        guard selectedTerminalSnapshotRefreshTask == nil else { return }
-        selectedTerminalSnapshotRefreshTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self else { return }
-            self.selectedTerminalSnapshotRefreshTask = nil
-            guard !Task.isCancelled else { return }
-            await self.refreshSelectedTerminalSnapshot()
-        }
-    }
-
     private func startTerminalRefreshPolling() {
         guard let client = remoteClient else { return }
-        guard runtime?.supportsServerPushEvents ?? true else {
-            // Server doesn't speak the event subscription protocol. Fall
-            // back to the legacy 750 ms poller so the iPhone still catches
-            // grid mutations.
-            startLegacyTerminalRefreshPolling()
-            return
-        }
-        // Push events make user-driven changes show up immediately. We
-        // only spin up the legacy 750 ms `Task.sleep` poller as a fallback
-        // when event subscription fails. With events live there are no
-        // sleeps on the macOS->iOS render path.
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
@@ -1924,7 +1519,12 @@ public final class CMUXMobileShellStore {
                 }
             }
 
-            let topics: [String] = ["terminal.updated", "workspace.updated", "terminal.bytes"]
+            // Topics the iOS render path actually consumes. `terminal.bytes`
+            // delivers raw PTY output for the libghostty renderer;
+            // `workspace.updated` keeps the workspace list in sync. The old
+            // `terminal.updated` notifications drove the now-deleted Swift
+            // snapshot refresh path, so we no longer subscribe to them.
+            let topics: [String] = ["workspace.updated", "terminal.bytes"]
             let stream = await client.subscribe(to: Set(topics))
             let requestData: Data
             do {
@@ -1939,12 +1539,8 @@ public final class CMUXMobileShellStore {
             let responseData: Data
             do {
                 responseData = try await client.sendRequest(requestData)
-            } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
-                self?.startLegacyTerminalRefreshPolling()
-                return
             } catch {
-                mobileShellLog.error("subscribe failed, falling back to legacy polling: \(String(describing: error), privacy: .private)")
-                self?.startLegacyTerminalRefreshPolling()
+                mobileShellLog.error("subscribe failed: \(String(describing: error), privacy: .private)")
                 return
             }
             // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
@@ -1953,7 +1549,7 @@ public final class CMUXMobileShellStore {
             // handler and shouldn't activate the event path.
             let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
             guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
-                self?.startLegacyTerminalRefreshPolling()
+                mobileShellLog.error("subscribe response missing stream_id")
                 return
             }
             // Keep the listener alive without keeping the shell store alive.
@@ -1961,9 +1557,7 @@ public final class CMUXMobileShellStore {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
-                if event.topic == "terminal.updated" {
-                    await self.refreshSelectedTerminalSnapshot()
-                } else if event.topic == "workspace.updated" {
+                if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.bytes" {
                     // Raw PTY bytes coming from the Mac surface's libghostty
@@ -2029,84 +1623,14 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func startLegacyTerminalRefreshPolling() {
-        guard remoteClient != nil, terminalRefreshPollTask == nil else { return }
-        terminalRefreshPollTask = Task { @MainActor [weak self] in
-            defer {
-                self?.terminalRefreshPollTask = nil
-            }
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: Self.terminalRefreshPollIntervalNanoseconds)
-                } catch {
-                    break
-                }
-                guard let self else { break }
-                guard self.remoteClient != nil, self.connectionState == .connected else {
-                    break
-                }
-                await self.refreshSelectedTerminalSnapshot()
-            }
-        }
-    }
-
     private func stopTerminalRefreshPolling() {
-        terminalRefreshPollTask?.cancel()
-        terminalRefreshPollTask = nil
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
     }
 
-    private func cancelSelectedTerminalSnapshotRefresh() {
-        selectedTerminalSnapshotRefreshTask?.cancel()
-        selectedTerminalSnapshotRefreshTask = nil
-    }
-
-    private func scheduleViewportSettlingRefreshIfNeeded(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        viewportFit: MobileTerminalViewportFit?
-    ) {
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        guard let remaining = viewportSettlingRefreshesByTerminalKey[key],
-              remaining > 0 else {
-            viewportSettlingRefreshesByTerminalKey[key] = nil
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            return
-        }
-
-        let reportedViewportSize = reportedViewportSizesByTerminalKey[key]
-        if viewportEchoSettlingKeys.contains(key),
-           let reportedViewportSize,
-           viewportFit?.client == reportedViewportSize {
-            guard viewportMatchedEchoByTerminalKey.contains(key) else {
-                viewportMatchedEchoByTerminalKey.insert(key)
-                scheduleSelectedTerminalSnapshotRefresh()
-                return
-            }
-            viewportSettlingRefreshesByTerminalKey[key] = nil
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            return
-        }
-        viewportMatchedEchoByTerminalKey.remove(key)
-        viewportSettlingRefreshesByTerminalKey[key] = remaining - 1
-        scheduleSelectedTerminalSnapshotRefresh()
-    }
-
-    private func setSelectedWorkspaceID(
-        _ id: MobileWorkspacePreview.ID?,
-        refreshSnapshot: Bool
-    ) {
-        guard !refreshSnapshot else {
-            selectedWorkspaceID = id
-            return
-        }
-        isSuppressingSelectedWorkspaceRefresh = true
+    private func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
         selectedWorkspaceID = id
-        isSuppressingSelectedWorkspaceRefresh = false
     }
 
     private func applyRemoteWorkspaceList(
@@ -2139,8 +1663,7 @@ public final class CMUXMobileShellStore {
         setSelectedWorkspaceID(
             response.workspaces.first(where: \.isSelected)
                 .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-                ?? workspaces.first?.id,
-            refreshSnapshot: false
+                ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
     }
@@ -2158,7 +1681,6 @@ public final class CMUXMobileShellStore {
                     return remoteTerminal
                 }
                 var terminal = remoteTerminal
-                terminal.snapshot = existingTerminal.snapshot
                 terminal.viewportFit = existingTerminal.viewportFit
                 return terminal
             }
@@ -2174,7 +1696,7 @@ public final class CMUXMobileShellStore {
         guard let workspace = workspaces.first(where: { $0.id == ticketWorkspaceID }) else {
             return false
         }
-        setSelectedWorkspaceID(ticketWorkspaceID, refreshSnapshot: false)
+        setSelectedWorkspaceID(ticketWorkspaceID)
         if let ticketTerminalID = activeTicket.terminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
            workspace.terminals.contains(where: { $0.id == ticketTerminalID }) {
             selectedTerminalID = ticketTerminalID
@@ -2182,135 +1704,6 @@ public final class CMUXMobileShellStore {
             syncSelectedTerminalForWorkspace()
         }
         return true
-    }
-
-    private func replaceTerminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        isReady: Bool? = nil,
-        viewportFit: MobileTerminalViewportFit? = nil
-    ) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
-            return
-        }
-        var updatedWorkspaces = workspaces
-        updatedWorkspaces[workspaceIndex].terminals[terminalIndex].snapshot = snapshot
-        if let isReady {
-            updatedWorkspaces[workspaceIndex].terminals[terminalIndex].isReady = isReady
-        }
-        updatedWorkspaces[workspaceIndex].terminals[terminalIndex].viewportFit = viewportFit
-        workspaces = updatedWorkspaces
-        mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) rows=\(snapshot.visibleRows.count, privacy: .public)")
-    }
-
-    private func shouldDeferLowerFidelityTerminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        fidelity: String?
-    ) -> Bool {
-        guard fidelity == "plain_text",
-              !snapshot.hasExplicitCellStyles,
-              let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }),
-              workspaces[workspaceIndex].terminals[terminalIndex].snapshot.hasExplicitCellStyles else {
-            return false
-        }
-
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        let lowerFidelityRemainingRefreshes = lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0
-        let viewportRemainingRefreshes = viewportSettlingRefreshesByTerminalKey[key] ?? 0
-        guard lowerFidelityRemainingRefreshes > 0 || viewportRemainingRefreshes > 0 else {
-            return false
-        }
-        if lowerFidelityRemainingRefreshes > 0 {
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = lowerFidelityRemainingRefreshes - 1
-        }
-        if viewportRemainingRefreshes > 0 {
-            viewportSettlingRefreshesByTerminalKey[key] = viewportRemainingRefreshes - 1
-        }
-        let remainingRefreshes = max(
-            lowerFidelityRemainingRefreshes - 1,
-            viewportRemainingRefreshes - 1
-        )
-        mobileShellLog.info("deferred lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes, privacy: .public)")
-        return true
-    }
-
-    private func terminalSnapshotByReusingStylesIfNeeded(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        fidelity: String?
-    ) -> (snapshot: MobileTerminalGhosttySnapshot, reusedStyles: Bool) {
-        guard fidelity == "plain_text",
-              !snapshot.hasExplicitCellStyles,
-              let previousSnapshot = terminalSnapshot(workspaceID: workspaceID, terminalID: terminalID),
-              previousSnapshot.hasExplicitCellStyles else {
-            return (snapshot, false)
-        }
-
-        let styledSnapshot = snapshot.reusingExplicitCellStyles(from: previousSnapshot)
-        return (styledSnapshot, styledSnapshot != snapshot)
-    }
-
-    private func terminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> MobileTerminalGhosttySnapshot? {
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
-            return nil
-        }
-        return workspaces[workspaceIndex].terminals[terminalIndex].snapshot
-    }
-
-    private func scheduleStyledSnapshotRefreshAfterPlainTextFallback(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) {
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        let lowerFidelityRemainingRefreshes = max(0, (lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0) - 1)
-        let viewportRemainingRefreshes = max(0, (viewportSettlingRefreshesByTerminalKey[key] ?? 0) - 1)
-        if lowerFidelityRemainingRefreshes > 0 {
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = lowerFidelityRemainingRefreshes
-        } else {
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
-        }
-        if viewportRemainingRefreshes > 0 {
-            viewportSettlingRefreshesByTerminalKey[key] = viewportRemainingRefreshes
-        } else {
-            viewportSettlingRefreshesByTerminalKey[key] = nil
-        }
-
-        let remainingRefreshes = max(lowerFidelityRemainingRefreshes, viewportRemainingRefreshes)
-        guard remainingRefreshes > 0 else {
-            return
-        }
-        mobileShellLog.info("accepted style-preserved lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes, privacy: .public)")
-        scheduleSelectedTerminalSnapshotRefresh()
-    }
-
-    private func clearLowerFidelityDeferralIfSnapshotHasStyledCells(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        fidelity: String?
-    ) {
-        guard fidelity != "plain_text" || snapshot.hasExplicitCellStyles else {
-            return
-        }
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
-    }
-
-    private static func isTerminalSurfaceNotReady(_ error: Error) -> Bool {
-        guard case let MobileShellConnectionError.rpcError(_, message) = error else {
-            return false
-        }
-        return message.localizedCaseInsensitiveContains("surface is not ready")
     }
 
     private func disconnectForAuthorizationFailureIfNeeded(_ error: Error) -> Bool {
@@ -2433,51 +1826,6 @@ public final class CMUXMobileShellStore {
         return left.priority < right.priority
     }
 
-    private static func previewLine(forRawTerminalInput text: String) -> String {
-        switch text {
-        case "\u{1B}":
-            return "Esc"
-        case "\t":
-            return "Tab"
-        case "\u{1B}[A":
-            return "↑"
-        case "\u{1B}[B":
-            return "↓"
-        case "\u{1B}[D":
-            return "←"
-        case "\u{1B}[C":
-            return "→"
-        case "\u{03}":
-            return "^C"
-        case "\u{04}":
-            return "^D"
-        case "\u{1A}":
-            return "^Z"
-        case "\u{0C}":
-            return "^L"
-        default:
-            if text.hasSuffix("\r") {
-                return String(text.dropLast())
-            }
-            return text
-        }
-    }
-
-    private func appendPreviewInput(_ text: String) {
-        guard let workspace = selectedWorkspace,
-              let terminalID = selectedTerminalID,
-              let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspace.id }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
-            return
-        }
-        let terminal = workspaces[workspaceIndex].terminals[terminalIndex]
-        let lines = Array((terminal.lines + ["> \(text)"]).suffix(6))
-        workspaces[workspaceIndex].terminals[terminalIndex].snapshot = PreviewMobileHost.snapshot(
-            terminalID: terminal.id.rawValue,
-            lines: lines
-        )
-    }
-
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
         let terminalID = ticket.terminalID ?? "attached-terminal"
         workspaces = [
@@ -2501,12 +1849,6 @@ public final class CMUXMobileShellStore {
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
-}
-
-private struct MobileTerminalSnapshotCandidate: Sendable {
-    var workspaceID: MobileWorkspacePreview.ID
-    var terminalID: MobileTerminalPreview.ID
-    var isReady: Bool
 }
 
 private struct MobileTerminalViewportKey: Hashable, Sendable {
@@ -2776,8 +2118,7 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             return false
         case "mobile.terminal.create", "terminal.create":
             return false
-        case "mobile.terminal.snapshot", "terminal.snapshot",
-             "mobile.terminal.input", "terminal.input":
+        case "mobile.terminal.input", "terminal.input":
             return !ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
@@ -2946,28 +2287,6 @@ private struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
     static func decode(_ data: Data) throws -> MobileSyncWorkspaceListResponse {
         try JSONDecoder().decode(Self.self, from: data)
-    }
-}
-
-private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
-    let snapshot: MobileTerminalGhosttySnapshot
-    let surfaceID: String?
-    let fidelity: String?
-    let viewportFit: MobileTerminalViewportFit?
-
-    private enum CodingKeys: String, CodingKey {
-        case snapshot
-        case surfaceID = "surface_id"
-        case fidelity
-        case viewportFit = "viewport_fit"
-    }
-
-    static func decode(_ data: Data) throws -> MobileSyncTerminalSnapshotResponse {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let response = try decoder.decode(Self.self, from: data)
-        try response.snapshot.validate()
-        return response
     }
 }
 
