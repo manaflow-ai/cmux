@@ -1719,6 +1719,7 @@ final class CMUXLayoutTests: XCTestCase {
             canMoveToNewWorkspace: true,
             canMoveToLeftPane: false,
             canMoveToRightPane: true,
+            canForkConversation: false,
             isZoomed: false,
             hasSplits: true,
             moveDestinations: [
@@ -1743,6 +1744,39 @@ final class CMUXLayoutTests: XCTestCase {
         let workspaceItem = try XCTUnwrap(moveItem?.submenu?.items.dropFirst().first)
         target.performMoveDestination(workspaceItem)
         XCTAssertEqual(selectedDestinationId, "workspace:abc")
+    }
+
+    @MainActor
+    func testTabContextMenuBuilderCreatesForkConversationItemWhenAvailable() throws {
+        let target = TabContextMenuActionTarget()
+        var selectedAction: SurfaceContextAction?
+        target.onContextAction = { selectedAction = $0 }
+        let state = TabContextMenuState(
+            isPinned: false,
+            isUnread: false,
+            isBrowser: false,
+            isTerminal: true,
+            hasCustomTitle: false,
+            canCloseToLeft: false,
+            canCloseToRight: false,
+            canCloseOthers: false,
+            canMoveToNewWorkspace: false,
+            canMoveToLeftPane: false,
+            canMoveToRightPane: false,
+            canForkConversation: true,
+            isZoomed: false,
+            hasSplits: false,
+            moveDestinations: [],
+            shortcuts: [:]
+        )
+        let snapshot = TabContextMenuSnapshot(tabId: UUID(), state: state)
+
+        let menu = TabContextMenuBuilder.makeMenu(snapshot: snapshot, target: target)
+        let forkItem = try XCTUnwrap(menu.items.first { $0.title == "Fork Conversation" })
+
+        XCTAssertTrue(forkItem.isEnabled)
+        target.performContextAction(forkItem)
+        XCTAssertEqual(selectedAction, .forkConversation)
     }
 
     @MainActor

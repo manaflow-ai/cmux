@@ -20,6 +20,7 @@ public enum SurfaceContextAction: String, CaseIterable, Sendable {
     case markAsRead
     case markAsUnread
     case toggleZoom
+    case forkConversation
 }
 
 public struct SurfaceMoveDestination: Identifiable, Equatable, Sendable {

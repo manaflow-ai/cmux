@@ -8,6 +8,7 @@
 "tabContext.closeTabsToLeft" = "左側のサーフェスを閉じる";
 "tabContext.closeTabsToRight" = "右側のサーフェスを閉じる";
 "tabContext.closeOtherTabs" = "他のサーフェスを閉じる";
+"tabContext.forkConversation" = "会話をフォーク";
 "tabContext.newTerminalTabToRight" = "右側に新しいターミナルサーフェス";
 "tabContext.newBrowserTabToRight" = "右側に新しいブラウザーサーフェス";
 "tabContext.reloadTab" = "サーフェスを再読み込み";

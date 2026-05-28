@@ -103,6 +103,9 @@ public final class WorkspaceLayoutController {
     /// Host-provided destinations for the tab context menu's Move Surface submenu.
     @ObservationIgnored public var tabContextMoveDestinationsProvider: ((SurfaceID, PaneID) -> [SurfaceMoveDestination])?
 
+    /// Host-provided availability check for the tab context menu's Fork Conversation item.
+    @ObservationIgnored public var tabContextForkConversationAvailabilityProvider: ((SurfaceID, PaneID) -> Bool)?
+
     /// Called when the user explicitly requests to close a tab from the tab strip UI.
     /// Internal host-driven closes should not use this hook.
     @ObservationIgnored public var onTabCloseRequest: ((_ tabId: SurfaceID, _ paneId: PaneID, _ source: SurfaceCloseRequestSource) -> Void)?

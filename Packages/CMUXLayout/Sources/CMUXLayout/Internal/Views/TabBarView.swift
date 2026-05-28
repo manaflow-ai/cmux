@@ -776,6 +776,7 @@ struct TabContextMenuState {
     let canMoveToNewWorkspace: Bool
     let canMoveToLeftPane: Bool
     let canMoveToRightPane: Bool
+    let canForkConversation: Bool
     let isZoomed: Bool
     let hasSplits: Bool
     let moveDestinations: [SurfaceMoveDestination]
@@ -1265,6 +1266,10 @@ struct TabBarView: View {
             canMoveToNewWorkspace: canMoveTabs && controller.allTabIds.count > 1,
             canMoveToLeftPane: canMoveTabs && controller.adjacentPane(to: pane.id, direction: .left) != nil,
             canMoveToRightPane: canMoveTabs && controller.adjacentPane(to: pane.id, direction: .right) != nil,
+            canForkConversation: controller.tabContextForkConversationAvailabilityProvider?(
+                SurfaceID(id: tab.id),
+                pane.id
+            ) ?? false,
             isZoomed: splitViewController.zoomedPaneId == pane.id,
             hasSplits: splitViewController.rootNode.allPaneIds.count > 1,
             moveDestinations: canMoveTabs ? controller.tabContextMoveDestinationsProvider?(SurfaceID(id: tab.id), pane.id) ?? [] : [],
