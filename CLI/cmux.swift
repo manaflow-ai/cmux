@@ -20163,6 +20163,11 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
+            // Capture the raw incoming subtitle before body-substitution may overwrite it.
+            // isGenuineBlock must classify based on the original notification, not the
+            // display-text restoration that follows.
+            let rawSubtitle = summary.subtitle
+
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
@@ -20184,7 +20189,9 @@ struct CMUXCLI {
 
             // Decide whether this notification is a genuine block requiring user action.
             // Three paths to needsInput:
-            //   1. "Permission" or "Error" subtitle — explicit block regardless of session state.
+            //   1. "Permission" or "Error" raw subtitle — explicit block regardless of session state.
+            //      Uses rawSubtitle (pre-substitution) so a permission notification whose body
+            //      triggers body-substitution is not silently reclassified as idle.
             //   2. Session is already .needsInput — pre-tool-use fired for AskUserQuestion first;
             //      the notification hook follows immediately to display the question text.
             // Everything else (Waiting, Completed, Attention at turn end) is a standby signal:
@@ -20192,8 +20199,8 @@ struct CMUXCLI {
             // not an alert the user needs to act on.
             let currentLifecycle = mappedSession?.agentLifecycle ?? .unknown
             let isGenuineBlock =
-                summary.subtitle == "Permission"
-                || summary.subtitle == "Error"
+                rawSubtitle == "Permission"
+                || rawSubtitle == "Error"
                 || currentLifecycle == .needsInput
             let notifLifecycle: AgentHibernationLifecycleState = isGenuineBlock ? .needsInput : .idle
 
