@@ -18,3 +18,4 @@
 "tabContext.pinTab" = "Pin Surface";
 "tabContext.markTabAsRead" = "Mark Surface as Read";
 "tabContext.markTabAsUnread" = "Mark Surface as Unread";
+"emptyPane.noOpenTabs" = "No Open Tabs";

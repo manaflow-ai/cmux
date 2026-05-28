@@ -18,3 +18,4 @@
 "tabContext.pinTab" = "サーフェスをピン留め";
 "tabContext.markTabAsRead" = "サーフェスを既読にする";
 "tabContext.markTabAsUnread" = "サーフェスを未読にする";
+"emptyPane.noOpenTabs" = "開いているタブはありません";

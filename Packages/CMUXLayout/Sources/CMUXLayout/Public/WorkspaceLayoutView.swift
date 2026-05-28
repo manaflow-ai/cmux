@@ -86,10 +86,14 @@ public struct DefaultEmptyPaneView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("No Open Tabs")
+            Text(Self.localized("emptyPane.noOpenTabs", defaultValue: "No Open Tabs"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private static func localized(_ key: String, defaultValue: String) -> String {
+        Bundle.module.localizedString(forKey: key, value: defaultValue, table: nil)
     }
 }
