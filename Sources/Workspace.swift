@@ -12965,6 +12965,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panelDirectories.removeValue(forKey: newPanel.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -13094,6 +13095,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            panelDirectories.removeValue(forKey: newPanel.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -16039,14 +16041,16 @@ final class Workspace: Identifiable, ObservableObject {
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
+            template.workingDirectory = nil
             inheritedConfig = template
         }
+        let terminalWorkingDirectory = startupCommand == nil ? workingDirectory : nil
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: terminalWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput
@@ -16054,6 +16058,10 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if startupCommand != nil,
+           let workingDirectory {
+            updatePanelDirectory(panelId: newPanel.id, directory: workingDirectory)
+        }
         if startupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
@@ -16074,6 +16082,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panelDirectories.removeValue(forKey: newPanel.id)
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
