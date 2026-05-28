@@ -2257,7 +2257,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(method, "workspace.tmux.attach")
             let params = payload["params"] as? [String: Any] ?? [:]
             XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
-            XCTAssertEqual(params["tmux_path"] as? String, "tmux")
+            XCTAssertNil(params["tmux_path"])
             XCTAssertEqual(params["create"] as? Bool, true)
             XCTAssertEqual(params["focus"] as? Bool, false)
             XCTAssertEqual(params["working_directory"] as? String, "/tmp/cmux-tmux")
@@ -2328,6 +2328,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(method, "workspace.tmux.attach")
             let params = payload["params"] as? [String: Any] ?? [:]
             XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertNil(params["tmux_path"])
             return self.v2Response(
                 id: id,
                 ok: true,
@@ -2358,6 +2359,79 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+    }
+
+    func testTmuxAttachLocalPreservesExplicitTmuxPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachexplicitpath")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.tmux.attach")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertEqual(params["tmux_path"] as? String, "/opt/homebrew/bin/tmux")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "session_name": "cmuxcc",
+                    "mode": "local",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--tmux-path", "/opt/homebrew/bin/tmux", "--no-focus"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+    }
+
+    func testDefaultTmuxExecutablePathPrefersExecutableAbsolutePathEntries() {
+        let result = TerminalController.defaultTmuxExecutablePath(
+            environmentPath: "relative:/usr/bin::/opt/homebrew/bin",
+            commonPaths: ["/usr/local/bin/tmux"],
+            isExecutable: { $0 == "/opt/homebrew/bin/tmux" }
+        )
+
+        XCTAssertEqual(result, "/opt/homebrew/bin/tmux")
+    }
+
+    func testDefaultTmuxExecutablePathFallsBackToCommonExecutablePaths() {
+        let result = TerminalController.defaultTmuxExecutablePath(
+            environmentPath: "/usr/bin",
+            commonPaths: ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"],
+            isExecutable: { $0 == "/usr/local/bin/tmux" }
+        )
+
+        XCTAssertEqual(result, "/usr/local/bin/tmux")
     }
 
     func testTmuxAttachLocalPreservesCallerContextFocusAndResolvesCwd() throws {

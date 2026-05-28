@@ -5591,7 +5591,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "socket_name and socket_path cannot both be set", data: nil)
         }
 
-        let tmuxPath = v2OptionalTrimmedRawString(params, "tmux_path") ?? "tmux"
+        let tmuxPath = v2OptionalTrimmedRawString(params, "tmux_path") ?? Self.defaultTmuxExecutablePath()
         let create = v2Bool(params, "create") ?? true
         let command = Self.tmuxControlAttachCommand(
             tmuxPath: tmuxPath,
@@ -5691,6 +5691,38 @@ class TerminalController {
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto
         return effectiveBinding
+    }
+
+    nonisolated static func defaultTmuxExecutablePath() -> String {
+        defaultTmuxExecutablePath(
+            environmentPath: ProcessInfo.processInfo.environment["PATH"],
+            commonPaths: ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"],
+            isExecutable: { FileManager.default.isExecutableFile(atPath: $0) }
+        )
+    }
+
+    nonisolated static func defaultTmuxExecutablePath(
+        environmentPath: String?,
+        commonPaths: [String],
+        isExecutable: (String) -> Bool
+    ) -> String {
+        var candidates: [String] = []
+        if let environmentPath {
+            for rawDirectory in environmentPath.split(separator: ":", omittingEmptySubsequences: false) {
+                let directory = String(rawDirectory)
+                guard directory.hasPrefix("/") else { continue }
+                candidates.append((directory as NSString).appendingPathComponent("tmux"))
+            }
+        }
+        candidates.append(contentsOf: commonPaths)
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate).inserted {
+            if isExecutable(candidate) {
+                return candidate
+            }
+        }
+        return "tmux"
     }
 
     private static func tmuxControlAttachCommand(

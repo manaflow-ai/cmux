@@ -6822,6 +6822,7 @@ struct CMUXCLI {
         var workingDirectory: String?
         var sshOptions: [String]
         var tmuxPath: String
+        var tmuxPathWasSpecified: Bool
         var create: Bool
         var socketName: String?
         var socketPath: String?
@@ -6885,10 +6886,12 @@ struct CMUXCLI {
         }
         var params: [String: Any] = [
             "session_name": options.sessionName,
-            "tmux_path": options.tmuxPath,
             "create": options.create,
             "focus": !options.noFocus,
         ]
+        if options.tmuxPathWasSpecified {
+            params["tmux_path"] = options.tmuxPath
+        }
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: options.windowRaw)
         if let workingDirectory = options.workingDirectory {
             params["working_directory"] = resolvePath(workingDirectory)
@@ -6925,6 +6928,7 @@ struct CMUXCLI {
         var workingDirectory: String?
         var sshOptions: [String] = []
         var tmuxPath = "tmux"
+        var tmuxPathWasSpecified = false
         var create = true
         var socketName: String?
         var socketPath: String?
@@ -6962,6 +6966,7 @@ struct CMUXCLI {
                 }
             case "--tmux-path":
                 tmuxPath = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+                tmuxPathWasSpecified = true
             case "-L", "--socket-name":
                 socketName = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
             case "-S", "--socket-path":
@@ -7001,6 +7006,7 @@ struct CMUXCLI {
             workingDirectory: nonEmptyTrimmed(workingDirectory),
             sshOptions: sshOptions,
             tmuxPath: nonEmptyTrimmed(tmuxPath) ?? "tmux",
+            tmuxPathWasSpecified: tmuxPathWasSpecified,
             create: create,
             socketName: nonEmptyTrimmed(socketName),
             socketPath: nonEmptyTrimmed(socketPath)
