@@ -987,6 +987,80 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
     }
 
+    func testCanvasTrackpadSwipesStartingOnNativeContentPanCanvas() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing native-content canvas pans. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        guard let setup = loadData(),
+              let terminalPaneId = setup["terminalPaneId"],
+              let browserPaneId = setup["browserPaneId"],
+              let browserItemId = waitForCanvasItemId(paneId: browserPaneId, timeout: 8.0) else {
+            XCTFail("Missing canvas pane/item ids. data=\(loadData() ?? [:]) layout=\(String(describing: canvasLayout()))")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasOverviewActive"] as? Bool == true
+            },
+            "Expected canvas overview to be active before swiping native content. layout=\(String(describing: canvasLayout()))"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "terminal")?["paneId"] as? String == terminalPaneId
+            },
+            "Expected terminal native portal before swiping inside terminal content. layout=\(String(describing: canvasLayout()))"
+        )
+
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: terminalPaneId,
+            direction: .up,
+            panelType: "terminal"
+        )
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
+
+        let focusBrowser = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": browserItemId,
+                "dx": 0,
+                "dy": 0,
+            ]
+        )
+        guard focusBrowser?["ok"] as? Bool == true else {
+            XCTFail("Failed to focus browser canvas item. envelope=\(String(describing: focusBrowser))")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "browser")?["paneId"] as? String == browserPaneId
+            },
+            "Expected browser native portal before swiping inside browser content. layout=\(String(describing: canvasLayout()))"
+        )
+
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: browserPaneId,
+            direction: .down,
+            panelType: "browser"
+        )
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
+    }
+
     func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -2042,6 +2116,41 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     abs(afterViewport.minY - beforeViewport.minY) > 1
             },
             "Expected \(direction) swipe to pan the canvas viewport. before=\(beforeViewport) layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+        assertSelectedCanvasPanelAligned(panelType: panelType, timeout: 8.0, file: file, line: line)
+    }
+
+    private func assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+        _ app: XCUIApplication,
+        paneId: String,
+        direction: CanvasSwipeDirection,
+        panelType: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let beforeViewport = canvasViewportVisibleRect() else {
+            XCTFail("Missing canvas viewport before \(direction) native-content swipe. layout=\(String(describing: canvasLayout()))", file: file, line: line)
+            return
+        }
+        let card = canvasCard(app, paneId: paneId)
+        XCTAssertTrue(card.waitForExistence(timeout: 5.0), "Expected canvas card for pane \(paneId)", file: file, line: line)
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)).hover()
+        switch direction {
+        case .up:
+            card.swipeUp()
+        case .down:
+            card.swipeDown()
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let afterViewport = self.canvasViewportVisibleRect() else { return false }
+                return abs(afterViewport.minX - beforeViewport.minX) > 1 ||
+                    abs(afterViewport.minY - beforeViewport.minY) > 1
+            },
+            "Expected \(direction) swipe starting on \(panelType) native content to pan canvas, not scroll the embedded view. before=\(beforeViewport) layout=\(String(describing: canvasLayout()))",
             file: file,
             line: line
         )
