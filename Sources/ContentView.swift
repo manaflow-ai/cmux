@@ -8237,7 +8237,6 @@ struct ContentView: View {
                 environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
             }
             environment.removeValue(forKey: "CMUX_SOCKET")
-            environment.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
             process.environment = environment
             process.standardInput = FileHandle.nullDevice
 

@@ -15932,7 +15932,8 @@ final class Workspace: Identifiable, ObservableObject {
             url: browser.currentURLForTabDuplication,
             focus: focus,
             preferredProfileID: browser.profileID,
-            omnibarVisible: browser.isOmnibarVisible
+            omnibarVisible: browser.isOmnibarVisible,
+            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
         ) else { return nil }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
         return newPanel

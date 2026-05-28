@@ -6091,6 +6091,10 @@ extension BrowserPanel {
             ?? currentURL
     }
 
+    var bypassesRemoteWorkspaceProxyForTabDuplication: Bool {
+        bypassesRemoteWorkspaceProxy
+    }
+
     /// Reload the current page
     func reload() {
         if restoreDiscardedWebViewIfNeeded(reason: "reload") {
