@@ -224,6 +224,15 @@ import Testing
     #expect(snapshot.cursor.column == 0)
 }
 
+@Test func vtParserKeepsSourceCursorInsideRowsForTrailingNewlineExports() throws {
+    let grid = MobileTerminalGhosttyVTParser.styledGrid(from: "prompt\n\n", columns: 8)
+
+    #expect(!grid.rows.isEmpty)
+    #expect(grid.cursorRow >= 0)
+    #expect(grid.cursorRow < grid.rows.count)
+    #expect(grid.viewportCursorRow == 2)
+}
+
 @Test func ghosttyTextBuilderPreservesBlankRowsFromNewlineOnlyCursorMovement() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-newline-blank-rows",
@@ -691,5 +700,120 @@ import Testing
             visibleLines: ["ok"],
             cursor: MobileTerminalGhosttyCursor(column: 4, row: 0)
         )
+    }
+}
+
+// Ghostty's VT formatter emits CRLF row separators. Prior to a bug fix,
+// Swift's `Character` collapsed "\r\n" into a single grapheme cluster, so
+// downstream `split(separator: "\n")` plumbing (and any text consumer that
+// relied on per-line splitting) saw every row glued onto row 0. The
+// repro the user hit: typing a single letter caused zsh-autosuggest's
+// ghost-text suggestion to appear at the very top of the iOS terminal,
+// overwriting whatever else was rendered there.
+//
+// The parser itself handles \r and \n separately (\r returns column 0
+// without advancing the row; \n appends a new row). This test pins that
+// behaviour so a regression in the parser - or in any caller that
+// pre-normalises the VT text - shows up as a clear failure.
+@Test func ghosttyTextBuilderPreservesRowBoundariesForCRLFSeparatedExport() throws {
+    let columns = 32
+    let rows = 8
+    // Five rows of CRLF-separated content, cursor in the middle on row 4.
+    // If a regression collapses CRLF into a single line, all of the text
+    // below will glue onto row 0 and the cursor row will read empty.
+    let viewport =
+        "line-one\r\n" +
+        "line-two\r\n" +
+        "line-three\r\n" +
+        "line-four\r\n" +
+        "lawrence \u{03BB} l"
+
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-crlf-rows",
+        columns: columns,
+        rows: rows,
+        scrollbackText: nil,
+        viewportText: viewport,
+        cursor: MobileTerminalGhosttyCursor(column: 12, row: 4)
+    )
+
+    #expect(snapshot.cursor.row == 4)
+    #expect(snapshot.cursor.column == 12)
+    let rendered = snapshot.renderedVisibleLines
+    #expect(rendered.count == rows)
+    #expect(rendered[0] == "line-one")
+    #expect(rendered[1] == "line-two")
+    #expect(rendered[2] == "line-three")
+    #expect(rendered[3] == "line-four")
+    #expect(rendered[4].hasPrefix("lawrence \u{03BB} l"))
+    // The cursor row must own the typed-letter content. Earlier rows
+    // must stay untouched - this is the "ghost text at very top" repro.
+    #expect(!rendered[0].contains("lawrence"))
+    #expect(!rendered[0].contains("\u{03BB}"))
+}
+
+// The user-visible ghost-text bug: zsh-autosuggest's suggestion (rendered
+// in dim 8-bit gray) must land on the cursor's row, not on row 0. This
+// regression test feeds a representative VT export that mirrors what
+// Ghostty's active-region writer produces when the user has typed one
+// letter against a multi-row screen. The expectations describe the
+// rendered cell shape end-to-end so any future change to the parser, the
+// row-shift logic, or the style merger that breaks ghost-text placement
+// fails here.
+@Test func ghosttyTextBuilderPlacesGhostTextOnCursorRowNotRow0() throws {
+    let columns = 40
+    let rows = 8
+    // Rows 0..3 are existing prior-command output. Row 4 is the active
+    // prompt with the typed "h" followed by the autosuggest ghost "top"
+    // emitted in dim grey (rgb 110,112,102 - the resolved color for
+    // 8-bit ANSI 8 in the Monokai-style ghostty palette the user runs).
+    // The exact RGB doesn't matter for correctness; what matters is
+    // that those cells carry an explicit foreground at row 4, not row 0.
+    let dimColor = "\u{001B}[38;2;110;112;102m"
+    let reset = "\u{001B}[0m"
+    let viewport = [
+        "echo aaa",
+        "aaa",
+        "echo bbb",
+        "bbb",
+        "lawrence \u{03BB} h\(dimColor)top\(reset)"
+    ].joined(separator: "\r\n")
+
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-ghost-on-cursor-row",
+        columns: columns,
+        rows: rows,
+        scrollbackText: nil,
+        viewportText: viewport,
+        cursor: MobileTerminalGhosttyCursor(column: 13, row: 4)
+    )
+
+    #expect(snapshot.cursor.row == 4)
+
+    let cursorRowCells = snapshot.visibleRows[4].cells
+    let cursorRowText = cursorRowCells.map(\.text).joined()
+    #expect(cursorRowText.hasPrefix("lawrence \u{03BB} htop"))
+
+    // The ghost suggestion ("top") must carry the dim foreground that
+    // arrived in the SGR escape immediately before it. If a future
+    // regression drops the per-cell foreground (because the parser
+    // misaligns the SGR-state mid-row, or because the CRLF-collapse bug
+    // returns and the SGR escape gets re-interpreted somewhere else),
+    // this assertion fails first.
+    let ghostStart = 12 // column right after the typed "h"
+    for offset in 0..<3 {
+        let ghostCell = cursorRowCells[ghostStart + offset]
+        #expect(ghostCell.text == ["t", "o", "p"][offset])
+        let fg = ghostCell.style.foreground
+        #expect(fg == MobileTerminalGhosttyColor(red: 110, green: 112, blue: 102))
+    }
+
+    // Row 0 must remain "echo aaa" - the ghost-text bug presented as
+    // those dim cells appearing on row 0 instead of the cursor row.
+    let row0Text = snapshot.visibleRows[0].cells.map(\.text).joined()
+    #expect(row0Text.hasPrefix("echo aaa"))
+    for cell in snapshot.visibleRows[0].cells {
+        // Row 0 must not have any cell with the autosuggest dim color.
+        #expect(cell.style.foreground != MobileTerminalGhosttyColor(red: 110, green: 112, blue: 102))
     }
 }

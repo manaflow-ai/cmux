@@ -384,6 +384,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             max(visibleGrid.cursorRow, 0),
             max(visibleGrid.rows.count - 1, 0)
         )
+        let viewportCursorRow = visibleGrid.viewportCursorRow
         var scrollbackRows = MobileTerminalGhosttyVTParser.styledRows(from: scrollbackText ?? "", columns: columns)
         if let maxScrollbackRows {
             scrollbackRows = Array(scrollbackRows.suffix(max(0, maxScrollbackRows)))
@@ -398,7 +399,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             )
         } ?? MobileTerminalGhosttyCursor(
             column: min(max(visibleGrid.cursorColumn, 0), max(columns - 1, 0)),
-            row: min(max(visibleGrid.cursorRow, 0), max(rows - 1, 0)),
+            row: min(max(viewportCursorRow, 0), max(rows - 1, 0)),
             isVisible: resolvedModes.cursorVisible
         )
         return try MobileTerminalGhosttySnapshot(

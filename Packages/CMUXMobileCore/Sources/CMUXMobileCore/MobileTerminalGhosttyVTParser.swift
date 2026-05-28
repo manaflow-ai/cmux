@@ -37,6 +37,7 @@ enum MobileTerminalGhosttyVTParser {
         var rows: [MobileTerminalGhosttyRow]
         var cursorColumn: Int
         var cursorRow: Int
+        var viewportCursorRow: Int
         var usesAbsoluteCursorAddressing: Bool
     }
 
@@ -49,7 +50,13 @@ enum MobileTerminalGhosttyVTParser {
         let text = text
             .replacingOccurrences(of: "\r\n", with: "\n")
         guard !text.isEmpty else {
-            return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0, usesAbsoluteCursorAddressing: false)
+            return StyledTerminalGrid(
+                rows: [],
+                cursorColumn: 0,
+                cursorRow: 0,
+                viewportCursorRow: 0,
+                usesAbsoluteCursorAddressing: false
+            )
         }
         let wrapsOverflow = text.contains("\u{001B}")
 
@@ -268,10 +275,14 @@ enum MobileTerminalGhosttyVTParser {
             column = 0
         }
 
+        let normalized = normalizedRows()
+        let viewportCursorRow = max(row, 0)
+        let sourceCursorRow = min(viewportCursorRow, max(normalized.count - 1, 0))
         return StyledTerminalGrid(
-            rows: normalizedRows(),
+            rows: normalized,
             cursorColumn: min(max(column, 0), resolvedColumns - 1),
-            cursorRow: max(row, 0),
+            cursorRow: sourceCursorRow,
+            viewportCursorRow: viewportCursorRow,
             usesAbsoluteCursorAddressing: usesAbsoluteCursorAddressing
         )
     }
