@@ -226,6 +226,7 @@ _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 _CMUX_LAST_PR_ACTION="${_CMUX_LAST_PR_ACTION:-}"
 _CMUX_LAST_PR_TARGET="${_CMUX_LAST_PR_TARGET:-}"
 _CMUX_PR_ACTION_HINT_FILE="${_CMUX_PR_ACTION_HINT_FILE:-${TMPDIR:-/tmp}/cmux-pr-action-$$}"
+_CMUX_BASH_HISTORY_LAST_FILE="${_CMUX_BASH_HISTORY_LAST_FILE:-${TMPDIR:-/tmp}/cmux-history-last-$$}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
@@ -1276,15 +1277,23 @@ _cmux_preexec_command() {
 _cmux_bash_history_command() {
     local HISTTIMEFORMAT=
     local history_file="${TMPDIR:-/tmp}/cmux-history-$$-${RANDOM:-0}"
-    local line=""
+    local line="" history_number="" last_number=""
     builtin history 1 > "$history_file" 2>/dev/null || {
         /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true
         return 1
     }
     IFS= read -r line < "$history_file" || line=""
     /bin/rm -f -- "$history_file" >/dev/null 2>&1 || true
-    if [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]]+(.*)$ ]]; then
-        printf '%s\n' "${BASH_REMATCH[1]}"
+    if [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.*)$ ]]; then
+        history_number="${BASH_REMATCH[1]}"
+        if [[ -n "${_CMUX_BASH_HISTORY_LAST_FILE:-}" && -r "$_CMUX_BASH_HISTORY_LAST_FILE" ]]; then
+            IFS= read -r last_number < "$_CMUX_BASH_HISTORY_LAST_FILE" || last_number=""
+        fi
+        [[ "$history_number" == "$last_number" ]] && return 1
+        if [[ -n "${_CMUX_BASH_HISTORY_LAST_FILE:-}" ]]; then
+            printf '%s\n' "$history_number" > "$_CMUX_BASH_HISTORY_LAST_FILE" 2>/dev/null || true
+        fi
+        printf '%s\n' "${BASH_REMATCH[2]}"
         return 0
     fi
     return 1

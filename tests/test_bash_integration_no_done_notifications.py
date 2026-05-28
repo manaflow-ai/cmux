@@ -150,6 +150,7 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
 
             with InteractiveBash(env) as bash:
                 bash.run("set -m")
+                bash.run("HISTCONTROL=ignorespace")
                 bash.run(f"source {integration_script}")
                 bash.run(
                     "_cmux_send() { printf '%s\\n' \"$1\" >> "
@@ -164,6 +165,7 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                 # The next prompts exercise the shell-state, port-kick, TTY,
                 # CWD, PR-action, and git-branch reporters.
                 bash.run("gh pr merge 123")
+                bash.run(" true")
                 bash.run("cd ..")
                 bash.run("true")
                 bash.run("sleep 0.2")
@@ -178,11 +180,13 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                     'report_pr_action merge --tab=tab-test '
                     '--panel=panel-test --target="123"'
                 )
-                if expected_payload not in sent_payloads:
+                payload_count = sent_payloads.splitlines().count(expected_payload)
+                if payload_count != 1:
                     raise AssertionError(
-                        "bash integration did not emit the PR action payload "
-                        "after the real gh preexec path.\n\n"
+                        "bash integration did not emit exactly one PR action "
+                        "payload after the real gh preexec path.\n\n"
                         f"Expected payload:\n{expected_payload}\n\n"
+                        f"Observed count: {payload_count}\n\n"
                         f"Sent payloads:\n{sent_payloads}\n\n"
                         f"Full PTY output:\n{bash.text}"
                     )
