@@ -1338,32 +1338,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
-        let orphanWindowId = UUID()
         let orphanManager = TabManager()
-        let orphanSidebarState = SidebarState()
-        let orphanSidebarSelectionState = SidebarSelectionState()
-        let orphanFileExplorerState = FileExplorerState()
-
-        autoreleasepool {
-            var orphanWindow: NSWindow? = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-                styleMask: [.titled, .closable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-            orphanWindow?.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(orphanWindowId.uuidString)")
-            appDelegate.registerMainWindow(
-                orphanWindow!,
-                windowId: orphanWindowId,
-                tabManager: orphanManager,
-                sidebarState: orphanSidebarState,
-                sidebarSelectionState: orphanSidebarSelectionState,
-                fileExplorerState: orphanFileExplorerState
-            )
-            orphanWindow = nil
-        }
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+#if DEBUG
+        let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+        return
+#endif
 
         XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
 
@@ -1377,38 +1358,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testCustomCmdTNewWorkspacePrunesOrphanedContextWithoutLiveWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
 
-        let existingWindowIds = mainWindowIds()
-        let orphanWindowId = UUID()
         let orphanManager = TabManager()
-        let orphanSidebarState = SidebarState()
-        let orphanSidebarSelectionState = SidebarSelectionState()
-        let orphanFileExplorerState = FileExplorerState()
-
-        autoreleasepool {
-            var orphanWindow: NSWindow? = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-                styleMask: [.titled, .closable, .resizable],
-                backing: .buffered,
-                defer: false
-            )
-            orphanWindow?.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(orphanWindowId.uuidString)")
-            appDelegate.registerMainWindow(
-                orphanWindow!,
-                windowId: orphanWindowId,
-                tabManager: orphanManager,
-                sidebarState: orphanSidebarState,
-                sidebarSelectionState: orphanSidebarSelectionState,
-                fileExplorerState: orphanFileExplorerState
-            )
-            orphanWindow = nil
-        }
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+#if DEBUG
+        let orphanWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: orphanManager)
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+        return
+#endif
 
         XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
 
@@ -1436,11 +1397,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(orphanManager.tabs.count, orphanCount, "Orphaned manager must not receive a new workspace from remapped Cmd+T")
         XCTAssertNil(appDelegate.tabManagerFor(windowId: orphanWindowId), "Remapped Cmd+T should prune the orphaned context after failed resolution")
-
-        let createdWindowIds = mainWindowIds().subtracting(existingWindowIds)
-        for windowId in createdWindowIds {
-            closeWindow(withId: windowId)
-        }
     }
 
     func testCmdDigitRoutesToEventWindowWhenActiveManagerIsStale() {

@@ -14,7 +14,7 @@ private final class ShortcutContextMenuActionProbe: NSObject {
     }
 }
 
-private final class ShortcutContextNotificationCounter {
+private final class ShortcutContextNotificationCounter: @unchecked Sendable {
     var count = 0
 }
 
