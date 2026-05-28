@@ -9351,6 +9351,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
+    /// Dock-hosted browser panels are intentionally outside Bonsplit `panels`,
+    /// but they still share workspace browser configuration and remote state.
+    private var adoptedDockBrowserPanels: [UUID: BrowserPanel] = [:]
+
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
@@ -10416,10 +10420,10 @@ final class Workspace: Identifiable, ObservableObject {
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
             guard let self = self,
-                  let browserPanel = browserPanel,
-                  let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+                  let browserPanel = browserPanel else { return }
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
-            guard let existing = self.bonsplitController.tab(tabId) else { return }
+            guard let tabId = self.surfaceIdFromPanelId(browserPanel.id),
+                  let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
                 self.panelTitles[browserPanel.id] = nextTitle
@@ -10437,9 +10441,27 @@ final class Workspace: Identifiable, ObservableObject {
                 isLoading: loadingUpdate
             )
         }
+        panelSubscriptions.removeValue(forKey: browserPanel.id)?.cancel()
         panelSubscriptions[browserPanel.id] = subscription
         publishBrowserOpenTabSuggestion(for: browserPanel)
         setPreferredBrowserProfileID(browserPanel.profileID)
+    }
+
+    func adoptDockBrowserPanel(_ browserPanel: BrowserPanel) {
+        adoptedDockBrowserPanels[browserPanel.id] = browserPanel
+        configureBrowserPanel(browserPanel)
+        installBrowserPanelSubscription(browserPanel)
+        browserPanel.setRemoteProxyEndpoint(remoteProxyEndpoint)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+    }
+
+    func releaseDockBrowserPanel(_ browserPanel: BrowserPanel, closePanel: Bool = true) {
+        adoptedDockBrowserPanels.removeValue(forKey: browserPanel.id)
+        panelSubscriptions.removeValue(forKey: browserPanel.id)?.cancel()
+        removeBrowserOpenTabSuggestion(panelId: browserPanel.id)
+        if closePanel {
+            browserPanel.close()
+        }
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -10546,15 +10568,25 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private var workspaceBrowserPanels: [BrowserPanel] {
+        panels.values.compactMap { $0 as? BrowserPanel }
+            + adoptedDockBrowserPanels.values.filter { panels[$0.id] == nil }
+    }
+
     private func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
+        for browserPanel in workspaceBrowserPanels {
             browserPanel.setRemoteWorkspaceStatus(snapshot)
         }
     }
 
     // MARK: - Panel Access
+
+    private static func workspace(for workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs
+            .first(where: { $0.id == workspaceId })
+    }
 
     func panel(for surfaceId: TabID) -> (any Panel)? {
         guard let panelId = panelIdFromSurfaceId(surfaceId) else { return nil }
@@ -11481,7 +11513,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func resetBrowserPanelsForContextChange(reason: String) {
-        let browserPanels = panels.values.compactMap { $0 as? BrowserPanel }
+        let browserPanels = workspaceBrowserPanels
         guard !browserPanels.isEmpty else { return }
 
 #if DEBUG
@@ -11493,6 +11525,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         for browserPanel in browserPanels {
             browserPanel.resetForWorkspaceContextChange(reason: reason)
+            guard panels[browserPanel.id] is BrowserPanel else {
+                continue
+            }
             let nextTitle = browserPanel.displayTitle
             _ = updatePanelTitle(panelId: browserPanel.id, title: nextTitle)
 
@@ -12562,8 +12597,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     fileprivate func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
         remoteProxyEndpoint = endpoint
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
+        for browserPanel in workspaceBrowserPanels {
             browserPanel.setRemoteProxyEndpoint(endpoint)
         }
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -13307,6 +13341,37 @@ final class Workspace: Identifiable, ObservableObject {
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
+        return browserPanel
+    }
+
+    /// Create a browser panel for the right-sidebar Dock without inserting it into Bonsplit.
+    /// This intentionally mirrors `newBrowserSurface`'s browser/profile/proxy setup so Dock
+    /// browsers share the same WebKit process pool, profile data stores, DevTools, and remote
+    /// proxy behavior as main-split browser panes.
+    func newDockBrowserPanel(
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil
+    ) -> BrowserPanel? {
+        let browserEnabled = BrowserAvailabilitySettings.isEnabled()
+        guard browserEnabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            profileID: resolvedNewBrowserProfileID(
+                preferredProfileID: preferredProfileID,
+                sourcePanelId: focusedPanelId
+            ),
+            initialURL: url,
+            proxyEndpoint: remoteProxyEndpoint,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+        )
+        adoptDockBrowserPanel(browserPanel)
         return browserPanel
     }
 
@@ -14240,7 +14305,8 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         atIndex index: Int? = nil,
         focus: Bool = true,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil
     ) -> UUID? {
 #if DEBUG
         let attachStart = ProcessInfo.processInfo.systemUptime
@@ -14301,18 +14367,13 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
 
-        guard let newTabId = bonsplitController.createTab(
-            title: detached.title,
-            hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-            icon: detached.icon,
-            iconImageData: detached.iconImageData,
-            kind: detached.kind,
-            isDirty: detached.panel.isDirty,
-            isLoading: detached.isLoading,
-            isPinned: detached.isPinned,
-            inPane: paneId
-        ) else {
-            removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
+        func discardPendingAttachState() {
+            let isDockOwnedBrowser = detached.panel is BrowserPanel
+                && adoptedDockBrowserPanels[detached.panelId] != nil
+            if !isDockOwnedBrowser {
+                removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
+                panelSubscriptions.removeValue(forKey: detached.panelId)
+            }
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
@@ -14324,14 +14385,61 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
-            panelSubscriptions.removeValue(forKey: detached.panelId)
-#if DEBUG
-            cmuxDebugLog(
-                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
-                "reason=createTabFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+        }
+
+        let newTabId: TabID
+        let attachedPaneId: PaneID
+        if let splitTarget {
+            let newTab = Bonsplit.Tab(
+                title: detached.title,
+                hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                icon: detached.icon,
+                iconImageData: detached.iconImageData,
+                kind: detached.kind,
+                isDirty: detached.panel.isDirty,
+                isLoading: detached.isLoading,
+                isPinned: detached.isPinned
             )
+            guard let newPaneId = bonsplitController.splitPane(
+                paneId,
+                orientation: splitTarget.orientation,
+                withTab: newTab,
+                insertFirst: splitTarget.insertFirst
+            ) else {
+                discardPendingAttachState()
+#if DEBUG
+                cmuxDebugLog(
+                    "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                    "reason=splitFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+                )
 #endif
-            return nil
+                return nil
+            }
+            newTabId = newTab.id
+            attachedPaneId = newPaneId
+        } else {
+            guard let createdTabId = bonsplitController.createTab(
+                title: detached.title,
+                hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                icon: detached.icon,
+                iconImageData: detached.iconImageData,
+                kind: detached.kind,
+                isDirty: detached.panel.isDirty,
+                isLoading: detached.isLoading,
+                isPinned: detached.isPinned,
+                inPane: paneId
+            ) else {
+                discardPendingAttachState()
+#if DEBUG
+                cmuxDebugLog(
+                    "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                    "reason=createTabFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+                )
+#endif
+                return nil
+            }
+            newTabId = createdTabId
+            attachedPaneId = paneId
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
@@ -14340,6 +14448,12 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
+            if detached.sourceWorkspaceId != id,
+               let sourceWorkspace = Self.workspace(for: detached.sourceWorkspaceId),
+               sourceWorkspace !== self {
+                sourceWorkspace.releaseDockBrowserPanel(browserPanel, closePanel: false)
+            }
+            adoptedDockBrowserPanels.removeValue(forKey: browserPanel.id)
             browserPanel.reattachToWorkspace(
                 id,
                 isRemoteWorkspace: isRemoteWorkspace,
@@ -14406,13 +14520,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         syncPinnedStateForTab(newTabId, panelId: detached.panelId)
         syncUnreadBadgeStateForPanel(detached.panelId)
-        normalizePinnedTabs(in: paneId)
-        publishCmuxSurfaceCreated(detached.panelId, paneId: paneId, kind: Self.cmuxEventSurfaceKind(detached.panel), origin: "detach_attach", focused: focus)
+        normalizePinnedTabs(in: attachedPaneId)
+        publishCmuxSurfaceCreated(detached.panelId, paneId: attachedPaneId, kind: Self.cmuxEventSurfaceKind(detached.panel), origin: "detach_attach", focused: focus)
 
         if focus {
-            bonsplitController.focusPane(paneId)
+            bonsplitController.focusPane(attachedPaneId)
             bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId, focusIntent: focusIntent)
+            applyTabSelection(tabId: newTabId, inPane: attachedPaneId, focusIntent: focusIntent)
         } else {
             scheduleFocusReconcile()
         }
@@ -14421,7 +14535,7 @@ final class Workspace: Identifiable, ObservableObject {
 #if DEBUG
         cmuxDebugLog(
             "split.attach.end ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
-            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(attachedPaneId.id.uuidString.prefix(5)) " +
             "index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0) " +
             "elapsedMs=\(debugElapsedMs(since: attachStart))"
         )
@@ -15003,6 +15117,28 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return newPanel
+    }
+
+    @discardableResult
+    func createReplacementTerminalPanelIfEmpty(focus: Bool) -> TerminalPanel? {
+        guard panels.isEmpty else { return nil }
+        let replacement = createReplacementTerminalPanel()
+        if focus {
+            focusReplacementTerminalPanel(replacement)
+        }
+        scheduleTerminalGeometryReconcile()
+        scheduleFocusReconcile()
+        return replacement
+    }
+
+    private func focusReplacementTerminalPanel(_ replacement: TerminalPanel) {
+        guard let replacementTabId = surfaceIdFromPanelId(replacement.id),
+              let replacementPane = paneId(forPanelId: replacement.id) ?? bonsplitController.allPaneIds.first else {
+            return
+        }
+        bonsplitController.focusPane(replacementPane)
+        bonsplitController.selectTab(replacementTabId)
+        applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
     }
 
     /// Check if any panel needs close confirmation
@@ -16196,6 +16332,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
             return handleFilePreviewDrop(entry: entry, destination: request.destination)
         }
+        if let entry = DockSurfaceDragRegistry.shared.consume(id: request.tabId.uuid) {
+            return handleDockSurfaceDrop(entry: entry, destination: request.destination)
+        }
 
         guard let app = AppDelegate.shared else { return false }
 #if DEBUG
@@ -16248,6 +16387,39 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return moved
+    }
+
+    private func handleDockSurfaceDrop(
+        entry: DockSurfaceDragEntry,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        let targetPane: PaneID
+        let targetIndex: Int?
+        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+
+        switch destination {
+        case .insert(let paneId, let index):
+            targetPane = paneId
+            targetIndex = index
+            splitTarget = nil
+        case .split(let paneId, let orientation, let insertFirst):
+            targetPane = paneId
+            targetIndex = nil
+            splitTarget = (orientation, insertFirst)
+        }
+
+        guard attachDetachedSurface(
+            entry.transfer,
+            inPane: targetPane,
+            atIndex: targetIndex,
+            focus: true,
+            splitTarget: splitTarget
+        ) != nil else {
+            return false
+        }
+
+        entry.onAttached()
+        return true
     }
 
 }
@@ -16944,15 +17116,7 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             dlog("replacement.banner.fire target=\(pendingReplacementBannerRemoteTarget ?? "nil")")
             #endif
-            let replacement = createReplacementTerminalPanel()
-            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
-               let replacementPane = bonsplitController.allPaneIds.first {
-                bonsplitController.focusPane(replacementPane)
-                bonsplitController.selectTab(replacementTabId)
-                applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
-            }
-            scheduleTerminalGeometryReconcile()
-            scheduleFocusReconcile()
+            _ = createReplacementTerminalPanelIfEmpty(focus: true)
             return
         }
 

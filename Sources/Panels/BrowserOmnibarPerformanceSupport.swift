@@ -141,11 +141,8 @@ final class BrowserOpenTabSuggestionIndex {
     private func seedIfNeeded(_ snapshots: () -> [BrowserOpenTabSuggestionSnapshot]) {
         guard !isSeeded else { return }
         isSeeded = true
-        suggestionsByPanelId.removeAll(keepingCapacity: true)
-        suggestionOrder.removeAll(keepingCapacity: true)
         for snapshot in snapshots() {
-            suggestionsByPanelId[snapshot.panelId] = snapshot
-            suggestionOrder.append(snapshot.panelId)
+            upsert(snapshot)
         }
     }
 }

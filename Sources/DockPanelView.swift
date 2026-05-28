@@ -2,13 +2,57 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
+enum DockEntryKind: Equatable {
+    case terminal(command: String, cwd: String?, env: [String: String])
+    case browser(url: URL?, profile: String?)
+
+    enum Tag: String {
+        case terminal
+        case browser
+    }
+
+    var tag: Tag {
+        switch self {
+        case .terminal:
+            return .terminal
+        case .browser:
+            return .browser
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .terminal:
+            return "terminal.fill"
+        case .browser:
+            return "globe"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .terminal(let command, _, _):
+            return command
+        case .browser(let url, _):
+            return url?.absoluteString ?? String(localized: "dock.entry.browser.new", defaultValue: "New browser")
+        }
+    }
+}
+
 struct DockControlDefinition: Codable, Equatable, Identifiable {
     let id: String
     let title: String
-    let command: String
-    let cwd: String?
     let height: Double?
-    let env: [String: String]
+    let kind: DockEntryKind
+
+    var command: String {
+        switch kind {
+        case .terminal(let command, _, _):
+            return command
+        case .browser:
+            return kind.detailText
+        }
+    }
 
     init(
         id: String,
@@ -20,29 +64,48 @@ struct DockControlDefinition: Codable, Equatable, Identifiable {
     ) {
         self.id = id
         self.title = title
-        self.command = command
-        self.cwd = cwd
         self.height = height
-        self.env = env
+        self.kind = .terminal(command: command, cwd: cwd, env: env)
+    }
+
+    init(
+        id: String,
+        title: String,
+        url: URL? = nil,
+        profile: String? = nil,
+        height: Double? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.height = height
+        self.kind = .browser(url: url, profile: profile)
+    }
+
+    private init(id: String, title: String, height: Double?, kind: DockEntryKind) {
+        self.id = id
+        self.title = title
+        self.height = height
+        self.kind = kind
     }
 
     private enum CodingKeys: String, CodingKey {
         case id
         case title
+        case kind
         case command
         case cwd
         case height
         case env
+        case url
+        case profile
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawID = try container.decode(String.self, forKey: .id)
         let rawTitle = try container.decodeIfPresent(String.self, forKey: .title) ?? rawID
-        let rawCommand = try container.decode(String.self, forKey: .command)
         let normalizedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCommand = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedID.isEmpty else {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
@@ -50,31 +113,80 @@ struct DockControlDefinition: Codable, Equatable, Identifiable {
                 debugDescription: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank.")
             )
         }
-        guard !normalizedCommand.isEmpty else {
+
+        let requestedKind = try container.decodeIfPresent(String.self, forKey: .kind)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let resolvedKind: DockEntryKind
+        switch requestedKind {
+        case nil, "", DockEntryKind.Tag.terminal.rawValue:
+            let rawCommand = try container.decode(String.self, forKey: .command)
+            let normalizedCommand = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedCommand.isEmpty else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .command,
+                    in: container,
+                    debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+                )
+            }
+            let rawCWD = try container.decodeIfPresent(String.self, forKey: .cwd)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            resolvedKind = .terminal(
+                command: normalizedCommand,
+                cwd: rawCWD?.isEmpty == true ? nil : rawCWD,
+                env: try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+            )
+        case DockEntryKind.Tag.browser.rawValue:
+            let rawURL = try container.decodeIfPresent(String.self, forKey: .url)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let url: URL?
+            if let rawURL, !rawURL.isEmpty {
+                guard let parsed = URL(string: rawURL) else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .url,
+                        in: container,
+                        debugDescription: String(localized: "dock.error.invalidControlURL", defaultValue: "Dock browser URL is invalid.")
+                    )
+                }
+                url = parsed
+            } else {
+                url = nil
+            }
+            let rawProfile = try container.decodeIfPresent(String.self, forKey: .profile)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            resolvedKind = .browser(url: url, profile: rawProfile?.isEmpty == true ? nil : rawProfile)
+        default:
             throw DecodingError.dataCorruptedError(
-                forKey: .command,
+                forKey: .kind,
                 in: container,
-                debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+                debugDescription: String(localized: "dock.error.invalidControlKind", defaultValue: "Dock control kind must be terminal or browser.")
             )
         }
-        id = normalizedID
-        title = normalizedTitle.isEmpty ? normalizedID : normalizedTitle
-        command = normalizedCommand
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        height = try container.decodeIfPresent(Double.self, forKey: .height)
-        env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+        self.init(
+            id: normalizedID,
+            title: normalizedTitle.isEmpty ? normalizedID : normalizedTitle,
+            height: try container.decodeIfPresent(Double.self, forKey: .height),
+            kind: resolvedKind
+        )
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
-        try container.encode(command, forKey: .command)
-        try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(height, forKey: .height)
-        if !env.isEmpty {
-            try container.encode(env, forKey: .env)
+        switch kind {
+        case .terminal(let command, let cwd, let env):
+            try container.encode(DockEntryKind.Tag.terminal.rawValue, forKey: .kind)
+            try container.encode(command, forKey: .command)
+            try container.encodeIfPresent(cwd, forKey: .cwd)
+            if !env.isEmpty {
+                try container.encode(env, forKey: .env)
+            }
+        case .browser(let url, let profile):
+            try container.encode(DockEntryKind.Tag.browser.rawValue, forKey: .kind)
+            try container.encodeIfPresent(url?.absoluteString, forKey: .url)
+            try container.encodeIfPresent(profile, forKey: .profile)
         }
     }
 }
@@ -96,81 +208,304 @@ struct DockTrustRequest: Identifiable {
     let configPath: String
 }
 
+private enum DockControlRuntimeError: LocalizedError {
+    case browserUnavailable
+    case browserWorkspaceUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .browserUnavailable:
+            return String(
+                localized: "dock.error.browserUnavailable",
+                defaultValue: "Dock browser entries require the embedded browser to be enabled."
+            )
+        case .browserWorkspaceUnavailable:
+            return String(
+                localized: "dock.error.browserWorkspaceUnavailable",
+                defaultValue: "Dock browser entry could not find its workspace."
+            )
+        }
+    }
+}
+
 @MainActor
-final class DockControlRuntime: ObservableObject, Identifiable {
+final class DockControlRuntime: Identifiable {
     let id: String
-    let definition: DockControlDefinition
+    private(set) var definition: DockControlDefinition?
+    private var detachedTransfer: Workspace.DetachedSurfaceTransfer?
     let baseDirectory: String
     let workspaceId: UUID
     let paneId: PaneID
-    @Published private(set) var panel: TerminalPanel
+    let panel: any Panel
 
-    init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) {
+    init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) throws {
         self.id = definition.id
         self.definition = definition
+        self.detachedTransfer = nil
         self.baseDirectory = baseDirectory
         self.workspaceId = workspaceId
         self.paneId = PaneID(id: UUID())
-        self.panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
+        self.panel = try Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
     }
 
-    fileprivate var snapshot: DockControlSnapshot { .init(id: id, title: definition.title, command: definition.command, requestedHeight: definition.height) }
+    init(detached transfer: Workspace.DetachedSurfaceTransfer, baseDirectory: String, workspaceId: UUID) {
+        self.id = "docked-\(transfer.panelId.uuidString.lowercased())"
+        self.definition = nil
+        self.detachedTransfer = transfer
+        self.baseDirectory = baseDirectory
+        self.workspaceId = workspaceId
+        self.paneId = PaneID(id: UUID())
+        self.panel = transfer.panel
+        Self.prepareTransferredPanel(transfer.panel, workspaceId: workspaceId)
+    }
 
-    fileprivate var terminalAttachment: DockTerminalAttachment { .init(paneId: paneId, panelId: panel.id, terminalSurface: panel.surface, searchState: panel.searchState, reattachToken: panel.viewReattachToken) }
+    fileprivate var snapshot: DockControlSnapshot {
+        if let definition {
+            return .init(
+                id: id,
+                title: definition.title,
+                detail: definition.kind.detailText,
+                symbolName: definition.kind.symbolName,
+                kind: definition.kind.tag,
+                requestedHeight: definition.height,
+                canRestart: true
+            )
+        }
 
-    func focus() {
-        panel.hostedView.ensureFocus(
-            for: panel.surface.tabId,
-            surfaceId: panel.id,
-            respectForeignFirstResponder: false
+        return .init(
+            id: id,
+            title: detachedTransfer?.title ?? panel.displayTitle,
+            detail: panelDetailText,
+            symbolName: panel.displayIcon ?? "dock.rectangle",
+            kind: panel.panelType == .browser ? .browser : .terminal,
+            requestedHeight: nil,
+            canRestart: false
         )
     }
 
-    func restart() {
-        let oldPanel = panel
-        panel = Self.makePanel(definition: definition, baseDirectory: baseDirectory, workspaceId: workspaceId)
-        oldPanel.close()
+    fileprivate var terminalAttachment: DockTerminalAttachment? {
+        guard let terminalPanel = panel as? TerminalPanel else { return nil }
+        return .init(
+            paneId: paneId,
+            panelId: terminalPanel.id,
+            terminalSurface: terminalPanel.surface,
+            searchState: terminalPanel.searchState,
+            reattachToken: terminalPanel.viewReattachToken
+        )
+    }
+
+    fileprivate var browserAttachment: DockBrowserAttachment? {
+        guard let browserPanel = panel as? BrowserPanel else { return nil }
+        return DockBrowserAttachment(paneId: paneId, panel: browserPanel)
+    }
+
+    func focus() {
+        switch panel {
+        case let terminalPanel as TerminalPanel:
+            terminalPanel.hostedView.ensureFocus(
+                for: terminalPanel.surface.tabId,
+                surfaceId: terminalPanel.id,
+                respectForeignFirstResponder: false
+            )
+        case let browserPanel as BrowserPanel:
+            _ = browserPanel.requestExplicitWebViewFocus()
+        default:
+            break
+        }
     }
 
     func close() {
+        if let browserPanel = panel as? BrowserPanel,
+           let workspace = Self.workspace(for: workspaceId) {
+            workspace.releaseDockBrowserPanel(browserPanel)
+            return
+        }
         panel.close()
     }
 
     func setVisibleInUI(_ visible: Bool) {
-        if visible {
-            panel.hostedView.setVisibleInUI(true)
-            TerminalWindowPortalRegistry.updateEntryVisibility(
-                for: panel.hostedView,
-                visibleInUI: true
-            )
-        } else {
-            panel.unfocus()
-            panel.hostedView.setVisibleInUI(false)
-            TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
+        switch panel {
+        case let terminalPanel as TerminalPanel:
+            if visible {
+                terminalPanel.hostedView.setVisibleInUI(true)
+                TerminalWindowPortalRegistry.updateEntryVisibility(
+                    for: terminalPanel.hostedView,
+                    visibleInUI: true
+                )
+            } else {
+                terminalPanel.unfocus()
+                terminalPanel.hostedView.setVisibleInUI(false)
+                TerminalWindowPortalRegistry.hideHostedView(terminalPanel.hostedView)
+            }
+        case let browserPanel as BrowserPanel:
+            if visible {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: true,
+                    zPriority: 1
+                )
+            } else {
+                browserPanel.unfocus()
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: false,
+                    zPriority: 0
+                )
+                BrowserWindowPortalRegistry.hide(webView: browserPanel.webView, source: "dock.hidden")
+            }
+        default:
+            break
         }
+    }
+
+    func detachedSurfaceTransferForDrag() -> Workspace.DetachedSurfaceTransfer {
+        let browserPanel = panel as? BrowserPanel
+        let terminalPanel = panel as? TerminalPanel
+        let preserved = detachedTransfer
+        return Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: preserved?.sourceWorkspaceId ?? workspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: snapshot.title,
+            icon: panel.displayIcon,
+            iconImageData: browserPanel?.faviconPNGData ?? preserved?.iconImageData,
+            kind: Self.surfaceKind(for: panel),
+            isLoading: browserPanel?.isLoading ?? preserved?.isLoading ?? false,
+            isPinned: preserved?.isPinned ?? false,
+            directory: preserved?.directory ?? terminalPanel?.requestedWorkingDirectory,
+            ttyName: preserved?.ttyName,
+            cachedTitle: preserved?.cachedTitle,
+            customTitle: preserved?.customTitle,
+            manuallyUnread: preserved?.manuallyUnread ?? false,
+            restoredUnread: preserved?.restoredUnread ?? false,
+            restorableAgent: preserved?.restorableAgent,
+            restorableAgentResumeState: preserved?.restorableAgentResumeState,
+            agentRuntime: preserved?.agentRuntime,
+            isRemoteTerminal: preserved?.isRemoteTerminal ?? false,
+            remoteRelayPort: preserved?.remoteRelayPort,
+            remoteCleanupConfiguration: preserved?.remoteCleanupConfiguration
+        )
+    }
+
+    func triggerFlash() {
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalPanel.triggerFlash(reason: .debug)
+        } else if let browserPanel = panel as? BrowserPanel {
+            browserPanel.triggerFlash(reason: .debug)
+        }
+    }
+
+    private static func workspace(for workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs
+            .first(where: { $0.id == workspaceId })
     }
 
     private static func makePanel(
         definition: DockControlDefinition,
         baseDirectory: String,
         workspaceId: UUID
-    ) -> TerminalPanel {
-        var environment = definition.env
-        environment["CMUX_DOCK_CONTROL_ID"] = definition.id
-        environment["CMUX_DOCK_CONTROL_TITLE"] = definition.title
+    ) throws -> any Panel {
+        switch definition.kind {
+        case .terminal(let command, let cwd, let env):
+            var environment = env
+            environment["CMUX_DOCK_CONTROL_ID"] = definition.id
+            environment["CMUX_DOCK_CONTROL_TITLE"] = definition.title
 
-        let workingDirectory = resolvedWorkingDirectory(definition.cwd, baseDirectory: baseDirectory)
-        return TerminalPanel(
-            workspaceId: workspaceId,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            workingDirectory: workingDirectory,
-            initialCommand: shellStartupScript(
-                command: definition.command,
-                workingDirectory: workingDirectory
-            ),
-            initialEnvironmentOverrides: environment,
-            focusPlacement: .rightSidebarDock
-        )
+            let workingDirectory = resolvedWorkingDirectory(cwd, baseDirectory: baseDirectory)
+            return TerminalPanel(
+                workspaceId: workspaceId,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                workingDirectory: workingDirectory,
+                initialCommand: shellStartupScript(
+                    command: command,
+                    workingDirectory: workingDirectory
+                ),
+                initialEnvironmentOverrides: environment,
+                focusPlacement: .rightSidebarDock
+            )
+        case .browser(let url, let profile):
+            guard let workspace = workspace(for: workspaceId) else {
+#if DEBUG
+                cmuxDebugLog("dock.browser.create.blocked id=\(definition.id) reason=missing_workspace")
+#endif
+                throw DockControlRuntimeError.browserWorkspaceUnavailable
+            }
+            guard let panel = workspace.newDockBrowserPanel(
+                url: url,
+                preferredProfileID: browserProfileID(for: profile)
+            ) else {
+#if DEBUG
+                cmuxDebugLog("dock.browser.create.blocked id=\(definition.id) reason=browser_unavailable")
+#endif
+                throw DockControlRuntimeError.browserUnavailable
+            }
+            return panel
+        }
+    }
+
+    private static func prepareTransferredPanel(_ panel: any Panel, workspaceId: UUID) {
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalPanel.updateWorkspaceId(workspaceId)
+            terminalPanel.unfocus()
+            terminalPanel.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(terminalPanel.hostedView)
+        } else if let browserPanel = panel as? BrowserPanel {
+            browserPanel.updateWorkspaceId(workspaceId)
+            browserPanel.unfocus()
+            Self.workspace(for: workspaceId)?.adoptDockBrowserPanel(browserPanel)
+            BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: browserPanel.webView,
+                visibleInUI: false,
+                zPriority: 0
+            )
+            BrowserWindowPortalRegistry.hide(webView: browserPanel.webView, source: "dock.transferIn")
+        }
+    }
+
+    private static func browserProfileID(for profile: String?) -> UUID? {
+        guard let raw = profile?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        let store = BrowserProfileStore.shared
+        if raw.caseInsensitiveCompare("default") == .orderedSame {
+            return store.builtInDefaultProfileID
+        }
+        if let uuid = UUID(uuidString: raw),
+           store.profileDefinition(id: uuid) != nil {
+            return uuid
+        }
+        return store.profiles.first {
+            $0.slug.caseInsensitiveCompare(raw) == .orderedSame ||
+                $0.displayName.caseInsensitiveCompare(raw) == .orderedSame
+        }?.id
+    }
+
+    private static func surfaceKind(for panel: any Panel) -> String {
+        switch panel.panelType {
+        case .terminal:
+            return Workspace.SurfaceKind.terminal
+        case .browser:
+            return Workspace.SurfaceKind.browser
+        case .markdown:
+            return Workspace.SurfaceKind.markdown
+        case .filePreview:
+            return Workspace.SurfaceKind.filePreview
+        case .rightSidebarTool:
+            return Workspace.SurfaceKind.rightSidebarTool
+        }
+    }
+
+    private var panelDetailText: String {
+        if let terminalPanel = panel as? TerminalPanel {
+            return terminalPanel.displayTitle
+        }
+        if let browserPanel = panel as? BrowserPanel {
+            return browserPanel.currentURL?.absoluteString
+                ?? String(localized: "dock.entry.browser.new", defaultValue: "New browser")
+        }
+        return panel.displayTitle
     }
 
     private static func resolvedWorkingDirectory(_ cwd: String?, baseDirectory: String) -> String {
@@ -229,17 +564,90 @@ final class DockControlRuntime: ObservableObject, Identifiable {
 fileprivate struct DockControlSnapshot: Identifiable {
     let id: String
     let title: String
-    let command: String
+    let detail: String
+    let symbolName: String
+    let kind: DockEntryKind.Tag
     let requestedHeight: Double?
+    let canRestart: Bool
 }
 
 fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUID; let terminalSurface: TerminalSurface; let searchState: TerminalSurface.SearchState?; let reattachToken: UInt64 }
+fileprivate struct DockBrowserAttachment { let paneId: PaneID; let panel: BrowserPanel }
+
+private struct DockMirrorTabItem: Codable {
+    let id: UUID
+    let title: String
+    let hasCustomTitle: Bool
+    let icon: String?
+    let iconImageData: Data?
+    let kind: String?
+    let isDirty: Bool
+    let showsNotificationBadge: Bool
+    let isLoading: Bool
+    let isPinned: Bool
+}
+
+private struct DockMirrorTabTransferData: Codable {
+    let tab: DockMirrorTabItem
+    let sourcePaneId: UUID
+    let sourceProcessId: Int32
+}
+
+struct DockSurfaceDragEntry {
+    let transfer: Workspace.DetachedSurfaceTransfer
+    let onAttached: @MainActor () -> Void
+}
+
+@MainActor
+final class DockSurfaceDragRegistry {
+    static let shared = DockSurfaceDragRegistry()
+
+    private struct PendingDrag {
+        let transferProvider: @MainActor () -> Workspace.DetachedSurfaceTransfer?
+        let onAttached: @MainActor () -> Void
+        let expirationTimer: Timer
+    }
+
+    private let entryLifetime: TimeInterval = 60
+    private var pending: [UUID: PendingDrag] = [:]
+
+    func register(
+        transferProvider: @escaping @MainActor () -> Workspace.DetachedSurfaceTransfer?,
+        onAttached: @escaping @MainActor () -> Void
+    ) -> UUID {
+        let id = UUID()
+        let timer = Timer(timeInterval: entryLifetime, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.expire(id: id)
+            }
+        }
+        pending[id] = PendingDrag(
+            transferProvider: transferProvider,
+            onAttached: onAttached,
+            expirationTimer: timer
+        )
+        RunLoop.main.add(timer, forMode: .common)
+        return id
+    }
+
+    func consume(id: UUID) -> DockSurfaceDragEntry? {
+        guard let drag = pending.removeValue(forKey: id) else { return nil }
+        drag.expirationTimer.invalidate()
+        guard let transfer = drag.transferProvider() else { return nil }
+        return DockSurfaceDragEntry(transfer: transfer, onAttached: drag.onAttached)
+    }
+
+    private func expire(id: UUID) {
+        pending.removeValue(forKey: id)?.expirationTimer.invalidate()
+    }
+}
 
 @MainActor
 final class DockControlsStore: ObservableObject {
     @Published private(set) var controls: [DockControlRuntime] = []
     @Published private(set) var sourceLabel = ""
     @Published private(set) var errorMessage: String?
+    @Published private(set) var warningMessage: String?
     @Published private(set) var trustRequest: DockTrustRequest?
 
     private var lastRootDirectory: String?
@@ -247,12 +655,23 @@ final class DockControlsStore: ObservableObject {
     private var activeConfigURL: URL?
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
+    @Published private var focusedControlID: String?
 
     fileprivate var controlSnapshots: [DockControlSnapshot] {
         controls.map(\.snapshot)
     }
 
-    fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? { controls.first { $0.id == controlID }?.terminalAttachment }
+    fileprivate func terminalAttachment(for controlID: String) -> DockTerminalAttachment? {
+        controls.first { $0.id == controlID }?.terminalAttachment
+    }
+
+    fileprivate func browserAttachment(for controlID: String) -> DockBrowserAttachment? {
+        controls.first { $0.id == controlID }?.browserAttachment
+    }
+
+    fileprivate func isFocused(controlID: String) -> Bool {
+        focusedControlID == controlID
+    }
 
     func activate(rootDirectory: String?, workspaceId: UUID?) {
         controlsVisibleInUI = true
@@ -275,6 +694,7 @@ final class DockControlsStore: ObservableObject {
         lastWorkspaceId = workspaceId
         hasLoadedConfiguration = true
         errorMessage = nil
+        warningMessage = nil
         trustRequest = nil
         activeConfigURL = nil
 
@@ -296,15 +716,37 @@ final class DockControlsStore: ObservableObject {
                 trustRequest = request
                 return
             }
-            let resolvedControls = resolution.controls.map {
-                DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
+            var resolvedControls: [DockControlRuntime] = []
+            var firstRuntimeError: Error?
+            var runtimeErrorCount = 0
+            for definition in resolution.controls {
+                do {
+                    resolvedControls.append(try DockControlRuntime(
+                        definition: definition,
+                        baseDirectory: resolution.baseDirectory,
+                        workspaceId: workspaceId
+                    ))
+                } catch {
+                    firstRuntimeError = firstRuntimeError ?? error
+                    runtimeErrorCount += 1
+#if DEBUG
+                    cmuxDebugLog("dock.config.entry.skip id=\(definition.id) error=\(error.localizedDescription)")
+#endif
+                }
+            }
+            if resolvedControls.isEmpty, let firstRuntimeError {
+                throw firstRuntimeError
             }
             replaceControls(with: resolvedControls)
             sourceLabel = Self.sourceLabel(for: resolution)
+            if let firstRuntimeError, runtimeErrorCount > 0 {
+                warningMessage = Self.partialStartupErrorMessage(firstError: firstRuntimeError)
+            }
         } catch {
             replaceControls(with: [])
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
             errorMessage = error.localizedDescription
+            warningMessage = nil
         }
     }
 
@@ -317,6 +759,7 @@ final class DockControlsStore: ObservableObject {
 
     func focusFirstControl() -> Bool {
         guard let first = controls.first else { return false }
+        focusedControlID = first.id
         first.focus()
         return true
     }
@@ -339,40 +782,271 @@ final class DockControlsStore: ObservableObject {
     }
 
     func focusControl(id: String) {
+        focusedControlID = id
         controls.first { $0.id == id }?.focus()
     }
 
     func restartControl(id: String) {
         guard let index = controls.firstIndex(where: { $0.id == id }) else { return }
         let oldControl = controls[index]
-        let newControl = DockControlRuntime(
-            definition: oldControl.definition,
-            baseDirectory: oldControl.baseDirectory,
-            workspaceId: oldControl.workspaceId
-        )
-        controls[index] = newControl
-        newControl.setVisibleInUI(controlsVisibleInUI)
-        oldControl.close()
+        guard let definition = oldControl.definition else { return }
+        do {
+            let newControl = try DockControlRuntime(
+                definition: definition,
+                baseDirectory: oldControl.baseDirectory,
+                workspaceId: oldControl.workspaceId
+            )
+            controls[index] = newControl
+            newControl.setVisibleInUI(controlsVisibleInUI)
+            oldControl.close()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
         guard controls.contains(where: { $0.id == id }) else { return }
+        focusedControlID = id
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
     func triggerFlash(id: String) {
-        controls.first { $0.id == id }?.panel.triggerFlash(reason: .debug)
+        controls.first { $0.id == id }?.triggerFlash()
+    }
+
+    func addTerminal() {
+        guard let workspaceId = lastWorkspaceId else { return }
+        let title = String(localized: "dock.entry.terminal.defaultTitle", defaultValue: "Terminal")
+        let definition = DockControlDefinition(
+            id: uniqueControlID(prefix: "terminal"),
+            title: title,
+            command: ":",
+            cwd: nil,
+            height: 240,
+            env: [:]
+        )
+        do {
+            let control = try DockControlRuntime(
+                definition: definition,
+                baseDirectory: currentBaseDirectory(),
+                workspaceId: workspaceId
+            )
+            errorMessage = nil
+            appendControl(control)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func addBrowser() {
+        guard let workspaceId = lastWorkspaceId else { return }
+        let title = String(localized: "dock.entry.browser.defaultTitle", defaultValue: "Browser")
+        let definition = DockControlDefinition(
+            id: uniqueControlID(prefix: "browser"),
+            title: title,
+            url: nil,
+            profile: nil,
+            height: 320
+        )
+        do {
+            let control = try DockControlRuntime(
+                definition: definition,
+                baseDirectory: currentBaseDirectory(),
+                workspaceId: workspaceId
+            )
+            errorMessage = nil
+            appendControl(control)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    func dockCurrentPane() -> Bool {
+        guard let workspaceId = lastWorkspaceId,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+              let panelId = workspace.focusedPanelId else {
+            return false
+        }
+        return dockPanel(panelId: panelId, workspace: workspace)
+    }
+
+    @discardableResult
+    func dockBonsplitTransfer(_ transfer: BonsplitTabDragPayload.Transfer) -> Bool {
+        guard let target = dockBonsplitTransferTarget(transfer) else { return false }
+        return dockPanel(panelId: target.panelId, workspace: target.workspace)
+    }
+
+    func canDockBonsplitTransfer(_ transfer: BonsplitTabDragPayload.Transfer) -> Bool {
+        dockBonsplitTransferTarget(transfer) != nil
+    }
+
+    private func dockBonsplitTransferTarget(_ transfer: BonsplitTabDragPayload.Transfer) -> (panelId: UUID, workspace: Workspace)? {
+        guard let located = AppDelegate.shared?.locateBonsplitSurface(tabId: transfer.tab.id) else {
+            return nil
+        }
+        guard let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+            return nil
+        }
+        return (located.panelId, workspace)
+    }
+
+    func dragItemProvider(for controlID: String) -> NSItemProvider {
+        guard let control = controls.first(where: { $0.id == controlID }) else {
+            return NSItemProvider()
+        }
+        let transfer = control.detachedSurfaceTransferForDrag()
+        let dragId = DockSurfaceDragRegistry.shared.register(
+            transferProvider: { [weak control] in
+                control?.detachedSurfaceTransferForDrag()
+            },
+            onAttached: { [weak self] in
+                self?.removeControl(id: controlID, closePanel: false)
+            }
+        )
+        let provider = NSItemProvider()
+        if let data = Self.tabTransferData(
+            dragId: dragId,
+            title: control.snapshot.title,
+            icon: control.snapshot.symbolName,
+            iconImageData: transfer.iconImageData,
+            kind: transfer.kind,
+            isDirty: transfer.panel.isDirty,
+            isLoading: transfer.isLoading,
+            isPinned: transfer.isPinned,
+            sourcePaneId: control.paneId.id
+        ) {
+            provider.registerDataRepresentation(
+                forTypeIdentifier: BonsplitTabDragPayload.typeIdentifier,
+                visibility: .ownProcess
+            ) { completion in
+                completion(data, nil)
+                return nil
+            }
+            let pasteboard = NSPasteboard(name: .drag)
+            let type = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+            pasteboard.addTypes([type], owner: nil)
+            pasteboard.setData(data, forType: type)
+        }
+        provider.suggestedName = control.snapshot.title
+        return provider
+    }
+
+    func ownsBrowserKeyboardFocus(_ responder: NSResponder) -> Bool {
+        controls.contains { control in
+            guard let browser = control.browserAttachment?.panel else { return false }
+            return Self.responderChainContains(responder, target: browser.webView)
+        }
     }
 
     private func replaceControls(with newControls: [DockControlRuntime]) {
         let oldControls = controls
         controls = newControls
+        if let focusedControlID, !newControls.contains(where: { $0.id == focusedControlID }) {
+            self.focusedControlID = nil
+        }
         newControls.forEach { $0.setVisibleInUI(controlsVisibleInUI) }
         oldControls.forEach { $0.close() }
     }
 
     private func setControlsVisibleInUI(_ visible: Bool) {
         controls.forEach { $0.setVisibleInUI(visible) }
+    }
+
+    private func appendControl(_ control: DockControlRuntime) {
+        controls.append(control)
+        control.setVisibleInUI(controlsVisibleInUI)
+        focusedControlID = control.id
+        control.focus()
+    }
+
+    private func removeControl(id: String, closePanel: Bool) {
+        guard let index = controls.firstIndex(where: { $0.id == id }) else { return }
+        let removed = controls.remove(at: index)
+        if focusedControlID == id {
+            focusedControlID = nil
+        }
+        if closePanel {
+            removed.close()
+        }
+    }
+
+    private func dockPanel(panelId: UUID, workspace: Workspace) -> Bool {
+        guard let panel = workspace.panels[panelId],
+              panel.panelType == .terminal || panel.panelType == .browser else {
+            return false
+        }
+        guard let detached = workspace.detachSurface(panelId: panelId) else { return false }
+        if workspace.panels.isEmpty {
+            _ = workspace.createReplacementTerminalPanelIfEmpty(focus: true)
+        }
+        let control = DockControlRuntime(
+            detached: detached,
+            baseDirectory: currentBaseDirectory(),
+            workspaceId: lastWorkspaceId ?? workspace.id
+        )
+        appendControl(control)
+        return true
+    }
+
+    private func currentBaseDirectory() -> String {
+        lastRootDirectory.flatMap(Self.existingDirectory)
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func uniqueControlID(prefix: String) -> String {
+        let existing = Set(controls.map(\.id))
+        var index = controls.count + 1
+        while true {
+            let candidate = "\(prefix)-\(index)"
+            if !existing.contains(candidate) {
+                return candidate
+            }
+            index += 1
+        }
+    }
+
+    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var current: NSResponder? = start
+        var hops = 0
+        while let responder = current, hops < 64 {
+            if responder === target { return true }
+            current = responder.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
+    private static func tabTransferData(
+        dragId: UUID,
+        title: String,
+        icon: String?,
+        iconImageData: Data?,
+        kind: String?,
+        isDirty: Bool,
+        isLoading: Bool,
+        isPinned: Bool,
+        sourcePaneId: UUID
+    ) -> Data? {
+        let transfer = DockMirrorTabTransferData(
+            tab: DockMirrorTabItem(
+                id: dragId,
+                title: title,
+                hasCustomTitle: false,
+                icon: icon,
+                iconImageData: iconImageData,
+                kind: kind,
+                isDirty: isDirty,
+                showsNotificationBadge: false,
+                isLoading: isLoading,
+                isPinned: isPinned
+            ),
+            sourcePaneId: sourcePaneId,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        return try? JSONEncoder().encode(transfer)
     }
 
     private func trustRequestIfNeeded(for resolution: DockConfigResolution) -> DockTrustRequest? {
@@ -451,6 +1125,17 @@ final class DockControlsStore: ObservableObject {
         return resolution.isProjectSource
             ? String(localized: "dock.source.project", defaultValue: "Project Dock")
             : String(localized: "dock.source.global", defaultValue: "Global Dock")
+    }
+
+    private static func partialStartupErrorMessage(firstError: Error) -> String {
+        if let dockError = firstError as? DockControlRuntimeError,
+           let message = dockError.errorDescription {
+            return message
+        }
+        return String(
+            localized: "dock.error.partialEntryStartup",
+            defaultValue: "Some Dock entries failed to start."
+        )
     }
 
     private static func projectConfigURL(rootDirectory: String?) -> URL? {
@@ -576,6 +1261,7 @@ struct DockPanelView: View {
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
         )
+        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: DockBonsplitTabDropDelegate(store: store))
         .accessibilityIdentifier("DockPanel")
     }
 
@@ -587,6 +1273,41 @@ struct DockPanelView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
+            Menu {
+                Button {
+                    store.addTerminal()
+                } label: {
+                    Label(
+                        String(localized: "dock.action.addTerminal", defaultValue: "Add terminal"),
+                        systemImage: "terminal.fill"
+                    )
+                }
+                Button {
+                    store.addBrowser()
+                } label: {
+                    Label(
+                        String(localized: "dock.action.addBrowser", defaultValue: "Add browser"),
+                        systemImage: "globe"
+                    )
+                }
+                Divider()
+                Button {
+                    _ = store.dockCurrentPane()
+                } label: {
+                    Label(
+                        String(localized: "dock.action.dockCurrentPane", defaultValue: "Dock current pane"),
+                        systemImage: "dock.rectangle"
+                    )
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(String(localized: "dock.action.add", defaultValue: "Add Dock Entry"))
+            .accessibilityLabel(String(localized: "dock.action.add", defaultValue: "Add Dock Entry"))
+
             Button {
                 store.openConfiguration()
             } label: {
@@ -618,59 +1339,105 @@ struct DockPanelView: View {
             DockTrustView(request: trustRequest) {
                 store.trustAndReload()
             }
-        } else if let error = store.errorMessage {
-            DockErrorView(message: error)
         } else if store.controls.isEmpty {
-            DockEmptyView()
+            if let error = store.errorMessage {
+                DockErrorView(message: error)
+            } else {
+                DockEmptyView()
+            }
         } else {
-            DockControlsLayoutView(
-                snapshots: store.controlSnapshots,
-                terminalAttachment: { id in store.terminalAttachment(for: id) },
-                onFocus: { id in store.focusControl(id: id) },
-                onRestart: { id in store.restartControl(id: id) },
-                onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
-                onTriggerFlash: { id in store.triggerFlash(id: id) }
-            )
+            VStack(spacing: 0) {
+                if let message = store.errorMessage ?? store.warningMessage {
+                    DockWarningBanner(message: message)
+                    Divider()
+                }
+                DockControlsLayoutView(
+                    snapshots: store.controlSnapshots,
+                    terminalAttachment: { id in store.terminalAttachment(for: id) },
+                    browserAttachment: { id in store.browserAttachment(for: id) },
+                    isFocused: { id in store.isFocused(controlID: id) },
+                    onFocus: { id in store.focusControl(id: id) },
+                    onRestart: { id in store.restartControl(id: id) },
+                    onKeyboardFocusIntent: { id, window in store.noteKeyboardFocusIntent(id: id, window: window) },
+                    onTriggerFlash: { id in store.triggerFlash(id: id) },
+                    onDragProvider: { id in store.dragItemProvider(for: id) }
+                )
+            }
         }
+    }
+}
+
+private struct DockWarningBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.08))
+        .accessibilityIdentifier("DockWarningBanner")
     }
 }
 
 private struct DockControlsLayoutView: View {
     let snapshots: [DockControlSnapshot]
     let terminalAttachment: (String) -> DockTerminalAttachment?
+    let browserAttachment: (String) -> DockBrowserAttachment?
+    let isFocused: (String) -> Bool
     let onFocus: (String) -> Void
     let onRestart: (String) -> Void
     let onKeyboardFocusIntent: (String, NSWindow?) -> Void
     let onTriggerFlash: (String) -> Void
+    let onDragProvider: (String) -> NSItemProvider
 
     private let headerHeight: CGFloat = 30
     private let dividerHeight: CGFloat = 1
-    private let minimumTerminalHeight: CGFloat = 160
+    private let minimumEntryHeight: CGFloat = 160
 
     var body: some View {
         GeometryReader { proxy in
-            let heights = terminalHeights(availableHeight: proxy.size.height)
+            let heights = entryHeights(availableHeight: proxy.size.height)
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
                         DockControlSectionView(
                             snapshot: snapshot,
                             ordinal: index + 1,
-                            terminalHeight: heights[index],
+                            entryHeight: heights[index],
                             onFocus: { onFocus(snapshot.id) },
                             onRestart: { onRestart(snapshot.id) },
-                            terminalContent: {
-                                if let attachment = terminalAttachment(snapshot.id) {
+                            entryContent: {
+                                if snapshot.kind == .terminal,
+                                   let attachment = terminalAttachment(snapshot.id) {
                                     DockTerminalView(
                                         attachment: attachment,
                                         onKeyboardFocusIntent: { window in onKeyboardFocusIntent(snapshot.id, window) },
                                         onTriggerFlash: { onTriggerFlash(snapshot.id) }
+                                    )
+                                } else if snapshot.kind == .browser,
+                                          let attachment = browserAttachment(snapshot.id) {
+                                    DockBrowserView(
+                                        attachment: attachment,
+                                        isFocused: isFocused(snapshot.id),
+                                        onRequestPanelFocus: { onFocus(snapshot.id) }
                                     )
                                 } else {
                                     Color.clear
                                 }
                             }
                         )
+                        .onDrag { onDragProvider(snapshot.id) }
                         if index < snapshots.count - 1 {
                             Divider()
                                 .frame(height: dividerHeight)
@@ -683,19 +1450,19 @@ private struct DockControlsLayoutView: View {
         }
     }
 
-    private func terminalHeights(availableHeight: CGFloat) -> [CGFloat] {
+    private func entryHeights(availableHeight: CGFloat) -> [CGFloat] {
         guard !snapshots.isEmpty else { return [] }
 
         let chromeHeight = CGFloat(snapshots.count) * headerHeight
             + CGFloat(max(snapshots.count - 1, 0)) * dividerHeight
-        let availableTerminalHeight = max(availableHeight - chromeHeight, 0)
+        let availableEntryHeight = max(availableHeight - chromeHeight, 0)
         var heights = Array(repeating: CGFloat.zero, count: snapshots.count)
         var flexibleIndexes: [Int] = []
         var fixedHeightTotal: CGFloat = 0
 
         for (index, snapshot) in snapshots.enumerated() {
             if let requestedHeight = snapshot.requestedHeight {
-                let fixedHeight = max(CGFloat(requestedHeight), minimumTerminalHeight)
+                let fixedHeight = max(CGFloat(requestedHeight), minimumEntryHeight)
                 heights[index] = fixedHeight
                 fixedHeightTotal += fixedHeight
             } else {
@@ -704,14 +1471,14 @@ private struct DockControlsLayoutView: View {
         }
 
         if flexibleIndexes.isEmpty {
-            let extraHeight = max(availableTerminalHeight - fixedHeightTotal, 0)
+            let extraHeight = max(availableEntryHeight - fixedHeightTotal, 0)
             guard extraHeight > 0 else { return heights }
             let extraHeightPerControl = extraHeight / CGFloat(snapshots.count)
             return heights.map { $0 + extraHeightPerControl }
         }
 
-        let remaining = max(availableTerminalHeight - fixedHeightTotal, 0)
-        let sharedHeight = max(remaining / CGFloat(flexibleIndexes.count), minimumTerminalHeight)
+        let remaining = max(availableEntryHeight - fixedHeightTotal, 0)
+        let sharedHeight = max(remaining / CGFloat(flexibleIndexes.count), minimumEntryHeight)
         for index in flexibleIndexes {
             heights[index] = sharedHeight
         }
@@ -720,19 +1487,19 @@ private struct DockControlsLayoutView: View {
     }
 }
 
-private struct DockControlSectionView<TerminalContent: View>: View {
+private struct DockControlSectionView<EntryContent: View>: View {
     let snapshot: DockControlSnapshot
     let ordinal: Int
-    let terminalHeight: CGFloat
+    let entryHeight: CGFloat
     let onFocus: () -> Void
     let onRestart: () -> Void
-    @ViewBuilder let terminalContent: () -> TerminalContent
+    @ViewBuilder let entryContent: () -> EntryContent
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            terminalContent()
-                .frame(height: terminalHeight)
+            entryContent()
+                .frame(height: entryHeight)
                 .clipped()
         }
         .accessibilityIdentifier("DockControl.\(snapshot.id)")
@@ -744,11 +1511,15 @@ private struct DockControlSectionView<TerminalContent: View>: View {
                 .font(.system(size: 10, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 18, alignment: .center)
+            Image(systemName: snapshot.symbolName)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 13, alignment: .center)
             Text(snapshot.title)
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(snapshot.command)
+            Text(snapshot.detail)
                 .font(.system(size: 10, weight: .regular, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -761,18 +1532,20 @@ private struct DockControlSectionView<TerminalContent: View>: View {
                     .font(.system(size: 10, weight: .medium))
             }
             .buttonStyle(.plain)
-            .help(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
-            .accessibilityLabel(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
+            .help(String(localized: "dock.action.focusEntry", defaultValue: "Focus Entry"))
+            .accessibilityLabel(String(localized: "dock.action.focusEntry", defaultValue: "Focus Entry"))
 
-            Button {
-                onRestart()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
+            if snapshot.canRestart {
+                Button {
+                    onRestart()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "dock.action.restartEntry", defaultValue: "Restart Entry"))
+                .accessibilityLabel(String(localized: "dock.action.restartEntry", defaultValue: "Restart Entry"))
             }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
-            .accessibilityLabel(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -807,6 +1580,54 @@ private struct DockTerminalView: View {
     }
 }
 
+private struct DockBrowserView: View {
+    let attachment: DockBrowserAttachment
+    let isFocused: Bool
+    let onRequestPanelFocus: () -> Void
+
+    var body: some View {
+        BrowserPanelView(
+            panel: attachment.panel,
+            paneId: attachment.paneId,
+            isFocused: isFocused,
+            isVisibleInUI: true,
+            portalPriority: 1,
+            onRequestPanelFocus: onRequestPanelFocus,
+            paneDropContextOverride: BrowserPaneDropContext(
+                workspaceId: attachment.panel.workspaceId,
+                panelId: attachment.panel.id,
+                paneId: attachment.paneId
+            ),
+            isPanelFocusedInModelOverride: isFocused,
+            allowsPaneDropRouting: false
+        )
+        .id(attachment.panel.id)
+        .background(Color.clear)
+    }
+}
+
+private struct DockBonsplitTabDropDelegate: DropDelegate {
+    let store: DockControlsStore
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
+        guard let transfer = BonsplitTabDragPayload.currentTransfer() else { return false }
+        return store.canDockBonsplitTransfer(transfer)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        validateDrop(info: info) ? DropProposal(operation: .move) : nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info),
+              let transfer = BonsplitTabDragPayload.currentTransfer() else {
+            return false
+        }
+        return store.dockBonsplitTransfer(transfer)
+    }
+}
+
 private struct DockTrustView: View {
     let request: DockTrustRequest
     let onTrust: () -> Void
@@ -820,7 +1641,7 @@ private struct DockTrustView: View {
                 .font(.system(size: 13, weight: .semibold))
             Text(String(
                 localized: "dock.trust.message",
-                defaultValue: "This project wants to start commands from its Dock config."
+                defaultValue: "This project wants to start entries from its Dock config."
             ))
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
@@ -872,12 +1693,16 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.focusFirstControl = { [weak store] in
             store?.focusFirstControl() == true
         }
+        nsView.ownsBrowserKeyboardFocus = { [weak store] responder in
+            store?.ownsBrowserKeyboardFocus(responder) == true
+        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
+    var ownsBrowserKeyboardFocus: ((NSResponder) -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -886,6 +1711,9 @@ final class DockKeyboardFocusView: NSView {
     func registerWithKeyboardFocusCoordinatorIfNeeded() { if let window { AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerDockHost(self) } }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
+        if ownsBrowserKeyboardFocus?(responder) == true {
+            return true
+        }
         if responder === self { return true }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
