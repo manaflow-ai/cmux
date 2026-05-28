@@ -135,6 +135,15 @@ extension CMUXCLI {
         return format.contains("#{pane_start_command}") || format.contains("#{pane_current_command}")
     }
 
+    func tmuxPanePID(from pane: [String: Any]) -> Int? {
+        for key in ["pane_pid", "pid", "foreground_pid", "pane_foreground_pid"] {
+            if let pid = intFromAny(pane[key]), pid > 0 {
+                return pid
+            }
+        }
+        return nil
+    }
+
     func tmuxLegacyOMXHudStartCommand(
         workspaceId: String,
         surfaceId: String,
