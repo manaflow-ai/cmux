@@ -264,6 +264,7 @@ class TerminalController {
         "workspace.next",
         "workspace.previous",
         "workspace.last",
+        "workspace.last_forward",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -3412,6 +3413,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePrevious(params: params))
         case "workspace.last":
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
+        case "workspace.last_forward":
+            return v2Result(id: id, self.v2WorkspaceLastForward(params: params))
         case "workspace.equalize_splits":
             return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
         case "workspace.remote.configure":
@@ -3850,6 +3853,7 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.last_forward",
             "workspace.equalize_splits",
             "workspace.remote.configure",
             "workspace.remote.foreground_auth_ready",
@@ -6109,10 +6113,10 @@ class TerminalController {
 
     private func v2WorkspaceLast(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: workspaceHistoryTabManagementUnavailableMessage(), data: nil)
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "No previous workspace in history", data: nil)
+        var result: V2CallResult = .err(code: "not_found", message: workspaceHistoryPreviousNotFoundMessage(), data: nil)
         v2MainSync {
             guard let before = tabManager.selectedTabId else { return }
             if let windowId = v2ResolveWindowId(tabManager: tabManager) {
@@ -6130,6 +6134,52 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2WorkspaceLastForward(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: workspaceHistoryTabManagementUnavailableMessage(), data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: workspaceHistoryNextNotFoundMessage(), data: nil)
+        v2MainSync {
+            guard let before = tabManager.selectedTabId else { return }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            tabManager.navigateForward()
+            guard let after = tabManager.selectedTabId, after != before else { return }
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "workspace_id": after.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: after),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
+        }
+        return result
+    }
+
+    private func workspaceHistoryTabManagementUnavailableMessage() -> String {
+        String(
+            localized: "socket.workspace.history.tabManagementUnavailable",
+            defaultValue: "Tab management is unavailable"
+        )
+    }
+
+    private func workspaceHistoryPreviousNotFoundMessage() -> String {
+        String(
+            localized: "socket.workspace.history.previousNotFound",
+            defaultValue: "No previous workspace in history"
+        )
+    }
+
+    private func workspaceHistoryNextNotFoundMessage() -> String {
+        String(
+            localized: "socket.workspace.history.nextNotFound",
+            defaultValue: "No next workspace in history"
+        )
     }
 
     private func v2WorkspaceEqualizeSplits(params: [String: Any]) -> V2CallResult {

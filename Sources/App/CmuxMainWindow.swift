@@ -64,6 +64,63 @@ final class CmuxMainWindow: NSWindow {
         guard !isSoftHiddenForVisibilityController else { return }
         super.flagsChanged(with: event)
     }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .otherMouseDown {
+            switch event.buttonNumber {
+            case 3, 4:
+                // If the event is targeted at browser content or chrome, let the
+                // browser handle its own page history.
+                if isPointerOverBrowserSurface(event) {
+                    super.sendEvent(event)
+                    return
+                }
+                let appDelegate = AppDelegate.shared
+                if let appDelegate,
+                   let context = appDelegate.contextForMainTerminalWindow(self, reindex: false) {
+                    let isBack = event.buttonNumber == 3
+                    let canNavigate = isBack ? context.tabManager.canNavigateBack : context.tabManager.canNavigateForward
+                    guard canNavigate else { break }
+#if DEBUG
+                    let action = isBack ? "navigateBack" : "navigateForward"
+                    cmuxDebugLog("window.mouse.backForward action=\(action) window=\(windowNumber)")
+#endif
+                    if isBack {
+                        context.tabManager.navigateBack()
+                    } else {
+                        context.tabManager.navigateForward()
+                    }
+                    return
+                }
+            default:
+                break
+            }
+        }
+        super.sendEvent(event)
+    }
+
+    private func isPointerOverBrowserSurface(_ event: NSEvent) -> Bool {
+        if BrowserWindowPortalRegistry.browserSurfaceAtWindowPoint(event.locationInWindow, in: self) is CmuxWebView {
+            return true
+        }
+        guard let contentView else {
+            return false
+        }
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        guard let hitView = contentView.hitTest(contentPoint) else {
+            return false
+        }
+        return isViewInsideBrowserWebView(hitView)
+    }
+
+    private func isViewInsideBrowserWebView(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let v = current {
+            if v is CmuxWebView { return true }
+            current = v.superview
+        }
+        return false
+    }
 }
 
 extension CmuxMainWindow {
