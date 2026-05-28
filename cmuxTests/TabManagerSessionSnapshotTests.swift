@@ -1574,6 +1574,34 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
     }
 
+    func testRestoredPersistentSSHCmdDSplitDoesNotPassLocalWorkingDirectoryToAttachCommand() throws {
+        let terminalPanelId = UUID()
+        let restoredWorkingDirectory = "/Users/lawrence/fun"
+        let snapshot = Self.persistentSSHWorkspaceSnapshot(
+            panel: Self.terminalPanelSnapshot(id: terminalPanelId),
+            focusedPanelId: terminalPanelId,
+            currentDirectory: restoredWorkingDirectory
+        )
+        let workspace = Workspace()
+        let restoredPanelIds = workspace.restoreSessionSnapshot(snapshot)
+        let restoredTerminalPanelId = try XCTUnwrap(restoredPanelIds[terminalPanelId])
+
+        workspace.focusPanel(restoredTerminalPanelId)
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: restoredTerminalPanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+        let splitStartupCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
+
+        XCTAssertTrue(splitStartupCommand.contains("ssh-pty-attach"), splitStartupCommand)
+        XCTAssertNil(
+            splitPanel.requestedWorkingDirectory,
+            "Remote SSH attach scripts must not be passed to Ghostty with a local cwd; Ghostty treats inline scripts as relative executable paths."
+        )
+        XCTAssertEqual(workspace.panelDirectories[splitPanel.id], restoredWorkingDirectory)
+    }
+
     func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
@@ -1969,7 +1997,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
     private static func persistentSSHWorkspaceSnapshot(
         panel: SessionPanelSnapshot,
-        focusedPanelId: UUID
+        focusedPanelId: UUID,
+        currentDirectory: String = NSHomeDirectory()
     ) -> SessionWorkspaceSnapshot {
         persistentSSHWorkspaceSnapshot(
             panels: [panel],
@@ -1977,14 +2006,16 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 panelIds: [focusedPanelId],
                 selectedPanelId: focusedPanelId
             )),
-            focusedPanelId: focusedPanelId
+            focusedPanelId: focusedPanelId,
+            currentDirectory: currentDirectory
         )
     }
 
     private static func persistentSSHWorkspaceSnapshot(
         panels: [SessionPanelSnapshot],
         layout: SessionWorkspaceLayoutSnapshot,
-        focusedPanelId: UUID
+        focusedPanelId: UUID,
+        currentDirectory: String = NSHomeDirectory()
     ) -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
             processTitle: "Persistent SSH",
@@ -1993,7 +2024,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             customColor: nil,
             isPinned: false,
             terminalScrollBarHidden: nil,
-            currentDirectory: NSHomeDirectory(),
+            currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
             panels: panels,
