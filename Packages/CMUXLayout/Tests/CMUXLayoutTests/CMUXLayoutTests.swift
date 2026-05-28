@@ -4810,6 +4810,8 @@ final class CMUXLayoutTests: XCTestCase {
             presentation.visibleNativeContentRect,
             CGRect(x: 0, y: 0, width: 1_000, height: 750)
         )
+        XCTAssertEqual(presentation.nativeClipBounds, CGRect(x: 0, y: 0, width: 1_000, height: 750))
+        XCTAssertEqual(presentation.nativeContentFrameInClip, CGRect(x: 0, y: 0, width: 1_000, height: 700))
         XCTAssertEqual(presentation.horizontalScale, 0.4, accuracy: 0.0001)
         XCTAssertEqual(presentation.verticalScale, 300.0 / 700.0, accuracy: 0.0001)
     }
@@ -4832,6 +4834,8 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(clipped!.visibleContentSize, CGSize(width: 420, height: 260))
         XCTAssertEqual(clipped!.visibleNativeContentSize, CGSize(width: 840, height: 520))
         XCTAssertEqual(clipped!.visibleNativeContentRect, CGRect(x: 160, y: 80, width: 840, height: 520))
+        XCTAssertEqual(clipped!.nativeClipBounds, CGRect(x: 0, y: 0, width: 840, height: 520))
+        XCTAssertEqual(clipped!.nativeContentFrameInClip, CGRect(x: -160, y: -80, width: 1_600, height: 1_000))
         XCTAssertEqual(clipped!.scale, 0.5, accuracy: 0.0001)
     }
 
@@ -5310,11 +5314,26 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertNotEqual(state.displayedViewport(fallback: target), start)
         state.tick(at: 12)
         XCTAssertFalse(state.isAnimating)
-        XCTAssertEqual(state.displayedViewport(fallback: start), target)
+        XCTAssertEqual(state.stableViewport, target)
+        XCTAssertEqual(state.displayedViewport(fallback: target), target)
 
         state.cancel(stableViewport: start)
         XCTAssertEqual(state.stableViewport, start)
         XCTAssertEqual(state.displayedViewport(fallback: start), start)
+    }
+
+    func testCanvasViewportPresentationStateUsesControllerViewportWhenIdle() {
+        let cached = CanvasViewport(
+            visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800),
+            scale: 1
+        )
+        let controllerViewport = CanvasViewport(
+            visibleRect: PixelRect(x: -180, y: -32, width: 1_200, height: 800),
+            scale: 1
+        )
+        let state = CanvasViewportPresentationState(stableViewport: cached)
+
+        XCTAssertEqual(state.displayedViewport(fallback: controllerViewport), controllerViewport)
     }
 
     func testCanvasPresentationEngineOwnsRenderModesNativeFramesAndPadding() {

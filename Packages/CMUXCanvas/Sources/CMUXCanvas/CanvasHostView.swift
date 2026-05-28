@@ -553,28 +553,10 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         textureSize: CGSize,
         contentMode: CanvasTextureContentMode
     ) -> CGRect {
-        let contentFrame = contentFrame.standardized
-        guard contentFrame.width > 1,
-              contentFrame.height > 1,
-              textureSize.width > 1,
-              textureSize.height > 1 else {
-            return contentFrame
-        }
-
-        let scale: CGFloat
-        switch contentMode {
-        case .fit:
-            scale = min(contentFrame.width / textureSize.width, contentFrame.height / textureSize.height)
-        case .fill:
-            scale = max(contentFrame.width / textureSize.width, contentFrame.height / textureSize.height)
-        }
-        let width = textureSize.width * scale
-        let height = textureSize.height * scale
-        return CGRect(
-            x: contentFrame.midX - (width / 2),
-            y: contentFrame.midY - (height / 2),
-            width: width,
-            height: height
+        CanvasMetalTextureFrameResolver.frame(
+            in: contentFrame,
+            textureSize: textureSize,
+            contentMode: contentMode
         )
     }
 
@@ -719,6 +701,40 @@ struct CanvasMetalRenderLoopMode: Equatable {
             isPaused: !hasContinuousTexture,
             enableSetNeedsDisplay: !hasContinuousTexture,
             requestsImmediateDisplay: !hasContinuousTexture
+        )
+    }
+}
+
+enum CanvasMetalTextureFrameResolver {
+    static func frame(
+        in contentFrame: CGRect,
+        textureSize: CGSize,
+        contentMode: CanvasTextureContentMode
+    ) -> CGRect {
+        let contentFrame = contentFrame.standardized
+        guard contentFrame.width > 1,
+              contentFrame.height > 1,
+              textureSize.width > 1,
+              textureSize.height > 1 else {
+            return contentFrame
+        }
+
+        let scale: CGFloat
+        switch contentMode {
+        case .stretch:
+            return contentFrame
+        case .fit:
+            scale = min(contentFrame.width / textureSize.width, contentFrame.height / textureSize.height)
+        case .fill:
+            scale = max(contentFrame.width / textureSize.width, contentFrame.height / textureSize.height)
+        }
+        let width = textureSize.width * scale
+        let height = textureSize.height * scale
+        return CGRect(
+            x: contentFrame.midX - (width / 2),
+            y: contentFrame.midY - (height / 2),
+            width: width,
+            height: height
         )
     }
 }

@@ -16364,7 +16364,11 @@ class TerminalController {
 
     private func v2DebugScreenshot(params: [String: Any]) -> V2CallResult {
         let label = v2String(params, "label") ?? ""
-        let resp = captureScreenshot(label)
+        let windowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && windowId == nil {
+            return .err(code: "invalid_params", message: "Invalid window_id", data: nil)
+        }
+        let resp = captureScreenshot(label, windowId: windowId)
         guard resp.hasPrefix("OK ") else {
             return .err(code: "internal_error", message: resp, data: nil)
         }
@@ -16373,10 +16377,30 @@ class TerminalController {
         guard parts.count == 2 else {
             return .err(code: "internal_error", message: "screenshot parse failed", data: ["payload": payload])
         }
-        return .ok([
+        let windowMetadata: [String: Any] = v2MainSync {
+            let window = windowId.flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+                ?? NSApp.mainWindow
+                ?? NSApp.keyWindow
+            let scale = window?.backingScaleFactor
+                ?? window?.screen?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 1
+            return [
+                "backing_scale": scale,
+                "window_frame": [
+                    "x": window?.frame.origin.x ?? 0,
+                    "y": window?.frame.origin.y ?? 0,
+                    "width": window?.frame.width ?? 0,
+                    "height": window?.frame.height ?? 0,
+                ],
+            ]
+        }
+        var result: [String: Any] = [
             "screenshot_id": parts[0],
-            "path": parts[1]
-        ])
+            "path": parts[1],
+        ]
+        result.merge(windowMetadata) { _, new in new }
+        return .ok(result)
     }
 #endif
 
@@ -18339,6 +18363,8 @@ class TerminalController {
         let panelType: String?
         let inWindow: Bool?
         let hidden: Bool?
+        let portalContainerAlpha: Double?
+        let nativeAlpha: Double?
         let viewFrame: PixelRect?
         let portalFrameInWindow: PixelRect?
         let canvasPortalFrameInWindow: PixelRect?
@@ -18525,6 +18551,8 @@ class TerminalController {
                         panelType: nil,
                         inWindow: nil,
                         hidden: nil,
+                        portalContainerAlpha: nil,
+                        nativeAlpha: nil,
                         viewFrame: nil,
                         portalFrameInWindow: nil,
                         canvasPortalFrameInWindow: nil,
@@ -18545,6 +18573,8 @@ class TerminalController {
                         panelType: nil,
                         inWindow: nil,
                         hidden: nil,
+                        portalContainerAlpha: nil,
+                        nativeAlpha: nil,
                         viewFrame: nil,
                         portalFrameInWindow: nil,
                         canvasPortalFrameInWindow: nil,
@@ -18578,6 +18608,8 @@ class TerminalController {
                     let portalContainerBounds = terminalSnapshot.map { PixelRect(from: $0.containerBounds) }
                     let nativeFrame = terminalSnapshot.map { PixelRect(from: $0.hostedFrame) } ?? PixelRect(from: tp.hostedView.frame)
                     let nativeBounds = terminalSnapshot.map { PixelRect(from: $0.hostedBounds) } ?? PixelRect(from: tp.hostedView.bounds)
+                    let portalContainerAlpha = terminalSnapshot.map { Double($0.containerAlpha) }
+                    let nativeAlpha = terminalSnapshot.map { Double($0.hostedAlpha) } ?? Double(tp.hostedView.alphaValue)
                     let splitViews = splitViewInfos(for: tp.hostedView)
                     return LayoutDebugSelectedPanel(
                         paneId: paneIdStr,
@@ -18587,6 +18619,8 @@ class TerminalController {
                         panelType: tp.panelType.rawValue,
                         inWindow: tp.surface.isViewInWindow,
                         hidden: isHiddenOrAncestorHidden(tp.hostedView),
+                        portalContainerAlpha: portalContainerAlpha,
+                        nativeAlpha: nativeAlpha,
                         viewFrame: viewRect,
                         portalFrameInWindow: portalFrame,
                         canvasPortalFrameInWindow: canvasPortalFrame,
@@ -18606,6 +18640,8 @@ class TerminalController {
                     let portalContainerBounds = browserSnapshot.map { PixelRect(from: $0.containerBounds) }
                     let nativeFrame = browserSnapshot.map { PixelRect(from: $0.webViewFrame) }
                     let nativeBounds = PixelRect(from: bp.webView.bounds)
+                    let portalContainerAlpha = browserSnapshot.map { Double($0.containerAlpha) }
+                    let nativeAlpha = browserSnapshot.map { Double($0.webViewAlpha) } ?? Double(bp.webView.alphaValue)
                     let splitViews = splitViewInfos(for: bp.webView)
                     return LayoutDebugSelectedPanel(
                         paneId: paneIdStr,
@@ -18615,6 +18651,8 @@ class TerminalController {
                         panelType: bp.panelType.rawValue,
                         inWindow: bp.webView.window != nil,
                         hidden: isHiddenOrAncestorHidden(bp.webView),
+                        portalContainerAlpha: portalContainerAlpha,
+                        nativeAlpha: nativeAlpha,
                         viewFrame: viewRect,
                         portalFrameInWindow: portalFrame,
                         canvasPortalFrameInWindow: canvasPortalFrame,
@@ -18633,6 +18671,8 @@ class TerminalController {
                     panelType: panel.panelType.rawValue,
                     inWindow: nil,
                     hidden: nil,
+                    portalContainerAlpha: nil,
+                    nativeAlpha: nil,
                     viewFrame: nil,
                     portalFrameInWindow: nil,
                     canvasPortalFrameInWindow: canvasPortalFrame,
@@ -18768,7 +18808,7 @@ class TerminalController {
         return "OK"
     }
 
-    private func captureScreenshot(_ args: String) -> String {
+    private func captureScreenshot(_ args: String, windowId: UUID? = nil) -> String {
         // Parse optional label from args
         let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -18790,12 +18830,17 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
+            let requestedWindow = windowId.flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+            if windowId != nil && requestedWindow == nil {
+                captureError = "Window not found"
+                return
+            }
             let visibleWindows = NSApp.windows.filter {
                 $0.isVisible && $0.frame.width > 100 && $0.frame.height > 100
             }
-            let window = [NSApp.mainWindow, NSApp.keyWindow]
+            let window = [requestedWindow, NSApp.mainWindow, NSApp.keyWindow]
                 .compactMap { $0 }
-                .first { visibleWindows.contains($0) }
+                .first { requestedWindow != nil || visibleWindows.contains($0) }
                 ?? visibleWindows.first
                 ?? NSApp.windows.first
             guard let window else {

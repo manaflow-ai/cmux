@@ -219,6 +219,33 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(sources[id]?.contentMode, .fill)
     }
 
+    func testStretchTextureModeUsesExactCanvasContentFrame() {
+        let contentFrame = CGRect(x: 20, y: 30, width: 300, height: 180)
+        let textureSize = CGSize(width: 1200, height: 780)
+
+        let frame = CanvasMetalTextureFrameResolver.frame(
+            in: contentFrame,
+            textureSize: textureSize,
+            contentMode: .stretch
+        )
+
+        XCTAssertEqual(frame, contentFrame)
+    }
+
+    func testFitTextureModeCanLetterboxWhenAspectRatiosDiffer() {
+        let contentFrame = CGRect(x: 20, y: 30, width: 300, height: 180)
+        let textureSize = CGSize(width: 1200, height: 780)
+
+        let frame = CanvasMetalTextureFrameResolver.frame(
+            in: contentFrame,
+            textureSize: textureSize,
+            contentMode: .fit
+        )
+
+        XCTAssertLessThan(frame.width, contentFrame.width)
+        XCTAssertEqual(frame.height, contentFrame.height, accuracy: 0.001)
+    }
+
     func testNativeOverlayManagerUsesNativeOnlyForActiveSurfaceAtNativeScale() {
         let activeID = LayoutItemID()
         let previewID = LayoutItemID()

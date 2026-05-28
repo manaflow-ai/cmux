@@ -36,6 +36,13 @@ struct PixelSize {
     var height: Int
 }
 
+struct PixelRect {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+}
+
 struct SurfaceResult: Codable {
     var surface: String
     var beforeScreenshot: String
@@ -97,10 +104,32 @@ func run(_ executable: String, _ args: [String], environment: [String: String] =
     process.standardOutput = pipe
     process.standardError = pipe
     try process.run()
+    let timeoutSeconds = Double(ProcessInfo.processInfo.environment["CMUX_CANVAS_VERIFIER_COMMAND_TIMEOUT_SEC"] ?? "") ?? 75
+    let timeoutLock = NSLock()
+    var timedOut = false
+    let timeout = DispatchWorkItem {
+        timeoutLock.lock()
+        defer { timeoutLock.unlock() }
+        guard process.isRunning else { return }
+        timedOut = true
+        process.terminate()
+    }
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds, execute: timeout)
     process.waitUntilExit()
+    timeout.cancel()
 
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let output = String(data: data, encoding: .utf8) ?? ""
+    timeoutLock.lock()
+    let didTimeOut = timedOut
+    timeoutLock.unlock()
+    if didTimeOut {
+        throw CommandError(
+            command: ([executable] + args).joined(separator: " "),
+            status: process.terminationStatus,
+            output: "Timed out after \(timeoutSeconds)s\n\(output)"
+        )
+    }
     guard process.terminationStatus == 0 else {
         throw CommandError(
             command: ([executable] + args).joined(separator: " "),
@@ -112,7 +141,14 @@ func run(_ executable: String, _ args: [String], environment: [String: String] =
 }
 
 func cli(_ args: [String]) throws -> String {
-    try run(cliURL.path, ["--socket", socketPath] + args, environment: ["CMUX_TAG": tagSlug])
+    try run(
+        cliURL.path,
+        ["--socket", socketPath] + args,
+        environment: [
+            "CMUX_TAG": tagSlug,
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "60",
+        ]
+    )
 }
 
 func cliJSON(_ args: [String]) throws -> [String: Any] {
@@ -122,6 +158,14 @@ func cliJSON(_ args: [String]) throws -> [String: Any] {
         throw ProbeError(message: "Expected JSON from \(args.joined(separator: " ")), got: \(output)")
     }
     return object
+}
+
+func jsonString(_ object: [String: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    guard let string = String(data: data, encoding: .utf8) else {
+        throw ProbeError(message: "Could not encode JSON object: \(object)")
+    }
+    return string
 }
 
 func sanitizePath(_ value: String) -> String {
@@ -194,7 +238,11 @@ func jsonDouble(_ value: Any?) -> Double? {
 }
 
 func screenshot(label: String) throws -> URL {
-    let object = try cliJSON(["rpc", "debug.window.screenshot", "{\"label\":\"\(label)\"}"])
+    var params: [String: Any] = ["label": label]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    let object = try cliJSON(["rpc", "debug.window.screenshot", try jsonString(params)])
     guard let path = object["path"] as? String else {
         throw ProbeError(message: "debug.window.screenshot returned no path: \(object)")
     }
@@ -223,13 +271,15 @@ func waitForColor(
     label: String,
     threshold: (CGFloat, CGFloat, CGFloat, CGFloat) -> Bool,
     minimumPixels: Int,
-    minimumInset: Int = 0
+    minimumInset: Int = 0,
+    leftInset: Int = 0
 ) throws -> URL {
     var lastPath: URL?
     for attempt in 0..<20 {
         let path = try screenshot(label: "\(label)_\(attempt)")
         lastPath = path
-        if let bounds = try? detectBounds(in: path, threshold: threshold),
+        let crop = try leftInset > 0 ? leftInsetCrop(in: path, leftInset: leftInset) : nil
+        if let bounds = try? detectBounds(in: path, threshold: threshold, crop: crop),
            bounds.count >= minimumPixels,
            (try? boundsAreInset(bounds, in: path, minimumInset: minimumInset)) == true {
             return path
@@ -250,11 +300,18 @@ func boundsAreInset(_ bounds: PixelBounds, in url: URL, minimumInset: Int) throw
 
 func detectBounds(
     in url: URL,
-    threshold: (CGFloat, CGFloat, CGFloat, CGFloat) -> Bool
+    threshold: (CGFloat, CGFloat, CGFloat, CGFloat) -> Bool,
+    crop: PixelRect? = nil
 ) throws -> PixelBounds {
     let data = try Data(contentsOf: url)
     guard let rep = NSBitmapImageRep(data: data) else {
         throw ProbeError(message: "Failed to decode PNG at \(url.path)")
+    }
+    guard rep.bitsPerSample == 8,
+          !rep.isPlanar,
+          rep.samplesPerPixel >= 3,
+          let bitmapData = rep.bitmapData else {
+        return try detectBoundsWithColorConversion(in: url, threshold: threshold, crop: crop, rep: rep)
     }
 
     var minX = Int.max
@@ -262,10 +319,50 @@ func detectBounds(
     var maxX = Int.min
     var maxY = Int.min
     var count = 0
-    let colorSpace = NSColorSpace.deviceRGB
+    let cropRanges = integerCrop(crop, imageWidth: rep.pixelsWide, imageHeight: rep.pixelsHigh)
+    let pixelStride = max(1, rep.bitsPerPixel / 8)
+    let maxChannelOffset = pixelStride - 1
 
-    for y in 0..<rep.pixelsHigh {
-        for x in 0..<rep.pixelsWide {
+    for y in cropRanges.yRange {
+        let row = bitmapData.advanced(by: y * rep.bytesPerRow)
+        for x in cropRanges.xRange {
+            let pixel = row.advanced(by: x * pixelStride)
+            let red = CGFloat(pixel[0]) / 255
+            let green = CGFloat(pixel[min(1, maxChannelOffset)]) / 255
+            let blue = CGFloat(pixel[min(2, maxChannelOffset)]) / 255
+            let alpha = rep.hasAlpha && maxChannelOffset >= 3 ? CGFloat(pixel[3]) / 255 : 1
+            if threshold(red, green, blue, alpha) {
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+                count += 1
+            }
+        }
+    }
+
+    guard count > 0 else {
+        throw ProbeError(message: "No matching probe pixels in \(url.path)")
+    }
+    return PixelBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY, count: count)
+}
+
+func detectBoundsWithColorConversion(
+    in url: URL,
+    threshold: (CGFloat, CGFloat, CGFloat, CGFloat) -> Bool,
+    crop: PixelRect?,
+    rep: NSBitmapImageRep
+) throws -> PixelBounds {
+    var minX = Int.max
+    var minY = Int.max
+    var maxX = Int.min
+    var maxY = Int.min
+    var count = 0
+    let colorSpace = NSColorSpace.deviceRGB
+    let cropRanges = integerCrop(crop, imageWidth: rep.pixelsWide, imageHeight: rep.pixelsHigh)
+
+    for y in cropRanges.yRange {
+        for x in cropRanges.xRange {
             guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(colorSpace) else {
                 continue
             }
@@ -280,9 +377,31 @@ func detectBounds(
     }
 
     guard count > 0 else {
-        throw ProbeError(message: "No matching probe pixels in \(url.path)")
+        throw ProbeError(message: "No matching pixels in \(url.path)")
     }
     return PixelBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY, count: count)
+}
+
+func leftInsetCrop(in url: URL, leftInset: Int) throws -> PixelRect {
+    let size = try imageSize(url)
+    let x = min(max(0, leftInset), max(0, size.width - 1))
+    return PixelRect(
+        x: Double(x),
+        y: 0,
+        width: Double(max(1, size.width - x)),
+        height: Double(size.height)
+    )
+}
+
+func integerCrop(_ crop: PixelRect?, imageWidth: Int, imageHeight: Int) -> (xRange: Range<Int>, yRange: Range<Int>) {
+    guard let crop else {
+        return (0..<imageWidth, 0..<imageHeight)
+    }
+    let minX = min(max(0, Int(floor(crop.x))), imageWidth)
+    let minY = min(max(0, Int(floor(crop.y))), imageHeight)
+    let maxX = min(max(minX + 1, Int(ceil(crop.x + crop.width))), imageWidth)
+    let maxY = min(max(minY + 1, Int(ceil(crop.y + crop.height))), imageHeight)
+    return (minX..<maxX, minY..<maxY)
 }
 
 func workspaceRefFromCreateOutput(_ output: String) throws -> String {
@@ -299,6 +418,10 @@ func refFromCreateOutput(_ output: String, prefix: String) throws -> String {
     }
     let ref = String(match)
     guard ref.hasPrefix(prefix) else {
+        if prefix == "window:",
+           UUID(uuidString: ref) != nil {
+            return ref
+        }
         throw ProbeError(message: "Expected \(prefix) ref, got: \(output)")
     }
     return ref
@@ -339,16 +462,32 @@ func cleanupCreatedProbeState() {
 }
 
 func focusWorkspace(_ workspace: String) throws {
-    _ = try cli(["select-workspace", "--workspace", workspace])
+    var args = ["select-workspace", "--workspace", workspace]
+    if let window = createdWindowRef {
+        args += ["--window", window]
+    }
+    _ = try cli(args)
 }
 
 func currentSurfaceRef() throws -> String {
-    let object = try cliJSON(["identify", "--id-format", "both"])
+    var args = ["identify", "--id-format", "both"]
+    if let window = createdWindowRef {
+        args += ["--window", window]
+    }
+    let object = try cliJSON(args)
     guard let focused = object["focused"] as? [String: Any],
           let ref = focused["surface_ref"] as? String else {
         throw ProbeError(message: "Could not resolve focused surface ref: \(object)")
     }
     return ref
+}
+
+func debugLayout() throws -> [String: Any] {
+    var params: [String: Any] = [:]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    return try cliJSON(["rpc", "debug.layout", try jsonString(params)])
 }
 
 func viewportSize(for workspace: String) throws -> PixelSize {
@@ -358,10 +497,18 @@ func viewportSize(for workspace: String) throws -> PixelSize {
 
 func setCanvasViewport(scale: Double, workspace: String, viewportSize: PixelSize) throws -> [String: Any] {
     try focusWorkspace(workspace)
-    let params = """
-    {"workspace_id":"\(workspace)","x":0,"y":0,"width":\(viewportSize.width),"height":\(viewportSize.height),"scale":\(scale)}
-    """
-    return try cliJSON(["rpc", "debug.canvas.viewport", params])
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "x": 0,
+        "y": 0,
+        "width": viewportSize.width,
+        "height": viewportSize.height,
+        "scale": scale,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    return try cliJSON(["rpc", "debug.canvas.viewport", try jsonString(params)])
 }
 
 func resizeFocusedCanvasItem(
@@ -371,7 +518,7 @@ func resizeFocusedCanvasItem(
     height targetHeight: Double = 520
 ) throws {
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
-    let object = try cliJSON(["rpc", "debug.layout", "{}"])
+    let object = try debugLayout()
     let layout = try okObject(object, key: "layout")
     guard let items = layout["canvasItems"] as? [[String: Any]],
           let frame = items.first?["frame"] as? [String: Any],
@@ -382,10 +529,16 @@ func resizeFocusedCanvasItem(
     let dx = targetWidth - width
     let dy = targetHeight - height
     guard abs(dx) > 0.5 || abs(dy) > 0.5 else { return }
-    let params = """
-    {"workspace_id":"\(workspace)","handle":"bottomRight","dx":\(dx),"dy":\(dy)}
-    """
-    _ = try cliJSON(["rpc", "debug.canvas.resize", params])
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "handle": "bottomRight",
+        "dx": dx,
+        "dy": dy,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    _ = try cliJSON(["rpc", "debug.canvas.resize", try jsonString(params)])
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
 }
 
@@ -393,10 +546,20 @@ func zoomOut(workspace: String, viewportSize: PixelSize) throws -> [String: Any]
     try focusWorkspace(workspace)
     let anchorX = max(1, viewportSize.width / 2)
     let anchorY = max(1, viewportSize.height / 2)
-    let params = """
-    {"workspace_id":"\(workspace)","start_scale":1,"delta_y":-12,"repeat":24,"viewport_width":\(viewportSize.width),"viewport_height":\(viewportSize.height),"anchor_x":\(anchorX),"anchor_y":\(anchorY)}
-    """
-    return try cliJSON(["rpc", "debug.canvas.wheel_zoom", params])
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "start_scale": 1,
+        "delta_y": -12,
+        "repeat": 24,
+        "viewport_width": viewportSize.width,
+        "viewport_height": viewportSize.height,
+        "anchor_x": anchorX,
+        "anchor_y": anchorY,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    return try cliJSON(["rpc", "debug.canvas.wheel_zoom", try jsonString(params)])
 }
 
 func assertScale(surface: String, before: PixelBounds, after: PixelBounds, viewportScale: Double) throws -> (Double, Double) {
@@ -429,12 +592,14 @@ func terminalProbe() throws -> SurfaceResult {
         label: "terminal_before",
         threshold: terminalRedThreshold,
         minimumPixels: 200,
-        minimumInset: 16
+        minimumInset: 16,
+        leftInset: 300
     )
     let beforeCopy = try copyArtifact(beforeSource, named: "terminal-before.png")
     let beforeBounds = try detectBounds(
         in: beforeCopy,
-        threshold: terminalRedThreshold
+        threshold: terminalRedThreshold,
+        crop: leftInsetCrop(in: beforeCopy, leftInset: 300)
     )
 
     let zoom = try zoomOut(workspace: workspace, viewportSize: size)
@@ -446,12 +611,14 @@ func terminalProbe() throws -> SurfaceResult {
     let afterSource = try waitForColor(
         label: "terminal_after",
         threshold: terminalRedThreshold,
-        minimumPixels: 50
+        minimumPixels: 50,
+        leftInset: 300
     )
     let afterCopy = try copyArtifact(afterSource, named: "terminal-after.png")
     let afterBounds = try detectBounds(
         in: afterCopy,
-        threshold: terminalRedThreshold
+        threshold: terminalRedThreshold,
+        crop: leftInsetCrop(in: afterCopy, leftInset: 300)
     )
 
     let ratios = try assertScale(
@@ -501,14 +668,16 @@ func browserProbe() throws -> SurfaceResult {
     Thread.sleep(forTimeInterval: 0.5)
     let beforeSource = try waitForColor(
         label: "browser_before",
-        threshold: { red, green, blue, _ in green > 0.82 && red < 0.22 && blue < 0.22 },
+        threshold: browserGreenThreshold,
         minimumPixels: 1_000,
-        minimumInset: 16
+        minimumInset: 16,
+        leftInset: 300
     )
     let beforeCopy = try copyArtifact(beforeSource, named: "browser-before.png")
     let beforeBounds = try detectBounds(
         in: beforeCopy,
-        threshold: { red, green, blue, _ in green > 0.82 && red < 0.22 && blue < 0.22 }
+        threshold: browserGreenThreshold,
+        crop: leftInsetCrop(in: beforeCopy, leftInset: 300)
     )
 
     let zoom = try zoomOut(workspace: workspace, viewportSize: size)
@@ -518,13 +687,15 @@ func browserProbe() throws -> SurfaceResult {
     Thread.sleep(forTimeInterval: 0.6)
     let afterSource = try waitForColor(
         label: "browser_after",
-        threshold: { red, green, blue, _ in green > 0.82 && red < 0.22 && blue < 0.22 },
-        minimumPixels: 200
+        threshold: browserGreenThreshold,
+        minimumPixels: 200,
+        leftInset: 300
     )
     let afterCopy = try copyArtifact(afterSource, named: "browser-after.png")
     let afterBounds = try detectBounds(
         in: afterCopy,
-        threshold: { red, green, blue, _ in green > 0.82 && red < 0.22 && blue < 0.22 }
+        threshold: browserGreenThreshold,
+        crop: leftInsetCrop(in: afterCopy, leftInset: 300)
     )
 
     let ratios = try assertScale(
@@ -544,6 +715,10 @@ func browserProbe() throws -> SurfaceResult {
         heightRatio: ratios.1,
         tolerance: 0.09
     )
+}
+
+func browserGreenThreshold(red: CGFloat, green: CGFloat, blue: CGFloat, alpha _: CGFloat) -> Bool {
+    green > 0.60 && green > red + 0.20 && green > blue + 0.15
 }
 
 do {

@@ -299,6 +299,19 @@ public struct CanvasSurfacePresentation: Sendable, Equatable {
         CGRect(origin: nativeContentOrigin, size: visibleNativeContentSize)
     }
 
+    public var nativeClipBounds: CGRect {
+        CGRect(origin: .zero, size: visibleNativeContentSize)
+    }
+
+    public var nativeContentFrameInClip: CGRect {
+        CGRect(
+            x: -nativeContentOrigin.x,
+            y: -nativeContentOrigin.y,
+            width: nativeContentSize.width,
+            height: nativeContentSize.height
+        )
+    }
+
     public var horizontalScale: CGFloat {
         frameInWindow.width / nativeContentSize.width
     }

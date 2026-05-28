@@ -881,6 +881,7 @@ final class WindowTerminalPortal: NSObject {
     private var interactiveFrameOverridesInWindowByHostedId: [ObjectIdentifier: NSRect] = [:]
     private var canvasSurfacePresentationsByHostedId: [ObjectIdentifier: CanvasSurfacePresentation] = [:]
     private var canvasSurfacePresentationSuppressedHostedIds: Set<ObjectIdentifier> = []
+    private var canvasSurfacePresentationFrozenHostedIds: Set<ObjectIdentifier> = []
     private var canvasClipViewsByHostedId: [ObjectIdentifier: WindowTerminalCanvasClipView] = [:]
 
     init(window: NSWindow, syncLayout: Bool = true) {
@@ -1324,10 +1325,21 @@ final class WindowTerminalPortal: NSObject {
         canvasClipViewsByHostedId[hostedId]?.isHidden = hidden
     }
 
+    private func setCanvasSurfaceFrozen(_ frozen: Bool, forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView?) {
+        let alpha: CGFloat = frozen ? 0 : 1
+        hostedView?.alphaValue = alpha
+        canvasClipViewsByHostedId[hostedId]?.alphaValue = alpha
+        if frozen {
+            hostedView?.isHidden = true
+            canvasClipViewsByHostedId[hostedId]?.isHidden = true
+        }
+    }
+
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
         canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
         canvasSurfacePresentationSuppressedHostedIds.remove(hostedId)
+        canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -1355,11 +1367,13 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
         canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+        canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         if let hostedView = entry.hostedView {
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: hostedView)
             setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
         }
 #if DEBUG
@@ -1372,6 +1386,10 @@ final class WindowTerminalPortal: NSObject {
     /// won't hide a view that updateNSView has already marked as visible.
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
         guard var entry = entriesByHostedId[hostedId] else { return }
+        if !visibleInUI, canvasSurfacePresentationFrozenHostedIds.contains(hostedId) {
+            setCanvasSurfaceFrozen(true, forHostedId: hostedId, hostedView: entry.hostedView)
+            return
+        }
         let effectiveVisibleInUI = visibleInUI && !canvasSurfacePresentationSuppressedHostedIds.contains(hostedId)
         let didChange = entry.visibleInUI != effectiveVisibleInUI
         entry.visibleInUI = effectiveVisibleInUI
@@ -1401,13 +1419,21 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func setCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier, presentation: CanvasSurfacePresentation?) {
-        if presentation != nil, canvasSurfacePresentationSuppressedHostedIds.contains(hostedId) {
+        if presentation != nil,
+           (canvasSurfacePresentationSuppressedHostedIds.contains(hostedId)
+            || canvasSurfacePresentationFrozenHostedIds.contains(hostedId)) {
+            return
+        }
+        if presentation == nil, canvasSurfacePresentationFrozenHostedIds.contains(hostedId) {
             return
         }
         if let presentation {
+            canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
             canvasSurfacePresentationsByHostedId[hostedId] = presentation
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
         } else {
             canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
             unmountCanvasClipView(
                 forHostedId: hostedId,
                 hostedView: entriesByHostedId[hostedId]?.hostedView,
@@ -1435,15 +1461,27 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    func freezeCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier) {
+        guard let entry = entriesByHostedId[hostedId] else { return }
+        canvasSurfacePresentationFrozenHostedIds.insert(hostedId)
+        interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+        setCanvasSurfaceFrozen(true, forHostedId: hostedId, hostedView: entry.hostedView)
+    }
+
     func resumeCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier) {
         canvasSurfacePresentationSuppressedHostedIds.remove(hostedId)
+        canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
+        setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
+        synchronizeHostedView(withId: hostedId)
     }
 
     func clearInteractiveFrameOverrides() {
         let hostedIds = Array(Set(interactiveFrameOverridesInWindowByHostedId.keys).union(canvasSurfacePresentationsByHostedId.keys))
         interactiveFrameOverridesInWindowByHostedId.removeAll()
         canvasSurfacePresentationsByHostedId.removeAll()
+        canvasSurfacePresentationFrozenHostedIds.removeAll()
         for hostedId in hostedIds {
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
             unmountCanvasClipView(
                 forHostedId: hostedId,
                 hostedView: entriesByHostedId[hostedId]?.hostedView,
@@ -1877,7 +1915,9 @@ final class WindowTerminalPortal: NSObject {
             targetVisibleFrame.width >= Self.minimumRevealWidth &&
             targetVisibleFrame.height >= Self.minimumRevealHeight
         let outsideHostBounds = canvasPresentationClippedOut || !hasVisibleIntersection
+        let canvasPresentationFrozen = canvasSurfacePresentationFrozenHostedIds.contains(hostedId)
         let shouldHide =
+            canvasPresentationFrozen ||
             !entry.visibleInUI ||
             anchorHidden ||
             tinyFrame ||
@@ -1962,15 +2002,11 @@ final class WindowTerminalPortal: NSObject {
         if hasFiniteFrame {
             if let canvasSurfacePresentation {
                 let clipView = canvasClipView(forHostedId: hostedId)
-                let expectedClipBounds = NSRect(
-                    origin: canvasSurfacePresentation.nativeContentOrigin,
-                    size: canvasSurfacePresentation.visibleNativeContentSize
-                )
-                let expectedHostedFrame = NSRect(origin: .zero, size: canvasSurfacePresentation.nativeContentSize)
+                let expectedClipBounds = canvasSurfacePresentation.nativeClipBounds
+                let expectedHostedFrame = canvasSurfacePresentation.nativeContentFrameInClip
                 let expectedHostedBounds = NSRect(origin: .zero, size: canvasSurfacePresentation.nativeContentSize)
                 let oldHostedFrame = hostedView.frame
                 let oldHostedBounds = hostedView.bounds
-                var hostedFrameChanged = false
                 var hostedBoundsChanged = false
 
                 CATransaction.begin()
@@ -1991,7 +2027,6 @@ final class WindowTerminalPortal: NSObject {
                 }
                 if !Self.rectApproximatelyEqual(oldHostedFrame, expectedHostedFrame) {
                     hostedView.frame = expectedHostedFrame
-                    hostedFrameChanged = true
                 }
                 if !Self.rectApproximatelyEqual(oldHostedBounds, expectedHostedBounds) {
                     hostedView.bounds = expectedHostedBounds
@@ -1999,9 +2034,17 @@ final class WindowTerminalPortal: NSObject {
                 }
                 CATransaction.commit()
 
-                if hostedFrameChanged || hostedBoundsChanged {
+                let hostedFrameSizeChanged =
+                    abs(oldHostedFrame.width - expectedHostedFrame.width) > 0.01 ||
+                    abs(oldHostedFrame.height - expectedHostedFrame.height) > 0.01
+                let hostedBoundsSizeChanged =
+                    abs(oldHostedBounds.width - expectedHostedBounds.width) > 0.01 ||
+                    abs(oldHostedBounds.height - expectedHostedBounds.height) > 0.01
+                if hostedFrameSizeChanged || hostedBoundsChanged {
                     hostedView.reconcileGeometryNow()
-                    hostedView.refreshSurfaceNow(reason: "portal.nativeFrameChange")
+                    if hostedFrameSizeChanged || hostedBoundsSizeChanged {
+                        hostedView.refreshSurfaceNow(reason: "portal.nativeFrameChange")
+                    }
                 }
             } else {
                 unmountCanvasClipView(
@@ -2281,6 +2324,8 @@ final class WindowTerminalPortal: NSObject {
         return TerminalWindowPortalRegistry.DebugSnapshot(
             visibleInUI: entry.visibleInUI,
             containerHidden: clipView?.isHidden ?? hostedView.isHidden,
+            containerAlpha: clipView?.alphaValue ?? hostedView.alphaValue,
+            hostedAlpha: hostedView.alphaValue,
             frameInWindow: frameInWindow,
             containerBounds: clipView?.bounds ?? hostedView.bounds,
             hostedFrame: hostedView.frame,
@@ -2294,6 +2339,8 @@ enum TerminalWindowPortalRegistry {
     struct DebugSnapshot {
         let visibleInUI: Bool
         let containerHidden: Bool
+        let containerAlpha: CGFloat
+        let hostedAlpha: CGFloat
         let frameInWindow: CGRect
         let containerBounds: CGRect
         let hostedFrame: CGRect
@@ -2582,6 +2629,13 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.suppressCanvasSurfacePresentation(forHostedId: hostedId)
+    }
+
+    static func freezeCanvasSurfacePresentation(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.freezeCanvasSurfacePresentation(forHostedId: hostedId)
     }
 
     static func resumeCanvasSurfacePresentation(hostedView: GhosttySurfaceScrollView) {

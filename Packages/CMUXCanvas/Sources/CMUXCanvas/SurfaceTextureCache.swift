@@ -10,6 +10,7 @@ public enum CanvasSurfaceTextureKind: String, Codable, Sendable, Equatable {
 public enum CanvasTextureContentMode: String, Codable, Sendable, Equatable {
     case fit
     case fill
+    case stretch
 }
 
 public struct CanvasSurfaceTextureKey: Hashable, Codable, Sendable, CustomStringConvertible {

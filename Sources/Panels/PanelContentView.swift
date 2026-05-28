@@ -13,6 +13,7 @@ struct PanelContentView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let isSplit: Bool
+    let rendersInCanvas: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
@@ -59,6 +60,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    rendersInCanvas: rendersInCanvas,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

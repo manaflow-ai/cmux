@@ -890,8 +890,14 @@ public struct CanvasViewportPresentationState: Sendable, Equatable {
         activeAnimation != nil
     }
 
-    public func displayedViewport(fallback _: CanvasViewport) -> CanvasViewport {
-        presentedViewport ?? stableViewport
+    public func displayedViewport(fallback: CanvasViewport) -> CanvasViewport {
+        if let presentedViewport {
+            return presentedViewport
+        }
+        if activeAnimation != nil {
+            return stableViewport
+        }
+        return fallback
     }
 
     public mutating func startAnimation(

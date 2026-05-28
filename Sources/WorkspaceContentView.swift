@@ -273,7 +273,8 @@ private enum WorkspaceCanvasSurfaceMountManager {
     static func park(panel: (any Panel)?, suppressRepublication: Bool = false) {
         if let terminalPanel = panel as? TerminalPanel {
             if suppressRepublication {
-                TerminalWindowPortalRegistry.suppressCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+                TerminalWindowPortalRegistry.freezeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+                return
             }
             TerminalWindowPortalRegistry.updateEntryVisibility(for: terminalPanel.hostedView, visibleInUI: false)
             TerminalWindowPortalRegistry.setCanvasSurfacePresentation(hostedView: terminalPanel.hostedView, presentation: nil)
@@ -282,7 +283,8 @@ private enum WorkspaceCanvasSurfaceMountManager {
 
         if let browserPanel = panel as? BrowserPanel {
             if suppressRepublication {
-                BrowserWindowPortalRegistry.suppressCanvasSurfacePresentation(webView: browserPanel.webView)
+                BrowserWindowPortalRegistry.freezeCanvasSurfacePresentation(webView: browserPanel.webView)
+                return
             }
             BrowserWindowPortalRegistry.updateEntryVisibility(for: browserPanel.webView, visibleInUI: false, zPriority: 0)
             BrowserWindowPortalRegistry.setCanvasSurfacePresentation(webView: browserPanel.webView, presentation: nil)
@@ -2008,6 +2010,7 @@ struct WorkspaceContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
+                    rendersInCanvas: rendersInCanvas,
                     appearance: appearance,
                     hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                     terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
@@ -2778,7 +2781,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let renderModes = canvasRenderModes(from: presentation)
             let surfaceTextureSources = canvasSurfaceTextureSources(
                 for: presentation.visibleItems,
-                renderModes: renderModes
+                renderModes: renderModes,
+                preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation
             )
             let metalScene = CanvasScene(presentation: presentation)
             let visibleItems = presentation.presentationSurfaces.map(\.item)
@@ -3128,16 +3132,27 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
     private func canvasSurfaceTextureSources(
         for items: [CanvasItem],
-        renderModes: [LayoutItemID: CanvasRenderMode]
+        renderModes: [LayoutItemID: CanvasRenderMode],
+        preferFrozenPreviewTextures: Bool = false
     ) -> [CanvasSurfaceTextureSource] {
         items.compactMap { item in
             guard renderModes[item.id] == .previewTexture,
                   let selected = selectedTab(for: item) else {
                 return nil
             }
+            if preferFrozenPreviewTextures,
+               let image = canvasPreviewImages[selected.id],
+               let cgImage = Self.cgImage(from: image) {
+                return CanvasSurfaceTextureSource(
+                    id: item.id,
+                    image: cgImage,
+                    generation: canvasPreviewImageGenerations[selected.id] ?? 0,
+                    contentMode: .stretch
+                )
+            }
             if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
                let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
-                return CanvasSurfaceTextureSource(id: item.id, surface: surface, contentMode: .fit)
+                return CanvasSurfaceTextureSource(id: item.id, surface: surface, contentMode: .stretch)
             }
             if let image = canvasPreviewImages[selected.id],
                let cgImage = Self.cgImage(from: image) {
@@ -3145,7 +3160,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     id: item.id,
                     image: cgImage,
                     generation: canvasPreviewImageGenerations[selected.id] ?? 0,
-                    contentMode: .fit
+                    contentMode: .stretch
                 )
             }
             return nil
@@ -3179,6 +3194,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             if let terminalPanel = panel as? TerminalPanel,
                let snapshot = TerminalWindowPortalRegistry.debugSnapshot(for: terminalPanel.hostedView),
                !snapshot.containerHidden,
+               snapshot.containerAlpha > 0.01,
+               snapshot.hostedAlpha > 0.01,
                snapshot.frameInWindow.width > 1,
                snapshot.frameInWindow.height > 1 {
                 count += 1
@@ -3187,6 +3204,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             if let browserPanel = panel as? BrowserPanel,
                let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView),
                !snapshot.containerHidden,
+               snapshot.containerAlpha > 0.01,
+               snapshot.webViewAlpha > 0.01,
                snapshot.frameInWindow.width > 1,
                snapshot.frameInWindow.height > 1 {
                 count += 1
@@ -3712,17 +3731,17 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         return selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "about:blank"
     }
 
-    private func captureCanvasPreviewSnapshot(for selected: SurfaceTab) {
-        guard canvasPreviewImages[selected.id] == nil else { return }
+    private func captureCanvasPreviewSnapshot(for selected: SurfaceTab, force: Bool = false) {
+        guard force || canvasPreviewImages[selected.id] == nil else { return }
         guard let panel = workspace.panel(for: selected.id) else { return }
         if let terminalPanel = panel as? TerminalPanel {
-            guard let image = Self.snapshotImage(of: terminalPanel.hostedView) else { return }
+            guard let image = Self.terminalSnapshotImage(of: terminalPanel.hostedView) else { return }
             setCanvasPreviewImage(image, for: selected.id)
             return
         }
 
         if let browserPanel = panel as? BrowserPanel {
-            guard !canvasPreviewSnapshotRequests.contains(selected.id) else { return }
+            guard force || !canvasPreviewSnapshotRequests.contains(selected.id) else { return }
             canvasPreviewSnapshotRequests.insert(selected.id)
             let surfaceID = selected.id
             browserPanel.takeSnapshot { image in
@@ -3749,6 +3768,14 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             return nil
         }
         return image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+    }
+
+    private static func terminalSnapshotImage(of view: GhosttySurfaceScrollView) -> NSImage? {
+        if let cgImage = view.debugCopyIOSurfaceCGImage() {
+            let size = CGSize(width: cgImage.width, height: cgImage.height)
+            return NSImage(cgImage: cgImage, size: size)
+        }
+        return snapshotImage(of: view)
     }
 
     private static func snapshotImage(of view: NSView) -> NSImage? {
@@ -3797,6 +3824,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
         captureCanvasPreviewSnapshot(activeItemID: activeItemID)
         WorkspaceCanvasSurfaceMountManager.parkAllNativeSurfaces(in: workspace, suppressRepublication: true)
+        CATransaction.flush()
     }
 
     private func captureCanvasPreviewSnapshot(activeItemID: LayoutItemID?) {
@@ -3805,7 +3833,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
               let selected = selectedTab(for: item) else {
             return
         }
-        captureCanvasPreviewSnapshot(for: selected)
+        captureCanvasPreviewSnapshot(for: selected, force: true)
     }
 
     private func captureCanvasPreviewSnapshots(in presentation: CanvasPresentationState) {
@@ -3815,7 +3843,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                   let selected = selectedTab(for: item) else {
                 continue
             }
-            captureCanvasPreviewSnapshot(for: selected)
+            captureCanvasPreviewSnapshot(for: selected, force: true)
         }
     }
 

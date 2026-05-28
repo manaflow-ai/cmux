@@ -410,6 +410,7 @@ struct BrowserPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let rendersInCanvas: Bool
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
@@ -627,6 +628,9 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        if rendersInCanvas {
+            return true
+        }
         guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
             return false
         }
@@ -1478,7 +1482,7 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
-        let useLocalInlineDeveloperToolsHosting =
+        let useLocalInlineHosting =
             panel.shouldUseLocalInlineDeveloperToolsHosting() &&
             isCurrentPaneOwner
 
@@ -1487,8 +1491,8 @@ struct BrowserPanelView: View {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
-                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
-                    useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
+                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineHosting,
+                    useLocalInlineHosting: useLocalInlineHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
@@ -1508,7 +1512,8 @@ struct BrowserPanelView: View {
                         )
                     },
                     omnibarSuggestions: portalOmnibarSuggestions,
-                    paneTopChromeHeight: addressBarHeight
+                    paneTopChromeHeight: addressBarHeight,
+                    rendersInCanvas: rendersInCanvas
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -4868,6 +4873,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
     let paneTopChromeHeight: CGFloat
+    let rendersInCanvas: Bool
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -4880,6 +4886,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     final class HostContainerView: NSView {
+        override var isOpaque: Bool { false }
+
         private final class HostedInspectorSideDockContainerView: NSView {
             override init(frame frameRect: NSRect) {
                 super.init(frame: frameRect)
@@ -4903,6 +4911,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        var preservesCanvasInlineRenderingAcrossHostChurn = false
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
         private var hasPendingGeometryNotification = false
@@ -5726,7 +5735,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
-                notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
+                if !preservesCanvasInlineRenderingAcrossHostChurn {
+                    notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
+                }
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
@@ -6507,6 +6518,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = true
+        container.layer?.isOpaque = false
+        container.layer?.backgroundColor = NSColor.clear.cgColor
         return container
     }
 
@@ -6600,6 +6613,49 @@ struct WebViewRepresentable: NSViewRepresentable {
         return relatedSubviews
     }
 
+    private static func hasVisibleWebKitCompanion(
+        in root: NSView,
+        primaryWebView: WKWebView
+    ) -> Bool {
+        var stack = root.subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            if current.isDescendant(of: primaryWebView) {
+                continue
+            }
+            if current.isHidden || current.alphaValue <= 0 {
+                continue
+            }
+            if String(describing: type(of: current)).contains("WK") {
+                let width = max(current.frame.width, current.bounds.width)
+                let height = max(current.frame.height, current.bounds.height)
+                if width > 1, height > 1 {
+                    return true
+                }
+                continue
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
+    }
+
+    private static func normalizeTransferredWebKitRoot(
+        _ root: NSView,
+        primaryWebView: WKWebView,
+        oldBoundsSize: NSSize
+    ) {
+        guard root !== primaryWebView, primaryWebView.isDescendant(of: root) else { return }
+        root.autoresizingMask = [.width, .height]
+        root.resizeSubviews(withOldSize: oldBoundsSize)
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
+        guard !hasVisibleWebKitCompanion(in: root, primaryWebView: primaryWebView) else { return }
+        primaryWebView.translatesAutoresizingMaskIntoConstraints = true
+        primaryWebView.autoresizingMask = [.width, .height]
+        primaryWebView.frame = root.bounds
+        primaryWebView.needsLayout = true
+        primaryWebView.layoutSubtreeIfNeeded()
+    }
+
     private static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
         from sourceSuperview: NSView,
         to container: WindowBrowserSlotView,
@@ -6629,7 +6685,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             let className = String(describing: type(of: view))
             let targetFrame: NSRect
             let currentSuperview = view.superview
-            if preserveSlotLocalFrames && currentSuperview === sourceSuperview {
+            let viewContainsPrimaryWebView = view === primaryWebView || primaryWebView.isDescendant(of: view)
+            let oldBoundsSize = view.bounds.size
+            if !preserveSlotLocalFrames, viewContainsPrimaryWebView {
+                targetFrame = container.bounds
+            } else if preserveSlotLocalFrames && currentSuperview === sourceSuperview {
                 targetFrame = view.frame
                 reusedSourceLocalFrames = true
             } else {
@@ -6640,11 +6700,16 @@ struct WebViewRepresentable: NSViewRepresentable {
             view.removeFromSuperview()
             container.addSubview(view, positioned: .above, relativeTo: nil)
             view.frame = targetFrame
+            normalizeTransferredWebKitRoot(
+                view,
+                primaryWebView: primaryWebView,
+                oldBoundsSize: oldBoundsSize
+            )
             movedSubviewCount += 1
 #if DEBUG
             cmuxDebugLog(
                 "browser.localHost.reparent.batch.item reason=\(reason) class=\(className) " +
-                "view=\(Self.objectID(view))"
+                "view=\(Self.objectID(view)) frame=\(browserPanelViewRectDescription(targetFrame))"
             )
 #endif
         }
@@ -6703,6 +6768,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        host.preservesCanvasInlineRenderingAcrossHostChurn = false
         let slotView = host.ensureLocalInlineSlotView()
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
@@ -6892,8 +6958,168 @@ struct WebViewRepresentable: NSViewRepresentable {
         return !shouldPreserveExternalFullscreenHost
     }
 
+    private func updateUsingCanvasInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+        guard let host = nsView as? HostContainerView else { return false }
+        host.preservesCanvasInlineRenderingAcrossHostChurn = true
+        let slotView = host.ensureLocalInlineSlotView()
+        let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
+            for: webView,
+            relativeTo: host.window
+        )
+
+        let coordinator = context.coordinator
+        coordinator.desiredPortalVisibleInUI = false
+        coordinator.desiredPortalZPriority = 0
+        coordinator.attachGeneration += 1
+        coordinator.lastPortalHostId = nil
+        coordinator.lastSynchronizedHostGeometryRevision = 0
+
+        host.clearStaleHostedInspectorOwnershipState()
+        host.releaseHostedWebViewConstraints()
+        _ = panel.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(host),
+            reason: "canvasInlineHosting"
+        )
+
+        let shouldAttachWebViewToCanvasHost =
+            shouldAttachWebView && !shouldPreserveExternalFullscreenHost
+        if shouldAttachWebViewToCanvasHost {
+            host.onDidMoveToWindow = { [weak host, weak webView, weak browserPanel = panel] in
+                guard let host, let webView, let browserPanel else { return }
+                guard host.window != nil else { return }
+                guard !Self.shouldPreserveExternalFullscreenHost(
+                    for: webView,
+                    relativeTo: host.window
+                ) else { return }
+                let slotView = host.ensureLocalInlineSlotView()
+                Self.attachCanvasInlineWebView(
+                    panel: browserPanel,
+                    host: host,
+                    slotView: slotView,
+                    webView: webView,
+                    reason: "canvasInlineHosting.didMoveToWindow"
+                )
+            }
+            host.onGeometryChanged = { [weak host, weak webView, weak browserPanel = panel] in
+                guard let host, let webView, let browserPanel else { return }
+                guard host.window != nil else { return }
+                guard host.containsManagedLocalInlineContent(webView) else { return }
+                let slotView = host.ensureLocalInlineSlotView()
+                Self.attachCanvasInlineWebView(
+                    panel: browserPanel,
+                    host: host,
+                    slotView: slotView,
+                    webView: webView,
+                    reason: "canvasInlineHosting.geometryChanged"
+                )
+            }
+        }
+        let shouldPreserveExistingExternalHost =
+            host.window == nil &&
+            webView.superview != nil &&
+            !host.containsManagedLocalInlineContent(webView)
+        if shouldPreserveExistingExternalHost {
+            host.setLocalInlineSlotHidden(true)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.canvasHost.reparent.skip web=\(Self.objectID(webView)) " +
+                "reason=offWindowReplacementHost super=\(Self.objectID(webView.superview)) " +
+                "host=\(Self.objectID(host)) slot=\(Self.objectID(slotView))"
+            )
+#endif
+            return false
+        }
+
+        if shouldAttachWebViewToCanvasHost {
+            Self.attachCanvasInlineWebView(
+                panel: panel,
+                host: host,
+                slotView: slotView,
+                webView: webView,
+                reason: "canvasInlineHosting"
+            )
+        } else {
+            BrowserWindowPortalRegistry.discard(
+                webView: webView,
+                source: "viewStateChanged.canvasInlineHosting.hidden",
+                preserveCurrentSuperview: true
+            )
+            webView.cmuxBrowserPanelNotifyHidden(reason: "canvasInlineHosting.hidden")
+            webView.isHidden = true
+            webView.alphaValue = 0
+            host.setLocalInlineSlotHidden(true)
+        }
+
+#if DEBUG
+        Self.logDevToolsState(
+            panel,
+            event: "canvasHost.update",
+            generation: coordinator.attachGeneration,
+            retryCount: 0,
+            details: Self.attachContext(webView: webView, host: host)
+        )
+#endif
+        return shouldAttachWebViewToCanvasHost
+    }
+
+    private static func attachCanvasInlineWebView(
+        panel: BrowserPanel,
+        host: HostContainerView,
+        slotView: WindowBrowserSlotView,
+        webView: WKWebView,
+        reason: String
+    ) {
+        host.clearStaleHostedInspectorOwnershipState()
+        host.releaseHostedWebViewConstraints()
+        _ = panel.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(host),
+            reason: reason
+        )
+        if webView.superview !== slotView || !host.containsManagedLocalInlineContent(webView) {
+            if let sourceSuperview = Self.localInlineTransferRoot(for: webView) {
+                Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+                    from: sourceSuperview,
+                    to: slotView,
+                    primaryWebView: webView,
+                    reason: reason
+                )
+            } else {
+                webView.removeFromSuperview()
+                slotView.addSubview(webView, positioned: .above, relativeTo: nil)
+            }
+        }
+        BrowserWindowPortalRegistry.discard(
+            webView: webView,
+            source: "viewStateChanged.\(reason)",
+            preserveCurrentSuperview: true
+        )
+        slotView.isHidden = false
+        webView.isHidden = false
+        webView.alphaValue = 1
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        if webView.superview === slotView {
+            webView.frame = slotView.bounds
+        }
+        host.pinHostedWebView(webView, in: slotView)
+        slotView.needsLayout = true
+        slotView.needsDisplay = true
+        host.needsLayout = true
+        host.needsDisplay = true
+        slotView.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        host.refreshHostedWebKitPresentation(
+            reason: reason,
+            forceLifecycleRefresh: true
+        )
+        webView.displayIfNeeded()
+        slotView.displayIfNeeded()
+        host.displayIfNeeded()
+    }
+
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        host.preservesCanvasInlineRenderingAcrossHostChurn = false
         if panel.shouldUseLocalInlineDeveloperToolsHosting() {
             host.clearStaleHostedInspectorOwnershipState()
             host.releaseHostedWebViewConstraints()
@@ -6920,7 +7146,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         let coordinator = context.coordinator
         let paneDropContext = currentPaneDropContext()
-        let isCurrentPaneOwner = paneDropContext?.paneId.id == paneId.id
+        let isCurrentPaneOwner = rendersInCanvas || paneDropContext?.paneId.id == paneId.id
         let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
@@ -6989,7 +7215,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard rendersInCanvas || currentPaneDropContext()?.paneId.id == paneId.id else { return }
             guard browserPanel.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
@@ -7022,7 +7248,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard rendersInCanvas || currentPaneDropContext()?.paneId.id == paneId.id else { return }
             guard browserPanel.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
@@ -7150,7 +7376,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
         let coordinator = context.coordinator
-        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
+        let isCurrentPaneOwner = rendersInCanvas || currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
@@ -7160,9 +7386,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.webView = webView
 
         Self.clearPortalCallbacks(for: nsView)
-        let hostOwnsPortal = useLocalInlineHosting
-            ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
-            : updateUsingWindowPortal(nsView, context: context, webView: webView)
+        let hostOwnsPortal = rendersInCanvas
+            ? updateUsingCanvasInlineHosting(nsView, context: context, webView: webView)
+            : (
+                useLocalInlineHosting
+                    ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
+                    : updateUsingWindowPortal(nsView, context: context, webView: webView)
+            )
         if hostOwnsPortal {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }
