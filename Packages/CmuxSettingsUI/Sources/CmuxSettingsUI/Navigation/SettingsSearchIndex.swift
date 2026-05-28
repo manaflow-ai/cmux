@@ -1,14 +1,28 @@
 import CmuxSettings
 import Foundation
 
-/// Fuzzy-match index over ``SettingsSectionID`` titles and keywords.
+/// Fuzzy-match index over ``SettingsSectionID`` titles and the curated
+/// per-setting entries in ``CuratedSettingEntries``.
 ///
-/// The index is precomputed at construction so per-keystroke filtering
-/// is O(sections + n_settings). Diacritic-insensitive matching is via
-/// `String.folding(options:locale:)`.
+/// Three classes of entries are indexed:
+///
+/// 1. Section entries — one per ``SettingsSectionID`` case — surfaced
+///    in the sidebar by default (empty query).
+/// 2. Curated setting entries from ``CuratedSettingEntries/entries`` —
+///    one per high-signal setting, with the user-facing localized
+///    title plus a synonym string mined from the legacy index. This is
+///    what makes search useful: typing "copy on select" finds the
+///    `terminal.copyOnSelect` row even though that's an internal id.
+/// 3. Fallback dotted-id entries built from ``SettingCatalog/all`` for
+///    catalog keys that are *not* covered by the curated table. They
+///    only match on the dotted id, which is a usable last-resort path
+///    for power users who know the underlying key.
+///
+/// Diacritic-insensitive matching via
+/// `String.folding(options:locale:)`. Matching is per-token AND: every
+/// whitespace/punct-separated token in the query must appear somewhere
+/// in the entry's normalized search text.
 public struct SettingsSearchIndex: Sendable {
-    /// A single searchable entry — either a section or a leaf setting
-    /// (derived from the catalog's `AnySettingKey`).
     public struct Entry: Sendable, Identifiable, Hashable {
         public enum Kind: Sendable, Hashable {
             case section
@@ -24,11 +38,10 @@ public struct SettingsSearchIndex: Sendable {
 
     public let entries: [Entry]
 
-    /// Builds an index from the section enum and the catalog's flat key
-    /// list. Each setting's dotted id is split to infer which section it
-    /// belongs to.
     public init(catalog: SettingCatalog) {
         var built: [Entry] = []
+        var curatedSettingIDs = Set<String>()
+
         for section in SettingsSectionID.allCases {
             built.append(Entry(
                 id: "section:\(section.rawValue)",
@@ -40,7 +53,26 @@ public struct SettingsSearchIndex: Sendable {
                 )
             ))
         }
+
+        for entry in CuratedSettingEntries.entries {
+            let stableID = "setting:\(entry.section.rawValue):\(entry.id)"
+            curatedSettingIDs.insert(entry.id)
+            built.append(Entry(
+                id: stableID,
+                kind: .setting(parent: entry.section),
+                title: entry.title,
+                symbolName: entry.section.symbolName,
+                normalizedSearchText: Self.normalize(
+                    "\(entry.title) \(entry.synonyms)"
+                )
+            ))
+        }
+
         for key in catalog.all {
+            // Skip catalog keys that already have a curated entry. The
+            // curated row is the higher-quality surface; we don't want
+            // both showing up as duplicate results for the same setting.
+            if Self.isCovered(by: curatedSettingIDs, keyID: key.id) { continue }
             let parent = Self.inferParent(fromKeyID: key.id) ?? .app
             built.append(Entry(
                 id: "setting:\(key.id)",
@@ -50,11 +82,10 @@ public struct SettingsSearchIndex: Sendable {
                 normalizedSearchText: Self.normalize(key.id)
             ))
         }
+
         self.entries = built
     }
 
-    /// Returns the entries that match every token in ``query``. An empty
-    /// query returns all section entries (the default sidebar view).
     public func match(_ query: String) -> [Entry] {
         let tokens = Self.tokens(in: query)
         if tokens.isEmpty {
@@ -64,8 +95,6 @@ public struct SettingsSearchIndex: Sendable {
             tokens.allSatisfy { entry.normalizedSearchText.contains($0) }
         }
     }
-
-    // MARK: - Private
 
     private static func normalize(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -80,6 +109,18 @@ public struct SettingsSearchIndex: Sendable {
                 }
             }
             .map(String.init)
+    }
+
+    /// Heuristic check: a curated entry covers a catalog key when the
+    /// curated synonyms contain the catalog key's dotted id. Avoids the
+    /// O(n*m) cost of comparing each curated synonym list against each
+    /// key while still catching most duplicates.
+    private static func isCovered(by curated: Set<String>, keyID: String) -> Bool {
+        for entry in CuratedSettingEntries.entries
+        where entry.synonyms.contains(keyID) {
+            return true
+        }
+        return false
     }
 
     private static func inferParent(fromKeyID id: String) -> SettingsSectionID? {

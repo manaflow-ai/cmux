@@ -73,6 +73,31 @@ public struct SettingsWindowRoot: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 820, minHeight: 540)
         .settingsErrorAlert(log: runtime.errorLog)
+        .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
+            applyNavigationRequest(notification)
+        }
+    }
+
+    /// Notification name used by the host app to deeplink into a
+    /// specific settings section. Compatible with the legacy
+    /// `SettingsNavigationRequest.notificationName` in
+    /// `Sources/SettingsNavigation.swift` so existing call sites keep
+    /// working when the Settings window swaps over to this UI.
+    static let navigationRequestName = Notification.Name("cmux.settings.navigate")
+
+    private func applyNavigationRequest(_ notification: Notification) {
+        guard
+            let rawValue = notification.userInfo?["target"] as? String,
+            let target = SettingsSectionID(rawValue: rawValue)
+        else { return }
+        if selection != target {
+            selection = target
+        }
+        // Anchor + highlight aren't implemented in the package's
+        // split-view layout (each section is its own pane, so there's
+        // no cross-section scroll-to). External callers that depended
+        // on the highlight glow won't see one; the deeplink still
+        // routes the user to the correct pane.
     }
 
     @ViewBuilder
