@@ -5341,7 +5341,11 @@ extension CMUXCLI {
                 model.diffStats.deletedLines += stats.deleted;
                 model.diffStats.fileCount += 1;
                 model.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
+                const previousStats = model.statsByPath.get(treePath);
                 model.statsByPath.set(treePath, stats);
+                if (previousState != null && !sameFileStats(previousStats, stats)) {
+                  model.pendingStatsChanged = true;
+                }
                 if (path.length > 0) {
                   if (previousState == null) {
                     model.paths.push(treePath);
@@ -5791,6 +5795,7 @@ extension CMUXCLI {
                 pendingGitStatusSetByPath: new Map(),
                 pendingItems: [],
                 pendingItemById: new Map(),
+                pendingStatsChanged: false,
                 statsByPath: new Map(),
                 treePathByItemId: new Map(),
               };
@@ -5807,9 +5812,11 @@ extension CMUXCLI {
                 paths: model.paths,
                 pathToItemId: model.pathToItemId,
                 previousSource,
+                statsChanged: model.pendingStatsChanged,
                 statsByPath: model.statsByPath,
                 treePathByItemId: model.treePathByItemId,
               };
+              model.pendingStatsChanged = false;
               model.lastTreeSource = source;
               return source;
             }
@@ -6401,7 +6408,7 @@ extension CMUXCLI {
                 } else {
                   fileTree.setGitStatus(source.gitStatus);
                 }
-              } else if (resetTree) {
+              } else if (resetTree || source.statsChanged === true) {
                 fileTree.setGitStatus(source.gitStatus);
               }
             }
@@ -6810,6 +6817,10 @@ extension CMUXCLI {
                 stats.deleted += hunk.deletionLines ?? 0;
               }
               return stats;
+            }
+
+            function sameFileStats(previousStats, stats) {
+              return previousStats?.added === stats.added && previousStats?.deleted === stats.deleted;
             }
 
             function icon(name) {
