@@ -1412,6 +1412,38 @@ final class SessionIndexStore: ObservableObject {
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
         let roots = claudeSessionRoots()
+        return await loadClaudeEntries(
+            roots: roots,
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+
+    #if DEBUG
+    nonisolated static func loadClaudeEntriesForTesting(
+        projectsRoot: String,
+        needle: String = "",
+        cwdFilter: String? = nil,
+        offset: Int = 0,
+        limit: Int = 100
+    ) async -> [SessionEntry] {
+        let configDir = (projectsRoot as NSString).deletingLastPathComponent
+        let root = ClaudeSessionRoot(configDir: configDir, resumeConfigDirectory: nil)
+        return await loadClaudeEntries(
+            roots: [root],
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit
+        )
+    }
+    #endif
+
+    nonisolated private static func loadClaudeEntries(
+        roots: [ClaudeSessionRoot], needle: String, cwdFilter: String?, offset: Int, limit: Int
+    ) async -> [SessionEntry] {
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
