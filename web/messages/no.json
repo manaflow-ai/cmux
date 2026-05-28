@@ -1143,5 +1143,8 @@
       "intro": "Denne siden åpner regler i det gjeldende cmux-arbeidsområdet.",
       "fallback": "cmux viser reglene først og spør før de limes inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "Skaperen av OpenClaw. Grunnlegger av PSPDFKit."
   }
 }

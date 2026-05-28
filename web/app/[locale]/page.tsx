@@ -6,7 +6,11 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
-import { testimonials, getTestimonialTranslation } from "./testimonials";
+import {
+  testimonials,
+  getTestimonialSubtitle,
+  getTestimonialTranslation,
+} from "./testimonials";
 import { Link } from "../../i18n/navigation";
 
 export default function Home() {
@@ -17,6 +21,7 @@ function HomeContent() {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const tt = useTranslations("testimonials");
+  const tst = useTranslations("testimonialSubtitles");
   const locale = useLocale();
 
   const linkClass =
@@ -244,6 +249,7 @@ function HomeContent() {
           >
             {testimonials.map((item) => {
               const translation = getTestimonialTranslation(item, locale, tt);
+              const subtitle = getTestimonialSubtitle(item, tst);
               return (
               <li key={item.url}>
                 <span>
@@ -282,9 +288,7 @@ function HomeContent() {
                       />
                     )}
                     {item.name}
-                    {"subtitle" in item && item.subtitle
-                      ? `, ${item.subtitle}`
-                      : ""}
+                    {subtitle ? `, ${subtitle}` : ""}
                   </a>
                 </span>
               </li>

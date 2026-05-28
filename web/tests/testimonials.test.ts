@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  getTestimonialSubtitle,
   getTestimonialTranslation,
   type Testimonial,
 } from "../app/[locale]/testimonials";
@@ -37,5 +38,22 @@ describe("testimonial translations", () => {
     );
 
     expect(translation).toBe("繁體中文翻譯");
+  });
+
+  test("resolves localized testimonial subtitles by key", () => {
+    const testimonialWithSubtitleKey = {
+      ...simplifiedChineseTestimonial,
+      subtitleKey: "steipete",
+    } satisfies Testimonial;
+
+    const subtitle = getTestimonialSubtitle(
+      testimonialWithSubtitleKey,
+      (key) => {
+        expect(key).toBe("steipete");
+        return "Localized subtitle";
+      }
+    );
+
+    expect(subtitle).toBe("Localized subtitle");
   });
 });
