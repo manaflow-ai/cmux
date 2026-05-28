@@ -486,7 +486,6 @@ import UIKit
     #expect(store.activeTicket?.macDeviceID == "test-mac")
     #expect(store.activeRoute?.kind == .debugLoopback)
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
-    #expect(store.selectedWorkspace?.terminals.first?.lines.contains("runtime: waiting for transport") == true)
 }
 
 @MainActor
@@ -738,11 +737,6 @@ import UIKit
                 ],
             ]
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "ticket-workspace",
-            terminalID: "ticket-terminal",
-            visibleLines: ["ticket workspace selected"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -757,7 +751,6 @@ import UIKit
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "ticket-workspace")
     #expect(store.selectedTerminalID?.rawValue == "ticket-terminal")
-    #expect(store.selectedWorkspace?.terminals.first?.lines.contains("ticket workspace selected") == true)
 }
 
 @MainActor
@@ -1012,11 +1005,6 @@ import UIKit
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["ready"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1051,7 +1039,6 @@ import UIKit
 
     let requests = try await responses.sentRequests()
     #expect(requests.contains { $0.method == "workspace.list" })
-    #expect(requests.contains { $0.method == "terminal.snapshot" })
     #expect(!requests.contains { $0.method == "terminal.input" })
 }
 
@@ -1162,11 +1149,6 @@ import UIKit
                 ],
             ]
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["ready"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -1240,11 +1222,6 @@ import UIKit
                 ],
             ]
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["ready"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1262,221 +1239,6 @@ import UIKit
     #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
     #expect(workspaceIDs == [workspaceID, secondWorkspaceID])
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "ready")
-}
-
-@MainActor
-@Test func scopedAttachTicketFallsBackToStackAuthForOutOfScopeTerminalTraffic() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let secondWorkspaceID = UUID().uuidString
-    let secondTerminalID = UUID().uuidString
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
-    let ticket = try CmxAttachTicket(
-        workspaceID: workspaceID,
-        terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcResultFrame(
-            result: [
-                "workspaces": [
-                    [
-                        "id": workspaceID,
-                        "title": "Main",
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": terminalID,
-                                "title": "Build",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                        ],
-                    ],
-                    [
-                        "id": secondWorkspaceID,
-                        "title": "Second",
-                        "current_directory": "/Users/test/second",
-                        "is_selected": false,
-                        "terminals": [
-                            [
-                                "id": secondTerminalID,
-                                "title": "Shell",
-                                "current_directory": "/Users/test/second",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                        ],
-                    ],
-                ],
-            ]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["scoped ready"]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: secondWorkspaceID,
-            terminalID: secondTerminalID,
-            visibleLines: ["second ready"]
-        ),
-        try rpcResultFrame(result: ["accepted": true]),
-        try rpcSnapshotResultFrame(
-            workspaceID: secondWorkspaceID,
-            terminalID: secondTerminalID,
-            visibleLines: ["second typed"]
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "test-stack-token"
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    _ = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
-
-    await store.openWorkspace(MobileWorkspacePreview.ID(rawValue: secondWorkspaceID))
-    await store.submitTerminalRawInput("x")
-    let terminal = try await waitForSelectedTerminal(in: store) {
-        $0.snapshot.renderedVisibleLines.first == "second typed"
-    }
-    #expect(terminal.id.rawValue == secondTerminalID)
-
-    let requests = try await responses.sentRequests()
-    let secondWorkspaceSnapshots = requests.filter {
-        $0.method == "terminal.snapshot" &&
-            $0.workspaceID == secondWorkspaceID &&
-            $0.terminalID == secondTerminalID
-    }
-    let secondWorkspaceInput = try #require(requests.first {
-        $0.method == "terminal.input" &&
-            $0.workspaceID == secondWorkspaceID &&
-            $0.terminalID == secondTerminalID
-    })
-
-    #expect(!secondWorkspaceSnapshots.isEmpty)
-    #expect(secondWorkspaceSnapshots.allSatisfy { $0.attachToken == nil })
-    #expect(secondWorkspaceSnapshots.allSatisfy { $0.stackAccessToken == "test-stack-token" })
-    #expect(secondWorkspaceInput.attachToken == nil)
-    #expect(secondWorkspaceInput.stackAccessToken == "test-stack-token")
-}
-
-@MainActor
-@Test func macScopedAttachTicketKeepsAttachTokenForWorkspaceSwitches() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let secondWorkspaceID = UUID().uuidString
-    let secondTerminalID = UUID().uuidString
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
-    let ticket = try CmxAttachTicket(
-        workspaceID: "",
-        terminalID: nil,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcResultFrame(
-            result: [
-                "workspaces": [
-                    [
-                        "id": workspaceID,
-                        "title": "Main",
-                        "current_directory": "/Users/test/project",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": terminalID,
-                                "title": "Build",
-                                "current_directory": "/Users/test/project",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                        ],
-                    ],
-                    [
-                        "id": secondWorkspaceID,
-                        "title": "Second",
-                        "current_directory": "/Users/test/second",
-                        "is_selected": false,
-                        "terminals": [
-                            [
-                                "id": secondTerminalID,
-                                "title": "Shell",
-                                "current_directory": "/Users/test/second",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                        ],
-                    ],
-                ],
-            ]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["ready"]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: secondWorkspaceID,
-            terminalID: secondTerminalID,
-            visibleLines: ["second ready"]
-        ),
-        try rpcResultFrame(result: ["accepted": true]),
-        try rpcSnapshotResultFrame(
-            workspaceID: secondWorkspaceID,
-            terminalID: secondTerminalID,
-            visibleLines: ["second typed"]
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "test-stack-token"
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    _ = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
-
-    await store.openWorkspace(MobileWorkspacePreview.ID(rawValue: secondWorkspaceID))
-    await store.submitTerminalRawInput("x")
-    let terminal = try await waitForSelectedTerminal(in: store) {
-        $0.snapshot.renderedVisibleLines.first == "second typed"
-    }
-    #expect(terminal.id.rawValue == secondTerminalID)
-
-    let requests = try await responses.sentRequests()
-    let secondWorkspaceSnapshots = requests.filter {
-        $0.method == "terminal.snapshot" &&
-            $0.workspaceID == secondWorkspaceID &&
-            $0.terminalID == secondTerminalID
-    }
-    let secondWorkspaceInput = try #require(requests.first {
-        $0.method == "terminal.input" &&
-            $0.workspaceID == secondWorkspaceID &&
-            $0.terminalID == secondTerminalID
-    })
-
-    #expect(!secondWorkspaceSnapshots.isEmpty)
-    #expect(secondWorkspaceSnapshots.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(secondWorkspaceSnapshots.allSatisfy { $0.stackAccessToken == nil })
-    #expect(secondWorkspaceInput.attachToken == "ticket-secret")
-    #expect(secondWorkspaceInput.stackAccessToken == nil)
 }
 
 @MainActor
@@ -1496,11 +1258,6 @@ import UIKit
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "Full list not supported"),
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["scoped fallback"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -1518,7 +1275,6 @@ import UIKit
     #expect(workspaceLists[1].terminalID == terminalID)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
     #expect(store.workspaces.map(\.id.rawValue) == [workspaceID])
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "scoped fallback")
 }
 
 @MainActor
@@ -1839,7 +1595,8 @@ import UIKit
     await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.connectionError == nil)
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "Terminal surface is still starting.")
+    #expect(store.selectedWorkspace?.id.rawValue == "local-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "local-terminal")
 }
 
 @MainActor
@@ -1875,11 +1632,6 @@ import UIKit
                 ],
             ]
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "local-workspace",
-            terminalID: "ready-terminal",
-            visibleLines: ["ready terminal"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1893,7 +1645,6 @@ import UIKit
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "local-workspace")
     #expect(store.selectedTerminalID?.rawValue == "ready-terminal")
-    #expect(store.selectedWorkspace?.terminals.first { $0.id.rawValue == "ready-terminal" }?.lines.first == "ready terminal")
 }
 
 @MainActor
@@ -1938,11 +1689,6 @@ import UIKit
             ]
         ),
         try rpcErrorFrame(message: "Terminal surface is not ready"),
-        try rpcSnapshotResultFrame(
-            workspaceID: "ready-workspace",
-            terminalID: "ready-terminal",
-            visibleLines: ["ready from another workspace"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1956,44 +1702,6 @@ import UIKit
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "stale-workspace")
     #expect(store.selectedTerminalID?.rawValue == "stale-terminal")
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "Terminal surface is still starting.")
-}
-
-@MainActor
-@Test func staleNotReadySnapshotDoesNotSelectFallbackAfterUserSelectionChanges() async throws {
-    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
-    let router = StaleSnapshotSelectionRouter(route: route)
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: RequestAwareTransportFactory(router: router)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    let connectTask = Task { @MainActor in
-        await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
-    }
-
-    await router.waitForStaleSnapshotRequest()
-    await store.openWorkspace(.init(rawValue: "chosen-workspace"))
-    await router.releaseStaleSnapshotError()
-    await connectTask.value
-
-    for _ in 0..<100 {
-        if store.selectedWorkspace?.id.rawValue == "chosen-workspace",
-           store.selectedTerminalID?.rawValue == "chosen-terminal",
-           store.selectedWorkspace?.terminals.first?.lines.first == "chosen stays selected" {
-            break
-        }
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    let requests = await router.sentRequests()
-    #expect(store.connectionError == nil)
-    #expect(store.selectedWorkspace?.id.rawValue == "chosen-workspace")
-    #expect(store.selectedTerminalID?.rawValue == "chosen-terminal")
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "chosen stays selected")
-    #expect(!requests.contains { $0.workspaceID == "fallback-workspace" })
 }
 
 @MainActor
@@ -2036,15 +1744,13 @@ import UIKit
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     store.createWorkspace()
 
-    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" ||
-        store.selectedWorkspace?.terminals.first?.lines.contains("workspace: Workspace 3") != true {
+    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
 
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
     #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-1")
     #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
-    #expect(store.selectedWorkspace?.terminals.first?.lines.contains("workspace: Workspace 3") == true)
 }
 
 @MainActor
@@ -2075,8 +1781,7 @@ import UIKit
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     store.createWorkspace()
 
-    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" ||
-        store.selectedWorkspace?.terminals.first?.lines.contains("workspace: Workspace 3") != true {
+    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
 
@@ -2131,9 +1836,7 @@ import UIKit
 
     store.createTerminal()
 
-    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "workspace-main-terminal-2" ||
-        store.selectedWorkspace?.terminals.first(where: { $0.id.rawValue == "workspace-main-terminal-2" })?.lines
-            .contains("terminal: Terminal 2") != true {
+    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "workspace-main-terminal-2" {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
 
@@ -2173,8 +1876,7 @@ import UIKit
     await store.openWorkspace(.init(rawValue: "workspace-docs"))
     await router.releaseTerminalCreateResponse()
 
-    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "terminal-notes" ||
-        store.selectedWorkspace?.terminals.first?.lines.first != "docs after create race" {
+    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "terminal-notes" {
         try await Task.sleep(nanoseconds: 10_000_000)
     }
 
@@ -2182,7 +1884,6 @@ import UIKit
     #expect(store.connectionError == nil)
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "docs after create race")
     #expect(!requests.contains { $0.workspaceID == "workspace-docs" && $0.terminalID == "workspace-main-terminal-2" })
 }
 
@@ -2437,17 +2138,7 @@ import UIKit
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["ready"]
-        ),
         try rpcResultFrame(result: ["accepted": true]),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["sent"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2494,17 +2185,7 @@ import UIKit
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["ready"]
-        ),
         try rpcResultFrame(result: ["accepted": true]),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["raw sent"]
-        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2518,612 +2199,6 @@ import UIKit
 
     let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
     #expect(inputRequest.text == "\u{1B}[A")
-}
-
-@MainActor
-@Test func serverPushSubscriptionKeepsTerminalPollingFallbackAndSingleListener() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: workspaceID,
-        terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let router = ServerPushPollingFallbackRouter(
-        workspaceID: workspaceID,
-        terminalID: terminalID
-    )
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: RequestAwareTransportFactory(router: router),
-        stackAccessToken: nil,
-        supportsServerPushEvents: true
-    )
-    weak var weakStore: CMUXMobileShellStore?
-    do {
-        let store = CMUXMobileShellStore.preview(runtime: runtime)
-        weakStore = store
-
-        store.signIn()
-        await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-        _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-        store.resumeForegroundRefresh()
-
-        _ = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
-        try await Task.sleep(nanoseconds: 50_000_000)
-
-        let requests = await router.sentRequests()
-        let subscribeRequests = requests.filter { $0.method == "mobile.events.subscribe" }
-        #expect(subscribeRequests.count == 1)
-        #expect(subscribeRequests.allSatisfy { $0.attachToken == "ticket-secret" })
-        #expect(subscribeRequests.allSatisfy { $0.stackAccessToken == nil })
-        #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 2)
-    }
-    #expect(weakStore == nil)
-}
-
-@MainActor
-@Test func rawTerminalInputDoesNotReplaceStyledSnapshotWithImmediatePlainTextDowngrade() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: workspaceID,
-        terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let initialStyledSnapshot = try ansiSnapshot(
-        terminalID: terminalID,
-        text: "\u{001B}[38;2;204;102;102mred prompt\u{001B}[0m"
-    )
-    let refreshedStyledSnapshot = try ansiSnapshot(
-        terminalID: terminalID,
-        text: "\u{001B}[38;2;204;102;102mred prompt x\u{001B}[0m"
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(
-            workspaceID: workspaceID,
-            title: "Live Workspace",
-            terminalID: terminalID
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["red prompt"],
-            fidelity: "ansi_vt",
-            snapshotOverride: initialStyledSnapshot
-        ),
-        try rpcResultFrame(result: ["accepted": true]),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["plain prompt x"],
-            fidelity: "plain_text"
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["red prompt x"],
-            fidelity: "ansi_vt",
-            snapshotOverride: refreshedStyledSnapshot
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: nil
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    await store.submitTerminalRawInput("x")
-
-    let terminal = try await waitForSelectedTerminal(in: store) {
-        $0.snapshot.renderedVisibleLines.first == "red prompt x"
-    }
-    #expect(terminal.snapshot.renderedVisibleLines.first == "red prompt x")
-    #expect(terminal.snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
-
-    let requests = try await responses.sentRequests()
-    #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 2)
-    #expect(requests.contains { $0.method == "terminal.input" && $0.text == "x" })
-}
-
-@MainActor
-@Test func rawTerminalInputKeepsMatchingStylesWhenOnlyPlainTextSnapshotsReturn() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: workspaceID,
-        terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let plainTextRefreshes = try (0..<4).map { _ in
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["red prompt x"],
-            fidelity: "plain_text",
-            snapshotOverride: try MobileTerminalGhosttySnapshot.fixture(
-                terminalID: terminalID,
-                columns: 32,
-                rows: 2,
-                visibleLines: ["red prompt x"]
-            )
-        )
-    }
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(
-            workspaceID: workspaceID,
-            title: "Live Workspace",
-            terminalID: terminalID
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["red prompt"],
-            fidelity: "ansi_vt",
-            snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: "")
-        ),
-        try rpcResultFrame(result: ["accepted": true]),
-    ] + plainTextRefreshes)
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: nil
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    await store.submitTerminalRawInput("x")
-
-    let terminal = try await waitForSelectedTerminal(in: store) {
-        $0.snapshot.renderedVisibleLines.first == "red prompt x"
-    }
-    #expect(terminal.snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
-    #expect(terminal.snapshot.visibleRows[0].cells[9].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
-    #expect(terminal.snapshot.visibleRows[0].cells[10].style == MobileTerminalGhosttyCellStyle())
-
-    let requests = try await responses.sentRequests()
-    #expect(requests.contains { $0.method == "terminal.input" && $0.text == "x" })
-}
-
-@MainActor
-@Test func rawTerminalInputPreservesStyledGridAndCursorForEveryKeystroke() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: workspaceID,
-        terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-
-    var frames: [Data] = [
-        try rpcWorkspaceListFrame(
-            workspaceID: workspaceID,
-            title: "Live Workspace",
-            terminalID: terminalID
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["red prompt"],
-            fidelity: "ansi_vt",
-            snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: "")
-        ),
-    ]
-    var expectedSuffix = ""
-    for character in ["a", "b", "c"] {
-        expectedSuffix += character
-        frames.append(try rpcResultFrame(result: ["accepted": true]))
-        frames.append(
-            try rpcSnapshotResultFrame(
-                workspaceID: workspaceID,
-                terminalID: terminalID,
-                visibleLines: ["plain prompt \(expectedSuffix)"],
-                fidelity: "plain_text"
-            )
-        )
-        frames.append(
-            try rpcSnapshotResultFrame(
-                workspaceID: workspaceID,
-                terminalID: terminalID,
-                visibleLines: ["red prompt \(expectedSuffix)"],
-                fidelity: "ansi_vt",
-                snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: expectedSuffix)
-            )
-        )
-    }
-
-    let responses = ScriptedTransportResponses(frames)
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: nil
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    try assertStyledPrompt(try #require(store.selectedWorkspace?.terminals.first), suffix: "")
-
-    expectedSuffix = ""
-    for character in ["a", "b", "c"] {
-        expectedSuffix += character
-        await store.submitTerminalRawInput(character)
-        let terminal = try await waitForSelectedTerminal(in: store) {
-            $0.snapshot.renderedVisibleLines.first == "red prompt \(expectedSuffix)"
-        }
-        try assertStyledPrompt(terminal, suffix: expectedSuffix)
-        #expect(!terminal.snapshot.renderedVisibleLines.contains { $0.contains("plain prompt") })
-    }
-
-    let requests = try await responses.sentRequests()
-    #expect(requests.filter { $0.method == "terminal.input" }.map(\.text) == ["a", "b", "c"])
-    #expect(requests.filter { $0.method == "terminal.snapshot" }.count == 7)
-}
-
-@MainActor
-@Test func queuedRawTerminalInputDoesNotRenderPlainTextFallbackBeforeStyledRefresh() async throws {
-    let workspaceID = UUID().uuidString
-    let terminalID = UUID().uuidString
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: workspaceID,
-        terminalID: terminalID,
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let router = PlainFallbackDuringInputRouter(
-        workspaceID: workspaceID,
-        terminalID: terminalID
-    )
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: RequestAwareTransportFactory(router: router),
-        stackAccessToken: nil
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    try assertStyledPrompt(try #require(store.selectedWorkspace?.terminals.first), suffix: "")
-
-    store.sendTerminalRawInput("a")
-    await router.waitForStyledRefreshRequest()
-
-    let intermediate = try #require(store.selectedWorkspace?.terminals.first)
-    try assertStyledPrompt(intermediate, suffix: "")
-    #expect(!intermediate.snapshot.renderedVisibleLines.contains { $0.contains("plain prompt") })
-
-    await router.releaseStyledRefresh()
-    let final = try await waitForSelectedTerminal(in: store) {
-        $0.snapshot.renderedVisibleLines.first == "red prompt a"
-    }
-    try assertStyledPrompt(final, suffix: "a")
-
-    let requests = await router.sentRequests()
-    #expect(requests.filter { $0.method == "terminal.input" }.map(\.text) == ["a"])
-    #expect(requests.filter { $0.method == "terminal.snapshot" }.count == 3)
-}
-
-@MainActor
-@Test func terminalSnapshotRequestIncludesReportedViewportSize() async throws {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(
-            workspaceID: "live-workspace",
-            title: "Live Workspace",
-            terminalID: "live-terminal"
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["ready"]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["resized"]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["resized again"]
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    store.reportTerminalViewport(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
-    )
-    await store.openWorkspace("live-workspace")
-
-    let requests = try await responses.sentRequests()
-    let snapshotRequests = requests.filter { $0.method == "terminal.snapshot" }
-    let viewportSnapshot = try #require(snapshotRequests.last { $0.viewportColumns != nil })
-    #expect(viewportSnapshot.viewportColumns == 52)
-    #expect(viewportSnapshot.viewportRows == 24)
-    #expect(viewportSnapshot.maxScrollbackRows != nil)
-    #expect((viewportSnapshot.maxScrollbackRows ?? 0) <= 120)
-    #expect(viewportSnapshot.clientID?.isEmpty == false)
-}
-
-@Test func terminalSnapshotRequestPolicyRequestsVisibleViewportOnly() {
-    let phoneRows = MobileTerminalSnapshotRequestPolicy.maxScrollbackRows(
-        viewportSize: MobileTerminalViewportSize(columns: 54, rows: 42)
-    )
-    let wideRows = MobileTerminalSnapshotRequestPolicy.maxScrollbackRows(
-        viewportSize: MobileTerminalViewportSize(columns: 300, rows: 120)
-    )
-
-    #expect(phoneRows == 0)
-    #expect(wideRows == 0)
-}
-
-@MainActor
-@Test func terminalSnapshotDecodeValidatesSnapshotBeforeRendering() async throws {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(
-            workspaceID: "live-workspace",
-            title: "Live Workspace",
-            terminalID: "live-terminal"
-        ),
-        try rpcResultFrame(
-            result: [
-                "workspace_id": "live-workspace",
-                "surface_id": "live-terminal",
-                "snapshot": invalidSnapshotObject(terminalID: "live-terminal"),
-            ]
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-
-    #expect(store.connectionError == "Could not connect to your computer.")
-    #expect(store.selectedWorkspace?.terminals.first?.lines.contains("invalid") != true)
-}
-
-@MainActor
-@Test func duplicateViewportReportRefreshesSnapshotWhenCurrentSnapshotHasNoViewportFit() async throws {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
-    )
-    let viewportFit: [String: Any] = [
-        "effective": ["columns": 52, "rows": 24],
-        "client": ["columns": 52, "rows": 24],
-        "is_current_client_limiting": true,
-    ]
-    var responseFrames = [
-        try rpcWorkspaceListFrame(
-            workspaceID: "live-workspace",
-            title: "Live Workspace",
-            terminalID: "live-terminal"
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["mac-sized first snapshot"]
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["viewport-sized refresh"],
-            viewportFit: viewportFit
-        ),
-    ]
-    for _ in 0..<10 {
-        responseFrames.append(
-            try rpcSnapshotResultFrame(
-                workspaceID: "live-workspace",
-                terminalID: "live-terminal",
-                visibleLines: ["settled viewport refresh"],
-                viewportFit: viewportFit
-            )
-        )
-    }
-    let responses = ScriptedTransportResponses(responseFrames)
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    store.reportTerminalViewport(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
-    )
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    store.reportTerminalViewport(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
-    )
-    var requests = try await responses.sentRequests()
-    for _ in 0..<40
-        where requests.filter({ $0.method == "terminal.snapshot" }).count < 3
-            || store.selectedWorkspace?.terminals.first?.lines.first != "settled viewport refresh" {
-        try await Task.sleep(nanoseconds: 10_000_000)
-        requests = try await responses.sentRequests()
-    }
-    let snapshotRequests = requests.filter { $0.method == "terminal.snapshot" }
-    #expect(snapshotRequests.count >= 3)
-    #expect(snapshotRequests.last?.viewportColumns == 52)
-    #expect(snapshotRequests.last?.viewportRows == 24)
-    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "settled viewport refresh")
-}
-
-@MainActor
-@Test func terminalSnapshotStoresViewportFitForVisibleAreaBorder() async throws {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(
-            workspaceID: "live-workspace",
-            title: "Live Workspace",
-            terminalID: "live-terminal"
-        ),
-        try rpcSnapshotResultFrame(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            visibleLines: ["ready"],
-            viewportFit: [
-                "effective": ["columns": 52, "rows": 24],
-                "client": ["columns": 120, "rows": 40],
-                "is_current_client_limiting": false,
-            ]
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-
-    let terminal = try #require(store.selectedWorkspace?.terminals.first { $0.id.rawValue == "live-terminal" })
-    #expect(terminal.viewportFit?.effective == MobileTerminalViewportSize(columns: 52, rows: 24))
-    #expect(terminal.viewportFit?.client == MobileTerminalViewportSize(columns: 120, rows: 40))
-    #expect(terminal.viewportFit?.shouldDrawVisibleAreaBorder == true)
-    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: terminal.viewportFit) == true)
-}
-
-@Test func terminalVisibleAreaBorderPolicyHidesOnLimitingDevices() {
-    let limitingFit = MobileTerminalViewportFit(
-        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
-        client: MobileTerminalViewportSize(columns: 52, rows: 24),
-        isCurrentClientLimiting: true
-    )
-    let nonLimitingFit = MobileTerminalViewportFit(
-        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
-        client: MobileTerminalViewportSize(columns: 120, rows: 40),
-        isCurrentClientLimiting: false
-    )
-    let heightLimitingFit = MobileTerminalViewportFit(
-        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
-        client: MobileTerminalViewportSize(columns: 120, rows: 24),
-        isCurrentClientLimiting: true
-    )
-    let widthLimitingFit = MobileTerminalViewportFit(
-        effective: MobileTerminalViewportSize(columns: 52, rows: 24),
-        client: MobileTerminalViewportSize(columns: 52, rows: 40),
-        isCurrentClientLimiting: true
-    )
-
-    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: nil) == false)
-    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: limitingFit) == false)
-    #expect(TerminalVisibleAreaBorderPolicy.shouldDraw(viewportFit: nonLimitingFit) == true)
-    #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: heightLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: true, drawBottom: false))
-    #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: widthLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: false, drawBottom: true))
-    #expect(TerminalVisibleAreaBorderPolicy.edges(viewportFit: nonLimitingFit) == TerminalVisibleAreaBorderEdges(drawRight: true, drawBottom: true))
 }
 
 @Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
@@ -3273,78 +2348,6 @@ import UIKit
     #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .control, modifierState: state) == true)
     #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .escape, modifierState: state) == false)
     #expect(TerminalBottomActionSelectionPolicy.isArmed(action: .zoomIn, modifierState: state) == false)
-}
-
-@MainActor
-@Test func previewHostIncludesAlternateScreenSnapshotTerminal() {
-    let store = CMUXMobileShellStore.preview()
-    let workspace = store.workspaces.first { $0.id.rawValue == "workspace-main" }
-    let terminal = workspace?.terminals.first { $0.id.rawValue == "terminal-tui" }
-
-    #expect(terminal?.snapshot.activeScreen == .alternate)
-    #expect(terminal?.snapshot.modes.mouseTracking == true)
-    #expect(terminal?.snapshot.modes.bracketedPaste == true)
-    #expect(terminal?.lines.first == "LAZYGIT")
-    #expect(terminal?.snapshot.streamOffset == 128)
-}
-
-@Test func terminalRowProjectionPreservesTrailingBlankCursorCell() {
-    let row = MobileTerminalGhosttyRow(
-        cells: [
-            MobileTerminalGhosttyCell(text: "$"),
-            MobileTerminalGhosttyCell(text: " "),
-            MobileTerminalGhosttyCell(text: ""),
-            MobileTerminalGhosttyCell(text: ""),
-            MobileTerminalGhosttyCell(text: ""),
-        ]
-    )
-
-    let trimmed = TerminalRowCellProjection.cells(from: row, preservingCursorColumn: nil)
-    let cursorPreserved = TerminalRowCellProjection.cells(from: row, preservingCursorColumn: 4)
-
-    #expect(trimmed.count == 1)
-    #expect(cursorPreserved.count == 5)
-    #expect(cursorPreserved.last?.text == "")
-}
-
-@Test func terminalRowProjectionPadsToViewportColumnCount() {
-    let row = MobileTerminalGhosttyRow(cells: [
-        MobileTerminalGhosttyCell(text: "|"),
-        MobileTerminalGhosttyCell(text: " "),
-    ])
-
-    let cells = TerminalRowCellProjection.cells(
-        from: row,
-        preservingCursorColumn: nil,
-        minimumColumnCount: 5
-    )
-
-    #expect(cells.count == 5)
-    #expect(cells.first?.text == "|")
-    #expect(cells.last?.text == " ")
-}
-
-@Test func terminalCellLayoutPolicyKeepsWideGlyphsAtTwoColumns() {
-    let row = MobileTerminalGhosttyRow(cells: [
-        MobileTerminalGhosttyCell(text: "a"),
-        MobileTerminalGhosttyCell(text: "界", width: .wide),
-        MobileTerminalGhosttyCell(width: .spacerTail),
-        MobileTerminalGhosttyCell(text: "b"),
-    ])
-
-    let cells = TerminalRowCellProjection.cells(
-        from: row,
-        preservingCursorColumn: nil,
-        minimumColumnCount: 4
-    )
-    let renderedColumns = cells.reduce(0) { partial, cell in
-        partial + TerminalCellLayoutPolicy.columnSpan(for: cell.width)
-    }
-
-    #expect(cells.map(\.width) == [.narrow, .wide, .spacerTail, .narrow])
-    #expect(renderedColumns == 4)
-    #expect(TerminalCellLayoutPolicy.columnSpan(for: .wide) == 2)
-    #expect(TerminalCellLayoutPolicy.columnSpan(for: .spacerTail) == 0)
 }
 
 private struct MissingTestStackAccessToken: Error {}
@@ -3656,146 +2659,6 @@ private struct RequestAwareTransportFactory: CmxByteTransportFactory {
     }
 }
 
-private actor StaleSnapshotSelectionRouter: RequestAwareTransportRouter {
-    private let route: CmxAttachRoute
-    private var staleSnapshotRequested = false
-    private var staleSnapshotReleased = false
-    private var staleSnapshotReleaseContinuation: CheckedContinuation<Void, Never>?
-    private var staleSnapshotRequestWaiters: [CheckedContinuation<Void, Never>] = []
-    private var requests: [RecordedRPCRequest] = []
-
-    init(route: CmxAttachRoute) {
-        self.route = route
-    }
-
-    func record(_ request: RecordedRPCRequest) {
-        requests.append(request)
-    }
-
-    func sentRequests() -> [RecordedRPCRequest] {
-        requests
-    }
-
-    func waitForStaleSnapshotRequest() async {
-        guard !staleSnapshotRequested else { return }
-        await withCheckedContinuation { continuation in
-            staleSnapshotRequestWaiters.append(continuation)
-        }
-    }
-
-    func releaseStaleSnapshotError() {
-        staleSnapshotReleased = true
-        staleSnapshotReleaseContinuation?.resume()
-        staleSnapshotReleaseContinuation = nil
-    }
-
-    func response(for request: RecordedRPCRequest) async throws -> Data? {
-        switch request.method {
-        case "mobile.attach_ticket.create":
-            return try rpcAttachTicketFrame(route: route, workspaceID: "stale-workspace")
-        case "workspace.list":
-            return try workspaceListFrame()
-        case "terminal.snapshot":
-            if request.workspaceID == "stale-workspace", request.terminalID == "stale-terminal" {
-                markStaleSnapshotRequested()
-                await waitForStaleSnapshotRelease()
-                return try rpcErrorFrame(message: "Terminal surface is not ready")
-            }
-            if request.workspaceID == "fallback-workspace", request.terminalID == "fallback-terminal" {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: "fallback-workspace",
-                    terminalID: "fallback-terminal",
-                    visibleLines: ["fallback should not steal selection"]
-                )
-            }
-            if request.workspaceID == "chosen-workspace", request.terminalID == "chosen-terminal" {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: "chosen-workspace",
-                    terminalID: "chosen-terminal",
-                    visibleLines: ["chosen stays selected"]
-                )
-            }
-            return try rpcErrorFrame(message: "Unexpected terminal snapshot request")
-        default:
-            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
-        }
-    }
-
-    private func markStaleSnapshotRequested() {
-        staleSnapshotRequested = true
-        let waiters = staleSnapshotRequestWaiters
-        staleSnapshotRequestWaiters = []
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    private func waitForStaleSnapshotRelease() async {
-        guard !staleSnapshotReleased else { return }
-        await withCheckedContinuation { continuation in
-            staleSnapshotReleaseContinuation = continuation
-        }
-    }
-
-    private func workspaceListFrame() throws -> Data {
-        try rpcResultFrame(
-            result: [
-                "workspaces": [
-                    workspaceObject(
-                        id: "stale-workspace",
-                        title: "Stale Workspace",
-                        terminalID: "stale-terminal",
-                        terminalTitle: "Stale Terminal",
-                        isReady: false,
-                        isSelected: true
-                    ),
-                    workspaceObject(
-                        id: "fallback-workspace",
-                        title: "Fallback Workspace",
-                        terminalID: "fallback-terminal",
-                        terminalTitle: "Fallback Terminal",
-                        isReady: true,
-                        isSelected: false
-                    ),
-                    workspaceObject(
-                        id: "chosen-workspace",
-                        title: "Chosen Workspace",
-                        terminalID: "chosen-terminal",
-                        terminalTitle: "Chosen Terminal",
-                        isReady: true,
-                        isSelected: false
-                    ),
-                ],
-            ]
-        )
-    }
-
-    private func workspaceObject(
-        id: String,
-        title: String,
-        terminalID: String,
-        terminalTitle: String,
-        isReady: Bool,
-        isSelected: Bool
-    ) -> [String: Any] {
-        [
-            "id": id,
-            "title": title,
-            "current_directory": "/Users/test/\(id)",
-            "is_selected": isSelected,
-            "terminals": [
-                [
-                    "id": terminalID,
-                    "title": terminalTitle,
-                    "current_directory": "/Users/test/\(id)",
-                    "is_ready": isReady,
-                    "is_focused": true,
-                ],
-            ],
-        ]
-    }
-}
-
 private actor DelayedManualAttachTicketRouter: RequestAwareTransportRouter {
     private let route: CmxAttachRoute
     private var attachTicketRequested = false
@@ -3906,14 +2769,6 @@ private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
                 title: "Second Workspace",
                 terminalID: "second-terminal"
             )
-        case "terminal.snapshot":
-            let workspaceID = request.workspaceID ?? "second-workspace"
-            let terminalID = request.terminalID ?? "\(workspaceID)-terminal"
-            return try rpcSnapshotResultFrame(
-                workspaceID: workspaceID,
-                terminalID: terminalID,
-                visibleLines: ["attached to \(workspaceID)"]
-            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3951,23 +2806,6 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
         switch request.method {
         case "workspace.list":
             return try rpcTwoWorkspaceListFrame()
-        case "terminal.snapshot":
-            if request.workspaceID == "workspace-main", request.terminalID == "workspace-main-terminal-2" {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: "workspace-main",
-                    terminalID: "workspace-main-terminal-2",
-                    visibleLines: [
-                        "$ cmux ios",
-                        "workspace: cmux",
-                        "terminal: Terminal 2",
-                    ]
-                )
-            }
-            return try rpcSnapshotResultFrame(
-                workspaceID: "workspace-main",
-                terminalID: "terminal-build",
-                visibleLines: ["initial"]
-            )
         case "terminal.create":
             return try rpcTerminalCreateScopedFrame()
         default:
@@ -4008,22 +2846,6 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
         switch request.method {
         case "workspace.list":
             return try rpcTwoWorkspaceListFrame()
-        case "terminal.snapshot":
-            if request.workspaceID == "workspace-docs", request.terminalID == "terminal-notes" {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: "workspace-docs",
-                    terminalID: "terminal-notes",
-                    visibleLines: ["docs after create race"]
-                )
-            }
-            if request.workspaceID == "workspace-main", request.terminalID == "terminal-build" {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: "workspace-main",
-                    terminalID: "terminal-build",
-                    visibleLines: ["initial main"]
-                )
-            }
-            return try rpcErrorFrame(message: "Unexpected terminal snapshot request")
         case "terminal.create":
             markTerminalCreateRequested()
             await waitForTerminalCreateRelease()
@@ -4050,147 +2872,6 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
     }
 }
 
-private actor PlainFallbackDuringInputRouter: RequestAwareTransportRouter {
-    private let workspaceID: String
-    private let terminalID: String
-    private var snapshotRequestCount = 0
-    private var styledRefreshRequested = false
-    private var styledRefreshReleased = false
-    private var styledRefreshRequestWaiters: [CheckedContinuation<Void, Never>] = []
-    private var styledRefreshReleaseContinuation: CheckedContinuation<Void, Never>?
-    private var requests: [RecordedRPCRequest] = []
-
-    init(workspaceID: String, terminalID: String) {
-        self.workspaceID = workspaceID
-        self.terminalID = terminalID
-    }
-
-    func record(_ request: RecordedRPCRequest) {
-        requests.append(request)
-    }
-
-    func sentRequests() -> [RecordedRPCRequest] {
-        requests
-    }
-
-    func waitForStyledRefreshRequest() async {
-        guard !styledRefreshRequested else { return }
-        await withCheckedContinuation { continuation in
-            styledRefreshRequestWaiters.append(continuation)
-        }
-    }
-
-    func releaseStyledRefresh() {
-        styledRefreshReleased = true
-        styledRefreshReleaseContinuation?.resume()
-        styledRefreshReleaseContinuation = nil
-    }
-
-    func response(for request: RecordedRPCRequest) async throws -> Data? {
-        switch request.method {
-        case "workspace.list":
-            return try rpcWorkspaceListFrame(
-                workspaceID: workspaceID,
-                title: "Live Workspace",
-                terminalID: terminalID
-            )
-        case "terminal.input":
-            return try rpcResultFrame(result: ["accepted": true])
-        case "terminal.snapshot":
-            snapshotRequestCount += 1
-            if snapshotRequestCount == 1 {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: workspaceID,
-                    terminalID: terminalID,
-                    visibleLines: ["red prompt"],
-                    fidelity: "ansi_vt",
-                    snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: "")
-                )
-            }
-            if snapshotRequestCount == 2 {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: workspaceID,
-                    terminalID: terminalID,
-                    visibleLines: ["plain prompt a"],
-                    fidelity: "plain_text"
-                )
-            }
-            markStyledRefreshRequested()
-            await waitForStyledRefreshRelease()
-            return try rpcSnapshotResultFrame(
-                workspaceID: workspaceID,
-                terminalID: terminalID,
-                visibleLines: ["red prompt a"],
-                fidelity: "ansi_vt",
-                snapshotOverride: styledPromptSnapshot(terminalID: terminalID, suffix: "a")
-            )
-        default:
-            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
-        }
-    }
-
-    private func markStyledRefreshRequested() {
-        styledRefreshRequested = true
-        let waiters = styledRefreshRequestWaiters
-        styledRefreshRequestWaiters = []
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    private func waitForStyledRefreshRelease() async {
-        guard !styledRefreshReleased else { return }
-        await withCheckedContinuation { continuation in
-            styledRefreshReleaseContinuation = continuation
-        }
-    }
-}
-
-private actor ServerPushPollingFallbackRouter: RequestAwareTransportRouter {
-    private let workspaceID: String
-    private let terminalID: String
-    private var snapshotRequestCount = 0
-    private var requests: [RecordedRPCRequest] = []
-
-    init(workspaceID: String, terminalID: String) {
-        self.workspaceID = workspaceID
-        self.terminalID = terminalID
-    }
-
-    func record(_ request: RecordedRPCRequest) {
-        requests.append(request)
-    }
-
-    func sentRequests() -> [RecordedRPCRequest] {
-        requests
-    }
-
-    func response(for request: RecordedRPCRequest) async throws -> Data? {
-        switch request.method {
-        case "workspace.list":
-            return try rpcWorkspaceListFrame(
-                workspaceID: workspaceID,
-                title: "Live Workspace",
-                terminalID: terminalID
-            )
-        case "mobile.events.subscribe":
-            return try rpcResultFrame(result: [
-                "stream_id": "test-stream",
-                "topics": ["terminal.updated", "workspace.updated"],
-            ])
-        case "terminal.snapshot":
-            snapshotRequestCount += 1
-            return try rpcSnapshotResultFrame(
-                workspaceID: workspaceID,
-                terminalID: terminalID,
-                visibleLines: ["snapshot \(snapshotRequestCount)"]
-            )
-        default:
-            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
-        }
-    }
-}
-
 private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
     private var requests: [RecordedRPCRequest] = []
 
@@ -4212,24 +2893,6 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
             )
         case "workspace.create":
             return try rpcWorkspaceCreateFrame()
-        case "terminal.snapshot":
-            if request.workspaceID == "workspace-3",
-               request.terminalID == "workspace-3-terminal-1" {
-                return try rpcSnapshotResultFrame(
-                    workspaceID: "workspace-3",
-                    terminalID: "workspace-3-terminal-1",
-                    visibleLines: [
-                        "$ cmux ios",
-                        "workspace: Workspace 3",
-                        "terminal: Terminal 1",
-                    ]
-                )
-            }
-            return try rpcSnapshotResultFrame(
-                workspaceID: "workspace-main",
-                terminalID: "terminal-build",
-                visibleLines: ["initial"]
-            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -4743,99 +3406,3 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
 
-private func rpcSnapshotResultFrame(
-    workspaceID: String,
-    terminalID: String,
-    visibleLines: [String],
-    viewportFit: [String: Any]? = nil,
-    fidelity: String? = nil,
-    snapshotOverride: MobileTerminalGhosttySnapshot? = nil
-) throws -> Data {
-    let snapshot: MobileTerminalGhosttySnapshot
-    if let snapshotOverride {
-        snapshot = snapshotOverride
-    } else {
-        snapshot = try MobileTerminalGhosttySnapshot.fixture(
-            terminalID: terminalID,
-            visibleLines: visibleLines
-        )
-    }
-    let snapshotObject = try JSONSerialization.jsonObject(with: snapshot.encodedValidatedJSON())
-    var result: [String: Any] = [
-        "workspace_id": workspaceID,
-        "surface_id": terminalID,
-        "snapshot": snapshotObject,
-    ]
-    if let viewportFit {
-        result["viewport_fit"] = viewportFit
-    }
-    if let fidelity {
-        result["fidelity"] = fidelity
-    }
-    return try rpcResultFrame(result: result)
-}
-
-private func ansiSnapshot(
-    terminalID: String,
-    text: String,
-    columns: Int = 24,
-    rows: Int = 2
-) throws -> MobileTerminalGhosttySnapshot {
-    try MobileTerminalGhosttySnapshot.fromGhosttyText(
-        terminalID: terminalID,
-        columns: columns,
-        rows: rows,
-        scrollbackText: nil,
-        viewportText: text
-    )
-}
-
-private func styledPromptSnapshot(terminalID: String, suffix: String) throws -> MobileTerminalGhosttySnapshot {
-    let prompt = suffix.isEmpty ? "red prompt" : "red prompt \(suffix)"
-    return try ansiSnapshot(
-        terminalID: terminalID,
-        text: "\u{001B}[38;2;204;102;102m\(prompt)\u{001B}[0m",
-        columns: 32,
-        rows: 2
-    )
-}
-
-@MainActor
-private func waitForSelectedTerminal(
-    in store: CMUXMobileShellStore,
-    maxAttempts: Int = 300,
-    matching predicate: (MobileTerminalPreview) -> Bool
-) async throws -> MobileTerminalPreview {
-    for _ in 0..<maxAttempts {
-        if let terminal = store.selectedWorkspace?.terminals.first(where: { $0.id == store.selectedTerminalID }),
-           predicate(terminal) {
-            return terminal
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
-    let terminal = try #require(store.selectedWorkspace?.terminals.first(where: { $0.id == store.selectedTerminalID }))
-    #expect(predicate(terminal))
-    return terminal
-}
-
-private func assertStyledPrompt(_ terminal: MobileTerminalPreview, suffix: String) throws {
-    let expectedLine = suffix.isEmpty ? "red prompt" : "red prompt \(suffix)"
-    #expect(terminal.snapshot.renderedVisibleLines.first == expectedLine)
-    #expect(terminal.snapshot.cursor.column == expectedLine.count)
-    #expect(terminal.snapshot.cursor.row == 0)
-    let firstCell = try #require(terminal.snapshot.visibleRows.first?.cells.first)
-    #expect(firstCell.style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
-}
-
-private func invalidSnapshotObject(terminalID: String) throws -> [String: Any] {
-    let snapshot = try MobileTerminalGhosttySnapshot.fixture(
-        terminalID: terminalID,
-        rows: 2,
-        visibleLines: ["invalid"]
-    )
-    var object = try #require(
-        JSONSerialization.jsonObject(with: snapshot.encodedValidatedJSON()) as? [String: Any]
-    )
-    object["visibleRows"] = []
-    return object
-}
