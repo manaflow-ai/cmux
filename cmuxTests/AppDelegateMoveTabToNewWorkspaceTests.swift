@@ -101,7 +101,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
         #expect(workspace.panels[movedPanel.id] == nil)
         #expect(workspace.panels[remainingPanelId] != nil)
-        #expect(destinationWorkspace.customTitle == movedTitle)
+        #expect(destinationWorkspace.customTitle == nil)
         #expect(destinationWorkspace.title == movedTitle)
         #expect(destinationWorkspace.panelTitle(panelId: movedPanel.id) == movedTitle)
 
@@ -239,6 +239,58 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(destinationWorkspace.panels[movedPanelId] != nil)
         #expect(destinationWorkspace.panels[destinationOriginalPanelId] != nil)
         #expect(destinationWorkspace.panels.count == 2)
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/4946.
+    ///
+    /// Detaching a tab with only a process-derived title into a new workspace
+    /// must not pin the destination workspace's `customTitle`. Pinning blocks
+    /// the OSC-driven `applyProcessTitle` pipeline, which is what feeds claude
+    /// code's dynamic `✳ <topic>` titles into the workspace row.
+    @Test("Move surface to new workspace does not pin custom title and allows later OSC updates")
+    func moveSurfaceToNewWorkspaceDoesNotPinCustomTitleAndAllowsLaterOSCUpdates() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+
+        // Seed the source panel's process-derived title with what a shell
+        // PROMPT_COMMAND typically emits before the user starts claude. This
+        // is the value the buggy code pins onto the detached workspace's
+        // `customTitle`.
+        #expect(sourceWorkspace.updatePanelTitle(panelId: movedPanel.id, title: "user@host:~/git/repo"))
+
+        let result = try #require(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            focus: false,
+            focusWindow: false
+        ))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+
+        // 1. The destination workspace must not have its title pinned. A
+        //    drag-created workspace should behave like one created via
+        //    "New Workspace" — `customTitle` stays `nil` until the user
+        //    renames it explicitly.
+        #expect(
+            destinationWorkspace.customTitle == nil,
+            "Detached workspace must not pin customTitle; pinning blocks OSC title updates."
+        )
+
+        // 2. Simulate the OSC SET_TITLE that claude emits once it starts
+        //    rendering its first message. With customTitle pinned, this
+        //    call short-circuits inside `applyProcessTitle` and the
+        //    workspace title never moves off the shell prompt.
+        let claudeTitle = "✳ Investigate workspace title bug"
+        destinationWorkspace.applyProcessTitle(claudeTitle)
+        #expect(
+            destinationWorkspace.title == claudeTitle,
+            "applyProcessTitle must update self.title on a freshly detached workspace."
+        )
     }
 
     @Test
