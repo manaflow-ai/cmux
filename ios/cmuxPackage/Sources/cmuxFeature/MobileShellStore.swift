@@ -1956,6 +1956,22 @@ public final class CMUXMobileShellStore {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 }
             }
+            guard let self else { return }
+            self.handleTerminalEventStreamEnded(listenerID: listenerID, client: client)
+        }
+    }
+
+    private func handleTerminalEventStreamEnded(listenerID: UUID, client: MobileCoreRPCClient) {
+        guard !Task.isCancelled,
+              terminalEventListenerID == listenerID,
+              remoteClient === client,
+              isSignedIn else {
+            return
+        }
+        mobileShellLog.info("terminal event stream ended, falling back to legacy polling")
+        startLegacyTerminalRefreshPolling()
+        if connectionState == .connected {
+            scheduleSelectedTerminalSnapshotRefresh(yieldBeforeRefresh: false)
         }
     }
 

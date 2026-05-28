@@ -2572,6 +2572,51 @@ import UIKit
 }
 
 @MainActor
+@Test func endedServerPushStreamFallsBackToSnapshotRefresh() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let router = ClosingServerPushStreamRouter(
+        workspaceID: workspaceID,
+        terminalID: terminalID
+    )
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        stackAccessToken: nil,
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+    let snapshots = try await waitForRequestCount("terminal.snapshot", count: 2, router: router)
+    #expect(snapshots.count >= 2)
+
+    let requests = await router.sentRequests()
+    #expect(requests.filter { $0.method == "mobile.events.subscribe" }.count == 1)
+    let selectedTerminal = try await waitForSelectedTerminal(in: store) {
+        $0.snapshot.renderedVisibleLines.first == "snapshot 2"
+    }
+    #expect(selectedTerminal.id.rawValue == terminalID)
+}
+
+@MainActor
 @Test func selectingTerminalWhileSnapshotRefreshIsInFlightFetchesSelectedTerminalSnapshot() async throws {
     let workspaceID = "workspace-main"
     let buildTerminalID = "terminal-build"
@@ -3754,6 +3799,13 @@ private protocol RequestAwareTransportRouter: Actor {
     func record(_ request: RecordedRPCRequest)
     func sentRequests() -> [RecordedRPCRequest]
     func response(for request: RecordedRPCRequest) async throws -> Data?
+    func shouldCloseTransport(after request: RecordedRPCRequest) async -> Bool
+}
+
+private extension RequestAwareTransportRouter {
+    func shouldCloseTransport(after request: RecordedRPCRequest) async -> Bool {
+        false
+    }
 }
 
 private struct RequestAwareTransportFactory: CmxByteTransportFactory {
@@ -4299,6 +4351,60 @@ private actor ServerPushPollingFallbackRouter: RequestAwareTransportRouter {
     }
 }
 
+private actor ClosingServerPushStreamRouter: RequestAwareTransportRouter {
+    private let workspaceID: String
+    private let terminalID: String
+    private var snapshotRequestCount = 0
+    private var didCloseSubscribeTransport = false
+    private var requests: [RecordedRPCRequest] = []
+
+    init(workspaceID: String, terminalID: String) {
+        self.workspaceID = workspaceID
+        self.terminalID = terminalID
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: workspaceID,
+                title: "Live Workspace",
+                terminalID: terminalID
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: [
+                "stream_id": "test-stream",
+                "topics": ["terminal.updated", "workspace.updated"],
+            ])
+        case "terminal.snapshot":
+            snapshotRequestCount += 1
+            return try rpcSnapshotResultFrame(
+                workspaceID: workspaceID,
+                terminalID: terminalID,
+                visibleLines: ["snapshot \(snapshotRequestCount)"]
+            )
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    func shouldCloseTransport(after request: RecordedRPCRequest) async -> Bool {
+        guard request.method == "mobile.events.subscribe", !didCloseSubscribeTransport else {
+            return false
+        }
+        didCloseSubscribeTransport = true
+        return true
+    }
+}
+
 private actor TerminalSelectionRefreshRouter: RequestAwareTransportRouter {
     private let workspaceID: String
     private let buildTerminalID: String
@@ -4480,6 +4586,9 @@ private actor RequestAwareTransport: CmxByteTransport {
                     return
                 }
                 await self?.deliver(stamped)
+                if await router.shouldCloseTransport(after: request) {
+                    await self?.close()
+                }
             }
         }
     }
