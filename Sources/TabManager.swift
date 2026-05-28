@@ -6028,6 +6028,23 @@ class TabManager: ObservableObject {
             tabs.insert(moved, at: min(insertAt, tabs.count))
         }
         normalizeWorkspaceGroupContiguity()
+        // Collapse the sidebar multi-selection so a second ⌘⇧G press doesn't
+        // immediately reuse the same child ids and create a duplicate group
+        // around them. The new anchor is the only sensible "current"
+        // selection at this point. Posts the hide notification so the
+        // SwiftUI sidebar binding follows.
+        if !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
+            let hiddenIds = sidebarSelectedWorkspaceIds
+            sidebarSelectedWorkspaceIds = [anchor.id]
+            NotificationCenter.default.post(
+                name: .sidebarMultiSelectionDidHide,
+                object: self,
+                userInfo: [
+                    SidebarMultiSelectionHideKey.hiddenWorkspaceIds: hiddenIds,
+                    SidebarMultiSelectionHideKey.focusedWorkspaceId: anchor.id,
+                ]
+            )
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
         return group.id
     }
