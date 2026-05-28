@@ -4855,16 +4855,15 @@ extension CMUXCLI {
               overflow: hidden;
               border-left: 1px solid var(--cmux-diff-border);
               background: color-mix(in lab, var(--cmux-diff-bg) 99%, var(--cmux-diff-fg));
-              transform: translateX(0);
+              contain: strict;
               opacity: 1;
-              transition: transform 120ms ease, opacity 120ms ease, visibility 0s linear 0s;
+              transition: opacity 100ms ease, visibility 0s linear 0s;
             }
             body[data-files-hidden="true"] #files-sidebar {
-              transform: translateX(100%);
               opacity: 0;
               pointer-events: none;
               visibility: hidden;
-              transition: transform 120ms ease, opacity 120ms ease, visibility 0s linear 120ms;
+              transition: opacity 100ms ease, visibility 0s linear 100ms;
             }
             #files-header {
               position: relative;
@@ -5164,6 +5163,7 @@ extension CMUXCLI {
             let fileTree;
             const diffItems = [];
             const codeViewItems = [];
+            const diffItemById = new Map();
             let codeViewItemIds = new Set();
             let fileTreeSource = null;
             let currentTreeSource = null;
@@ -5302,8 +5302,17 @@ extension CMUXCLI {
               };
             }
 
+            const commitMetadataPattern = /^From\\s+([a-f0-9]+)\\s/im;
+
+            function commitMetadataLabel(metadata, index) {
+              const match = metadata?.match(commitMetadataPattern);
+              if (match?.[1]) {
+                return new TextDecoder().decode(new TextEncoder().encode(match[1].slice(0, 5)));
+              }
+              return `Commit ${index + 1}`;
+            }
+
             async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
-              const pendingItems = [];
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5329,14 +5338,28 @@ extension CMUXCLI {
                 incrementalMaxWait: 100,
               };
 
-              function makeItem(fileDiff) {
+              function makeItem(fileDiff, patchPrefix) {
+                const result = appendFileDiffToModel(diffModel, fileDiff, patchPrefix);
+                if (result?.renamedItem) {
+                  applyRenamedDiffItem(result.renamedItem);
+                }
+                return result?.item;
+              }
+
+              function appendFileDiffToModel(model, fileDiff, patchPrefix) {
+                if (!fileDiff) {
+                  return null;
+                }
                 const path = fileName(fileDiff);
-                const treePath = uniqueDiffTreePath(diffModel, path);
+                const treePath = patchPrefix == null ? path : `${patchPrefix}/${path}`;
+                const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
+                const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
                 const stats = fileStats(fileDiff);
                 const hasDiffHunks = (fileDiff.hunks?.length ?? 0) > 0;
                 const status = gitStatus(fileDiff);
+                const itemId = model.itemById.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
                 const item = {
-                  id: treePath,
+                  id: itemId,
                   type: "diff",
                   fileDiff,
                   gitStatus: status,
@@ -5345,47 +5368,128 @@ extension CMUXCLI {
                   treePath,
                   version: 1,
                 };
-                diffModel.fileIndex += 1;
-                diffModel.itemIdByTreePath.set(treePath, item.id);
-                diffModel.treePathByItemId.set(item.id, treePath);
-                diffModel.diffStats.addedLines += stats.added;
-                diffModel.diffStats.deletedLines += stats.deleted;
-                diffModel.diffStats.fileCount += 1;
-                diffModel.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
-                diffModel.treeEntries.push({ item, path: treePath, status, stats });
-                diffModel.paths.push(treePath);
-                diffModel.pathToItemId.set(treePath, item.id);
-                if (status === "modified") {
-                  if (diffModel.gitStatusByPath.delete(treePath)) {
-                    diffModel.pendingGitStatusRemovePaths.add(treePath);
+                const fileOrder = model.items.length;
+                model.fileIndex += 1;
+                model.items.push(item);
+                model.pendingItems.push(item);
+                model.pendingItemById.set(item.id, item);
+                model.itemById.set(item.id, item);
+                model.itemIdByTreePath.set(treePath, item.id);
+                model.treePathByItemId.set(item.id, treePath);
+                model.diffStats.addedLines += stats.added;
+                model.diffStats.deletedLines += stats.deleted;
+                model.diffStats.fileCount += 1;
+                model.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
+                model.statsByPath.set(treePath, stats);
+                if (path.length > 0) {
+                  if (previousState == null) {
+                    model.paths.push(treePath);
                   }
-                  diffModel.pendingGitStatusSetByPath.delete(treePath);
-                } else {
-                  const entry = { path: treePath, status };
-                  diffModel.gitStatusByPath.set(treePath, entry);
-                  diffModel.pendingGitStatusRemovePaths.delete(treePath);
-                  diffModel.pendingGitStatusSetByPath.set(treePath, entry);
+                  model.pathToItemId.set(treePath, item.id);
+                  updateGitStatusForPath(model, treePath, fileDiff.type, previousState?.sawDeleted === true);
+                  model.pathStateByTreePath.set(treePath, {
+                    currentItem: item,
+                    currentItemId: item.id,
+                    currentType: fileDiff.type,
+                    fileOrder,
+                    sawDeleted: previousState?.sawDeleted === true || fileDiff.type === "deleted",
+                  });
                 }
-                return item;
+                return { item, renamedItem };
               }
 
-              async function enqueueFileDiff(fileDiff) {
-                if (!fileDiff) {
+              function moveCurrentPathItemToPrevious(model, treePath, state) {
+                const oldId = state.currentItemId;
+                const suffix = state.currentType === "deleted" ? "?deleted" : "?previous";
+                const newId = uniqueDiffItemId(model, `${treePath}${suffix}`);
+                state.currentItem.id = newId;
+                state.currentItemId = newId;
+                if (model.itemById.has(oldId)) {
+                  model.itemById.delete(oldId);
+                  model.itemById.set(newId, state.currentItem);
+                }
+                if (model.pendingItemById.has(oldId)) {
+                  const pendingItem = model.pendingItemById.get(oldId);
+                  model.pendingItemById.delete(oldId);
+                  model.pendingItemById.set(newId, pendingItem);
+                  return undefined;
+                }
+                return { oldId, newId };
+              }
+
+              function uniqueDiffItemId(model, baseId) {
+                if (!model.itemById.has(baseId)) {
+                  return baseId;
+                }
+                let suffix = model.nextCollisionSuffixByBase.get(baseId) ?? 2;
+                let nextId = `${baseId}-${suffix}`;
+                while (model.itemById.has(nextId)) {
+                  suffix += 1;
+                  nextId = `${baseId}-${suffix}`;
+                }
+                model.nextCollisionSuffixByBase.set(baseId, suffix + 1);
+                return nextId;
+              }
+
+              function updateGitStatusForPath(model, treePath, changeType, sawDeleted) {
+                if (sawDeleted && changeType !== "deleted") {
+                  if (model.gitStatusByPath.delete(treePath)) {
+                    markGitStatusRemoved(model, treePath);
+                  }
                   return;
                 }
-                pendingItems.push(makeItem(fileDiff));
+                const status = gitStatusType(changeType);
+                if (status === "modified") {
+                  if (model.gitStatusByPath.delete(treePath)) {
+                    markGitStatusRemoved(model, treePath);
+                  }
+                  return;
+                }
+                const current = model.gitStatusByPath.get(treePath);
+                if (current?.status === status) {
+                  return;
+                }
+                const entry = { path: treePath, status };
+                model.gitStatusByPath.set(treePath, entry);
+                model.pendingGitStatusRemovePaths.delete(treePath);
+                model.pendingGitStatusSetByPath.set(treePath, entry);
+              }
+
+              function markGitStatusRemoved(model, treePath) {
+                model.pendingGitStatusSetByPath.delete(treePath);
+                model.pendingGitStatusRemovePaths.add(treePath);
+              }
+
+              function applyRenamedDiffItem(rename) {
+                if (codeViewItemIds.delete(rename.oldId)) {
+                  codeViewItemIds.add(rename.newId);
+                }
+                if (diffItemById.has(rename.oldId)) {
+                  const item = diffItemById.get(rename.oldId);
+                  diffItemById.delete(rename.oldId);
+                  diffItemById.set(rename.newId, item);
+                }
+                renameJumpOption(rename.oldId, rename.newId);
+                codeView?.updateItemId?.(rename.oldId, rename.newId);
+              }
+
+              async function enqueueFileDiff(fileDiff, patchPrefix) {
+                const item = makeItem(fileDiff, patchPrefix);
+                if (!item) {
+                  return;
+                }
                 await maybeFlushPendingItems(false);
               }
 
               async function maybeFlushPendingItems(force) {
-                if (pendingItems.length === 0) {
+                if (diffModel.pendingItems.length === 0) {
                   return;
                 }
                 const now = performance.now();
                 if (!force &&
                     firstRender &&
                     now - lastYieldAt >= 8 &&
-                    pendingItems.length < batchConfig.initialBatchSize &&
+                    diffModel.pendingItems.length < batchConfig.initialBatchSize &&
                     now - lastFlushAt < batchConfig.initialMaxWait) {
                   await yieldToNextFrame();
                   lastYieldAt = performance.now();
@@ -5394,7 +5498,7 @@ extension CMUXCLI {
                 const batchSize = firstRender ? batchConfig.initialBatchSize : batchConfig.incrementalBatchSize;
                 const maxWait = firstRender ? batchConfig.initialMaxWait : batchConfig.incrementalMaxWait;
                 const shouldFlush = force ||
-                  pendingItems.length >= batchSize ||
+                  diffModel.pendingItems.length >= batchSize ||
                   now - lastFlushAt >= maxWait;
                 if (shouldFlush) {
                   flushPendingItems();
@@ -5405,13 +5509,17 @@ extension CMUXCLI {
               }
 
               function flushPendingItems() {
-                if (pendingItems.length === 0) {
+                if (diffModel.pendingItems.length === 0) {
                   return;
                 }
-                const batch = pendingItems.splice(0, pendingItems.length);
+                const batch = diffModel.pendingItems.splice(0, diffModel.pendingItems.length);
+                diffModel.pendingItemById.clear();
                 const codeBatch = batch.filter((item) => item.renderable !== false);
                 const hadCodeItems = codeViewItems.length > 0;
                 diffItems.push(...batch);
+                for (const item of batch) {
+                  diffItemById.set(item.id, item);
+                }
                 if (codeBatch.length > 0) {
                   codeViewItems.push(...codeBatch);
                   for (const item of codeBatch) {
@@ -5424,7 +5532,6 @@ extension CMUXCLI {
                   }
                 }
                 appendJumpOptions(batch);
-                updateDiffStatsFromModel(diffModel);
                 scheduleNavigationRefresh(treesModule, false, batch.length);
                 streamMetrics.flushCount += 1;
                 streamMetrics.maxBatchSize = Math.max(streamMetrics.maxBatchSize, batch.length);
@@ -5505,7 +5612,6 @@ extension CMUXCLI {
               const gitMarker = "diff --git ";
               const gitMarkerWithNewline = "\\n" + gitMarker;
               const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
-              const commitMetadataPattern = /^From\\s+([a-f0-9]+)\\s/im;
               const nonWhitespacePattern = /\\S/;
 
               function nextGitBoundaryIndex(text, start) {
@@ -5547,15 +5653,29 @@ extension CMUXCLI {
                 return undefined;
               }
 
+              function commitMetadataFromFileText(fileText) {
+                const firstGitBoundary = nextGitBoundaryIndex(fileText, 0);
+                if (firstGitBoundary == null || firstGitBoundary <= 0) {
+                  return undefined;
+                }
+                const metadata = fileText.slice(0, firstGitBoundary);
+                return commitMetadataPattern.test(metadata) ? metadata : undefined;
+              }
+
               async function appendCompleteFileText(fileText) {
                 if (fileText.trim() === "") {
                   return;
+                }
+                const metadata = commitMetadataFromFileText(fileText);
+                if (metadata != null) {
+                  currentPatchPrefix = commitMetadataLabel(metadata, patchMetadataIndex);
+                  patchMetadataIndex += 1;
                 }
                 const cacheKey = `cmux-diff-file-${diffModel.fileIndex}`;
                 await enqueueFileDiff(processFile(fileText, {
                   cacheKey,
                   isGitDiff: true,
-                }));
+                }), currentPatchPrefix);
               }
 
               function createStreamingPatchFileSplitter() {
@@ -5632,6 +5752,8 @@ extension CMUXCLI {
               }
 
               const splitter = createStreamingPatchFileSplitter();
+              let currentPatchPrefix;
+              let patchMetadataIndex = 0;
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
@@ -5673,9 +5795,11 @@ extension CMUXCLI {
 
             async function appendParsedPatchText(patchText, parsePatchFiles, enqueueFileDiff) {
               const patches = parsePatchFiles(patchText, "cmux-diff");
-              for (const patch of patches) {
+              const hasMultiplePatches = patches.length > 1;
+              for (const [patchIndex, patch] of patches.entries()) {
+                const patchPrefix = hasMultiplePatches ? commitMetadataLabel(patch.patchMetadata, patchIndex) : undefined;
                 for (const fileDiff of patch.files ?? []) {
-                  await enqueueFileDiff(fileDiff);
+                  await enqueueFileDiff(fileDiff, patchPrefix);
                 }
               }
             }
@@ -5690,14 +5814,19 @@ extension CMUXCLI {
                 },
                 fileIndex: 0,
                 gitStatusByPath: new Map(),
+                itemById: new Map(),
                 itemIdByTreePath: new Map(),
                 lastTreeSource: undefined,
                 nextCollisionSuffixByBase: new Map(),
+                items: [],
+                pathStateByTreePath: new Map(),
                 paths: [],
                 pathToItemId: new Map(),
                 pendingGitStatusRemovePaths: new Set(),
                 pendingGitStatusSetByPath: new Map(),
-                treeEntries: [],
+                pendingItems: [],
+                pendingItemById: new Map(),
+                statsByPath: new Map(),
                 treePathByItemId: new Map(),
               };
             }
@@ -5706,7 +5835,6 @@ extension CMUXCLI {
               const previousSource = model.lastTreeSource;
               const gitStatusPatch = buildGitStatusPatch(model);
               const source = {
-                entries: model.treeEntries,
                 diffStats: { ...model.diffStats },
                 gitStatus: Array.from(model.gitStatusByPath.values()),
                 gitStatusPatch,
@@ -5714,6 +5842,7 @@ extension CMUXCLI {
                 paths: model.paths,
                 pathToItemId: model.pathToItemId,
                 previousSource,
+                statsByPath: model.statsByPath,
               };
               model.lastTreeSource = source;
               return source;
@@ -5733,13 +5862,6 @@ extension CMUXCLI {
                 model.pendingGitStatusSetByPath.clear();
               }
               return patch;
-            }
-
-            function uniqueDiffTreePath(model, path) {
-              const basePath = typeof path === "string" && path.trim() !== "" ? path : label("untitled");
-              const nextSuffix = model.nextCollisionSuffixByBase.get(basePath) ?? 0;
-              model.nextCollisionSuffixByBase.set(basePath, nextSuffix + 1);
-              return nextSuffix === 0 ? basePath : `${basePath} (${nextSuffix + 1})`;
             }
 
             function yieldToNextFrame() {
@@ -6235,7 +6357,7 @@ extension CMUXCLI {
               const paths = sourcePaths(source);
               fileTreeSource = source;
               const initialSelectedPath = entries[0]?.path;
-              replaceFileTreeStats(entries);
+              replaceFileTreeStatsFromSource(source, entries);
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
@@ -6285,7 +6407,7 @@ extension CMUXCLI {
               const entries = sourceEntries(source);
               const paths = sourcePaths(source);
               fileTreeSource = source;
-              replaceFileTreeStats(entries);
+              replaceFileTreeStatsFromSource(source, entries);
               if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
                 const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
                 if (addedPaths.length > 0) {
@@ -6314,6 +6436,7 @@ extension CMUXCLI {
               const entries = buildTreeEntries(items);
               const paths = entries.map((entry) => entry.path);
               const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
+              const statsByPath = new Map(entries.map((entry) => [entry.path, entry.stats]));
               return {
                 entries,
                 gitStatus: entries
@@ -6322,13 +6445,30 @@ extension CMUXCLI {
                 pathCount: paths.length,
                 paths,
                 pathToItemId,
+                statsByPath,
               };
             }
 
             function sourceEntries(source) {
               const count = source?.pathCount ?? source?.entries?.length ?? 0;
               const entries = source?.entries ?? [];
-              return entries.length === count ? entries : entries.slice(0, count);
+              if (entries.length > 0) {
+                return entries.length === count ? entries : entries.slice(0, count);
+              }
+              const paths = sourcePaths(source);
+              const pathToItemId = source?.pathToItemId;
+              const statsByPath = source?.statsByPath;
+              return paths.map((path) => {
+                const itemId = pathToItemId instanceof Map ? pathToItemId.get(path) : undefined;
+                const item = itemId ? diffItemById.get(itemId) : undefined;
+                const fileDiff = item?.fileDiff ?? {};
+                return {
+                  item: item ?? { id: itemId ?? path, fileDiff },
+                  path,
+                  status: item?.gitStatus ?? gitStatus(fileDiff),
+                  stats: statsByPath instanceof Map ? statsByPath.get(path) ?? fileStats(fileDiff) : fileStats(fileDiff),
+                };
+              });
             }
 
             function sourcePaths(source) {
@@ -6353,8 +6493,14 @@ extension CMUXCLI {
               return true;
             }
 
-            function replaceFileTreeStats(treeEntries) {
+            function replaceFileTreeStatsFromSource(source, treeEntries) {
               fileTreeStatsByPath.clear();
+              if (source?.statsByPath instanceof Map) {
+                for (const [path, stats] of source.statsByPath) {
+                  fileTreeStatsByPath.set(path, stats);
+                }
+                return;
+              }
               for (const entry of treeEntries) {
                 fileTreeStatsByPath.set(entry.path, entry.stats);
               }
@@ -6552,6 +6698,18 @@ extension CMUXCLI {
               jumpSelect.hidden = false;
             }
 
+            function renameJumpOption(oldId, newId) {
+              if (jumpSelect.dataset.initialized !== "true") {
+                return;
+              }
+              for (const option of jumpSelect.options) {
+                if (option.value === oldId) {
+                  option.value = newId;
+                  return;
+                }
+              }
+            }
+
             function scrollToItem(itemId) {
               if (!codeView) {
                 return;
@@ -6641,7 +6799,11 @@ extension CMUXCLI {
             }
 
             function gitStatus(fileDiff) {
-              switch (fileDiff.type) {
+              return gitStatusType(fileDiff.type);
+            }
+
+            function gitStatusType(changeType) {
+              switch (changeType) {
               case "new":
                 return "added";
               case "deleted":
