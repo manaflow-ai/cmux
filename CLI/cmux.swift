@@ -6840,18 +6840,25 @@ struct CMUXCLI {
             throw CLIError(message: "Usage: cmux tmux attach <session> [--ssh <destination>] [flags]")
         }
         let options = try parseTmuxAttachOptions(Array(commandArgs.dropFirst()), windowOverride: windowOverride)
-        let tmuxCommand = tmuxControlAttachCommand(
-            sessionName: options.sessionName,
-            tmuxPath: options.tmuxPath,
-            create: options.create,
-            socketName: options.socketName,
-            socketPath: options.socketPath
-        )
 
         if let sshDestination = options.sshDestination {
             if options.workingDirectory != nil {
                 throw CLIError(message: "tmux attach: --cwd is only supported for local attaches")
             }
+            let tmuxCommand = options.tmuxPathWasSpecified
+                ? tmuxControlAttachCommand(
+                    sessionName: options.sessionName,
+                    tmuxPath: options.tmuxPath,
+                    create: options.create,
+                    socketName: options.socketName,
+                    socketPath: options.socketPath
+                )
+                : remoteDefaultTmuxControlAttachCommand(
+                    sessionName: options.sessionName,
+                    create: options.create,
+                    socketName: options.socketName,
+                    socketPath: options.socketPath
+                )
             let relayID = UUID().uuidString.lowercased()
             let relayToken = try randomHex(byteCount: 32)
             let workspaceName = options.workspaceName ?? "tmux \(options.sessionName) @ \(sshDestination)"
@@ -7035,14 +7042,13 @@ struct CMUXCLI {
         return value
     }
 
-    private func tmuxControlAttachCommand(
+    private func tmuxControlAttachArguments(
         sessionName: String,
-        tmuxPath: String,
         create: Bool,
         socketName: String?,
         socketPath: String?
-    ) -> String {
-        var argv = [tmuxPath, "-CC"]
+    ) -> [String] {
+        var argv = ["-CC"]
         if let socketName {
             argv += ["-L", socketName]
         }
@@ -7054,7 +7060,39 @@ struct CMUXCLI {
         } else {
             argv += ["attach", "-t", sessionName]
         }
+        return argv
+    }
+
+    private func tmuxControlAttachCommand(
+        sessionName: String,
+        tmuxPath: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> String {
+        let argv = [tmuxPath] + tmuxControlAttachArguments(
+            sessionName: sessionName,
+            create: create,
+            socketName: socketName,
+            socketPath: socketPath
+        )
         return argv.map(shellQuote).joined(separator: " ")
+    }
+
+    private func remoteDefaultTmuxControlAttachCommand(
+        sessionName: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> String {
+        let argv = tmuxControlAttachArguments(
+            sessionName: sessionName,
+            create: create,
+            socketName: socketName,
+            socketPath: socketPath
+        )
+        let commonRemotePathPrefix = "/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        return "PATH=\(commonRemotePathPrefix)${PATH:+:$PATH}; exec tmux \(argv.map(shellQuote).joined(separator: " "))"
     }
 
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,

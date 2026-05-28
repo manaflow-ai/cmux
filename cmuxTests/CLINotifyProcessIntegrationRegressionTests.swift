@@ -2518,7 +2518,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
         let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
         let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
-        let tmuxCommand = "tmux -CC new -A -s cmuxcc"
+        let tmuxCommand = "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}; exec tmux -CC new -A -s cmuxcc"
         let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
 
         XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand)"), initialScript)
@@ -2575,7 +2575,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
         let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
         let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
-        let tmuxCommand = "tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
+        let tmuxCommand = "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}; exec tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
         let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
 
         XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand) --literal-command"), initialScript)
