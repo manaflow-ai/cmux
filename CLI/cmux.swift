@@ -6939,8 +6939,11 @@ struct CMUXCLI {
         case "move":
             let (toIndexOpt, rem0) = parseOption(rest, name: "--to-index")
             let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
-            let (afterOpt, _) = parseOption(rem1, name: "--after")
-            params["group_id"] = try resolveGroupId(in: rest)
+            let (afterOpt, rem2) = parseOption(rem1, name: "--after")
+            // Resolve the source group from rem2, which has every
+            // move-position flag stripped — otherwise the positional scan
+            // could pick up the value of --to-index/--before/--after.
+            params["group_id"] = try resolveGroupId(in: rem2)
             if let toIndexOpt, let n = Int(toIndexOpt) {
                 params["to_index"] = n
             } else if let beforeOpt {

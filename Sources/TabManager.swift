@@ -6043,6 +6043,13 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == workspaceId }), tab.groupId == groupId else { return }
         guard workspaceGroups[groupIndex].anchorWorkspaceId != workspaceId else { return }
         workspaceGroups[groupIndex].anchorWorkspaceId = workspaceId
+        // Hoist the new anchor to the front of its members in tabs[] so the
+        // sidebar header is rendered at the anchor's position. Without this,
+        // the header would still draw at the (former) first member but the
+        // shortcut digit / focus target would point at the new anchor lower
+        // down, breaking workspace-number navigation.
+        normalizeWorkspaceGroupContiguity()
+        _ = tab
     }
 
     /// Move a group to a new section position. `targetIndex` is interpreted as
@@ -6057,7 +6064,12 @@ class TabManager: ObservableObject {
         let sameTierIndices = workspaceGroups.indices.filter { workspaceGroups[$0].isPinned == isPinned }
         guard let firstSameTier = sameTierIndices.first,
               let lastSameTier = sameTierIndices.last else { return }
-        let clampedTarget = max(firstSameTier, min(targetIndex, lastSameTier))
+        // Upper bound is lastSameTier + 1 so callers can request
+        // "insert at the end of the tier" (e.g. via `--after <last group>`,
+        // which encodes targetIndex as afterIndex + 1). Clamping to
+        // lastSameTier would collapse that intent to a no-op.
+        let upperBound = lastSameTier + 1
+        let clampedTarget = max(firstSameTier, min(targetIndex, upperBound))
         guard clampedTarget != currentIndex else { return }
         let group = workspaceGroups.remove(at: currentIndex)
         // After removing the source, indices to its right shift left by one.
@@ -6447,6 +6459,11 @@ class TabManager: ObservableObject {
             }
         }
         workspaceGroups.removeAll { dissolvedGroupIds.contains($0.id) }
+        // Newly-ungrouped members may be sitting above other groups, which
+        // violates the renderer's pinned-solo / pinned-groups / unpinned-
+        // groups / ungrouped-unpinned ordering invariant. Renormalize so
+        // they slide into the ungrouped tier at the bottom.
+        normalizeWorkspaceGroupContiguity()
     }
 
     /// Detach a workspace from this window without closing its panels.
