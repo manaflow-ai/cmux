@@ -330,6 +330,12 @@ PY
 reload_simulator() {
   echo "==> Building simulator app (tag: $TAG, simulator: $SIMULATOR_NAME)"
 
+  # Build the Swift package + app target with -O / wholemodule even on
+  # Debug. The VT parser + snapshot rehydration runs on every push from
+  # the Mac (potentially >60Hz with the frame-driven event path); -O0
+  # compiled Swift is fast enough to compile but produces materially
+  # slower runtime code. Keep Debug configuration so codesigning and
+  # debug info still work, but force the compiler to optimize.
   xcodebuild \
     -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
@@ -340,6 +346,9 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
+    SWIFT_OPTIMIZATION_LEVEL=-O \
+    SWIFT_COMPILATION_MODE=wholemodule \
+    GCC_OPTIMIZATION_LEVEL=s \
     build
 
   APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmux.app"
@@ -428,6 +437,11 @@ reload_device() {
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic
+    # Force Swift -O / wholemodule on Debug. See the same flags on the
+    # simulator path for why.
+    SWIFT_OPTIMIZATION_LEVEL=-O
+    SWIFT_COMPILATION_MODE=wholemodule
+    GCC_OPTIMIZATION_LEVEL=s
   )
 
   if [[ -n "$DEVELOPMENT_TEAM" ]]; then

@@ -1882,11 +1882,17 @@ public final class CMUXMobileShellStore {
 
     private func startTerminalRefreshPolling() {
         guard let client = remoteClient else { return }
-        guard runtime?.supportsServerPushEvents ?? true else { return }
-        startLegacyTerminalRefreshPolling()
-        // Push events make user-driven changes show up immediately. The poller
-        // stays active as a compatibility fallback for old hosts and unexpected
-        // event-subscription failures.
+        guard runtime?.supportsServerPushEvents ?? true else {
+            // Server doesn't speak the event subscription protocol. Fall
+            // back to the legacy 750 ms poller so the iPhone still catches
+            // grid mutations.
+            startLegacyTerminalRefreshPolling()
+            return
+        }
+        // Push events make user-driven changes show up immediately. We
+        // only spin up the legacy 750 ms `Task.sleep` poller as a fallback
+        // when event subscription fails. With events live there are no
+        // sleeps on the macOS->iOS render path.
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
@@ -1913,9 +1919,11 @@ public final class CMUXMobileShellStore {
             do {
                 responseData = try await client.sendRequest(requestData)
             } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
+                self?.startLegacyTerminalRefreshPolling()
                 return
             } catch {
-                mobileShellLog.error("subscribe failed, polling remains active: \(String(describing: error), privacy: .private)")
+                mobileShellLog.error("subscribe failed, falling back to legacy polling: \(String(describing: error), privacy: .private)")
+                self?.startLegacyTerminalRefreshPolling()
                 return
             }
             // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
@@ -1924,6 +1932,7 @@ public final class CMUXMobileShellStore {
             // handler and shouldn't activate the event path.
             let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
             guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
+                self?.startLegacyTerminalRefreshPolling()
                 return
             }
             // Keep the listener alive without keeping the shell store alive.

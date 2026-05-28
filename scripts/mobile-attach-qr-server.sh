@@ -38,9 +38,64 @@ IOS_BUNDLE_ID = f"dev.cmux.ios.{TAG_SLUG}"
 
 _LOCK = threading.Lock()
 _LAST_GEN_TS = 0.0
-# Don't shell out more often than this — protects the Mac socket from
+# Don't shell out more often than this, protects the Mac socket from
 # accidental load if a browser hammers refresh.
 MIN_REGEN_INTERVAL_SECONDS = 2.0
+
+DERIVED_DATA_ROOT = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
+
+
+def tagged_app_path() -> str:
+    """The exact .app bundle that the launch path will open. Keep this in
+    lockstep with the CMUX Tag Opener's `appURL(for:)` resolution so the
+    button label and the click handler can't drift apart."""
+    return os.path.join(
+        DERIVED_DATA_ROOT,
+        f"cmux-{TAG}",
+        "Build",
+        "Products",
+        "Debug",
+        f"cmux DEV {TAG}.app",
+    )
+
+
+def tagged_app_executable() -> str:
+    return os.path.join(tagged_app_path(), "Contents", "MacOS", "cmux DEV")
+
+
+def app_info() -> dict:
+    """Single source of truth for what 'Open cmux DEV <tag>' actually does.
+    Returned to the page so the label always reflects reality (build mtime,
+    on-disk presence, whether a process is currently running)."""
+    app_path = tagged_app_path()
+    exe_path = tagged_app_executable()
+    info: dict = {
+        "tag": TAG,
+        "app_path": app_path,
+        "exe_path": exe_path,
+        "exists": False,
+        "mtime": None,
+        "running_pid": None,
+    }
+    try:
+        st = os.stat(exe_path)
+        info["exists"] = True
+        info["mtime"] = int(st.st_mtime)
+    except FileNotFoundError:
+        pass
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", f"cmux DEV {TAG}.app/Contents/MacOS/cmux DEV"],
+            check=False,
+            timeout=2,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout.decode().strip()
+        if out:
+            info["running_pid"] = int(out.splitlines()[0])
+    except Exception:
+        pass
+    return info
 
 
 def regenerate(force: bool = False) -> tuple[bool, str]:
@@ -70,7 +125,7 @@ def regenerate(force: bool = False) -> tuple[bool, str]:
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format: str, *args) -> None:
-        # Stay quiet — the cmux helper pane is the visible signal.
+        # Stay quiet, the cmux helper pane is the visible signal.
         return
 
     def do_GET(self):
@@ -87,6 +142,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/open-tag":
             self._open_tag()
             return
+        if path == "/app-info":
+            self._send(200, "application/json", json.dumps(app_info()).encode())
+            return
         self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
@@ -97,10 +155,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(404, "text/plain", b"not found")
 
     def _open_tag(self) -> None:
+        # The label and the launch path share `app_info()` so they can't
+        # claim to open a tag that has no on-disk build. Refuse to delegate
+        # to the Tag Opener when the .app doesn't exist instead of letting
+        # the Open button silently activate a stale process for some other
+        # tag.
+        info = app_info()
+        if not info["exists"]:
+            body = (
+                f"mac:no-build app_path={info['app_path']}\n"
+                f"ios:skipped (no Mac build for tag {TAG})\n"
+            ).encode("utf-8")
+            self._send(409, "text/plain", body)
+            return
         # Fire two side effects in parallel: launch the tagged macOS `.app`
         # via the CMUX Tag Opener at :17320, and launch the matching
-        # tagged iOS app on the first connected iPhone via
-        # devicectl. Errors on either side don't abort the other.
+        # tagged iOS app on the first connected iPhone via devicectl.
+        # Errors on either side don't abort the other.
         mac_result = self._launch_mac_tag()
         ios_result = self._launch_ios_app()
         body = (
@@ -204,13 +275,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
         )
         if marker in html:
             html = html.replace(marker, injection + marker, 1)
-        tag_bytes = TAG.encode("utf-8")
         body_marker = b"<body"
+        # The button's visible text, tooltip, and enabled state all come
+        # from `/app-info`. That endpoint shares its truth with `_open_tag`
+        # so the label can't claim a build the launch path can't deliver.
         banner = (
-            b'<button class="qr-open-tag" type="button" '
-            b'onclick="fetch(\'/open-tag\',{method:\'POST\'});">'
-            b'Open <code>cmux DEV ' + tag_bytes + b'</code></button>'
+            b'<button class="qr-open-tag" type="button" id="cmux-open-btn" disabled '
+            b'title="resolving build..." '
+            b'onclick="cmuxOpenTag(this)">resolving...</button>'
             + b'<div class="qr-fresh-banner">live, regenerates every 45s</div>'
+            + b'<script>(function(){\n'
+            + b'function fmtMtime(epoch){if(!epoch)return"never";\n'
+            + b'  var ageS=Math.max(0,(Date.now()/1000)-epoch);\n'
+            + b'  if(ageS<60)return Math.floor(ageS)+"s ago";\n'
+            + b'  if(ageS<3600)return Math.floor(ageS/60)+"m ago";\n'
+            + b'  if(ageS<86400)return Math.floor(ageS/3600)+"h ago";\n'
+            + b'  return Math.floor(ageS/86400)+"d ago";}\n'
+            + b'function refresh(){fetch("/app-info",{cache:"no-store"})\n'
+            + b'  .then(function(r){return r.json();}).then(function(info){\n'
+            + b'    var btn=document.getElementById("cmux-open-btn");\n'
+            + b'    if(!btn)return;\n'
+            + b'    var built=fmtMtime(info.mtime);\n'
+            + b'    var running=info.running_pid?(" \\u00b7 running pid "+info.running_pid):"";\n'
+            + b'    if(info.exists){\n'
+            + b'      btn.disabled=false;\n'
+            + b'      btn.innerHTML="Open <code>cmux DEV "+info.tag+"</code> \\u00b7 built "+built+running;\n'
+            + b'      btn.title=info.app_path;\n'
+            + b'    }else{\n'
+            + b'      btn.disabled=true;\n'
+            + b'      btn.innerHTML="<code>cmux DEV "+info.tag+"</code> not built";\n'
+            + b'      btn.title="missing on disk: "+info.app_path;\n'
+            + b'    }\n'
+            + b'  }).catch(function(){});}\n'
+            + b'window.cmuxOpenTag=function(btn){\n'
+            + b'  if(btn.disabled)return;\n'
+            + b'  btn.disabled=true;var prev=btn.innerHTML;btn.innerHTML="launching...";\n'
+            + b'  fetch("/open-tag",{method:"POST"}).then(function(r){return r.text();})\n'
+            + b'   .then(function(t){btn.innerHTML=prev;}).catch(function(){btn.innerHTML=prev;})\n'
+            + b'   .finally(function(){btn.disabled=false;setTimeout(refresh,250);});};\n'
+            + b'refresh();setInterval(refresh,2000);}());</script>\n'
         )
         if body_marker in html:
             insert_at = html.find(b">", html.find(body_marker)) + 1
