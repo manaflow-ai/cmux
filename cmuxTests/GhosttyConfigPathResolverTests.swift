@@ -266,6 +266,267 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportConfigURLsStripStaleReleaseManagedThemeForNightlyFallback() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                font-size = 13
+
+                # cmux themes start
+                theme = light:Old Stable Light,dark:Old Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+
+            let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+            XCTAssertEqual(releaseContents, "font-size = 13\n")
+        }
+    }
+
+    func testCmuxAppSupportConfigURLsDeleteReleaseOnlyManagedThemeForNightlyFallback() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                # cmux themes start
+                theme = light:Old Stable Light,dark:Old Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
+            )
+            XCTAssertFalse(FileManager.default.fileExists(atPath: releaseConfigURL.path))
+        }
+    }
+
+    func testCmuxAppSupportConfigURLsLeaveReleaseManagedThemeWhenNightlyConfigExists() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+            let nightlyConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                filename: "config.ghostty",
+                contents: "theme = light:Nightly Light,dark:Nightly Dark\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [nightlyConfigURL]
+            )
+
+            XCTAssertEqual(
+                try String(contentsOf: releaseConfigURL, encoding: .utf8),
+                """
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+        }
+    }
+
+    func testMultiRootCmuxAppSupportConfigURLsPreferCurrentConfigBeforeReleaseFallbackCleanup() throws {
+        try withTemporaryAppSupportDirectory { primaryAppSupportDirectory in
+            try withTemporaryAppSupportDirectory { alternateAppSupportDirectory in
+                let releaseConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: primaryAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app",
+                    filename: "config.ghostty",
+                    contents: """
+                    font-size = 13
+
+                    # cmux themes start
+                    theme = light:Stable Light,dark:Stable Dark
+                    # cmux themes end
+                    """
+                    .appending("\n")
+                )
+                let nightlyConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: alternateAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app.nightly",
+                    filename: "config.ghostty",
+                    contents: "theme = light:Nightly Light,dark:Nightly Dark\n"
+                )
+
+                XCTAssertEqual(
+                    CmuxGhosttyConfigPathResolver.loadConfigURLs(
+                        currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                        appSupportDirectories: [
+                            primaryAppSupportDirectory,
+                            alternateAppSupportDirectory,
+                        ]
+                    ),
+                    [nightlyConfigURL]
+                )
+
+                XCTAssertEqual(
+                    try String(contentsOf: releaseConfigURL, encoding: .utf8),
+                    """
+                    font-size = 13
+
+                    # cmux themes start
+                    theme = light:Stable Light,dark:Stable Dark
+                    # cmux themes end
+                    """
+                    .appending("\n")
+                )
+            }
+        }
+    }
+
+    func testStaleReleaseCleanupKeepsReleaseManagedThemeWhenCurrentConfigRemains() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: """
+                font-size = 13
+
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                filename: "config.ghostty",
+                contents: "font-size = 15\n"
+            )
+
+            try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+                currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                appSupportDirectories: [appSupportDirectory]
+            )
+
+            XCTAssertEqual(
+                try String(contentsOf: releaseConfigURL, encoding: .utf8),
+                """
+                font-size = 13
+
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+        }
+    }
+
+    func testStaleReleaseCleanupStripsReleaseManagedThemeAcrossSupportRootsWhenCurrentConfigIsMissing() throws {
+        try withTemporaryAppSupportDirectory { primaryAppSupportDirectory in
+            try withTemporaryAppSupportDirectory { alternateAppSupportDirectory in
+                let primaryReleaseConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: primaryAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app",
+                    filename: "config.ghostty",
+                    contents: """
+                    font-size = 13
+
+                    # cmux themes start
+                    theme = light:Stable Light,dark:Stable Dark
+                    # cmux themes end
+                    """
+                    .appending("\n")
+                )
+                let alternateReleaseConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: alternateAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app",
+                    filename: "config.ghostty",
+                    contents: """
+                    window-padding-x = 4
+
+                    # cmux themes start
+                    theme = light:Alternate Stable Light,dark:Alternate Stable Dark
+                    # cmux themes end
+                    """
+                    .appending("\n")
+                )
+
+                try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectories: [
+                        primaryAppSupportDirectory,
+                        alternateAppSupportDirectory,
+                    ]
+                )
+
+                XCTAssertEqual(
+                    try String(contentsOf: primaryReleaseConfigURL, encoding: .utf8),
+                    "font-size = 13\n"
+                )
+                XCTAssertEqual(
+                    try String(contentsOf: alternateReleaseConfigURL, encoding: .utf8),
+                    "window-padding-x = 4\n"
+                )
+            }
+        }
+    }
+
+    func testStaleReleaseCleanupStripsLegacyReleaseManagedThemeWhenCurrentConfigIsMissing() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let legacyReleaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: """
+                font-size = 13
+
+                # cmux themes start
+                theme = light:Stable Light,dark:Stable Dark
+                # cmux themes end
+                """
+                .appending("\n")
+            )
+
+            try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+                currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                appSupportDirectories: [appSupportDirectory]
+            )
+
+            XCTAssertEqual(
+                try String(contentsOf: legacyReleaseConfigURL, encoding: .utf8),
+                "font-size = 13\n"
+            )
+        }
+    }
+
     func testCmuxAppSupportConfigURLsUseStagingConfigWhenPresent() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
@@ -332,6 +593,29 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
 
             XCTAssertTrue(paths.contains(preferredConfigURL.path))
             XCTAssertFalse(paths.contains(legacyConfigURL.path))
+        }
+    }
+
+    func testLoadedGhosttyConfigScanPathsIncludesCmuxConfigsFromMultipleSupportRoots() throws {
+        try withTemporaryAppSupportDirectory { primaryAppSupportDirectory in
+            try withTemporaryAppSupportDirectory { alternateAppSupportDirectory in
+                let alternateConfigURL = try writeAppSupportConfig(
+                    appSupportDirectory: alternateAppSupportDirectory,
+                    bundleIdentifier: "com.cmuxterm.app.nightly",
+                    filename: "config.ghostty",
+                    contents: "theme = light:Nightly Light,dark:Nightly Dark\n"
+                )
+
+                let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+                    currentBundleIdentifier: "com.cmuxterm.app.nightly",
+                    appSupportDirectories: [
+                        primaryAppSupportDirectory,
+                        alternateAppSupportDirectory,
+                    ]
+                )
+
+                XCTAssertTrue(paths.contains(alternateConfigURL.path))
+            }
         }
     }
 

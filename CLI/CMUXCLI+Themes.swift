@@ -3,8 +3,8 @@ import Darwin
 
 extension CMUXCLI {
     static let cmuxThemeOverrideBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
-    static let cmuxThemesBlockStart = "# cmux themes start"
-    static let cmuxThemesBlockEnd = "# cmux themes end"
+    static let cmuxThemesBlockStart = CmuxGhosttyConfigPathResolver.cmuxThemesBlockStart
+    static let cmuxThemesBlockEnd = CmuxGhosttyConfigPathResolver.cmuxThemesBlockEnd
     static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
 
     struct ThemeSelection {
@@ -237,6 +237,9 @@ extension CMUXCLI {
         explicitPassword: String?
     ) throws {
         let targetBundleIdentifier = themeTargetBundleIdentifier(socketPath: socketPath)
+        try removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+            targetBundleIdentifier: targetBundleIdentifier
+        )
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
                 try runInteractiveThemes(
@@ -300,6 +303,33 @@ extension CMUXCLI {
                 targetBundleIdentifier: targetBundleIdentifier,
                 explicitPassword: explicitPassword
             )
+        }
+    }
+
+    private func removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+        targetBundleIdentifier: String
+    ) throws {
+        let normalizedBundleIdentifier = targetBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBundleIdentifier.isEmpty,
+              normalizedBundleIdentifier != Self.cmuxThemeOverrideBundleIdentifier else {
+            return
+        }
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment
+        )
+        do {
+            try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+                currentBundleIdentifier: normalizedBundleIdentifier,
+                appSupportDirectories: appSupportDirectories
+            )
+        } catch let error as CLIError {
+            throw error
+        } catch {
+            let message = String(
+                localized: "cli.themes.error.cleanupFailed",
+                defaultValue: "Unable to clean stale cmux theme override."
+            )
+            throw CLIError(message: message)
         }
     }
 

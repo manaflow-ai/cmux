@@ -775,6 +775,364 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
     }
 
+    func testThemesSetNightlyRemovesStaleReleaseManagedBlock() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-set-stale-release-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Fresh Nightly", background: "#101010", to: themesURL)
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: releaseConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        font-size = 13
+
+        # cmux themes start
+        theme = light:Old Release,dark:Old Release
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.nightly"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let setResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "Fresh Nightly"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(setResult.timedOut, setResult.stdout)
+        XCTAssertEqual(setResult.status, 0, setResult.stdout)
+        XCTAssertEqual(try managedThemeValue(in: nightlyConfigURL), "light:Fresh Nightly,dark:Fresh Nightly")
+
+        let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+        XCTAssertTrue(releaseContents.contains("font-size = 13"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("# cmux themes start"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("Old Release"), releaseContents)
+    }
+
+    func testThemesSetNightlyPartialLightDoesNotCopyStaleReleaseDarkTheme() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-partial-stale-release-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Catppuccin Latte", background: "#eff1f5", to: themesURL)
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: releaseConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        font-size = 13
+
+        # cmux themes start
+        theme = light:Old Stable Light,dark:Old Stable Dark
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let setResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "--light", "Catppuccin Latte"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(setResult.timedOut, setResult.stdout)
+        XCTAssertEqual(setResult.status, 0, setResult.stdout)
+        XCTAssertEqual(try managedThemeValue(in: nightlyConfigURL), "light:Catppuccin Latte")
+
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(setResult.stdout.utf8)) as? [String: Any],
+            setResult.stdout
+        )
+        XCTAssertEqual(payload["raw_value"] as? String, "light:Catppuccin Latte")
+        XCTAssertEqual(payload["light"] as? String, "Catppuccin Latte")
+        XCTAssertTrue(payload["dark"] is NSNull, setResult.stdout)
+
+        let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+        XCTAssertTrue(releaseContents.contains("font-size = 13"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("# cmux themes start"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("Old Stable"), releaseContents)
+    }
+
+    func testThemesSetNightlyPartialLightFailsWhenRequiredStaleReleaseCleanupFails() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-cleanup-fails-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            let releaseDirectory = root
+                .appendingPathComponent("Library/Application Support/com.cmuxterm.app", isDirectory: true)
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: releaseDirectory.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Catppuccin Latte", background: "#eff1f5", to: themesURL)
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseDirectory = appSupportDirectory.appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+        let releaseConfigURL = releaseDirectory.appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(at: releaseDirectory, withIntermediateDirectories: true)
+        try """
+        # cmux themes start
+        theme = light:Old Stable Light,dark:Old Stable Dark
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: releaseDirectory.path)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let setResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "--light", "Catppuccin Latte"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(setResult.timedOut, setResult.stdout)
+        XCTAssertNotEqual(setResult.status, 0, setResult.stdout)
+        XCTAssertTrue(setResult.stdout.contains("Unable to clean stale cmux theme override."), setResult.stdout)
+        XCTAssertFalse(setResult.stdout.contains("Old Stable"), setResult.stdout)
+        XCTAssertFalse(setResult.stdout.contains(root.path), setResult.stdout)
+        XCTAssertFalse(fileManager.fileExists(atPath: nightlyConfigURL.path), setResult.stdout)
+    }
+
+    func testThemesClearNightlyRemovesStaleReleaseManagedBlock() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-stale-release-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: releaseConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: nightlyConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        font-size = 13
+
+        # cmux themes start
+        theme = light:Old Release,dark:Old Release
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+        try """
+        # cmux themes start
+        theme = light:Current Nightly,dark:Current Nightly
+        # cmux themes end
+        """.appending("\n").write(to: nightlyConfigURL, atomically: true, encoding: .utf8)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.nightly"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let clearResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "clear"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(clearResult.timedOut, clearResult.stdout)
+        XCTAssertEqual(clearResult.status, 0, clearResult.stdout)
+
+        let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+        XCTAssertTrue(releaseContents.contains("font-size = 13"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("# cmux themes start"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("Old Release"), releaseContents)
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(listResult.timedOut, listResult.stdout)
+        XCTAssertEqual(listResult.status, 0, listResult.stdout)
+
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any],
+            listResult.stdout
+        )
+        let current = try XCTUnwrap(payload["current"] as? [String: Any], listResult.stdout)
+        XCTAssertTrue(current["raw_value"] is NSNull, listResult.stdout)
+        XCTAssertTrue(current["light"] is NSNull, listResult.stdout)
+        XCTAssertTrue(current["dark"] is NSNull, listResult.stdout)
+    }
+
+    func testBareInteractiveThemesNightlyRemovesStaleReleaseManagedBlockBeforePicker() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-picker-stale-release-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "theme-picker-stale-\(UUID().uuidString.lowercased())"
+        )
+        let fakeGhosttyHelperURL = URL(fileURLWithPath: fakeCLIPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("ghostty", isDirectory: false)
+        let pickerEnvURL = root.appendingPathComponent("picker-env.txt", isDirectory: false)
+        try """
+        #!/usr/bin/env python3
+        import os
+        import sys
+
+        with open(os.environ["CMUX_TEST_PICKER_ENV_PATH"], "w") as output:
+            output.write("config=" + os.environ.get("CMUX_THEME_PICKER_CONFIG", "") + "\\n")
+            output.write("initial_light=" + os.environ.get("CMUX_THEME_PICKER_INITIAL_LIGHT", "") + "\\n")
+            output.write("initial_dark=" + os.environ.get("CMUX_THEME_PICKER_INITIAL_DARK", "") + "\\n")
+        sys.exit(0)
+        """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeGhosttyHelperURL.path
+        )
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: releaseConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        font-size = 13
+
+        # cmux themes start
+        theme = light:Old Release,dark:Old Release
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+
+        let command = [
+            "env",
+            "-i",
+            "HOME=\(shellSingleQuote(root.path))",
+            "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
+            "CMUX_SOCKET_PATH=/tmp/cmux-nightly.sock",
+            "CMUX_BUNDLE_ID=com.cmuxterm.app.nightly",
+            "CMUX_CLI_SENTRY_DISABLED=1",
+            "CMUX_TEST_PICKER_ENV_PATH=\(shellSingleQuote(pickerEnvURL.path))",
+            "PATH=/usr/bin:/bin",
+            "/usr/bin/script",
+            "-q",
+            "/dev/null",
+            shellSingleQuote(fakeCLIPath),
+            "themes",
+        ].joined(separator: " ")
+        let result = runShell(command, timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+        XCTAssertTrue(releaseContents.contains("font-size = 13"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("# cmux themes start"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("Old Release"), releaseContents)
+
+        let pickerEnv = try String(contentsOf: pickerEnvURL, encoding: .utf8)
+        XCTAssertTrue(pickerEnv.contains("config=\(nightlyConfigURL.path)"), pickerEnv)
+        XCTAssertTrue(pickerEnv.contains("initial_light=\n"), pickerEnv)
+        XCTAssertTrue(pickerEnv.contains("initial_dark=\n"), pickerEnv)
+    }
+
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default

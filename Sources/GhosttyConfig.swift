@@ -121,13 +121,13 @@ struct GhosttyConfig {
         fileManager: FileManager = .default,
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> [String] {
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return []
-        }
-
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            fileManager: fileManager
+        )
         return GhosttyApp.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupport,
+            appSupportDirectories: appSupportDirectories,
             fileManager: fileManager
         ).map(\.path)
     }

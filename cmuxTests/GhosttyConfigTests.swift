@@ -1011,6 +1011,60 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testRuntimeColorSchemeForClearedCmuxThemeReloadUsesAppearanceDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: nil
+            ),
+            .dark
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "  "
+            ),
+            .dark
+        )
+    }
+
+    func testAppearanceLockedRuntimeColorSchemeForCmuxThemeReloads() {
+        XCTAssertEqual(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                cmuxThemeValue: nil
+            ),
+            .dark
+        )
+        XCTAssertEqual(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+                requestedColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            ),
+            .light
+        )
+        XCTAssertNil(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            )
+        )
+        XCTAssertNil(
+            GhosttyApp.appearanceLockedRuntimeColorSchemeForConfigReload(
+                source: "socket.reload_config",
+                requestedColorScheme: .dark,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            )
+        )
+    }
+
     func testRuntimeColorSchemeForPairedThemeReloadUsesAppearanceDuringConfigLoad() {
         XCTAssertEqual(
             GhosttyApp.runtimeColorSchemeForConfigLoad(
@@ -1029,6 +1083,53 @@ final class GhosttyConfigTests: XCTestCase {
                 cmuxThemeValue: "light:3024 Day,dark:3024 Day"
             ),
             .dark
+        )
+    }
+
+    func testCmuxThemePairReloadResolvesAgainstAppearance() {
+        XCTAssertTrue(
+            GhosttyApp.shouldResolveCmuxThemePairAgainstAppearance(
+                "light:3024 Day,dark:3024 Night"
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldResolveCmuxThemePairAgainstAppearance(
+                "light:3024 Day,dark:3024 Day"
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldResolveCmuxThemePairAgainstAppearance(
+                "3024 Day"
+            )
+        )
+    }
+
+    func testResolvedCmuxThemePairOverrideValueUsesAppearanceOnlyForTruePairs() {
+        XCTAssertEqual(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                "light:3024 Day,dark:3024 Night",
+                preferredColorScheme: .light
+            ),
+            "3024 Day"
+        )
+        XCTAssertEqual(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                "light:3024 Day,dark:3024 Night",
+                preferredColorScheme: .dark
+            ),
+            "3024 Night"
+        )
+        XCTAssertNil(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                "light:3024 Day,dark:3024 Day",
+                preferredColorScheme: .dark
+            )
+        )
+        XCTAssertNil(
+            GhosttyApp.resolvedCmuxThemePairOverrideValue(
+                nil,
+                preferredColorScheme: .dark
+            )
         )
     }
 

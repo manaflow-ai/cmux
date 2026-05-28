@@ -147,9 +147,10 @@ extension CMUXCLI {
             }
         }
 
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
             environment: ProcessInfo.processInfo.environment
-        ) {
+        )
+        for appSupportDirectory in appSupportDirectories {
             let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
                 "com.mitchellh.ghostty",
                 isDirectory: true
@@ -165,14 +166,14 @@ extension CMUXCLI {
             ) {
                 append(legacyGhosttyConfigURL)
             }
+        }
 
-            for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
-                currentBundleIdentifier: targetBundleIdentifier,
-                appSupportDirectory: appSupportDirectory,
-                fileManager: fileManager
-            ) {
-                append(url)
-            }
+        for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            currentBundleIdentifier: targetBundleIdentifier,
+            appSupportDirectories: appSupportDirectories,
+            fileManager: fileManager
+        ) {
+            append(url)
         }
 
         return urls
@@ -261,6 +262,7 @@ extension CMUXCLI {
         let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
+            try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
             return configURL
         }
 
@@ -272,6 +274,7 @@ extension CMUXCLI {
                 try fileManager.removeItem(at: configURL)
             } catch {
                 guard !isThemeOverrideFileNotFoundError(error) else {
+                    try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
                     return configURL
                 }
                 throw error
@@ -280,7 +283,42 @@ extension CMUXCLI {
             try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
         }
 
+        try removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: targetBundleIdentifier)
         return configURL
+    }
+
+    func removeStaleReleaseManagedThemeOverrideIfNeeded(activeBundleIdentifier: String? = nil) throws {
+        do {
+            try removeStaleReleaseManagedThemeOverride(activeBundleIdentifier: activeBundleIdentifier)
+        } catch let error as CLIError {
+            throw error
+        } catch {
+            throw CLIError(message: staleThemeCleanupFailureMessage())
+        }
+    }
+
+    private func removeStaleReleaseManagedThemeOverride(activeBundleIdentifier: String?) throws {
+        guard let activeBundleIdentifier = (activeBundleIdentifier ?? currentCmuxAppBundleIdentifier())?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !activeBundleIdentifier.isEmpty,
+            activeBundleIdentifier != Self.cmuxThemeOverrideBundleIdentifier else {
+            return
+        }
+
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment
+        )
+        try CmuxGhosttyConfigPathResolver.removeStaleReleaseManagedThemeOverrideBeforeFallbackIfNeeded(
+            currentBundleIdentifier: activeBundleIdentifier,
+            appSupportDirectories: appSupportDirectories
+        )
+    }
+
+    private func staleThemeCleanupFailureMessage() -> String {
+        String(
+            localized: "cli.themes.error.cleanupFailed",
+            defaultValue: "Unable to clean stale cmux theme override."
+        )
     }
 
     private func readOptionalThemeOverrideContents(at url: URL) throws -> String? {
@@ -306,12 +344,7 @@ extension CMUXCLI {
     }
 
     private func removingManagedThemeOverride(from contents: String) -> String {
-        let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return contents
-        }
-        let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
+        CmuxGhosttyConfigPathResolver.removingManagedThemeOverride(from: contents)
     }
 
     func reloadThemesIfPossible(

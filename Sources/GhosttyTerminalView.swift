@@ -2074,16 +2074,22 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
+        let initialCmuxThemeValue = currentCmuxAppSupportThemeValue()
+        let initialResolvedColorScheme = Self.shouldResolveCmuxThemePairAgainstAppearance(initialCmuxThemeValue)
+            ? initialColorScheme
+            : nil
         updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
-            forceNotify: primaryRenderingModeChanged
+            forceNotify: primaryRenderingModeChanged,
+            resolvedColorScheme: initialResolvedColorScheme
         )
         updateDefaultBackgroundFromResolvedGhosttyConfig(
             source: "initialize.primaryConfig",
             preferredColorScheme: initialColorScheme,
             baselineConfig: primaryConfig,
-            forceNotify: primaryRenderingModeChanged
+            forceNotify: primaryRenderingModeChanged,
+            resolvedColorScheme: initialResolvedColorScheme
         )
 
         // Create runtime config with callbacks
@@ -2238,14 +2244,16 @@ class GhosttyApp {
             updateDefaultBackground(
                 from: fallbackConfig,
                 source: "initialize.fallbackConfig",
-                forceNotify: fallbackRenderingModeChanged
+                forceNotify: fallbackRenderingModeChanged,
+                resolvedColorScheme: initialResolvedColorScheme
             )
             updateDefaultBackgroundFromResolvedGhosttyConfig(
                 source: "initialize.fallbackConfig",
                 preferredColorScheme: initialColorScheme,
                 baselineConfig: fallbackConfig,
                 useOnDiskResolvedConfig: false,
-                forceNotify: fallbackRenderingModeChanged
+                forceNotify: fallbackRenderingModeChanged,
+                resolvedColorScheme: initialResolvedColorScheme
             )
 
             guard let created = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
@@ -2381,6 +2389,23 @@ class GhosttyApp {
         )
     }
 
+    private func loadResolvedCmuxThemePairOverrideIfNeeded(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let resolvedThemeName = Self.resolvedCmuxThemePairOverrideValue(
+            currentCmuxAppSupportThemeValue(),
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
+
+        loadInlineGhosttyConfig(
+            "theme = \(resolvedThemeName)",
+            into: config,
+            prefix: "cmux-resolved-theme-pair",
+            logLabel: "resolved cmux theme pair"
+        )
+    }
+
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
@@ -2417,6 +2442,10 @@ class GhosttyApp {
             )
         }
         #endif
+        loadResolvedCmuxThemePairOverrideIfNeeded(
+            config,
+            preferredColorScheme: preferredColorScheme
+        )
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
@@ -2890,27 +2919,37 @@ class GhosttyApp {
     /// recursive `config-file` processing.
     static func loadedGhosttyConfigScanPaths(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
+        appSupportDirectory: URL? = nil,
+        appSupportDirectories: [URL]? = nil
     ) -> [String] {
         var paths = [
             "~/.config/ghostty/config",
             "~/.config/ghostty/config.ghostty",
         ]
 
-        guard let appSupportDirectory else { return paths }
+        let resolvedAppSupportDirectories = appSupportDirectories
+            ?? appSupportDirectory.map { [$0] }
+            ?? CmuxApplicationSupportDirectories.userDirectories(
+                environment: ProcessInfo.processInfo.environment
+            )
+        guard !resolvedAppSupportDirectories.isEmpty else { return paths }
 
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        paths.append(nativeConfig.path)
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: configFileSize(at: nativeConfig),
-            legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
-        ) {
-            paths.append(nativeLegacyConfig.path)
+        func appendPath(_ path: String) {
+            guard !paths.contains(path) else { return }
+            paths.append(path)
+        }
+
+        for appSupportDirectory in resolvedAppSupportDirectories {
+            let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+            let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
+            let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
+            appendPath(nativeConfig.path)
+            if shouldIncludeLegacyGhosttyConfigInScanPaths(
+                newConfigFileSize: configFileSize(at: nativeConfig),
+                legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
+            ) {
+                appendPath(nativeLegacyConfig.path)
+            }
         }
 
         guard let bundleId = currentBundleIdentifier,
@@ -2918,22 +2957,26 @@ class GhosttyApp {
 
         let appSupportConfigURLs = cmuxAppSupportConfigURLs(
             currentBundleIdentifier: bundleId,
-            appSupportDirectory: appSupportDirectory
+            appSupportDirectories: resolvedAppSupportDirectories
         )
-        paths.append(contentsOf: appSupportConfigURLs.map(\.path))
+        for url in appSupportConfigURLs {
+            appendPath(url.path)
+        }
 
-        let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
-        let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
-        let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        for appSupportDirectory in resolvedAppSupportDirectories {
+            let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
+            let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
+            let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
 
-        let releaseConfigSize = configFileSize(at: releaseConfig)
-        let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
+            let releaseConfigSize = configFileSize(at: releaseConfig)
+            let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
 
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: releaseConfigSize,
-            legacyConfigFileSize: releaseLegacyConfigSize
-        ), !paths.contains(releaseLegacyConfig.path) {
-            paths.append(releaseLegacyConfig.path)
+            if shouldIncludeLegacyGhosttyConfigInScanPaths(
+                newConfigFileSize: releaseConfigSize,
+                legacyConfigFileSize: releaseLegacyConfigSize
+            ) {
+                appendPath(releaseLegacyConfig.path)
+            }
         }
 
         return paths
@@ -2941,14 +2984,13 @@ class GhosttyApp {
 
     static func loadedCJKScanPaths(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
+        appSupportDirectory: URL? = nil,
+        appSupportDirectories: [URL]? = nil
     ) -> [String] {
         loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
+            appSupportDirectory: appSupportDirectory,
+            appSupportDirectories: appSupportDirectories
         )
     }
 
@@ -3131,9 +3173,21 @@ class GhosttyApp {
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
+        cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: currentBundleIdentifier,
+            appSupportDirectories: [appSupportDirectory],
+            fileManager: fileManager
+        )
+    }
+
+    static func cmuxAppSupportConfigURLs(
+        currentBundleIdentifier: String?,
+        appSupportDirectories: [URL],
+        fileManager: FileManager = .default
+    ) -> [URL] {
         CmuxGhosttyConfigPathResolver.loadConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
+            appSupportDirectories: appSupportDirectories,
             fileManager: fileManager
         )
     }
@@ -3225,13 +3279,60 @@ class GhosttyApp {
         effectiveTerminalColorScheme: GhosttyConfig.ColorSchemePreference,
         cmuxThemeValue: String?
     ) -> GhosttyConfig.ColorSchemePreference {
-        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
-              let cmuxThemeValue,
-              GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue) else {
+        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source) else {
+            return requestedColorScheme
+        }
+        guard let cmuxThemeValue,
+              !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return requestedColorScheme
+        }
+        guard !shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue) else {
             return requestedColorScheme
         }
 
         return effectiveTerminalColorScheme
+    }
+
+    static func appearanceLockedRuntimeColorSchemeForConfigReload(
+        source: String,
+        requestedColorScheme: GhosttyConfig.ColorSchemePreference,
+        cmuxThemeValue: String?
+    ) -> GhosttyConfig.ColorSchemePreference? {
+        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source) else {
+            return nil
+        }
+        guard let cmuxThemeValue,
+              !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return requestedColorScheme
+        }
+        guard shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue) else {
+            return nil
+        }
+        return requestedColorScheme
+    }
+
+    static func shouldResolveCmuxThemePairAgainstAppearance(_ cmuxThemeValue: String?) -> Bool {
+        guard let cmuxThemeValue,
+              !cmuxThemeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return !GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue)
+    }
+
+    static func resolvedCmuxThemePairOverrideValue(
+        _ cmuxThemeValue: String?,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> String? {
+        guard shouldResolveCmuxThemePairAgainstAppearance(cmuxThemeValue),
+              let cmuxThemeValue else {
+            return nil
+        }
+
+        let resolvedThemeName = GhosttyConfig.resolveThemeName(
+            from: cmuxThemeValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolvedThemeName.isEmpty ? nil : resolvedThemeName
     }
 
     static func shouldCaptureScrollLagEvent(
@@ -3260,12 +3361,15 @@ class GhosttyApp {
     private func loadCmuxAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
         #if os(macOS)
         let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
               !currentBundleIdentifier.isEmpty else { return }
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            fileManager: fm
+        )
         let urls = Self.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupport,
+            appSupportDirectories: appSupportDirectories,
             fileManager: fm
         )
         guard !urls.isEmpty else { return }
@@ -3287,12 +3391,13 @@ class GhosttyApp {
     private func currentCmuxAppSupportThemeValue() -> String? {
         #if os(macOS)
         let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
+        let appSupportDirectories = CmuxApplicationSupportDirectories.userDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            fileManager: fm
+        )
         let urls = Self.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: Bundle.main.bundleIdentifier,
-            appSupportDirectory: appSupport,
+            appSupportDirectories: appSupportDirectories,
             fileManager: fm
         )
 
@@ -3405,6 +3510,7 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
+        let cmuxThemeValue = currentCmuxAppSupportThemeValue()
         // Use the appearance preference while loading conditional theme pairs. For cmux
         // single-theme reloads, keep the resolved terminal scheme stable until the new
         // background is known so same-scheme theme changes do not flash through app mode.
@@ -3412,14 +3518,20 @@ class GhosttyApp {
             source: source,
             requestedColorScheme: reloadColorScheme,
             effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
-            cmuxThemeValue: currentCmuxAppSupportThemeValue()
+            cmuxThemeValue: cmuxThemeValue
+        )
+        let appearanceLockedReloadColorScheme = Self.appearanceLockedRuntimeColorSchemeForConfigReload(
+            source: source,
+            requestedColorScheme: reloadColorScheme,
+            cmuxThemeValue: cmuxThemeValue
         )
         synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
-            let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
+            let effectiveReloadColorScheme = appearanceLockedReloadColorScheme ?? effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+            prepareTerminalSurfacesForConfigurationReload(preferredColorScheme: effectiveReloadColorScheme)
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
@@ -3444,7 +3556,8 @@ class GhosttyApp {
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
             scope: .unscoped,
-            forceNotify: renderingModeChanged
+            forceNotify: renderingModeChanged,
+            resolvedColorScheme: appearanceLockedReloadColorScheme
         )
         GhosttyConfig.invalidateLoadCache()
         updateDefaultBackgroundFromResolvedGhosttyConfig(
@@ -3452,10 +3565,12 @@ class GhosttyApp {
             preferredColorScheme: reloadColorScheme,
             baselineConfig: newConfig,
             scope: .unscoped,
-            forceNotify: renderingModeChanged
+            forceNotify: renderingModeChanged,
+            resolvedColorScheme: appearanceLockedReloadColorScheme
         )
-        let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
+        let effectiveReloadColorScheme = appearanceLockedReloadColorScheme ?? effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+        prepareTerminalSurfacesForConfigurationReload(preferredColorScheme: effectiveReloadColorScheme)
         ghostty_app_update_config(app, newConfig)
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
@@ -3471,6 +3586,24 @@ class GhosttyApp {
             preferredColorScheme: effectiveReloadColorScheme
         )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+    }
+
+    private func prepareTerminalSurfacesForConfigurationReload(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AppDelegate.shared?.applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
+                    preferredColorScheme: preferredColorScheme
+                )
+            }
+        } else {
+            DispatchQueue.main.async {
+                AppDelegate.shared?.applyTerminalSurfaceColorSchemeForGhosttyConfigReload(
+                    preferredColorScheme: preferredColorScheme
+                )
+            }
+        }
     }
 
     private func scheduleSurfaceRefreshAfterConfigurationReload(
@@ -3642,7 +3775,8 @@ class GhosttyApp {
         from config: ghostty_config_t?,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         guard let config else { return }
 
@@ -3658,7 +3792,8 @@ class GhosttyApp {
             selectionForeground: resolved.selectionForeground,
             source: source,
             scope: scope,
-            forceNotify: forceNotify
+            forceNotify: forceNotify,
+            resolvedColorScheme: resolvedColorScheme
         )
     }
 
@@ -3733,7 +3868,8 @@ class GhosttyApp {
         baselineConfig: ghostty_config_t?,
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
         useOnDiskResolvedConfig: Bool = true,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         let baseline = defaultBackgroundValues(from: baselineConfig)
         guard useOnDiskResolvedConfig else {
@@ -3748,7 +3884,8 @@ class GhosttyApp {
                 selectionForeground: baseline.selectionForeground,
                 source: source,
                 scope: scope,
-                forceNotify: forceNotify
+                forceNotify: forceNotify,
+                resolvedColorScheme: resolvedColorScheme
             )
             return
         }
@@ -3815,7 +3952,8 @@ class GhosttyApp {
             ),
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
-            forceNotify: forceNotify
+            forceNotify: forceNotify,
+            resolvedColorScheme: resolvedColorScheme
         )
     }
 
@@ -3917,7 +4055,8 @@ class GhosttyApp {
         selectionForeground: NSColor? = nil,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
-        forceNotify: Bool = false
+        forceNotify: Bool = false,
+        resolvedColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource
@@ -3945,9 +4084,8 @@ class GhosttyApp {
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur
-        effectiveTerminalColorSchemePreference = Self.terminalRuntimeColorSchemePreference(
-            forBackgroundColor: color
-        )
+        effectiveTerminalColorSchemePreference = resolvedColorScheme
+            ?? Self.terminalRuntimeColorSchemePreference(forBackgroundColor: color)
         if let foregroundColor {
             defaultForegroundColor = foregroundColor
         }
