@@ -49,23 +49,11 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(key: "space", command: false, shift: false, option: false, control: false)
+        let paletteExpectation = expectation(forNotification: .commandPaletteRequested, object: nil)
 
-        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
-            guard let event = makeKeyDownEvent(key: " ", keyCode: 49, windowNumber: window.windowNumber) else {
+        withTemporaryShortcut(action: .commandPalette, shortcut: shortcut) {
+            guard let event = makeKeyDownEvent(key: " ", keyCode: 49) else {
                 XCTFail("Failed to construct Space event")
                 return
             }
@@ -77,8 +65,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 #endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space should dispatch when explicitly configured")
+        wait(for: [paletteExpectation], timeout: 0.15)
     }
 
     func testBareSpaceChordPrefixArmsConfiguredShortcut() {
@@ -87,19 +74,6 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(
             key: "space",
             command: false,
@@ -109,24 +83,36 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             chordKey: "n"
         )
 
-        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
-            guard let prefixEvent = makeKeyDownEvent(key: " ", keyCode: 49, windowNumber: window.windowNumber),
-                  let actionEvent = makeKeyDownEvent(key: "n", keyCode: 45, windowNumber: window.windowNumber) else {
+        withTemporaryShortcut(action: .commandPalette, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(key: " ", keyCode: 49),
+                  let actionEvent = makeKeyDownEvent(key: "n", keyCode: 45) else {
                 XCTFail("Failed to construct Space chord events")
                 return
             }
 
 #if DEBUG
+            let prefixExpectation = expectation(
+                description: "Bare Space prefix must not dispatch command palette before the second stroke"
+            )
+            prefixExpectation.isInverted = true
+            let prefixToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                prefixExpectation.fulfill()
+            }
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            XCTAssertEqual(manager.tabs.count, initialCount, "Bare Space prefix must not fire the action early")
+            wait(for: [prefixExpectation], timeout: 0.05)
+            NotificationCenter.default.removeObserver(prefixToken)
+
+            let actionExpectation = expectation(forNotification: .commandPaletteRequested, object: nil)
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
+            wait(for: [actionExpectation], timeout: 0.15)
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
         }
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
     func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
@@ -189,7 +175,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
-        windowNumber: Int
+        windowNumber: Int = 0
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
