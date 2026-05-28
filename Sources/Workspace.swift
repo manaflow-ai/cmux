@@ -6397,7 +6397,7 @@ final class WorkspaceRemoteSessionController {
             )
             let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
 
-            if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec) {
+            if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec, relayPort: relayPort) {
                 cliRelayServer = relayServer
                 reverseRelayStderrBuffer = ""
                 do {
@@ -6808,7 +6808,7 @@ final class WorkspaceRemoteSessionController {
         return args
     }
 
-    private func startReverseRelayViaControlMasterLocked(forwardSpec: String) -> Bool {
+    private func startReverseRelayViaControlMasterLocked(forwardSpec: String, relayPort: Int) -> Bool {
         guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
             configuration: configuration,
             controlCommand: "forward",
@@ -6817,6 +6817,7 @@ final class WorkspaceRemoteSessionController {
             return false
         }
 
+        cancelStaleReverseRelayViaControlMasterLocked(relayPort: relayPort)
         do {
             let result = try sshExec(arguments: arguments, timeout: 6)
             guard result.status == 0 else {
@@ -6830,6 +6831,27 @@ final class WorkspaceRemoteSessionController {
         } catch {
             debugLog("remote.relay.controlmaster.forwardFailed \(error.localizedDescription) \(debugConfigSummary())")
             return false
+        }
+    }
+
+    private func cancelStaleReverseRelayViaControlMasterLocked(relayPort: Int) {
+        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterCancelArguments(
+            configuration: configuration,
+            relayPort: relayPort
+        ) else {
+            return
+        }
+        do {
+            let result = try sshExec(arguments: arguments, timeout: 4)
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                    ?? "ssh exited \(result.status)"
+                debugLog("remote.relay.controlmaster.cancelStaleIgnored \(detail) \(debugConfigSummary())")
+                return
+            }
+            debugLog("remote.relay.controlmaster.cancelStale relayPort=\(relayPort) \(debugConfigSummary())")
+        } catch {
+            debugLog("remote.relay.controlmaster.cancelStaleIgnored \(error.localizedDescription) \(debugConfigSummary())")
         }
     }
 

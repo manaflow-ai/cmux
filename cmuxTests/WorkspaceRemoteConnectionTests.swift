@@ -1482,6 +1482,95 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() throws {
+        let forwardInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var controlOperations: [(command: String, spec: String)] = []
+
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            guard executable == "/usr/bin/ssh" else {
+                XCTFail("unexpected executable \(executable)")
+                return (status: 1, stdout: "", stderr: "unexpected executable")
+            }
+
+            if let operationIndex = arguments.firstIndex(of: "-O"),
+               operationIndex + 3 < arguments.count,
+               arguments[operationIndex + 2] == "-R" {
+                let operation = arguments[operationIndex + 1]
+                let spec = arguments[operationIndex + 3]
+                lock.lock()
+                controlOperations.append((command: operation, spec: spec))
+                lock.unlock()
+                if operation == "forward" {
+                    forwardInvoked.signal()
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+
+            let command = arguments.last ?? ""
+            if command.contains("uname -s") {
+                return (
+                    status: 0,
+                    stdout: """
+                    __CMUX_REMOTE_HOME__=/home/test
+                    __CMUX_REMOTE_OS__=Linux
+                    __CMUX_REMOTE_ARCH__=x86_64
+                    __CMUX_REMOTE_EXISTS__=yes
+                    """,
+                    stderr: ""
+                )
+            }
+            if command.contains("serve --stdio") {
+                return (
+                    status: 0,
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stderr: ""
+                )
+            }
+            return (status: 0, stdout: "", stderr: "")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-64044-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64044,
+            relayID: "relay-stale-forward",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-stale-forward-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-stale-forward-test"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let operations = controlOperations
+        lock.unlock()
+
+        XCTAssertGreaterThanOrEqual(operations.count, 2)
+        XCTAssertEqual(operations[0].command, "cancel")
+        XCTAssertEqual(operations[0].spec, "127.0.0.1:64044")
+        XCTAssertEqual(operations[1].command, "forward")
+        XCTAssertTrue(
+            operations[1].spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
+            "expected forward to reuse relay port after stale cancel, got \(operations[1].spec)"
+        )
+    }
+
+    @MainActor
     func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2338,6 +2427,43 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains("forward"))
         XCTAssertTrue(arguments.contains("-R"))
         XCTAssertTrue(arguments.contains("127.0.0.1:64007:127.0.0.1:54321"))
+        XCTAssertTrue(arguments.contains("cmux-macmini"))
+    }
+
+    func testReverseRelayControlMasterCancelArgumentsUseRemoteListenPortOnly() throws {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        let arguments = try XCTUnwrap(
+            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterCancelArguments(
+                configuration: configuration,
+                relayPort: 64007
+            )
+        )
+
+        XCTAssertFalse(arguments.contains("-S"))
+        XCTAssertTrue(arguments.contains("ControlMaster=no"))
+        XCTAssertTrue(arguments.contains("ControlPath=/tmp/cmux-ssh-%C"))
+        XCTAssertTrue(arguments.contains("-O"))
+        XCTAssertTrue(arguments.contains("cancel"))
+        XCTAssertTrue(arguments.contains("-R"))
+        XCTAssertTrue(arguments.contains("127.0.0.1:64007"))
+        XCTAssertFalse(arguments.contains(where: { $0.hasPrefix("127.0.0.1:64007:127.0.0.1:") }))
         XCTAssertTrue(arguments.contains("cmux-macmini"))
     }
 
