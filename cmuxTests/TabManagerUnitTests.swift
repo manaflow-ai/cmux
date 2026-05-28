@@ -3301,7 +3301,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
-    func testReopenFallsBackToCurrentWorkspaceAndFocusesBrowserWhenOriginalWorkspaceDeleted() {
+    func testReopenDoesNotRetargetUnrelatedWorkspaceWhenOriginalWorkspaceDeleted() {
         let manager = TabManager()
         guard let originalWorkspace = manager.selectedWorkspace,
               let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")) else {
@@ -3314,16 +3314,38 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let currentWorkspace = manager.addWorkspace()
+        let currentPanelCountBefore = currentWorkspace.panels.count
         manager.closeWorkspace(originalWorkspace, recordHistory: false)
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))
 
-        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        XCTAssertFalse(manager.reopenMostRecentlyClosedBrowserPanel())
         drainMainQueue()
 
         XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
-        XCTAssertTrue(isFocusedPanelBrowser(in: currentWorkspace))
+        XCTAssertEqual(currentWorkspace.panels.count, currentPanelCountBefore)
+        XCTAssertFalse(isFocusedPanelBrowser(in: currentWorkspace))
+    }
+
+    func testClosingWorkspacePrunesItsBrowserSnapshotsFromLegacyStack() {
+        let manager = TabManager()
+        guard let originalWorkspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stack-leak")) else {
+            XCTFail("Expected initial workspace and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        XCTAssertNotNil(manager.mostRecentLegacyClosedBrowserPanelClosedAt())
+
+        _ = manager.addWorkspace()
+        manager.closeWorkspace(originalWorkspace, recordHistory: false)
+
+        XCTAssertNil(manager.mostRecentLegacyClosedBrowserPanelClosedAt())
     }
 
     func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
