@@ -5370,8 +5370,13 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    // Dogfood: first @AppStorage call site converted to the new
+    // CmuxSettings/CmuxSettingsUI primitives. Resolves the
+    // SettingsRuntime injected on the Settings Window scene and
+    // routes reads/writes through UserDefaultsSettingsStore actor +
+    // DefaultsValueModel observation. UserDefaults key is the same
+    // ("rightSidebar.beta.dock.enabled") so existing values round-trip.
+    @Setting(\.betaFeatures.rightSidebarDock) private var rightSidebarDockEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
