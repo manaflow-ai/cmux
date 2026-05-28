@@ -5544,6 +5544,98 @@ final class CMUXLayoutTests: XCTestCase {
         }
     }
 
+    func testCanvasPresentationKeepsFractionalTrackpadPanSequenceLockstepWhenSurfacesAreClipped() throws {
+        let terminalID = LayoutItemID()
+        let browserID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 120, y: 90, width: 1_200, height: 800), scale: 1),
+            items: [
+                CanvasItem(
+                    id: terminalID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: -140, y: 80, width: 620, height: 420),
+                    zIndex: 1,
+                    isNativeResolution: true
+                ),
+                CanvasItem(
+                    id: browserID,
+                    content: .surface(SurfaceID()),
+                    frame: PixelRect(x: 900, y: 120, width: 680, height: 460),
+                    zIndex: 2,
+                    isNativeResolution: true
+                ),
+            ]
+        )
+        let viewportSize = CGSize(width: 1_200, height: 800)
+        let canvasWindowFrame = CGRect(origin: .zero, size: viewportSize)
+        var camera = CanvasCamera(
+            viewport: document.viewport,
+            viewportSize: viewportSize
+        )
+        let surfaceIDs = Set([terminalID, browserID])
+
+        func presentation(camera: CanvasCamera) -> CanvasPresentationState {
+            CanvasPresentationEngine.presentation(
+                document: document,
+                camera: camera,
+                focusedItemID: terminalID,
+                activeItemID: terminalID,
+                contentKinds: [terminalID: .terminal, browserID: .browser],
+                interactionPhase: .panning,
+                configuration: CanvasPresentationConfiguration(
+                    nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: terminalID),
+                    overscanScreenPoints: 240
+                )
+            )
+        }
+
+        for delta in [
+            CGSize(width: 13.5, height: -7.25),
+            CGSize(width: 42.75, height: -31.5),
+            CGSize(width: -67.25, height: 24.0),
+            CGSize(width: 118.5, height: 83.75),
+            CGSize(width: -156.25, height: -96.5),
+            CGSize(width: 88.0, height: 41.25),
+        ] {
+            let beforePresentation = presentation(camera: camera)
+            let beforeSurfaces = Dictionary(uniqueKeysWithValues: beforePresentation.presentationSurfaces.map { ($0.id, $0) })
+
+            camera = CanvasPresentationEngine.camera(byApplying: .pan(screenDelta: delta), to: camera)
+            let afterPresentation = presentation(camera: camera)
+            let afterSurfaces = Dictionary(uniqueKeysWithValues: afterPresentation.presentationSurfaces.map { ($0.id, $0) })
+
+            XCTAssertTrue(afterPresentation.usesUnifiedTexturePresentation)
+            XCTAssertTrue(afterPresentation.nativeOverlays.isEmpty)
+            XCTAssertEqual(Set(afterPresentation.textureSurfaces.map(\.id)), surfaceIDs)
+
+            for surfaceID in surfaceIDs {
+                let before = try XCTUnwrap(beforeSurfaces[surfaceID])
+                let after = try XCTUnwrap(afterSurfaces[surfaceID])
+                let portalFrame = try XCTUnwrap(CanvasWindowCoordinateMapper.windowFrame(
+                    forCanvasRect: after.contentFrameInCanvas,
+                    inCanvasWindowFrame: canvasWindowFrame
+                ))
+
+                XCTAssertEqual(after.frameInCanvas.minX, before.frameInCanvas.minX + delta.width, accuracy: 0.0001)
+                XCTAssertEqual(after.frameInCanvas.minY, before.frameInCanvas.minY + delta.height, accuracy: 0.0001)
+                XCTAssertEqual(after.frameInCanvas.width, before.frameInCanvas.width, accuracy: 0.0001)
+                XCTAssertEqual(after.frameInCanvas.height, before.frameInCanvas.height, accuracy: 0.0001)
+
+                XCTAssertEqual(after.contentFrameInCanvas.minX, before.contentFrameInCanvas.minX + delta.width, accuracy: 0.0001)
+                XCTAssertEqual(after.contentFrameInCanvas.minY, before.contentFrameInCanvas.minY + delta.height, accuracy: 0.0001)
+                XCTAssertEqual(after.contentFrameInCanvas.width, before.contentFrameInCanvas.width, accuracy: 0.0001)
+                XCTAssertEqual(after.contentFrameInCanvas.height, before.contentFrameInCanvas.height, accuracy: 0.0001)
+                XCTAssertEqual(after.nativeContentSize, before.nativeContentSize)
+
+                XCTAssertEqual(portalFrame.minX, after.contentFrameInCanvas.minX, accuracy: 0.0001)
+                XCTAssertEqual(portalFrame.minY, canvasWindowFrame.maxY - after.contentFrameInCanvas.maxY, accuracy: 0.0001)
+                XCTAssertEqual(portalFrame.width, after.contentFrameInCanvas.width, accuracy: 0.0001)
+                XCTAssertEqual(portalFrame.height, after.contentFrameInCanvas.height, accuracy: 0.0001)
+            }
+        }
+    }
+
     func testCanvasPresentationEngineAppliesInteractionOverridesAndGuides() {
         let itemID = LayoutItemID()
         let document = CanvasDocument(

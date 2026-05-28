@@ -1378,6 +1378,54 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasClippedTwoFingerPansStartingOnNativeContentDoNotResizeOrPassThrough() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing clipped native-content canvas pans. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        guard let setup = loadData(),
+              let terminalPaneId = setup["terminalPaneId"],
+              let browserPaneId = setup["browserPaneId"],
+              let terminalItemId = waitForCanvasItemId(paneId: terminalPaneId, timeout: 8.0),
+              let browserItemId = waitForCanvasItemId(paneId: browserPaneId, timeout: 8.0) else {
+            XCTFail("Missing canvas pane/item ids. data=\(loadData() ?? [:]) layout=\(String(describing: canvasLayout()))")
+            return
+        }
+
+        assertClippedNativePanelKeepsFullSizeDuringTrackpadPan(
+            app,
+            panelType: "terminal",
+            itemId: terminalItemId,
+            paneId: terminalPaneId,
+            direction: .up
+        )
+
+        assertClippedNativePanelKeepsFullSizeDuringTrackpadPan(
+            app,
+            panelType: "browser",
+            itemId: browserItemId,
+            paneId: browserPaneId,
+            direction: .down
+        )
+
+        assertCanvasRecordedWheelPanInput(minimumPanEventCount: 2)
+        assertCanvasRecordedUnifiedPresentationDuringPan(
+            minimumTextureSurfaceCount: 2,
+            minimumPanningRecordCount: 2
+        )
+    }
+
     func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -2482,6 +2530,149 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             line: line
         )
         assertSelectedCanvasPanelAligned(panelType: panelType, timeout: 8.0, file: file, line: line)
+    }
+
+    private func assertClippedNativePanelKeepsFullSizeDuringTrackpadPan(
+        _ app: XCUIApplication,
+        panelType: String,
+        itemId: String,
+        paneId: String,
+        direction: CanvasSwipeDirection,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        _ = socketJSON(
+            method: "debug.canvas.viewport",
+            params: [
+                "x": 0,
+                "y": 0,
+                "width": 1_200,
+                "height": 800,
+                "scale": 1,
+            ]
+        )
+        _ = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": itemId,
+                "dx": 0,
+                "dy": 0,
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x",
+                      let panel = self.selectedCanvasPanel(panelType: panelType),
+                      panel["paneId"] as? String == paneId,
+                      self.pixelRect(panel["portalFrameInWindow"]) != nil,
+                      self.pixelRect(panel["canvasPortalFrameInWindow"]) != nil,
+                      self.pixelRect(panel["nativeFrameInContainer"]) != nil else {
+                    return false
+                }
+                return panel["inWindow"] as? Bool == true && panel["hidden"] as? Bool == false
+            },
+            "Expected active native \(panelType) panel before clipping. layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+
+        var baselineNativeFrame: CGRect?
+        var sawClippedFrame = false
+        var latestPanel: [String: Any]?
+        for _ in 0..<8 where !sawClippedFrame {
+            _ = socketJSON(
+                method: "debug.canvas.pan",
+                params: [
+                    "dx": -160,
+                    "dy": 0,
+                    "viewport_width": 1_200,
+                    "viewport_height": 800,
+                ]
+            )
+            let clipped = waitForCondition(timeout: 3.0) {
+                guard let panel = self.selectedCanvasPanel(panelType: panelType),
+                      let visibleFrame = self.pixelRect(panel["portalFrameInWindow"]),
+                      let expectedFrame = self.pixelRect(panel["canvasPortalFrameInWindow"]),
+                      let nativeFrame = self.pixelRect(panel["nativeFrameInContainer"]) else {
+                    return false
+                }
+                latestPanel = panel
+                baselineNativeFrame = baselineNativeFrame ?? nativeFrame
+                let isClipped = visibleFrame.width < expectedFrame.width - 8 ||
+                    visibleFrame.height < expectedFrame.height - 8 ||
+                    visibleFrame.minX > expectedFrame.minX + 8 ||
+                    visibleFrame.minY > expectedFrame.minY + 8
+                let nativeKeepsFullWidth = nativeFrame.width >= expectedFrame.width - 2
+                let nativeKeepsFullHeight = nativeFrame.height >= expectedFrame.height - 2
+                return isClipped && nativeKeepsFullWidth && nativeKeepsFullHeight
+            }
+            sawClippedFrame = sawClippedFrame || clipped
+        }
+
+        XCTAssertTrue(
+            sawClippedFrame,
+            "Expected \(panelType) panel to be clipped before the real trackpad pan. panel=\(String(describing: latestPanel)) layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+        guard let beforeNativeFrame = baselineNativeFrame,
+              let beforeViewport = canvasViewportVisibleRect() else {
+            XCTFail("Missing \(panelType) baseline native frame or viewport. layout=\(String(describing: canvasLayout()))", file: file, line: line)
+            return
+        }
+
+        let card = canvasCard(app, paneId: paneId)
+        XCTAssertTrue(card.waitForExistence(timeout: 5.0), "Expected canvas card for pane \(paneId)", file: file, line: line)
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)).hover()
+        switch direction {
+        case .up:
+            card.swipeUp()
+        case .down:
+            card.swipeDown()
+        case .left:
+            card.swipeLeft()
+        case .right:
+            card.swipeRight()
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let afterViewport = self.canvasViewportVisibleRect() else { return false }
+                return abs(afterViewport.minX - beforeViewport.minX) > 1 ||
+                    abs(afterViewport.minY - beforeViewport.minY) > 1
+            },
+            "Expected \(direction) swipe starting on clipped \(panelType) content to pan canvas. before=\(beforeViewport) layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x",
+                      let panel = self.selectedCanvasPanel(panelType: panelType),
+                      let visibleFrame = self.pixelRect(panel["portalFrameInWindow"]),
+                      let expectedFrame = self.pixelRect(panel["canvasPortalFrameInWindow"]),
+                      let nativeFrame = self.pixelRect(panel["nativeFrameInContainer"]) else {
+                    return false
+                }
+                let portalStaysInsideCanvasFrame = visibleFrame.minX >= expectedFrame.minX - 2 &&
+                    visibleFrame.minY >= expectedFrame.minY - 2 &&
+                    visibleFrame.maxX <= expectedFrame.maxX + 2 &&
+                    visibleFrame.maxY <= expectedFrame.maxY + 2
+                let nativeStayedAtOriginalSize = abs(nativeFrame.width - beforeNativeFrame.width) <= 2 &&
+                    abs(nativeFrame.height - beforeNativeFrame.height) <= 2
+                let nativeKeepsFullWidth = nativeFrame.width >= expectedFrame.width - 2
+                let nativeKeepsFullHeight = nativeFrame.height >= expectedFrame.height - 2
+                return portalStaysInsideCanvasFrame &&
+                    nativeStayedAtOriginalSize &&
+                    nativeKeepsFullWidth &&
+                    nativeKeepsFullHeight
+            },
+            "Expected \(panelType) native content to keep its full size after real trackpad pan, not resize to the clipped viewport. before=\(beforeNativeFrame) layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
     }
 
     private func assertSelectedCanvasPanelAligned(
