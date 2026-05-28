@@ -83,6 +83,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        finishWindowMoveSuppressionSequence(window: window, matching: .folderDrag)
         #if DEBUG
         let nowMovable = window.map { String($0.isMovable) } ?? "nil"
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
@@ -142,6 +143,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         clearPendingDrag()
+        finishWindowMoveSuppressionSequence(window: window, matching: .folderDrag)
         super.mouseUp(with: event)
     }
 

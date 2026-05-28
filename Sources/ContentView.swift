@@ -3205,6 +3205,7 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
             if let observedWindow {
+                configureCmuxMainWindowDragBehavior(observedWindow)
                 setTitlebarControlsHidden(isFullScreen, in: observedWindow)
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
                 refreshWindowChromeMetrics(for: observedWindow)
@@ -3256,9 +3257,11 @@ struct ContentView: View {
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Native AppKit titlebar dragging steals pane-tab drags in minimal
-            // mode. Keep the main window immovable by default; explicit chrome
-            // drag zones temporarily enable performDrag for real app moves.
+            // Keep background dragging disabled so app content gestures and
+            // titlebar controls receive clicks. Standard mode keeps AppKit
+            // movability for macOS tiling/window managers; minimal mode keeps
+            // the native movable bit off so Bonsplit tabs cannot become window
+            // drags. Explicit cmux drag zones call performDrag when needed.
             configureCmuxMainWindowDragBehavior(window)
             window.styleMask.insert(.fullSizeContentView)
 

@@ -366,6 +366,17 @@ func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppres
     return state.reason
 }
 
+@discardableResult
+func finishWindowMoveSuppressionSequence(
+    window: NSWindow?,
+    matching reason: WindowMoveSuppressionReason
+) -> WindowMoveSuppressionReason? {
+    guard activeWindowMoveSuppressionSequenceReason(window: window) == reason else {
+        return nil
+    }
+    return finishWindowMoveSuppressionSequence(window: window)
+}
+
 func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
     guard let window,
           let previousMovableState else { return }

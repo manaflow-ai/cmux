@@ -29,9 +29,21 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
 }
 
 @MainActor
-func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
+func configureCmuxMainWindowDragBehavior(
+    _ window: NSWindow,
+    defaults: UserDefaults = .standard
+) {
+    // Keep background dragging disabled so app content gestures and titlebar
+    // controls receive clicks. In standard mode, leave the OS-level movable bit
+    // enabled for macOS tiling and third-party window managers. In minimal mode,
+    // there is no native titlebar: app-owned chrome must explicitly call
+    // performDrag so Bonsplit pane tabs cannot be stolen by AppKit window moves.
     window.isMovableByWindowBackground = false
-    window.isMovable = false
+    if activeWindowMoveSuppressionSequenceReason(window: window) == nil {
+        window.isMovable = !WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    } else {
+        ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+    }
 }
 
 @MainActor
