@@ -10,6 +10,7 @@ REQUIRED_PATTERNS=(
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   "run_unit_tests | tee /tmp/test-output.txt"
+  "xcodebuild unit tests timed out"
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
