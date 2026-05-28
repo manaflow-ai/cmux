@@ -938,6 +938,26 @@ import UIKit
 }
 
 @MainActor
+@Test func manualHostPairingTimeoutClosesInFlightConnectAttempt() async throws {
+    let probe = HangingConnectProbe()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: HangingConnectTransportFactory(probe: probe),
+        pairingRequestTimeoutNanoseconds: 1_000_000
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Slow Connect Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "No response from 100.71.210.41:58465. Make sure the host app is open and accepting mobile connections.")
+    #expect(await probe.didStart())
+    #expect(await probe.didClose())
+}
+
+@MainActor
 @Test func cancelManualHostPairingDoesNotApplyDelayedTicket() async throws {
     let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let router = DelayedManualAttachTicketRouter(route: route)
@@ -5158,6 +5178,67 @@ private actor HangingTransport: CmxByteTransport {
     func send(_ data: Data) async throws {}
 
     func close() async {}
+}
+
+private struct HangingConnectTransportFactory: CmxByteTransportFactory {
+    let probe: HangingConnectProbe
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        HangingConnectTransport(probe: probe)
+    }
+}
+
+private actor HangingConnectProbe {
+    private var started = false
+    private var closed = false
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func start(_ continuation: CheckedContinuation<Void, Error>) {
+        started = true
+        guard !closed else {
+            continuation.resume(throwing: CmxNetworkByteTransportError.alreadyClosed)
+            return
+        }
+        self.continuation = continuation
+    }
+
+    func close() {
+        closed = true
+        continuation?.resume(throwing: CmxNetworkByteTransportError.alreadyClosed)
+        continuation = nil
+    }
+
+    func didStart() -> Bool {
+        started
+    }
+
+    func didClose() -> Bool {
+        closed
+    }
+}
+
+private actor HangingConnectTransport: CmxByteTransport {
+    let probe: HangingConnectProbe
+
+    init(probe: HangingConnectProbe) {
+        self.probe = probe
+    }
+
+    func connect() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            Task { await probe.start(continuation) }
+        }
+    }
+
+    func receive() async throws -> Data? {
+        nil
+    }
+
+    func send(_ data: Data) async throws {}
+
+    func close() async {
+        await probe.close()
+    }
 }
 
 private func rpcResultFrame(result: [String: Any]) throws -> Data {
