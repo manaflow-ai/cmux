@@ -335,6 +335,20 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertFalse(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.scrollWheel))
     }
 
+    func testBrowserPortalDragRoutingKeepsAppKitEventsOutOfPassThrough() {
+        let context = WindowInputRoutingContext(eventType: .appKitDefined)
+
+        XCTAssertTrue(context.allowsTabBarPassThroughHitTesting)
+        XCTAssertTrue(context.allowsPaneDropHitTesting)
+        XCTAssertFalse(context.allowsBrowserPortalDragRouting)
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .appKitDefined
+            )
+        )
+    }
+
     func testWindowInputRoutingContextRejectsKeyboardForPointerOnlyRoutes() {
         let context = WindowInputRoutingContext(eventType: .keyDown)
 

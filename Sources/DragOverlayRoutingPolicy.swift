@@ -199,7 +199,12 @@ struct WindowInputRoutingContext: Equatable {
     }
 
     var allowsBrowserPortalDragRouting: Bool {
-        allowsDragPasteboardLookup
+        switch eventKind {
+        case .pointerDrag, .pointerHover:
+            return true
+        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+            return false
+        }
     }
 
     var allowsTerminalPortalDragRouting: Bool {
@@ -532,9 +537,9 @@ enum DragOverlayRoutingPolicy {
             return hasTabTransfer
                 || hasFilePreviewTransfer(pasteboardTypes)
                 || hasSidebarReorder
-        case .pointerHover, .appKitRouting:
+        case .pointerHover:
             return hasTabTransfer || hasSidebarReorder
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .other:
+        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
             return false
         }
     }
