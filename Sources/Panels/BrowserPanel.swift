@@ -5368,7 +5368,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 cmuxWebView.onElementPickerMouseDown = nil
             }
             webView.configuration.userContentController.removeScriptMessageHandler(
-                forName: BrowserElementPickerBridge.messageHandlerName
+                forName: BrowserElementPickerBridge.messageHandlerName,
+                contentWorld: .defaultClient
             )
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
