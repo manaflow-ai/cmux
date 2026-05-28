@@ -34,8 +34,15 @@ export type AppContext = {
   renderer: RendererKind;
   initialProviderId: ProviderId;
   workingDirectory?: string;
+  rateLimitRows?: AgentSessionRateLimitRow[];
   copy: AgentSessionCopy;
   theme: AgentSessionTheme;
+};
+
+export type AgentSessionRateLimitRow = {
+  role: "primary" | "secondary";
+  remainingPercent: number;
+  resetsAt?: number;
 };
 
 export type AgentSessionCopy = {
@@ -44,6 +51,9 @@ export type AgentSessionCopy = {
   send: string;
   provider: string;
   rateLimits: string;
+  rateLimitPrimary: string;
+  rateLimitSecondary: string;
+  rateLimitResets: string;
   voiceInput: string;
   promptPlaceholder: string;
   attachFile: string;
@@ -74,6 +84,10 @@ export type AgentEvent =
   | {
       type: "app.theme";
       theme: AgentSessionTheme;
+    }
+  | {
+      type: "app.rateLimitRows";
+      rateLimitRows: AgentSessionRateLimitRow[];
     }
   | {
       type: "provider.started";

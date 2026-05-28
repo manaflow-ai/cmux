@@ -42,6 +42,9 @@ const context: AppContext = {
     send: "Send",
     provider: "Provider",
     rateLimits: "Rate limits",
+    rateLimitPrimary: "Primary",
+    rateLimitSecondary: "Secondary",
+    rateLimitResets: "resets",
     voiceInput: "Voice input",
     promptPlaceholder: "Ask anything",
     attachFile: "Attach file",
@@ -108,6 +111,31 @@ test("provider started event records running session", () => {
   expect(state.status).toBe("running");
   expect(state.runningSessionId).toBe("session-1");
   expect(state.log.at(-1)?.text).toBe("Provider started");
+});
+
+test("rate limit row event updates context", () => {
+  const initial = reduceSession(initialState("react"), { type: "context", context });
+  const state = reduceSession(initial, {
+    type: "event",
+    event: {
+      type: "app.rateLimitRows",
+      rateLimitRows: [
+        {
+          role: "primary",
+          remainingPercent: 42,
+          resetsAt: 1_850_000_000,
+        },
+      ],
+    },
+  });
+
+  expect(state.context?.rateLimitRows).toEqual([
+    {
+      role: "primary",
+      remainingPercent: 42,
+      resetsAt: 1_850_000_000,
+    },
+  ]);
 });
 
 test("provider output is appended without changing running session", () => {

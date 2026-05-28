@@ -717,7 +717,7 @@ select {
 
 .rate-line {
   min-width: 0;
-  gap: 7px;
+  gap: 6px;
   padding: 0 2px;
   color: color-mix(in srgb, var(--agent-muted) 88%, transparent);
   font-size: 12px;
@@ -732,8 +732,41 @@ select {
   text-overflow: ellipsis;
 }
 
+.codex-rate-limit-summary {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.rate-line-heading {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--agent-muted) 84%, transparent);
+}
+
 .rate-dot {
+  flex: 0 0 auto;
   color: color-mix(in srgb, var(--agent-accent) 78%, transparent);
+}
+
+.rate-limit-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: color-mix(in srgb, var(--agent-muted) 84%, transparent);
+  white-space: nowrap;
+}
+
+.rate-limit-name,
+.rate-limit-percent {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--agent-soft) 88%, transparent);
+  font-weight: 650;
+}
+
+.rate-limit-reset {
+  min-width: 0;
+  color: color-mix(in srgb, var(--agent-muted) 76%, transparent);
 }
 
 .status-dot {
@@ -949,7 +982,7 @@ select {
   .codex-tool-skill,
   .codex-mic,
   .rate-dot,
-  .rate-line span:last-child {
+  .rate-limit-reset {
     display: none;
   }
 }

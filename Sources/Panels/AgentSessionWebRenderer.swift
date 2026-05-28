@@ -610,12 +610,16 @@ extension AgentSessionWebRenderer {
                     "renderer": rendererKind.rawValue,
                     "initialProviderId": initialProviderID.rawValue,
                     "theme": theme.dictionary,
+                    "rateLimitRows": [],
                     "copy": [
                         "start": String(localized: "agentSession.web.start", defaultValue: "Start"),
                         "stop": String(localized: "agentSession.web.stop", defaultValue: "Stop"),
                         "send": String(localized: "agentSession.web.send", defaultValue: "Send"),
                         "provider": String(localized: "agentSession.web.provider", defaultValue: "Provider"),
                         "rateLimits": String(localized: "agentSession.web.rateLimits", defaultValue: "Rate limits"),
+                        "rateLimitPrimary": String(localized: "agentSession.web.rateLimit.primary", defaultValue: "Primary"),
+                        "rateLimitSecondary": String(localized: "agentSession.web.rateLimit.secondary", defaultValue: "Secondary"),
+                        "rateLimitResets": String(localized: "agentSession.web.rateLimit.resets", defaultValue: "resets"),
                         "voiceInput": String(localized: "agentSession.web.voiceInput", defaultValue: "Voice input"),
                         "promptPlaceholder": String(
                             localized: "agentSession.web.promptPlaceholder",

@@ -19,7 +19,7 @@ import {
   type Action,
   type SessionState,
 } from "../shared/sessionModel";
-import type { ProviderId } from "../shared/types";
+import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 import { PromptEditor, type PromptEditorHandle } from "./proseMirrorPromptEditor";
 
 const h = React.createElement;
@@ -393,19 +393,76 @@ function SessionSurface({
           ),
         ),
       ),
+      h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }),
+    ),
+  );
+}
+
+function RateLimitFooter({
+  state,
+  providerDisplayName,
+}: {
+  state: SessionState;
+  providerDisplayName: string;
+}) {
+  const rows = state.context?.rateLimitRows ?? [];
+  const copy = state.context?.copy;
+  return h(
+    "div",
+    {
+      className: "rate-line codex-rate-limit-summary",
+      role: "status",
+      "aria-label": `${providerDisplayName} ${statusLabel(state)}`.trim(),
+    },
+    h("span", { className: "rate-line-heading" }, copy?.rateLimits ?? "Rate limits"),
+    rows.map((row) =>
       h(
-        "div",
-        {
-          className: "rate-line",
-          role: "status",
-          "aria-label": `${provider?.displayName ?? renderer} ${statusLabel(state)} ${provider?.transportKind ?? ""}`.trim(),
-        },
-        h("span", null, state.context?.copy.rateLimits ?? "Rate limits"),
+        React.Fragment,
+        { key: row.role },
         h("span", { className: "rate-dot", "aria-hidden": true }, "•"),
-        h("span", null, `${provider?.displayName ?? renderer} ${statusLabel(state)}`),
+        h(RateLimitRow, { row, state }),
       ),
     ),
   );
+}
+
+function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: SessionState }) {
+  const copy = state.context?.copy;
+  const label = row.role === "primary"
+    ? copy?.rateLimitPrimary ?? "Primary"
+    : copy?.rateLimitSecondary ?? "Secondary";
+  const resetText = formatRateLimitReset(row.resetsAt);
+  return h(
+    "span",
+    { className: "rate-limit-item" },
+    h("span", { className: "rate-limit-name" }, label),
+    h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(row.remainingPercent)),
+    resetText
+      ? h(
+          "span",
+          { className: "rate-limit-reset" },
+          `${copy?.rateLimitResets ?? "resets"} ${resetText}`,
+        )
+      : null,
+  );
+}
+
+function formatRateLimitPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "100%";
+  }
+  return `${Math.round(Math.min(Math.max(value, 0), 100))}%`;
+}
+
+function formatRateLimitReset(resetsAt: number | undefined): string | null {
+  if (resetsAt == null || !Number.isFinite(resetsAt)) {
+    return null;
+  }
+  const date = new Date(resetsAt * 1000);
+  if (!Number.isFinite(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
 }
 
 function ComposerTopTray({

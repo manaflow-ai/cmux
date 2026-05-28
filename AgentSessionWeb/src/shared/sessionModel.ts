@@ -287,6 +287,17 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           theme: event.theme,
         },
       };
+    case "app.rateLimitRows":
+      if (!state.context) {
+        return state;
+      }
+      return {
+        ...state,
+        context: {
+          ...state.context,
+          rateLimitRows: event.rateLimitRows,
+        },
+      };
     case "provider.started":
       if (event.sessionId === state.requestedStopSessionId) {
         return state;

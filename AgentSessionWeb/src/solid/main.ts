@@ -20,7 +20,7 @@ import {
   type Action,
   type SessionState,
 } from "../shared/sessionModel";
-import type { ProviderId } from "../shared/types";
+import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
 function App() {
   const [state, setState] = createSignal<SessionState>(initialState("solid"));
@@ -298,24 +298,77 @@ function SessionSurface({
   });
 
   const rateLine = document.createElement("div");
-  rateLine.className = "rate-line";
+  rateLine.className = "rate-line codex-rate-limit-summary";
+  rateLine.setAttribute("role", "status");
   composerStack.append(rateLine);
-  const statusDot = document.createElement("span");
-  statusDot.setAttribute("aria-hidden", "true");
-  const statusText = document.createElement("span");
-  const rateSeparator = document.createElement("span");
-  rateSeparator.className = "rate-dot";
-  rateSeparator.setAttribute("aria-hidden", "true");
-  rateSeparator.textContent = "•";
-  const transport = document.createElement("span");
-  rateLine.append(statusDot, statusText, rateSeparator, transport);
   createEffect(() => {
-    statusDot.className = `status-dot ${state().status}`;
-    statusText.textContent = `${provider()?.displayName ?? renderer} ${statusLabel(state())}`;
-    transport.textContent = provider()?.transportKind ?? "stdio-jsonrpc";
+    renderRateLimitFooter(rateLine, state(), provider()?.displayName ?? renderer);
   });
 
   return root;
+}
+
+function renderRateLimitFooter(target: HTMLElement, state: SessionState, providerDisplayName: string): void {
+  target.replaceChildren();
+  target.setAttribute("aria-label", `${providerDisplayName} ${statusLabel(state)}`.trim());
+
+  const heading = document.createElement("span");
+  heading.className = "rate-line-heading";
+  heading.textContent = state.context?.copy.rateLimits ?? "Rate limits";
+  target.append(heading);
+
+  for (const row of state.context?.rateLimitRows ?? []) {
+    const separator = document.createElement("span");
+    separator.className = "rate-dot";
+    separator.setAttribute("aria-hidden", "true");
+    separator.textContent = "•";
+    target.append(separator, rateLimitRowElement(row, state));
+  }
+}
+
+function rateLimitRowElement(row: AgentSessionRateLimitRow, state: SessionState): HTMLSpanElement {
+  const item = document.createElement("span");
+  item.className = "rate-limit-item";
+
+  const label = document.createElement("span");
+  label.className = "rate-limit-name";
+  label.textContent = row.role === "primary"
+    ? state.context?.copy.rateLimitPrimary ?? "Primary"
+    : state.context?.copy.rateLimitSecondary ?? "Secondary";
+
+  const percent = document.createElement("span");
+  percent.className = "rate-limit-percent";
+  percent.textContent = formatRateLimitPercent(row.remainingPercent);
+
+  item.append(label, percent);
+
+  const resetText = formatRateLimitReset(row.resetsAt);
+  if (resetText) {
+    const reset = document.createElement("span");
+    reset.className = "rate-limit-reset";
+    reset.textContent = `${state.context?.copy.rateLimitResets ?? "resets"} ${resetText}`;
+    item.append(reset);
+  }
+
+  return item;
+}
+
+function formatRateLimitPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "100%";
+  }
+  return `${Math.round(Math.min(Math.max(value, 0), 100))}%`;
+}
+
+function formatRateLimitReset(resetsAt: number | undefined): string | null {
+  if (resetsAt == null || !Number.isFinite(resetsAt)) {
+    return null;
+  }
+  const date = new Date(resetsAt * 1000);
+  if (!Number.isFinite(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
 }
 
 function sendIcon(): SVGSVGElement {
