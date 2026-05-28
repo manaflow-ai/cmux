@@ -5310,10 +5310,10 @@ struct SettingsView: View {
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
-    @AppStorage(IMessageModeGroupSortSettings.sortInsideGroupsKey)
-    private var iMessageModeSortInsideGroups = IMessageModeGroupSortSettings.sortInsideGroupsDefault
-    @AppStorage(IMessageModeGroupSortSettings.floatGroupsKey)
-    private var iMessageModeFloatGroups = IMessageModeGroupSortSettings.floatGroupsDefault
+    // iMessageModeGroupSortSettings.{sortInsideGroupsKey,floatGroupsKey}
+    // exist in UserDefaults but are not surfaced in Settings yet — the
+    // sort path doesn't read them yet. Re-add @AppStorage bindings here
+    // when the sort logic lands.
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
@@ -7032,48 +7032,14 @@ struct SettingsView: View {
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
                         SettingsCardDivider()
 
-                        // Use .settingsOnly because these toggles aren't yet
-                        // wired into CmuxSettingsFileStore.supportedSettingsJSONPaths
-                        // /parser; SettingsCardRow asserts on .json(...) paths
-                        // that the parser doesn't know about, which would crash
-                        // the whole Settings window on open.
-                        SettingsCardRow(
-                            configurationReview: .settingsOnly,
-                            String(
-                                localized: "settings.app.imessageSortInsideGroups",
-                                defaultValue: "iMessage Mode: Sort Workspaces Inside Groups"
-                            ),
-                            subtitle: String(
-                                localized: "settings.app.imessageSortInsideGroups.subtitle",
-                                defaultValue: "When iMessage mode floats unread workspaces to the top, sort members within each group while the group section stays put."
-                            )
-                        ) {
-                            Toggle("", isOn: $iMessageModeSortInsideGroups)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(!iMessageMode)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .settingsOnly,
-                            String(
-                                localized: "settings.app.imessageFloatGroups",
-                                defaultValue: "iMessage Mode: Float Groups by Latest Unread"
-                            ),
-                            subtitle: String(
-                                localized: "settings.app.imessageFloatGroups.subtitle",
-                                defaultValue: "Reorder whole group sections by their most-recent unread member when iMessage mode is on."
-                            )
-                        ) {
-                            Toggle("", isOn: $iMessageModeFloatGroups)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(!iMessageMode)
-
-                        SettingsCardDivider()
+                        // iMessage-mode group sort toggles are deliberately
+                        // not surfaced in Settings yet — the underlying
+                        // reorder path doesn't read
+                        // IMessageModeGroupSortSettings.{sortInsideGroups,
+                        // floatGroups} yet, so flipping the toggles wouldn't
+                        // change behavior. The settings keys ship persisted
+                        // so user-set values survive the upgrade that
+                        // activates the sort.
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),

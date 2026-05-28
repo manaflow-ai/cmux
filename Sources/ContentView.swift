@@ -11515,16 +11515,19 @@ struct VerticalTabsSidebar: View {
             },
             onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds] in
                 guard let tabManager else { return }
-                if tabManager.tabs.contains(where: { $0.id == anchorId }) {
-                    if tabManager.selectedTabId != anchorId {
-                        tabManager.selectedTabId = anchorId
-                    }
-                    // Reset the multi-selection set to just the anchor so
-                    // subsequent context-menu/shortcut actions target the
-                    // focused workspace instead of stale sidebar selections.
-                    if selectedTabIds.wrappedValue != [anchorId] {
-                        selectedTabIds.wrappedValue = [anchorId]
-                    }
+                guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
+                // Route through the shared selection path so the click clears
+                // restored/unread notification state, records an explicit
+                // workspace-resume, and behaves identically to clicking a
+                // regular workspace row — assigning selectedTabId directly
+                // would skip all of that even when the anchor was already
+                // selected.
+                tabManager.selectWorkspace(anchorTab)
+                // Reset the multi-selection set to just the anchor so
+                // subsequent context-menu/shortcut actions target the
+                // focused workspace instead of stale sidebar selections.
+                if selectedTabIds.wrappedValue != [anchorId] {
+                    selectedTabIds.wrappedValue = [anchorId]
                 }
             },
             onTapPlus: { [weak tabManager, groupId = group.id, anchorId = group.anchorWorkspaceId] in
