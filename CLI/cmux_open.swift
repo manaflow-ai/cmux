@@ -5305,7 +5305,11 @@ extension CMUXCLI {
               setWorkerPoolStatus("loading");
               const pool = await createCodeViewWorkerPool();
               if (pageHiddenForCleanup) {
-                terminateCodeViewWorkerPool();
+                terminateWorkerPoolInstance(pool);
+                workerPool = null;
+                if (window.__cmuxDiffViewer) {
+                  window.__cmuxDiffViewer.workerPool = null;
+                }
                 return null;
               }
               workerPool = pool;
@@ -5369,20 +5373,20 @@ extension CMUXCLI {
             }
 
             function terminateCodeViewWorkerPool() {
-              if (typeof terminateWorkerPool === "function") {
-                terminateWorkerPool();
-                terminateWorkerPool = null;
-                workerPool = null;
-                if (window.__cmuxDiffViewer) {
-                  window.__cmuxDiffViewer.workerPool = null;
-                }
-                return;
-              }
-              workerPool?.terminate?.();
+              terminateWorkerPoolInstance(workerPool);
               workerPool = null;
               if (window.__cmuxDiffViewer) {
                 window.__cmuxDiffViewer.workerPool = null;
               }
+            }
+
+            function terminateWorkerPoolInstance(pool) {
+              if (typeof terminateWorkerPool === "function") {
+                terminateWorkerPool();
+                terminateWorkerPool = null;
+                return;
+              }
+              pool?.terminate?.();
             }
 
             function observeWorkerPool(pool) {
