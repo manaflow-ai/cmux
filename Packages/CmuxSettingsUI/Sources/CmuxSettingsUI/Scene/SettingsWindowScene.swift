@@ -143,7 +143,11 @@ public struct SettingsWindowRoot: View {
                 catalog: catalog
             )
         case .account:
-            AccountSection(defaultsStore: defaultsStore, catalog: catalog)
+            AccountSection(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                accountFlow: runtime.accountFlow
+            )
         case .terminal:
             TerminalSection(
                 defaultsStore: defaultsStore,
@@ -167,7 +171,12 @@ public struct SettingsWindowRoot: View {
                 errorLog: runtime.errorLog
             )
         case .workspaceColors:
-            WorkspaceColorsSection(defaultsStore: defaultsStore, catalog: catalog)
+            WorkspaceColorsSection(
+                defaultsStore: defaultsStore,
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: runtime.errorLog
+            )
         case .settingsJSON:
             SettingsJSONSection(jsonStore: jsonStore)
         case .reset:

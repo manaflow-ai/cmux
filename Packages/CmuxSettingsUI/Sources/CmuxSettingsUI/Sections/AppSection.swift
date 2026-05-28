@@ -49,17 +49,12 @@ public struct AppSection: View {
                     }
                 }
             )
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon),
-                title: "App Icon",
-                label: { mode in
-                    switch mode {
-                    case .automatic: return "Automatic"
-                    case .light: return "Light"
-                    case .dark: return "Dark"
-                    }
-                }
-            )
+            VStack(alignment: .leading, spacing: 4) {
+                Text("App Icon")
+                AppIconGridPicker(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon)
+                )
+            }
             SettingsPickerRow(
                 model: DefaultsValueModel(store: defaultsStore, key: catalog.app.language),
                 title: "Language",
