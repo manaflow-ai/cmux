@@ -7,6 +7,10 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class BareShortcutNotificationCounter {
+    var count = 0
+}
+
 @MainActor
 final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -50,7 +54,15 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         }
 
         let shortcut = StoredShortcut(key: "space", command: false, shift: false, option: false, control: false)
-        let paletteExpectation = expectation(forNotification: .commandPaletteRequested, object: nil)
+        let paletteRequests = BareShortcutNotificationCounter()
+        let paletteToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            paletteRequests.count += 1
+        }
+        defer { NotificationCenter.default.removeObserver(paletteToken) }
 
         withTemporaryShortcut(action: .commandPalette, shortcut: shortcut) {
             guard let event = makeKeyDownEvent(key: " ", keyCode: 49) else {
@@ -65,7 +77,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 #endif
         }
 
-        wait(for: [paletteExpectation], timeout: 0.15)
+        XCTAssertEqual(paletteRequests.count, 1, "Bare Space should dispatch when explicitly configured")
     }
 
     func testBareSpaceChordPrefixArmsConfiguredShortcut() {
@@ -82,6 +94,15 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             control: false,
             chordKey: "n"
         )
+        let paletteRequests = BareShortcutNotificationCounter()
+        let paletteToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            paletteRequests.count += 1
+        }
+        defer { NotificationCenter.default.removeObserver(paletteToken) }
 
         withTemporaryShortcut(action: .commandPalette, shortcut: shortcut) {
             guard let prefixEvent = makeKeyDownEvent(key: " ", keyCode: 49),
@@ -91,24 +112,11 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
             }
 
 #if DEBUG
-            let prefixExpectation = expectation(
-                description: "Bare Space prefix must not dispatch command palette before the second stroke"
-            )
-            prefixExpectation.isInverted = true
-            let prefixToken = NotificationCenter.default.addObserver(
-                forName: .commandPaletteRequested,
-                object: nil,
-                queue: nil
-            ) { _ in
-                prefixExpectation.fulfill()
-            }
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-            wait(for: [prefixExpectation], timeout: 0.05)
-            NotificationCenter.default.removeObserver(prefixToken)
+            XCTAssertEqual(paletteRequests.count, 0, "Bare Space prefix must not fire the action early")
 
-            let actionExpectation = expectation(forNotification: .commandPaletteRequested, object: nil)
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
-            wait(for: [actionExpectation], timeout: 0.15)
+            XCTAssertEqual(paletteRequests.count, 1, "Bare Space chord should dispatch on the second stroke")
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
