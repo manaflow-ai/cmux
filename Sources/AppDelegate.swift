@@ -13826,10 +13826,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ? []
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
         // Only consume the shortcut when there's an explicit sidebar
-        // multi-selection. Otherwise ⌘⇧G shadows the React Grab default for
-        // every normal browser/terminal context (the selected workspace
-        // always exists, so `selectedTabId` is almost never nil). Returning
-        // false here lets the next handler (toggleReactGrab) take it.
+        // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
+        // React Grab's default in browser/terminal contexts. A single-tab
+        // group can still be created via right-click → New Group from
+        // Workspace. `sidebarSelectedWorkspaceIds` is normally synced to the
+        // focused workspace (clearSidebarMultiSelection sets it to a
+        // singleton after keyboard nav), so the singleton case must be
+        // treated the same as "no selection."
+        guard orderedSelectedIds.count >= 2 else { return false }
         let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
         // doesn't silently create an anchor-only group when every selected
