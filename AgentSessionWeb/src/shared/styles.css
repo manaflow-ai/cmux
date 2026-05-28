@@ -21,6 +21,7 @@
   --color-token-text-primary: var(--agent-text);
   --color-token-text-secondary: var(--agent-soft);
   --color-token-text-tertiary: var(--agent-muted);
+  --color-token-menu-border: var(--agent-border);
   --color-token-bg-primary: var(--agent-surface-elevated);
   --color-token-bg-secondary: var(--agent-card);
   --color-token-list-hover-background: var(--agent-control-hover);
@@ -28,6 +29,7 @@
   --color-token-main-surface-primary: transparent;
   --color-token-text-link-foreground: var(--agent-accent);
   --color-token-text-link-active-foreground: var(--agent-accent);
+  --shadow-xl-spread: 0 16px 48px rgba(0, 0, 0, 0.28);
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 14px;
@@ -305,6 +307,23 @@ select {
   cursor: default;
 }
 
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.outline-hidden {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.user-select-none {
+  user-select: none;
+}
+
+.shadow-xl-spread {
+  box-shadow: var(--shadow-xl-spread);
+}
+
 .hide-scrollbar {
   scrollbar-width: none;
 }
@@ -511,6 +530,12 @@ select {
   justify-content: flex-end;
 }
 
+.model-picker-root {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
 .model-picker,
 .codex-tool,
 .codex-action {
@@ -574,6 +599,51 @@ select {
   flex: 0 0 auto;
   color: var(--color-token-input-placeholder-foreground);
   line-height: 1;
+}
+
+.provider-dropdown {
+  position: absolute;
+  z-index: 50;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: 13rem;
+  max-height: min(250px, calc(100vh - 16px));
+  border: 0.5px solid color-mix(in srgb, var(--color-token-menu-border) 78%, transparent);
+  border-radius: var(--radius-xl);
+  color: var(--color-token-foreground);
+  background: color-mix(in srgb, var(--color-token-dropdown-background) 90%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.provider-dropdown-title {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  overflow: hidden;
+  padding: var(--padding-row-y) var(--padding-row-x);
+  color: var(--color-token-description-foreground);
+  font-size: var(--text-sm);
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-dropdown-item {
+  width: 100%;
+  border: 0;
+  color: var(--color-token-foreground);
+  background: transparent;
+  text-align: left;
+}
+
+.provider-dropdown-item:hover,
+.provider-dropdown-item:focus,
+.provider-dropdown-item[data-selected="true"] {
+  background: var(--color-token-list-hover-background);
+}
+
+.provider-dropdown-check {
+  color: var(--color-token-foreground);
 }
 
 .provider-select {

@@ -124,55 +124,105 @@ function SessionSurface({
   const visibleLogEntries = state.log.filter((entry) => entry.level !== "info");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const composerLayout = useMeasuredComposerLayout(state.input);
   const isSingleLineComposer = composerLayout.isSingleLine;
   const submit = () => {
     setMenuKind(null);
+    setProviderMenuOpen(false);
     void sendInput(state, dispatch);
   };
   const insertComposerMenuItem = (value: string) => {
     editorRef.current?.insertText(value);
     setMenuKind(null);
   };
+  const selectProviderMenuItem = (providerId: ProviderId) => {
+    selectProvider(providerId, state, dispatch);
+    setProviderMenuOpen(false);
+  };
   const modelPicker = h(
-    "label",
+    "div",
     {
-      className:
-        "model-picker h-token-button-composer max-w-40 min-w-0 rounded-full px-2 py-0 text-sm leading-[18px]",
-      "data-codex-intelligence-trigger": true,
-      "data-selected-reasoning-effort": "high",
+      className: "model-picker-root relative min-w-0",
+      onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setProviderMenuOpen(false);
+        }
+      },
     },
     h(
-      "span",
-      { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
+      "button",
+      {
+        className:
+          "model-picker border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent h-token-button-composer max-w-40 min-w-0 px-2 py-0 text-sm leading-[18px]",
+        type: "button",
+        disabled: !canSelect,
+        "aria-haspopup": "menu",
+        "aria-expanded": providerMenuOpen,
+        "data-state": providerMenuOpen ? "open" : "closed",
+        "data-codex-intelligence-trigger": true,
+        "data-selected-reasoning-effort": "high",
+        onClick: () => setProviderMenuOpen((open) => canSelect && !open),
+        onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setProviderMenuOpen(canSelect);
+          }
+        },
+      },
       h(
         "span",
-        { className: "model-picker-primary flex min-w-0 items-center gap-1 tabular-nums" },
-        h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+        { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
+        h(
+          "span",
+          { className: "model-picker-primary flex min-w-0 items-center gap-1 tabular-nums" },
+          h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+        ),
+      ),
+      h(
+        "span",
+        {
+          className: "model-chevron composer-footer__secondary-chevron icon-2xs text-token-input-placeholder-foreground",
+          "aria-hidden": true,
+        },
+        chevronIcon(),
       ),
     ),
-    h(
-      "span",
-      {
-        className: "model-chevron composer-footer__secondary-chevron icon-2xs text-token-input-placeholder-foreground",
-        "aria-hidden": true,
-      },
-      chevronIcon(),
-    ),
-    h(
-      "select",
-      {
-        className: "provider-select",
-        value: state.selectedProviderId,
-        disabled: !canSelect,
-        "aria-label": state.context?.copy.provider ?? "",
-        onChange: (event: React.ChangeEvent<HTMLSelectElement>) =>
-          selectProvider(event.target.value as ProviderId, state, dispatch),
-      },
-      state.providers.map((item) =>
-        h("option", { key: item.id, value: item.id }, item.displayName),
-      ),
-    ),
+    providerMenuOpen
+      ? h(
+          "div",
+          {
+            className:
+              "provider-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm w-52",
+            role: "menu",
+            "aria-label": state.context?.copy.provider ?? "",
+          },
+          h("div", { className: "provider-dropdown-title" }, state.context?.copy.provider ?? "Provider"),
+          state.providers.map((item) =>
+            h(
+              "button",
+              {
+                key: item.id,
+                className:
+                  "provider-dropdown-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+                type: "button",
+                role: "menuitem",
+                "data-selected": item.id === state.selectedProviderId ? "true" : undefined,
+                onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+                onClick: () => selectProviderMenuItem(item.id),
+              },
+              h(
+                "span",
+                { className: "provider-dropdown-item-content flex w-full items-center gap-1.5" },
+                h("span", { className: "min-w-0 flex-1 truncate" }, item.displayName),
+                item.id === state.selectedProviderId
+                  ? h("span", { className: "provider-dropdown-check icon-xs shrink-0", "aria-hidden": true }, checkIcon())
+                  : null,
+              ),
+            ),
+          ),
+        )
+      : null,
   );
   const composerInput = h(PromptEditor, {
     ref: editorRef,
@@ -494,6 +544,17 @@ function chevronIcon() {
       fill: "currentColor",
       stroke: "currentColor",
       strokeWidth: "0.6",
+    }),
+  );
+}
+
+function checkIcon() {
+  return h(
+    "svg",
+    { width: "17", height: "17", viewBox: "0 0 17 17", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z",
+      fill: "currentColor",
     }),
   );
 }
