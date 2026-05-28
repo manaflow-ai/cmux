@@ -70,6 +70,25 @@ check_xcode_selection() {
   echo "PASS: workflow Xcode selection avoids ls/glob ordering"
 }
 
+check_release_build_signal() {
+  if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the Release app binary stays universal"
+    exit 1
+  fi
+
+  if ! grep -Fq 'lipo "$CLI_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the bundled CLI stays universal"
+    exit 1
+  fi
+
+  if ! grep -Fq 'lipo "$HELPER_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the bundled Ghostty helper stays universal"
+    exit 1
+  fi
+
+  echo "PASS: release-build keeps universal artifact verification"
+}
+
 # ci.yml jobs
 check_warp_runner "$CI_FILE" "tests"
 check_warp_runner "$CI_FILE" "tests-build-and-lag"
@@ -87,3 +106,4 @@ check_warp_runner "$COMPAT_FILE" "compat-tests"
 check_e2e_runner_fallbacks
 
 check_xcode_selection
+check_release_build_signal
