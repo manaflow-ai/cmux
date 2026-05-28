@@ -3373,8 +3373,11 @@ extension CMUXCLI {
             async function waitForReplacement() {
               try {
                 const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
-                await applyReplacementFrom(response);
+                if (await applyReplacementFrom(response)) {
+                  return;
+                }
               } catch {}
+              window.setTimeout(waitForReplacement, 1000);
             }
 
             waitForReplacement();
