@@ -3231,6 +3231,13 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
+    private func staleHiddenWebViewVisibleAttachmentBlockers() -> [String] {
+        hiddenWebViewDiscardManager.blockers(
+            for: hiddenWebViewDiscardSnapshot,
+            requirePolicyEnabled: false
+        )
+    }
+
     private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
         hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
     }
@@ -3314,6 +3321,63 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
+        return true
+    }
+
+    @discardableResult
+    func replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+        reason: String,
+        now: Date = Date()
+    ) -> Bool {
+        guard shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment(now: now) else { return false }
+
+        guard replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: reason
+        ) else { return false }
+        webViewLastHiddenAt = now
+        webViewLastVisibilityChangeAt = now
+        webViewLastVisibilityChangeReason = reason
+        refreshWebViewLifecycleState()
+        return true
+    }
+
+    @discardableResult
+    func synchronizeWebViewVisibilityForPaneOwnership(
+        isVisibleInUI: Bool,
+        isCurrentPaneOwner: Bool,
+        visibleReason: String,
+        hiddenReason: String,
+        now: Date = Date()
+    ) -> Bool {
+        let effectiveVisibility = isVisibleInUI && isCurrentPaneOwner
+        let didReplace = effectiveVisibility
+            ? replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: visibleReason,
+                now: now
+            )
+            : false
+        noteWebViewVisibility(
+            effectiveVisibility,
+            reason: effectiveVisibility ? visibleReason : hiddenReason,
+            now: now
+        )
+        return didReplace
+    }
+
+    func shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment(now: Date = Date()) -> Bool {
+        guard shouldRenderWebView,
+              !isClosingWebViewLifecycle,
+              !hiddenWebViewDiscardManager.isDiscardedForMemory,
+              !isWebViewVisibleInUI,
+              let hiddenAt = webViewLastHiddenAt else {
+            return false
+        }
+        guard now.timeIntervalSince(hiddenAt) >= BrowserHiddenWebViewDiscardPolicy.hiddenDelay else {
+            return false
+        }
+        guard staleHiddenWebViewVisibleAttachmentBlockers().isEmpty else { return false }
         return true
     }
 
@@ -4486,12 +4550,13 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    @discardableResult
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String
-    ) {
-        guard oldWebView === webView else { return }
+    ) -> Bool {
+        guard oldWebView === webView else { return false }
 
         let wasRenderable = shouldRenderWebView
         let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
@@ -4572,6 +4637,7 @@ final class BrowserPanel: Panel, ObservableObject {
             "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
         )
 #endif
+        return true
     }
 
 #if DEBUG

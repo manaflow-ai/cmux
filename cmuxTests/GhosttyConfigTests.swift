@@ -2025,6 +2025,160 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
     }
 
+    func testVisiblePortalPreparationReplacesStaleHiddenWebViewBeforeAttach() throws {
+        guard ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] == nil,
+              ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] == nil else {
+            throw XCTSkip("Hidden WebView discard policy is overridden by environment")
+        }
+
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+        }
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(
+            BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
+            forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+        )
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        waitForBrowserPanelBlankLoad(panel)
+
+        let hiddenAt = Date.now.addingTimeInterval(86_400)
+        panel.noteWebViewVisibility(true, reason: "test.visible", now: hiddenAt.addingTimeInterval(-1))
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+        let originalWebView = panel.webView
+        let originalInstanceID = panel.webViewInstanceID
+        let staleAttachTime = hiddenAt.addingTimeInterval(BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay + 1)
+
+        XCTAssertTrue(
+            panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: "test.portalPreAttach",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNotEqual(panel.webViewInstanceID, originalInstanceID)
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertEqual(panel.currentURL?.absoluteString, "about:blank")
+
+        let replacementWebView = panel.webView
+        let replacementInstanceID = panel.webViewInstanceID
+        let replacementPayload = panel.webViewLifecycleTopPayload(now: staleAttachTime)
+        XCTAssertEqual(replacementPayload["last_visibility_change_reason"] as? String, "test.portalPreAttach")
+        XCTAssertEqual(replacementPayload["hidden_duration_ms"] as? Int, 0)
+
+        XCTAssertFalse(
+            panel.replaceStaleHiddenWebViewBeforeVisibleAttachmentIfNeeded(
+                reason: "test.portalPreAttach.repeat",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertTrue(panel.webView === replacementWebView)
+        XCTAssertEqual(panel.webViewInstanceID, replacementInstanceID)
+    }
+
+    func testVisiblePaneOwnershipTransitionReplacesStaleHiddenWebViewBeforeAttach() throws {
+        guard ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] == nil,
+              ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] == nil else {
+            throw XCTSkip("Hidden WebView discard policy is overridden by environment")
+        }
+
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+        }
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(
+            BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay,
+            forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+        )
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        waitForBrowserPanelBlankLoad(panel)
+
+        let hiddenAt = Date.now.addingTimeInterval(86_400)
+        panel.noteWebViewVisibility(true, reason: "test.visible", now: hiddenAt.addingTimeInterval(-1))
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
+
+        let originalWebView = panel.webView
+        let staleAttachTime = hiddenAt.addingTimeInterval(BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay + 1)
+
+        XCTAssertFalse(
+            panel.synchronizeWebViewVisibilityForPaneOwnership(
+                isVisibleInUI: true,
+                isCurrentPaneOwner: false,
+                visibleReason: "test.paneOwner",
+                hiddenReason: "test.lostPaneOwner",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertTrue(panel.webView === originalWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+        XCTAssertTrue(
+            panel.synchronizeWebViewVisibilityForPaneOwnership(
+                isVisibleInUI: true,
+                isCurrentPaneOwner: true,
+                visibleReason: "test.paneOwner",
+                hiddenReason: "test.lostPaneOwner",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+        XCTAssertEqual(panel.currentURL?.absoluteString, "about:blank")
+
+        let replacementWebView = panel.webView
+        XCTAssertFalse(
+            panel.synchronizeWebViewVisibilityForPaneOwnership(
+                isVisibleInUI: true,
+                isCurrentPaneOwner: true,
+                visibleReason: "test.paneOwner.repeat",
+                hiddenReason: "test.lostPaneOwner.repeat",
+                now: staleAttachTime
+            )
+        )
+        XCTAssertTrue(panel.webView === replacementWebView)
+    }
+
     func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
         let discardedAt = Date(timeIntervalSince1970: 200)
         let panel = BrowserPanel(
@@ -2067,6 +2221,29 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         panel.noteWebViewVisibility(true, reason: "test.visible")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+    }
+
+    private func waitForBrowserPanelBlankLoad(
+        _ panel: BrowserPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        if panel.webView.isLoading {
+            let loaded = keyValueObservingExpectation(
+                for: panel.webView,
+                keyPath: "loading"
+            ) { observedObject, _ in
+                guard let webView = observedObject as? WKWebView else { return false }
+                return !webView.isLoading
+            }
+            wait(for: [loaded], timeout: 1.0)
+        }
+        XCTAssertFalse(
+            panel.webView.isLoading,
+            "Timed out waiting for about:blank to finish loading",
+            file: file,
+            line: line
+        )
     }
 
     func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {

@@ -9,6 +9,7 @@ struct PanelContentView: View {
     let workspaceId: UUID
     let paneId: PaneID
     let isFocused: Bool
+    let isPanelInPane: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
@@ -56,6 +57,7 @@ struct PanelContentView: View {
                     panel: browserPanel,
                     paneId: paneId,
                     isFocused: isFocused,
+                    isPanelInPane: isPanelInPane,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     onRequestPanelFocus: onRequestPanelFocus

@@ -16,6 +16,11 @@ private func browserPanelViewRectDescription(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
 }
 
+private struct BrowserWebViewVisibilityOwnershipState: Equatable {
+    let isVisibleInUI: Bool
+    let isCurrentPaneOwner: Bool
+}
+
 private extension NSObject {
     @discardableResult
     func browserPanelCallVoidIfAvailable(_ rawSelector: String) -> Bool {
@@ -408,6 +413,7 @@ struct BrowserPanelView: View {
     @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
+    let isPanelInPane: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
@@ -627,10 +633,14 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
-        guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
-            return false
-        }
-        return currentPaneId.id == paneId.id
+        isPanelInPane
+    }
+
+    private var webViewVisibilityOwnershipState: BrowserWebViewVisibilityOwnershipState {
+        BrowserWebViewVisibilityOwnershipState(
+            isVisibleInUI: isVisibleInUI,
+            isCurrentPaneOwner: isCurrentPaneOwner
+        )
     }
 
     private var currentEventIsCommandPointerActivation: Bool {
@@ -710,6 +720,43 @@ struct BrowserPanelView: View {
                 screenshotPageCopied = false
             }
         }
+    }
+
+    private func synchronizeWebViewVisibilityForPaneOwnership(
+        visibleInUI: Bool,
+        visibleReason: String,
+        hiddenReason: String
+    ) {
+        panel.synchronizeWebViewVisibilityForPaneOwnership(
+            isVisibleInUI: visibleInUI,
+            isCurrentPaneOwner: isCurrentPaneOwner,
+            visibleReason: visibleReason,
+            hiddenReason: hiddenReason
+        )
+        if visibleInUI {
+            panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+            return
+        }
+        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
+            // Workspace switches keep the attached inspector alive off-screen.
+            // Treating that hide as a manual X-close can clear the restore intent
+            // before the original local-inline host becomes visible again.
+            panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+            return
+        }
+        // Pane/workspace churn can briefly mark the browser hidden before the
+        // final host settles. Only treat a stable hide as a signal to consume
+        // an attached-inspector X-close.
+        panel.scheduleDeveloperToolsVisibilityLossCheck()
+    }
+
+    private func handleWebViewVisibilityOwnershipChange(_ state: BrowserWebViewVisibilityOwnershipState) {
+        let hiddenReason = state.isVisibleInUI ? "view.lostPaneOwner" : "view.hidden"
+        synchronizeWebViewVisibilityForPaneOwnership(
+            visibleInUI: state.isVisibleInUI,
+            visibleReason: "view.visible",
+            hiddenReason: hiddenReason
+        )
     }
 
     var body: some View {
@@ -826,9 +873,11 @@ struct BrowserPanelView: View {
             if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
                 browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
             }
-            panel.noteWebViewVisibility(
-                isVisibleInUI && isCurrentPaneOwner,
-                reason: "view.onAppear"
+            panel.synchronizeWebViewVisibilityForPaneOwnership(
+                isVisibleInUI: isVisibleInUI,
+                isCurrentPaneOwner: isCurrentPaneOwner,
+                visibleReason: "view.onAppear",
+                hiddenReason: "view.onAppear.hidden"
             )
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
@@ -894,27 +943,8 @@ struct BrowserPanelView: View {
                 refreshSuggestions()
             }
         }
-        .onChange(of: isVisibleInUI) { visibleInUI in
-            let effectiveVisibility = visibleInUI && isCurrentPaneOwner
-            panel.noteWebViewVisibility(
-                effectiveVisibility,
-                reason: effectiveVisibility ? "view.visible" : "view.hidden"
-            )
-            if visibleInUI {
-                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-                return
-            }
-            if panel.shouldUseLocalInlineDeveloperToolsHosting() {
-                // Workspace switches keep the attached inspector alive off-screen.
-                // Treating that hide as a manual X-close can clear the restore intent
-                // before the original local-inline host becomes visible again.
-                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-                return
-            }
-            // Pane/workspace churn can briefly mark the browser hidden before the
-            // final host settles. Only treat a stable hide as a signal to consume
-            // an attached-inspector X-close.
-            panel.scheduleDeveloperToolsVisibilityLossCheck()
+        .onChange(of: webViewVisibilityOwnershipState) { state in
+            handleWebViewVisibilityOwnershipChange(state)
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
@@ -1481,13 +1511,22 @@ struct BrowserPanelView: View {
         let useLocalInlineDeveloperToolsHosting =
             panel.shouldUseLocalInlineDeveloperToolsHosting() &&
             isCurrentPaneOwner
+        let shouldPrepareStaleHiddenWebView =
+            isVisibleInUI &&
+            isCurrentPaneOwner &&
+            !useLocalInlineDeveloperToolsHosting &&
+            panel.shouldReplaceStaleHiddenWebViewBeforeVisibleAttachment()
 
         return Group {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
-                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
+                    // Keep updateNSView render-only; lifecycle callbacks replace the stale view first.
+                    shouldAttachWebView: isVisibleInUI &&
+                        isCurrentPaneOwner &&
+                        !useLocalInlineDeveloperToolsHosting &&
+                        !shouldPrepareStaleHiddenWebView,
                     useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
@@ -7148,9 +7187,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         let webView = panel.webView
         let coordinator = context.coordinator
-        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil

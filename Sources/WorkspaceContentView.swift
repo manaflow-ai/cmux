@@ -221,6 +221,7 @@ struct WorkspaceContentView: View {
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                let isPanelInPane = workspace.bonsplitController.tabs(inPane: paneId).contains { $0.id == tab.id }
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
@@ -242,6 +243,7 @@ struct WorkspaceContentView: View {
                     workspaceId: workspace.id,
                     paneId: paneId,
                     isFocused: isFocused,
+                    isPanelInPane: isPanelInPane,
                     isSelectedInPane: isSelectedInPane,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: workspacePortalPriority,
