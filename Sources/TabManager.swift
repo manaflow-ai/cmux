@@ -5754,6 +5754,19 @@ class TabManager: ObservableObject {
     func setPinned(_ tab: Workspace, pinned: Bool) {
         guard tab.isPinned != pinned else { return }
         tab.isPinned = pinned
+        // Pinned workspaces never belong to a group (groups live in the
+        // unpinned tier or as pinned-group sections, not as mixed pinned-
+        // member sections). Pinning a grouped member ungroups it; if that
+        // member was the anchor, the group dissolves so other members
+        // become ungrouped.
+        if pinned, let groupId = tab.groupId {
+            if let group = workspaceGroups.first(where: { $0.id == groupId }),
+               group.anchorWorkspaceId == tab.id {
+                ungroupWorkspaceGroup(groupId: groupId)
+            } else {
+                tab.groupId = nil
+            }
+        }
         reorderTabForPinnedState(tab)
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tab.id])
     }
@@ -10174,8 +10187,23 @@ extension TabManager {
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
 
+        // Workspace groups participate in the session snapshot, so changes
+        // that only touch group metadata (rename / collapse / pin a group,
+        // or move a workspace between groups without reordering tabs) must
+        // bump the fingerprint or the autosave timer skips the write.
+        hasher.combine(workspaceGroups.count)
+        for group in workspaceGroups {
+            hasher.combine(group.id)
+            hasher.combine(group.name)
+            hasher.combine(group.isCollapsed)
+            hasher.combine(group.isPinned)
+            hasher.combine(group.anchorWorkspaceId)
+            hasher.combine(group.customColor ?? "")
+            hasher.combine(group.iconSymbol ?? "")
+        }
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
+            hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")

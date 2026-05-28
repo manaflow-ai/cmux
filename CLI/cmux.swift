@@ -6695,8 +6695,12 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
         case "close":
-            let (workspaceArg, _) = parseOption(rest, name: "--workspace")
-            let positional = rest.first(where: { !$0.hasPrefix("--") })
+            let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            // Take positional from the remainder AFTER --workspace/--window
+            // are stripped so e.g. `cmux workspace close --window window:1`
+            // doesn't treat `window:1` as the workspace target.
+            let positional = rem1.first(where: { !$0.hasPrefix("--") })
             let target = workspaceArg ?? positional
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(rest, windowOverride: windowOverride), client: client)
@@ -6712,8 +6716,9 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
         case "rename":
             let (titleOpt, rem0) = parseOption(rest, name: "--title")
-            let (workspaceArg, _) = parseOption(rem0, name: "--workspace")
-            let positional = rem0.first(where: { !$0.hasPrefix("--") })
+            let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            let positional = rem2.first(where: { !$0.hasPrefix("--") })
             let target = workspaceArg ?? positional
             guard let titleOpt else {
                 throw CLIError(message: "workspace rename requires --title <new>")
@@ -6730,8 +6735,9 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
         case "select":
-            let (workspaceArg, _) = parseOption(rest, name: "--workspace")
-            let positional = rest.first(where: { !$0.hasPrefix("--") })
+            let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            let positional = rem1.first(where: { !$0.hasPrefix("--") })
             let target = workspaceArg ?? positional
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(rest, windowOverride: windowOverride), client: client)
@@ -6776,9 +6782,12 @@ struct CMUXCLI {
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
 
         func resolveGroupId(in rest: [String]) throws -> String {
-            let (gidOpt, _) = parseOption(rest, name: "--group")
+            let (gidOpt, rem0) = parseOption(rest, name: "--group")
             if let gidOpt { return gidOpt }
-            for arg in rest where !arg.hasPrefix("--") {
+            // Strip --window before scanning for a positional so a `--window
+            // <value>` pair never gets parsed as the group id.
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            for arg in rem1 where !arg.hasPrefix("--") {
                 return arg
             }
             throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")

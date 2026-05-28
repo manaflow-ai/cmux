@@ -10100,6 +10100,7 @@ struct VerticalTabsSidebar: View {
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
+        let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10196,6 +10197,9 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let workspaceGroups = tabManager.workspaceGroups
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+        )
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabs.map(\.id),
@@ -10210,7 +10214,8 @@ struct VerticalTabsSidebar: View {
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
             workspaceGroups: workspaceGroups,
-            workspaceGroupById: workspaceGroupById
+            workspaceGroupById: workspaceGroupById,
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -11457,6 +11462,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
+            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -14301,6 +14307,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
@@ -14346,6 +14353,7 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
@@ -16113,7 +16121,11 @@ private struct TabItemView: View, Equatable {
         // Pinned workspaces cannot be grouped; if every target is pinned, hide the
         // group-related entries entirely.
         if !eligibleTargetIds.isEmpty {
-            let groups = tabManager.workspaceGroups
+            // Source the group list from the row's precomputed immutable
+            // snapshot (the row is .equatable() and excludes tabManager from
+            // ==, so reading tabManager.workspaceGroups here would give the
+            // menu stale data after a group is added/renamed elsewhere).
+            let groups = workspaceGroupMenuSnapshot.items
             let allTargetsInSameGroup: UUID? = {
                 let groupIds = eligibleTargets.map(\.groupId)
                 guard let first = groupIds.first, groupIds.allSatisfy({ $0 == first }) else {
@@ -16692,6 +16704,19 @@ private final class SidebarDragAutoScrollController: ObservableObject {
         scrollView.reflectScrolledClipView(clipView)
         return true
     }
+}
+
+/// Immutable, equatable snapshot of the group list a row's "Move to Group"
+/// submenu can offer. Computed once per parent body eval and passed into
+/// each TabItemView so the row's `==` covers group changes (renames, adds,
+/// deletes) — the row's snapshot-boundary rule forbids reading
+/// `tabManager.workspaceGroups` from inside the contextMenu builder.
+struct WorkspaceGroupMenuSnapshot: Equatable {
+    struct Item: Equatable, Identifiable {
+        let id: UUID
+        let name: String
+    }
+    let items: [Item]
 }
 
 enum SidebarWorkspaceGroupDragPayload {
