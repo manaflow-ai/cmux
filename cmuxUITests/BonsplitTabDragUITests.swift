@@ -65,6 +65,124 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertEqual(window.frame.origin.y, windowFrameBeforeDrag.origin.y, accuracy: 2.0, "Expected tab drag not to move the window vertically")
     }
 
+    func testMinimalModeTopPaneTabReorderWorksWhenWorkspaceIsSplit() {
+        let (app, dataPath) = launchConfiguredApp(startWithTopBottomSplit: true)
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for split-workspace top-pane Bonsplit tab drag UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        XCTAssertEqual(ready["splitLayout"], "topBottom", "Expected split setup for this regression test. data=\(ready)")
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let window = app.windows.element(boundBy: 0)
+        let alphaTab = app.buttons[alphaTitle]
+        let betaTab = app.buttons[betaTitle]
+        let gammaTab = app.buttons[gammaTitle]
+        let initialOrder = "\(alphaTitle)|\(betaTitle)"
+        let reorderedOrder = "\(betaTitle)|\(alphaTitle)"
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertTrue(gammaTab.waitForExistence(timeout: 5.0), "Expected lower-pane gamma tab to exist")
+        XCTAssertLessThan(alphaTab.frame.maxY, gammaTab.frame.minY, "Expected alpha/beta to be in the top pane and gamma to be in the lower pane. alpha=\(alphaTab.frame) gamma=\(gammaTab.frame)")
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: initialOrder, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected initial top-pane tab order to be \(initialOrder). data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertLessThan(alphaTab.frame.minX, betaTab.frame.minX, "Expected beta tab to start to the right of alpha")
+        let windowFrameBeforeDrag = window.frame
+
+        dragTab(betaTab, before: alphaTab)
+
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: reorderedOrder, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected top-pane tab order to become \(reorderedOrder). data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { betaTab.frame.minX < alphaTab.frame.minX },
+            "Expected dragging beta onto alpha in the top pane to reorder tab frames. alpha=\(alphaTab.frame) beta=\(betaTab.frame)"
+        )
+        XCTAssertEqual(window.frame.origin.x, windowFrameBeforeDrag.origin.x, accuracy: 2.0, "Expected top-pane tab drag not to move the window horizontally")
+        XCTAssertEqual(window.frame.origin.y, windowFrameBeforeDrag.origin.y, accuracy: 2.0, "Expected top-pane tab drag not to move the window vertically")
+    }
+
+    func testMinimalModeTopPaneTabCanMoveToLowerPane() {
+        let (app, dataPath) = launchConfiguredApp(
+            startWithTopBottomSplit: true,
+            useBrowserPanels: true
+        )
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for split-workspace top-pane tab move UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        XCTAssertEqual(ready["splitLayout"], "topBottom", "Expected split setup for this regression test. data=\(ready)")
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let window = app.windows.element(boundBy: 0)
+        let alphaTab = app.buttons[alphaTitle]
+        let betaTab = app.buttons[betaTitle]
+        let gammaTab = app.buttons[gammaTitle]
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertTrue(gammaTab.waitForExistence(timeout: 5.0), "Expected lower-pane gamma tab to exist")
+        XCTAssertLessThan(alphaTab.frame.maxY, gammaTab.frame.minY, "Expected alpha/beta to be in the top pane and gamma to be in the lower pane. alpha=\(alphaTab.frame) gamma=\(gammaTab.frame)")
+
+        dragTab(
+            betaTab,
+            toWindowPoint: CGPoint(
+                x: gammaTab.frame.midX,
+                y: min(
+                    window.frame.maxY - 90,
+                    gammaTab.frame.maxY + max(120, (window.frame.maxY - gammaTab.frame.maxY) * 0.5)
+                )
+            ),
+            in: window
+        )
+
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: alphaTitle, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected dragging the top-pane beta tab to remove it from the top pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) {
+                guard let titles = loadJSON(atPath: dataPath)?["secondaryPaneTabTitles"] else { return false }
+                return titles.contains(betaTitle) && titles.contains(gammaTitle)
+            },
+            "Expected lower pane to contain the moved beta tab and original gamma tab. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+    }
+
     func testMinimalModePlacesPaneTabBarAtTopEdge() {
         let (app, dataPath) = launchConfiguredApp()
 
@@ -836,11 +954,13 @@ final class BonsplitTabDragUITests: XCTestCase {
 
     private func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
+        startWithTopBottomSplit: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         showRightSidebar: Bool = false,
         alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil,
-        actionButtonCount: Int? = nil
+        actionButtonCount: Int? = nil,
+        useBrowserPanels: Bool = false
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -851,6 +971,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
+        }
+        if startWithTopBottomSplit {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_TOP_BOTTOM_SPLIT"] = "1"
+        }
+        if useBrowserPanels {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_USE_BROWSER_PANELS"] = "1"
         }
         if let windowSize {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] = windowSize
@@ -1016,6 +1142,17 @@ final class BonsplitTabDragUITests: XCTestCase {
     private func dragTab(_ sourceTab: XCUIElement, before targetTab: XCUIElement) {
         let source = sourceTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let target = targetTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
+        source.press(forDuration: 0.25, thenDragTo: target)
+    }
+
+    private func dragTab(_ sourceTab: XCUIElement, toWindowPoint point: CGPoint, in window: XCUIElement) {
+        let source = sourceTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let target = window.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(
+                dx: point.x - window.frame.minX,
+                dy: point.y - window.frame.minY
+            )
+        )
         source.press(forDuration: 0.25, thenDragTo: target)
     }
 }

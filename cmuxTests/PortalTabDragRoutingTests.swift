@@ -321,6 +321,50 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.periodic))
     }
 
+    func testBrowserPortalReturnsPaneDropTargetDuringBonsplitTabDrag() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+        }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected window content view")
+            return
+        }
+
+        let host = WindowBrowserHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        contentView.addSubview(host)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds.insetBy(dx: 32, dy: 40))
+        slot.autoresizingMask = [.width, .height]
+        slot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        ))
+        host.addSubview(slot)
+        host.layoutSubtreeIfNeeded()
+
+        let pointInSlot = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
+        let pointInWindow = slot.convert(pointInSlot, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseEvent(type: .leftMouseDragged, at: pointInWindow, window: window)
+
+        XCTAssertTrue(
+            host.performHitTest(
+                at: pointInHost,
+                currentEvent: event,
+                dragPasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
+            ) is BrowserPaneDropTargetView,
+            "Browser portal-hosted panes must keep their pane drop target reachable during Bonsplit tab drags"
+        )
+    }
+
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),

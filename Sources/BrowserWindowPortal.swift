@@ -468,11 +468,19 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    func performHitTest(
+        at point: NSPoint,
+        currentEvent: NSEvent?,
+        dragPasteboardTypes: [NSPasteboard.PasteboardType]? = NSPasteboard(name: .drag).types
+    ) -> NSView? {
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
-        let eventType = NSApp.currentEvent?.type
+        let eventType = currentEvent?.type
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
@@ -535,13 +543,17 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         // Mirror terminal portal routing: while tab-reorder drags are active,
-        // pass through to SwiftUI drop targets behind the portal host.
+        // keep native pane drop targets reachable before passing through to
+        // SwiftUI drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
         if Self.shouldPassThroughToDragTargets(
-            pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: NSApp.currentEvent?.type
+            pasteboardTypes: dragPasteboardTypes,
+            eventType: eventType
         ) {
+            if let paneDropTarget = browserPaneDropTarget(at: point) {
+                return paneDropTarget
+            }
             return nil
         }
 
@@ -717,6 +729,20 @@ final class WindowBrowserHostView: NSView {
             eventType: eventType
         ) else { return false }
         return decision.result
+    }
+
+    private func browserPaneDropTarget(at point: NSPoint) -> BrowserPaneDropTargetView? {
+        for subview in subviews.reversed() {
+            guard let slot = subview as? WindowBrowserSlotView,
+                  !slot.isHidden,
+                  slot.alphaValue > 0,
+                  slot.frame.contains(point) else { continue }
+            let pointInSlot = slot.convert(point, from: self)
+            if let paneDropTarget = slot.paneDropTargetForDrop(at: pointInSlot) {
+                return paneDropTarget
+            }
+        }
+        return nil
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
