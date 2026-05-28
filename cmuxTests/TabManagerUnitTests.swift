@@ -2935,6 +2935,28 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(closedSnapshot?.originalPaneId, paneId.id)
     }
 
+    func testTemporaryDiffViewerTabCloseDoesNotStageRestoreSnapshot() throws {
+        let workspace = Workspace()
+        let diffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        guard let paneId = workspace.bonsplitController.focusedPaneId,
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, url: diffViewerURL, focus: false),
+              let tabId = workspace.surfaceIdFromPanelId(browserPanel.id),
+              let tab = workspace.bonsplitController.tab(tabId) else {
+            XCTFail("Expected diff viewer browser panel setup")
+            return
+        }
+
+        var closedSnapshot: ClosedBrowserPanelRestoreSnapshot?
+        workspace.onClosedBrowserPanel = { snapshot in
+            closedSnapshot = snapshot
+        }
+
+        XCTAssertTrue(workspace.splitTabBar(workspace.bonsplitController, shouldCloseTab: tab, inPane: paneId))
+        workspace.splitTabBar(workspace.bonsplitController, didCloseTab: tabId, fromPane: paneId)
+
+        XCTAssertNil(closedSnapshot)
+    }
+
     func testBrowserWebViewDidCloseClosesPanelAndCmdShiftTRestoresIt() {
         let manager = TabManager()
         let expectedURL = URL(string: "https://example.com/self-close")
