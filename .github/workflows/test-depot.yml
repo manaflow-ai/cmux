@@ -43,7 +43,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -194,4 +199,4 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            $ONLY_TESTING test
+            "$ONLY_TESTING" test

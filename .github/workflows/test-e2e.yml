@@ -1,4 +1,5 @@
 name: E2E test with video recording
+run-name: ${{ inputs.test_filter }} on ${{ inputs.runner || 'depot-macos-latest' }} @ ${{ inputs.ref || github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -28,6 +29,10 @@ on:
           - depot-macos-latest
           - depot-macos-14
 
+concurrency:
+  group: e2e-${{ inputs.runner || 'depot-macos-latest' }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  cancel-in-progress: true
+
 jobs:
   e2e:
     runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
@@ -51,7 +56,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -133,7 +143,6 @@ jobs:
 
       - name: Grant TCC screen recording permission
         if: ${{ inputs.record_video }}
-        continue-on-error: true
         run: |
           FFMPEG_BIN="${FFMPEG_PATH:-/opt/homebrew/bin/ffmpeg}"
 
@@ -254,7 +263,7 @@ jobs:
             -disableAutomaticPackageResolution
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            $ONLY_TESTING
+            "$ONLY_TESTING"
             test
           )
 
