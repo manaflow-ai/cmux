@@ -20,7 +20,7 @@ const unsafeElementNames = new Set([
   "style",
 ]);
 
-const urlAttributeNames = new Set(["href", "src", "xlink:href"]);
+const passiveFetchAttributeNames = new Set(["poster", "src", "srcset", "xlink:href"]);
 
 export function renderMarkdownHTML(source: string): string {
   const parser = typeof window === "undefined" ? undefined : window.marked;
@@ -42,7 +42,34 @@ export function renderMarkdownHTML(source: string): string {
 }
 
 export function escapeMarkdownRawHTML(source: string): string {
-  return source.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  let output = "";
+  let activeFence: MarkdownFence | null = null;
+  const lines = source.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? [];
+  for (const rawLine of lines) {
+    if (rawLine === "") {
+      continue;
+    }
+    const lineEnding = rawLine.match(/(\r\n|\n|\r)$/)?.[0] ?? "";
+    const line = lineEnding ? rawLine.slice(0, -lineEnding.length) : rawLine;
+
+    if (activeFence) {
+      output += line + lineEnding;
+      if (isClosingFence(line, activeFence)) {
+        activeFence = null;
+      }
+      continue;
+    }
+
+    const openingFence = markdownFence(line);
+    if (openingFence) {
+      activeFence = openingFence;
+      output += line + lineEnding;
+      continue;
+    }
+
+    output += escapeInlineRawHTML(line) + lineEnding;
+  }
+  return output;
 }
 
 export function renderPlainTextHTML(source: string): string {
@@ -56,6 +83,65 @@ function escapeTextHTML(source: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+type MarkdownFence = {
+  character: "`" | "~";
+  length: number;
+};
+
+function markdownFence(line: string): MarkdownFence | null {
+  const match = /^( {0,3})(`{3,}|~{3,})/.exec(line);
+  if (!match) {
+    return null;
+  }
+  const marker = match[2];
+  return {
+    character: marker[0] as MarkdownFence["character"],
+    length: marker.length,
+  };
+}
+
+function isClosingFence(line: string, fence: MarkdownFence): boolean {
+  const match = /^( {0,3})(`{3,}|~{3,})\s*$/.exec(line);
+  if (!match) {
+    return false;
+  }
+  const marker = match[2];
+  return marker[0] === fence.character && marker.length >= fence.length;
+}
+
+function escapeInlineRawHTML(line: string): string {
+  let output = "";
+  let plainStart = 0;
+  let index = 0;
+  while (index < line.length) {
+    if (line[index] !== "`") {
+      index += 1;
+      continue;
+    }
+
+    const runStart = index;
+    while (index < line.length && line[index] === "`") {
+      index += 1;
+    }
+    const marker = line.slice(runStart, index);
+    const closeIndex = line.indexOf(marker, index);
+    if (closeIndex < 0) {
+      continue;
+    }
+
+    output += escapeRawHTMLSegment(line.slice(plainStart, runStart));
+    output += line.slice(runStart, closeIndex + marker.length);
+    index = closeIndex + marker.length;
+    plainStart = index;
+  }
+  output += escapeRawHTMLSegment(line.slice(plainStart));
+  return output;
+}
+
+function escapeRawHTMLSegment(source: string): string {
+  return source.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }
 
 function sanitizeRenderedHTML(html: string): string {
@@ -77,8 +163,11 @@ function sanitizeRenderedHTML(html: string): string {
         element.removeAttribute(attribute.name);
         continue;
       }
-      if (urlAttributeNames.has(name) && !isSafeURL(attribute.value)) {
+      const sanitizedURL = sanitizedMarkdownURLAttribute(element.localName, name, attribute.value);
+      if (sanitizedURL === null) {
         element.removeAttribute(attribute.name);
+      } else if (typeof sanitizedURL === "string" && sanitizedURL !== attribute.value) {
+        element.setAttribute(attribute.name, sanitizedURL);
       }
     }
 
@@ -88,6 +177,24 @@ function sanitizeRenderedHTML(html: string): string {
   }
 
   return template.innerHTML;
+}
+
+export function sanitizedMarkdownURLAttribute(
+  elementName: string,
+  attributeName: string,
+  value: string,
+): string | null | undefined {
+  const name = attributeName.toLowerCase();
+  if (passiveFetchAttributeNames.has(name)) {
+    return null;
+  }
+  if (name !== "href") {
+    return undefined;
+  }
+  if (elementName.toLowerCase() !== "a") {
+    return null;
+  }
+  return isSafeURL(value) ? value : null;
 }
 
 export function isSafeURL(value: string): boolean {
