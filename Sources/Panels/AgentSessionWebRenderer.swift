@@ -412,6 +412,10 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.attachFile",
                             defaultValue: "Attach file"
                         ),
+                        "addPhotosAndFiles": String(
+                            localized: "agentSession.web.addPhotosAndFiles",
+                            defaultValue: "Add photos & files"
+                        ),
                         "removeAttachment": String(
                             localized: "agentSession.web.removeAttachment",
                             defaultValue: "Remove attachment"
@@ -550,8 +554,14 @@ extension AgentSessionWebRenderer {
 
         private func pickLocalFiles() -> [String: Any] {
             let panel = NSOpenPanel()
-            panel.title = String(localized: "agentSession.web.attachFile", defaultValue: "Attach file")
-            panel.prompt = String(localized: "agentSession.web.attachFile", defaultValue: "Attach file")
+            panel.title = String(
+                localized: "agentSession.web.addPhotosAndFiles",
+                defaultValue: "Add photos & files"
+            )
+            panel.prompt = String(
+                localized: "agentSession.web.addPhotosAndFiles",
+                defaultValue: "Add photos & files"
+            )
             panel.canChooseFiles = true
             panel.canChooseDirectories = true
             panel.allowsMultipleSelection = true

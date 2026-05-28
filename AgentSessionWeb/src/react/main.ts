@@ -996,6 +996,7 @@ function AddContextDropdown({
   state: SessionState;
 }) {
   const copy = state.context?.copy;
+  const addPhotosAndFilesLabel = copy?.addPhotosAndFiles ?? "Add photos & files";
   const mentionItems = composerMenuItems("mention", state, "");
   const workspaceItem = mentionItems.find((item) => item.id === "workspace") ?? null;
   const skillItems = composerMenuItems("skill", state, "");
@@ -1019,7 +1020,7 @@ function AddContextDropdown({
         className:
           `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
-        "aria-label": copy?.attachFile ?? "Attach file",
+        "aria-label": addPhotosAndFilesLabel,
         "aria-haspopup": "menu",
         "aria-expanded": isOpen,
         "data-state": isOpen ? "open" : "closed",
@@ -1044,12 +1045,12 @@ function AddContextDropdown({
             className:
               "add-context-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
             role: "menu",
-            "aria-label": copy?.attachFile ?? "Attach file",
+            "aria-label": addPhotosAndFilesLabel,
           },
           h(AddContextMenuItem, {
             disabled: isPickingFiles,
             icon: paperclipIcon("icon-xs"),
-            label: copy?.attachFile ?? "Attach file",
+            label: addPhotosAndFilesLabel,
             onSelect: onPickFiles,
           }),
           workspaceItem
