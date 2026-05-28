@@ -251,8 +251,9 @@ function SessionSurface({
     select.value = state().selectedProviderId;
     select.disabled = !canSelectProvider(state());
     select.setAttribute("aria-label", state().context?.copy.provider ?? "");
-    modelIcon.textContent = provider() ? providerBadgeLabel(provider()!) : "C";
-    modelLabel.textContent = codexModelLabel(provider());
+    const selectedProvider = provider();
+    modelIcon.textContent = selectedProvider ? providerBadgeLabel(selectedProvider) : "C";
+    modelLabel.textContent = codexModelLabel(selectedProvider);
   });
 
   const controlsRight = document.createElement("div");
