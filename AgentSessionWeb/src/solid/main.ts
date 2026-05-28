@@ -6,6 +6,13 @@ import { isComposingEnter } from "../shared/keyboard";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
+  activeRateLimitRow,
+  formatRateLimitPercent,
+  formatRateLimitReset,
+  formatRateLimitWindow,
+  normalizeRateLimitRow,
+} from "../shared/rateLimits";
+import {
   initialState,
   autoStartProvider,
   canSelectProvider,
@@ -87,6 +94,7 @@ function SessionSurface({
   const canStart = () => canStartProvider(state());
   const canStop = () => canStopProvider(state());
   const canSend = () => state().status === "running" && state().input.length > 0;
+  const [isRateLimitOpen, setIsRateLimitOpen] = createSignal(false);
   const root = document.createElement("section");
   root.className = "agent-shell";
 
@@ -291,9 +299,21 @@ function SessionSurface({
   const rateLine = document.createElement("div");
   rateLine.className = "rate-line codex-rate-limit-summary";
   rateLine.setAttribute("role", "status");
+  rateLine.addEventListener("focusout", (event) => {
+    const nextTarget = event.relatedTarget;
+    if (!(nextTarget instanceof Node) || !rateLine.contains(nextTarget)) {
+      setIsRateLimitOpen(false);
+    }
+  });
   composerStack.append(rateLine);
   createEffect(() => {
-    renderRateLimitFooter(rateLine, state(), provider()?.displayName ?? renderer);
+    renderRateLimitFooter(
+      rateLine,
+      state(),
+      provider()?.displayName ?? renderer,
+      isRateLimitOpen(),
+      () => setIsRateLimitOpen((open) => !open),
+    );
   });
 
   return root;
@@ -346,67 +366,98 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
   }
 }
 
-function renderRateLimitFooter(target: HTMLElement, state: SessionState, providerDisplayName: string): void {
+function renderRateLimitFooter(
+  target: HTMLElement,
+  state: SessionState,
+  providerDisplayName: string,
+  isOpen: boolean,
+  toggleOpen: () => void,
+): void {
   target.replaceChildren();
   target.setAttribute("aria-label", `${providerDisplayName} ${statusLabel(state)}`.trim());
+  target.className = "rate-line codex-rate-limit-summary relative";
+  const rows = state.context?.rateLimitRows ?? [];
+  const summary = activeRateLimitRow(rows);
+  target.hidden = summary == null;
+  if (!summary) {
+    return;
+  }
+
+  const usageLabel = state.context?.copy.rateLimitUsageRemaining ?? "Usage remaining";
+
+  const trigger = document.createElement("button");
+  trigger.className = "rate-limit-trigger flex min-w-0 items-center gap-1";
+  trigger.type = "button";
+  trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  trigger.addEventListener("click", toggleOpen);
+
+  const icon = document.createElement("span");
+  icon.className = "rate-limit-speedometer icon-xs";
+  icon.setAttribute("aria-hidden", "true");
+  icon.append(speedometerIcon());
 
   const heading = document.createElement("span");
   heading.className = "rate-line-heading";
-  heading.textContent = state.context?.copy.rateLimits ?? "Rate limits";
-  target.append(heading);
-
-  for (const row of state.context?.rateLimitRows ?? []) {
-    const separator = document.createElement("span");
-    separator.className = "rate-dot";
-    separator.setAttribute("aria-hidden", "true");
-    separator.textContent = "•";
-    target.append(separator, rateLimitRowElement(row, state));
-  }
-}
-
-function rateLimitRowElement(row: AgentSessionRateLimitRow, state: SessionState): HTMLSpanElement {
-  const item = document.createElement("span");
-  item.className = "rate-limit-item";
-
-  const label = document.createElement("span");
-  label.className = "rate-limit-name";
-  label.textContent = row.role === "primary"
-    ? state.context?.copy.rateLimitPrimary ?? "Primary"
-    : state.context?.copy.rateLimitSecondary ?? "Secondary";
+  heading.textContent = usageLabel;
 
   const percent = document.createElement("span");
   percent.className = "rate-limit-percent";
-  percent.textContent = formatRateLimitPercent(row.remainingPercent);
+  percent.textContent = formatRateLimitPercent(summary.remainingPercent);
 
-  item.append(label, percent);
+  const chevron = document.createElement("span");
+  chevron.className = "rate-limit-chevron icon-2xs";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.textContent = "⌄";
 
-  const resetText = formatRateLimitReset(row.resetsAt);
+  trigger.append(icon, heading, percent, chevron);
+  target.append(trigger);
+
+  if (isOpen) {
+    const popover = document.createElement("div");
+    popover.className =
+      "rate-limit-popover absolute bottom-[calc(100%+6px)] left-0 z-50 flex min-w-56 flex-col gap-1 rounded-xl border border-token-border bg-token-dropdown-background/95 px-3 py-2 text-sm shadow-xl-spread backdrop-blur-sm";
+    const title = document.createElement("div");
+    title.className = "rate-limit-popover-title";
+    title.textContent = usageLabel;
+    popover.append(title);
+    for (const row of rows) {
+      popover.append(rateLimitRowElement(row, state));
+    }
+    target.append(popover);
+  }
+}
+
+function rateLimitRowElement(row: AgentSessionRateLimitRow, state: SessionState): HTMLDivElement {
+  const normalized = normalizeRateLimitRow(row);
+  const item = document.createElement("div");
+  item.className = "rate-limit-popover-row";
+
+  const label = document.createElement("span");
+  label.className = "rate-limit-window";
+  const fallbackLabel = normalized.role === "primary"
+    ? state.context?.copy.rateLimitPrimary ?? "Primary"
+    : state.context?.copy.rateLimitSecondary ?? "Secondary";
+  label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel);
+
+  const value = document.createElement("span");
+  value.className = "rate-limit-row-value";
+
+  const percent = document.createElement("span");
+  percent.className = "rate-limit-percent";
+  percent.textContent = formatRateLimitPercent(normalized.remainingPercent);
+
+  value.append(percent);
+
+  const resetText = formatRateLimitReset(normalized.resetsAt);
   if (resetText) {
     const reset = document.createElement("span");
     reset.className = "rate-limit-reset";
     reset.textContent = `${state.context?.copy.rateLimitResets ?? "resets"} ${resetText}`;
-    item.append(reset);
+    value.append(reset);
   }
 
+  item.append(label, value);
   return item;
-}
-
-function formatRateLimitPercent(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "100%";
-  }
-  return `${Math.round(Math.min(Math.max(value, 0), 100))}%`;
-}
-
-function formatRateLimitReset(resetsAt: number | undefined): string | null {
-  if (resetsAt == null || !Number.isFinite(resetsAt)) {
-    return null;
-  }
-  const date = new Date(resetsAt * 1000);
-  if (!Number.isFinite(date.getTime())) {
-    return null;
-  }
-  return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
 }
 
 function sendIcon(): SVGSVGElement {
@@ -420,6 +471,23 @@ function sendIcon(): SVGSVGElement {
   path.setAttribute("d", "M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5");
   path.setAttribute("stroke", "currentColor");
   path.setAttribute("stroke-width", "1.8");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.append(path);
+  return icon;
+}
+
+function speedometerIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("width", "16");
+  icon.setAttribute("height", "16");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M2.5 10.25a5.5 5.5 0 1 1 11 0M8 10.25l2.45-3.05M4.35 10.25h7.3");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.35");
   path.setAttribute("stroke-linecap", "round");
   path.setAttribute("stroke-linejoin", "round");
   icon.append(path);

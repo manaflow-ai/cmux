@@ -617,6 +617,10 @@ extension AgentSessionWebRenderer {
                         "send": String(localized: "agentSession.web.send", defaultValue: "Send"),
                         "provider": String(localized: "agentSession.web.provider", defaultValue: "Provider"),
                         "rateLimits": String(localized: "agentSession.web.rateLimits", defaultValue: "Rate limits"),
+                        "rateLimitUsageRemaining": String(
+                            localized: "agentSession.web.rateLimit.usageRemaining",
+                            defaultValue: "Usage remaining"
+                        ),
                         "rateLimitPrimary": String(localized: "agentSession.web.rateLimit.primary", defaultValue: "Primary"),
                         "rateLimitSecondary": String(localized: "agentSession.web.rateLimit.secondary", defaultValue: "Secondary"),
                         "rateLimitResets": String(localized: "agentSession.web.rateLimit.resets", defaultValue: "resets"),

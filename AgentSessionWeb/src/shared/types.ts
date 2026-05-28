@@ -42,6 +42,8 @@ export type AppContext = {
 export type AgentSessionRateLimitRow = {
   role: "primary" | "secondary";
   remainingPercent: number;
+  usedPercent?: number;
+  windowDurationMins?: number;
   resetsAt?: number;
 };
 
@@ -51,6 +53,7 @@ export type AgentSessionCopy = {
   send: string;
   provider: string;
   rateLimits: string;
+  rateLimitUsageRemaining: string;
   rateLimitPrimary: string;
   rateLimitSecondary: string;
   rateLimitResets: string;

@@ -5,6 +5,13 @@ import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
+  activeRateLimitRow,
+  formatRateLimitPercent,
+  formatRateLimitReset,
+  formatRateLimitWindow,
+  normalizeRateLimitRow,
+} from "../shared/rateLimits";
+import {
   initialState,
   autoStartProvider,
   canSelectProvider,
@@ -450,63 +457,77 @@ function RateLimitFooter({
   providerDisplayName: string;
 }) {
   const rows = state.context?.rateLimitRows ?? [];
+  const summary = activeRateLimitRow(rows);
   const copy = state.context?.copy;
+  const [isOpen, setIsOpen] = useState(false);
+  if (!summary) {
+    return null;
+  }
+  const usageLabel = copy?.rateLimitUsageRemaining ?? "Usage remaining";
   return h(
     "div",
     {
-      className: "rate-line codex-rate-limit-summary",
+      className: "rate-line codex-rate-limit-summary relative",
       role: "status",
       "aria-label": `${providerDisplayName} ${statusLabel(state)}`.trim(),
+      onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setIsOpen(false);
+        }
+      },
     },
-    h("span", { className: "rate-line-heading" }, copy?.rateLimits ?? "Rate limits"),
-    rows.map((row) =>
-      h(
-        React.Fragment,
-        { key: row.role },
-        h("span", { className: "rate-dot", "aria-hidden": true }, "•"),
-        h(RateLimitRow, { row, state }),
-      ),
+    h(
+      "button",
+      {
+        className: "rate-limit-trigger flex min-w-0 items-center gap-1",
+        type: "button",
+        "aria-expanded": isOpen,
+        onClick: () => setIsOpen((open) => !open),
+      },
+      h("span", { className: "rate-limit-speedometer icon-xs", "aria-hidden": true }, speedometerIcon()),
+      h("span", { className: "rate-line-heading" }, usageLabel),
+      h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(summary.remainingPercent)),
+      h("span", { className: "rate-limit-chevron icon-2xs", "aria-hidden": true }, chevronIcon()),
     ),
-  );
-}
-
-function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: SessionState }) {
-  const copy = state.context?.copy;
-  const label = row.role === "primary"
-    ? copy?.rateLimitPrimary ?? "Primary"
-    : copy?.rateLimitSecondary ?? "Secondary";
-  const resetText = formatRateLimitReset(row.resetsAt);
-  return h(
-    "span",
-    { className: "rate-limit-item" },
-    h("span", { className: "rate-limit-name" }, label),
-    h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(row.remainingPercent)),
-    resetText
+    isOpen
       ? h(
-          "span",
-          { className: "rate-limit-reset" },
-          `${copy?.rateLimitResets ?? "resets"} ${resetText}`,
+          "div",
+          {
+            className:
+              "rate-limit-popover absolute bottom-[calc(100%+6px)] left-0 z-50 flex min-w-56 flex-col gap-1 rounded-xl border border-token-border bg-token-dropdown-background/95 px-3 py-2 text-sm shadow-xl-spread backdrop-blur-sm",
+          },
+          h("div", { className: "rate-limit-popover-title" }, usageLabel),
+          rows.map((row) => h(RateLimitRow, { key: row.role, row, state })),
         )
       : null,
   );
 }
 
-function formatRateLimitPercent(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "100%";
-  }
-  return `${Math.round(Math.min(Math.max(value, 0), 100))}%`;
-}
-
-function formatRateLimitReset(resetsAt: number | undefined): string | null {
-  if (resetsAt == null || !Number.isFinite(resetsAt)) {
-    return null;
-  }
-  const date = new Date(resetsAt * 1000);
-  if (!Number.isFinite(date.getTime())) {
-    return null;
-  }
-  return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
+function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: SessionState }) {
+  const normalized = normalizeRateLimitRow(row);
+  const copy = state.context?.copy;
+  const fallbackLabel = normalized.role === "primary"
+    ? copy?.rateLimitPrimary ?? "Primary"
+    : copy?.rateLimitSecondary ?? "Secondary";
+  const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel);
+  const resetText = formatRateLimitReset(normalized.resetsAt);
+  return h(
+    "div",
+    { className: "rate-limit-popover-row" },
+    h("span", { className: "rate-limit-window" }, label),
+    h(
+      "span",
+      { className: "rate-limit-row-value" },
+      h("span", { className: "rate-limit-percent" }, formatRateLimitPercent(normalized.remainingPercent)),
+      resetText
+        ? h(
+            "span",
+            { className: "rate-limit-reset" },
+            `${copy?.rateLimitResets ?? "resets"} ${resetText}`,
+          )
+        : null,
+      ),
+  );
 }
 
 function ComposerTopTray({
@@ -632,6 +653,20 @@ function micIcon() {
       stroke: "currentColor",
       strokeWidth: "1.4",
       strokeLinecap: "round",
+    }),
+  );
+}
+
+function speedometerIcon() {
+  return h(
+    "svg",
+    { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M2.5 10.25a5.5 5.5 0 1 1 11 0M8 10.25l2.45-3.05M4.35 10.25h7.3",
+      stroke: "currentColor",
+      strokeWidth: "1.35",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
     }),
   );
 }

@@ -42,6 +42,7 @@ const context: AppContext = {
     send: "Send",
     provider: "Provider",
     rateLimits: "Rate limits",
+    rateLimitUsageRemaining: "Usage remaining",
     rateLimitPrimary: "Primary",
     rateLimitSecondary: "Secondary",
     rateLimitResets: "resets",
