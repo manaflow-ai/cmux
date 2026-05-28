@@ -49,4 +49,8 @@ final class HostSettingsActions: SettingsHostActions {
     func openBrowserImportFlow() {
         BrowserDataImportCoordinator.shared.presentImportDialog()
     }
+
+    func requestNotificationAuthorization() {
+        TerminalNotificationStore.shared.requestAuthorizationFromSettings()
+    }
 }

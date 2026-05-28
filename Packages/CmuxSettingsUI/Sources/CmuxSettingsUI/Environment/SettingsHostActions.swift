@@ -43,4 +43,8 @@ public protocol SettingsHostActions: AnyObject {
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
+
+    /// Asks the OS for notification authorization. No-op if the user
+    /// has already responded (granted or denied).
+    func requestNotificationAuthorization()
 }

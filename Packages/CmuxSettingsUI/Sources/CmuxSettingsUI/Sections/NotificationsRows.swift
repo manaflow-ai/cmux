@@ -47,6 +47,9 @@ public struct NotificationsRows: View {
             )
             if let hostActions {
                 HStack {
+                    Button("Request Permission") {
+                        hostActions.requestNotificationAuthorization()
+                    }
                     Button("Open System Notification Settings…") {
                         hostActions.openSystemNotificationSettings()
                     }

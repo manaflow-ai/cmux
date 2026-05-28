@@ -24,6 +24,7 @@ public struct KeyboardShortcutsSection: View {
 
     @State private var bindings: [String: StoredShortcut] = [:]
     @State private var streamTask: Task<Void, Never>?
+    @State private var chordModeActions: Set<String> = []
 
     public init(
         jsonStore: JSONConfigStore,
@@ -88,11 +89,29 @@ public struct KeyboardShortcutsSection: View {
             Spacer()
             ShortcutRecorderView(
                 placeholder: formatPlaceholder(effective: effective, hasOverride: hasOverride),
+                chordsEnabled: chordModeActions.contains(action.rawValue),
                 onStroke: { stroke in
                     Task { await assign(stroke: stroke, to: action) }
+                },
+                onChord: { chord in
+                    Task { await assignChord(chord, to: action) }
                 }
             )
-            .frame(width: 200, height: 28)
+            .frame(width: 220, height: 28)
+            Toggle(isOn: Binding(
+                get: { chordModeActions.contains(action.rawValue) },
+                set: { isOn in
+                    if isOn {
+                        chordModeActions.insert(action.rawValue)
+                    } else {
+                        chordModeActions.remove(action.rawValue)
+                    }
+                }
+            )) {
+                Image(systemName: "circle.grid.cross.fill")
+            }
+            .toggleStyle(.button)
+            .help("Record two-stroke chord (e.g. ⌃B then P)")
             if hasOverride {
                 Button("Reset") {
                     Task { await resetToDefault(action: action) }
@@ -171,6 +190,13 @@ public struct KeyboardShortcutsSection: View {
     private func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
         var updated = bindings
         updated[action.rawValue] = StoredShortcut(first: stroke)
+        await write(updated)
+    }
+
+    private func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+        var updated = bindings
+        updated[action.rawValue] = chord
+        chordModeActions.remove(action.rawValue)
         await write(updated)
     }
 
