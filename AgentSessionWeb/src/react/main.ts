@@ -532,6 +532,23 @@ function SessionSurface({
       setMenuIndex(0);
     },
   });
+  const permissionsControl = (hideLabel = false) =>
+    h(PermissionsDropdown, {
+      copy: state.context?.copy,
+      hideLabel,
+      isEnabled: false,
+      isOpen: permissionsMenuOpen,
+      mode: permissionMode,
+      onModeChange: setPermissionMode,
+      onOpenChange: (isOpen: boolean) => {
+        setPermissionsMenuOpen(isOpen);
+        if (isOpen) {
+          setAddContextMenuOpen(false);
+          setProviderMenuOpen(false);
+          setMenuKind(null);
+        }
+      },
+    });
   const leftControls = h(
     "div",
     { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
@@ -557,21 +574,7 @@ function SessionSurface({
       icon: globeIcon(),
       onClick: () => insertSkillMenuItem("research"),
     }),
-    h(PermissionsDropdown, {
-      copy: state.context?.copy,
-      isEnabled: false,
-      isOpen: permissionsMenuOpen,
-      mode: permissionMode,
-      onModeChange: setPermissionMode,
-      onOpenChange: (isOpen: boolean) => {
-        setPermissionsMenuOpen(isOpen);
-        if (isOpen) {
-          setAddContextMenuOpen(false);
-          setProviderMenuOpen(false);
-          setMenuKind(null);
-        }
-      },
-    }),
+    isSingleLineComposer ? null : permissionsControl(false),
     h(ComposerFooterButton, {
       ariaLabel: state.context?.copy.skillPlan ?? "Plan",
       icon: sparkleIcon(),
@@ -647,6 +650,7 @@ function SessionSurface({
     "div",
     { className: "flex min-w-0 shrink-0 items-center justify-end gap-2" },
     secondaryControls,
+    permissionsControl(true),
     actionCluster,
   );
   const composerInputWrapper = h(
@@ -1143,6 +1147,7 @@ function ComposerModeIndicator({
 
 function PermissionsDropdown({
   copy,
+  hideLabel = false,
   isEnabled,
   isOpen,
   mode,
@@ -1150,6 +1155,7 @@ function PermissionsDropdown({
   onOpenChange,
 }: {
   copy?: AgentSessionCopy;
+  hideLabel?: boolean;
   isEnabled: boolean;
   isOpen: boolean;
   mode: ComposerPermissionMode;
@@ -1178,7 +1184,7 @@ function PermissionsDropdown({
       "button",
       {
         className:
-          `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} min-w-0 rounded-full`,
+          `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${hideLabel ? CODEX_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
         type: "button",
         "aria-label": triggerLabel,
         "aria-haspopup": isEnabled ? "menu" : undefined,
@@ -1207,7 +1213,13 @@ function PermissionsDropdown({
         },
       },
       permissionModeIcon(mode, "icon-xs shrink-0"),
-      h("span", { className: "permissions-trigger-label composer-footer__label--xs max-w-40 truncate whitespace-nowrap text-left" }, selectedLabel),
+      hideLabel
+        ? null
+        : h(
+            "span",
+            { className: "permissions-trigger-label composer-footer__label--xs max-w-40 truncate whitespace-nowrap text-left" },
+            selectedLabel,
+          ),
       isEnabled ? h("span", { className: "permissions-trigger-chevron icon-2xs shrink-0", "aria-hidden": true }, chevronIcon()) : null,
     ),
     effectiveIsOpen
