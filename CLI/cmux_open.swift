@@ -5225,6 +5225,7 @@ extension CMUXCLI {
             let currentTreeSource = null;
             let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
+            let terminateWorkerPool = null;
             let activeFileId = "";
             let activeTreePath = "";
             let suppressTreeSelectionChange = false;
@@ -5239,7 +5240,7 @@ extension CMUXCLI {
             const patchResponsePromise = fetch(payload.patchURL, { cache: "no-store" });
             patchResponsePromise.catch(() => {});
             const workerPoolPromise = initializeCodeViewWorkerPool();
-            window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
+            window.addEventListener("pagehide", terminateCodeViewWorkerPool, { once: true });
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
               renderDiff().catch((error) => {
@@ -5321,14 +5322,50 @@ extension CMUXCLI {
                 registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.light);
                 registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.dark);
                 const workerURL = new URL(DIFF_WORKER_URL, window.location.href).href;
-                return workerPoolModule.createDiffWorkerPool({
+                const poolOptions = codeViewWorkerPoolOptions(workerURL);
+                const highlighterOptions = workerHighlighterOptions();
+                if (typeof workerPoolModule.getOrCreateWorkerPoolSingleton === "function") {
+                  terminateWorkerPool = typeof workerPoolModule.terminateWorkerPoolSingleton === "function"
+                    ? workerPoolModule.terminateWorkerPoolSingleton
+                    : null;
+                  return workerPoolModule.getOrCreateWorkerPoolSingleton({
+                    poolOptions,
+                    highlighterOptions,
+                  }) ?? null;
+                }
+                return workerPoolModule.createDiffWorkerPool?.({
                   workerURL,
-                  highlighterOptions: workerHighlighterOptions(),
+                  poolOptions,
+                  highlighterOptions,
                 }) ?? null;
               } catch (error) {
                 console.warn("cmux diff worker pool unavailable; falling back to main-thread highlighting", error);
                 return null;
               }
+            }
+
+            function codeViewWorkerPoolOptions(workerURL) {
+              const isSmallTouchSurface = globalThis.navigator?.maxTouchPoints > 0 &&
+                globalThis.matchMedia?.("(max-width: 767px), (pointer: coarse)").matches === true;
+              const limits = isSmallTouchSurface
+                ? { poolSize: 1, totalASTLRUCacheSize: 10 }
+                : { poolSize: 3, totalASTLRUCacheSize: 100 };
+              return {
+                poolSize: Math.min(Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) - 1), limits.poolSize),
+                totalASTLRUCacheSize: limits.totalASTLRUCacheSize,
+                workerFactory: () => new Worker(workerURL, { type: "module" }),
+              };
+            }
+
+            function terminateCodeViewWorkerPool() {
+              if (typeof terminateWorkerPool === "function") {
+                terminateWorkerPool();
+                terminateWorkerPool = null;
+                workerPool = null;
+                return;
+              }
+              workerPool?.terminate?.();
+              workerPool = null;
             }
 
             function observeWorkerPool(pool) {
@@ -5997,21 +6034,11 @@ extension CMUXCLI {
                     return;
                   }
                   resolved = true;
-                  if (timeout !== 0) {
-                    window.clearTimeout(timeout);
-                  }
+                  window.clearTimeout(timeout);
                   resolve();
                 };
-                if (document.visibilityState === "visible" && document.hasFocus()) {
-                  timeout = window.setTimeout(done, 50);
-                  window.requestAnimationFrame(done);
-                } else if (typeof MessageChannel !== "undefined") {
-                  const channel = new MessageChannel();
-                  channel.port1.onmessage = done;
-                  channel.port2.postMessage(undefined);
-                } else {
-                  queueMicrotask(done);
-                }
+                timeout = window.setTimeout(done, 50);
+                window.requestAnimationFrame(done);
               });
             }
 
