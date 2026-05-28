@@ -109,6 +109,7 @@ extension CMUXCLI {
         "session-start": .sessionStart,
         "prompt-submit": .promptSubmit,
         "stop": .stop,
+        "stop-failure": .stop,
         "notification": .notification,
         "notify": .notification,
         "agent-response": .stop,
