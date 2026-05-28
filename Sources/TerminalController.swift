@@ -18377,6 +18377,10 @@ class TerminalController {
         let canvasPresentationScale: Double
         let canvasFocusedItemId: String?
         let canvasActiveRenderMode: String?
+        let canvasPresentationInteractionPhase: String?
+        let canvasUsesUnifiedTexturePresentation: Bool?
+        let canvasRecentInteractionPhases: [String]
+        let canvasRecentUnifiedTexturePresentationCount: Int
         let canvasItems: [LayoutDebugCanvasItem]
         let mainWindowNumber: Int?
         let keyWindowNumber: Int?
@@ -18615,6 +18619,7 @@ class TerminalController {
             }
 
             let canvas = tab.layoutController.canvasSnapshot()
+            let canvasPresentationDebug = WorkspaceCanvasPresentationDebugRegistry.snapshot(workspaceID: tab.id)
             let canvasItems = canvas.items.map { item -> LayoutDebugCanvasItem in
                 let contentKind: String
                 let paneId: String?
@@ -18655,6 +18660,10 @@ class TerminalController {
                 canvasPresentationScale: CanvasViewportZoom.presentationScale(for: tab.layoutController.canvasViewport),
                 canvasFocusedItemId: tab.layoutController.focusedCanvasItemID?.id.uuidString,
                 canvasActiveRenderMode: canvasScene.activeMountDirective?.renderMode.rawValue,
+                canvasPresentationInteractionPhase: canvasPresentationDebug?.interactionPhase.rawValue,
+                canvasUsesUnifiedTexturePresentation: canvasPresentationDebug?.usesUnifiedTexturePresentation,
+                canvasRecentInteractionPhases: canvasPresentationDebug?.recentInteractionPhases.map(\.rawValue) ?? [],
+                canvasRecentUnifiedTexturePresentationCount: canvasPresentationDebug?.recentUnifiedTexturePresentationCount ?? 0,
                 canvasItems: canvasItems,
                 mainWindowNumber: NSApp.mainWindow?.windowNumber,
                 keyWindowNumber: NSApp.keyWindow?.windowNumber

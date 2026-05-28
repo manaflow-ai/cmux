@@ -47,6 +47,51 @@ public enum WorkspaceLayoutTabBarHitRegionRegistry {
     }
 }
 
+public enum WorkspaceLayoutSurfaceTabHitRegionRegistry {
+    private static let lock = NSLock()
+    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+
+    static func register(_ view: NSView) {
+        lock.lock()
+        registeredViews.add(view)
+        lock.unlock()
+    }
+
+    static func unregister(_ view: NSView) {
+        lock.lock()
+        registeredViews.remove(view)
+        lock.unlock()
+    }
+
+    private static func snapshot() -> [NSView] {
+        lock.lock()
+        let views = registeredViews.allObjects
+        lock.unlock()
+        return views
+    }
+
+    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+
+    public static func containsWindowPoint(_ windowPoint: CGPoint, in window: NSWindow) -> Bool {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+            let frameInWindow = view.convert(view.bounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
+            if frameInWindow.contains(windowPoint) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 private struct SelectedTabFramePreferenceKey: PreferenceKey {
     static let defaultValue: CGRect? = nil
 

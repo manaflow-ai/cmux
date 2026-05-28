@@ -191,6 +191,7 @@ struct SurfaceItemView: View {
         .contentShape(Rectangle())
         // Middle click to close (macOS convention).
         // Uses an AppKit event monitor so it doesn't interfere with left click selection or drag/reorder.
+        .background(SurfaceTabHitRegionRegistrationView())
         .background(MiddleClickMonitorView(onMiddleClick: {
             guard canMiddleClickClose, !tab.isPinned else { return }
             onClose(.middleClick)
@@ -468,6 +469,45 @@ private struct TabLoadingSpinner: View {
 
     private var ringWidth: CGFloat {
         max(1.6, size * 0.14)
+    }
+}
+
+private struct SurfaceTabHitRegionRegistrationView: NSViewRepresentable {
+    func makeNSView(context: Context) -> SurfaceTabHitRegionNSView {
+        SurfaceTabHitRegionNSView()
+    }
+
+    func updateNSView(_ nsView: SurfaceTabHitRegionNSView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: SurfaceTabHitRegionNSView, coordinator: ()) {
+        WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(nsView)
+    }
+}
+
+private final class SurfaceTabHitRegionNSView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    deinit {
+        WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(self)
+        if window != nil {
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.register(self)
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil {
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(self)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 

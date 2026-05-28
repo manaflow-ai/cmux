@@ -1129,7 +1129,8 @@ func windowDragHandleShouldCaptureHit(
     if let dragHandleWindow,
        eventType == .leftMouseDown {
         let windowPoint = dragHandleView.convert(point, to: nil)
-        if WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
+        if WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) ||
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
             #if DEBUG
             cmuxDebugLog(
                 "titlebar.dragHandle.hitTest capture=false reason=workspaceLayoutPaneTab point=\(windowDragHandleFormatPoint(point))"

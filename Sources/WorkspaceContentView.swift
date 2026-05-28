@@ -26,6 +26,59 @@ enum WorkspaceCanvasPortalDebugRegistry {
     }
 }
 
+struct WorkspaceCanvasPresentationDebugSnapshot {
+    let interactionPhase: CanvasInteractionPhase
+    let usesUnifiedTexturePresentation: Bool
+    let recentInteractionPhases: [CanvasInteractionPhase]
+    let recentUnifiedTexturePresentationCount: Int
+}
+
+@MainActor
+enum WorkspaceCanvasPresentationDebugRegistry {
+    private struct Entry {
+        var interactionPhase: CanvasInteractionPhase
+        var usesUnifiedTexturePresentation: Bool
+        var recentInteractionPhases: [CanvasInteractionPhase]
+        var recentUnifiedTexturePresentationCount: Int
+    }
+
+    private static let maximumRecentEntryCount = 48
+    private static var entriesByWorkspaceID: [UUID: Entry] = [:]
+
+    static func record(workspaceID: UUID, presentation: CanvasPresentationState) {
+        var entry = entriesByWorkspaceID[workspaceID] ?? Entry(
+            interactionPhase: presentation.interactionPhase,
+            usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
+            recentInteractionPhases: [],
+            recentUnifiedTexturePresentationCount: 0
+        )
+        entry.interactionPhase = presentation.interactionPhase
+        entry.usesUnifiedTexturePresentation = presentation.usesUnifiedTexturePresentation
+        entry.recentInteractionPhases.append(presentation.interactionPhase)
+        if entry.recentInteractionPhases.count > maximumRecentEntryCount {
+            entry.recentInteractionPhases.removeFirst(entry.recentInteractionPhases.count - maximumRecentEntryCount)
+        }
+        if presentation.usesUnifiedTexturePresentation {
+            entry.recentUnifiedTexturePresentationCount += 1
+        }
+        entriesByWorkspaceID[workspaceID] = entry
+    }
+
+    static func snapshot(workspaceID: UUID) -> WorkspaceCanvasPresentationDebugSnapshot? {
+        guard let entry = entriesByWorkspaceID[workspaceID] else { return nil }
+        return WorkspaceCanvasPresentationDebugSnapshot(
+            interactionPhase: entry.interactionPhase,
+            usesUnifiedTexturePresentation: entry.usesUnifiedTexturePresentation,
+            recentInteractionPhases: entry.recentInteractionPhases,
+            recentUnifiedTexturePresentationCount: entry.recentUnifiedTexturePresentationCount
+        )
+    }
+
+    static func remove(workspaceID: UUID) {
+        entriesByWorkspaceID.removeValue(forKey: workspaceID)
+    }
+}
+
 private struct WorkspaceCanvasCardSnapshot: Identifiable {
     var id: LayoutItemID { item.id }
     let item: CanvasItem
@@ -1541,6 +1594,49 @@ private func canvasAnimationFrameClockCallback(
     return kCVReturnSuccess
 }
 
+private struct CanvasPresentationDebugProbeLayer: NSViewRepresentable {
+    let workspaceID: UUID
+    let presentation: CanvasPresentationState
+
+    func makeNSView(context: Context) -> CanvasPresentationDebugProbeView {
+        let view = CanvasPresentationDebugProbeView()
+        view.update(workspaceID: workspaceID, presentation: presentation)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasPresentationDebugProbeView, context: Context) {
+        nsView.update(workspaceID: workspaceID, presentation: presentation)
+    }
+
+    static func dismantleNSView(_ nsView: CanvasPresentationDebugProbeView, coordinator: ()) {
+        nsView.remove()
+    }
+}
+
+private final class CanvasPresentationDebugProbeView: NSView {
+    private var workspaceID: UUID?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(workspaceID: UUID, presentation: CanvasPresentationState) {
+        self.workspaceID = workspaceID
+        WorkspaceCanvasPresentationDebugRegistry.record(
+            workspaceID: workspaceID,
+            presentation: presentation
+        )
+    }
+
+    func remove() {
+        guard let workspaceID else { return }
+        WorkspaceCanvasPresentationDebugRegistry.remove(workspaceID: workspaceID)
+        self.workspaceID = nil
+    }
+}
+
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
     case workspaceLayoutPane
@@ -2583,6 +2679,14 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     preferredFramesPerSecond: 120
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+                CanvasPresentationDebugProbeLayer(
+                    workspaceID: workspace.id,
+                    presentation: presentation
+                )
+                .frame(width: 1, height: 1)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
 

@@ -794,7 +794,8 @@ func shouldSuppressWindowMoveForWorkspaceLayoutPaneTabDrag(window: NSWindow, eve
         return false
     }
 
-    return WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
+    return WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window) ||
+        WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
 }
 
 func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {

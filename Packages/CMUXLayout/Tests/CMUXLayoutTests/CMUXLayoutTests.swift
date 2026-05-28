@@ -27,6 +27,28 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    private final class FakeSurfaceTabHitRegionView: NSView {
+        deinit {
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(self)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(self)
+            if window != nil {
+                WorkspaceLayoutSurfaceTabHitRegionRegistry.register(self)
+            }
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            if superview == nil {
+                WorkspaceLayoutSurfaceTabHitRegionRegistry.unregister(self)
+            }
+        }
+    }
+
+    @MainActor
     private final class LayoutProbeView: NSView {
         private(set) var sizeChangeCount = 0
         private(set) var originChangeCount = 0
@@ -866,6 +888,42 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(
             WorkspaceLayoutTabBarHitRegionRegistry.containsWindowPoint(hitPoint, in: window),
             "Ancestor-hidden tab-bar regions must not keep stealing portal hit testing"
+        )
+    }
+
+    @MainActor
+    func testSurfaceTabHitRegionRegistryTracksVisibleTabItemOnly() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let tabItem = FakeSurfaceTabHitRegionView(frame: NSRect(x: 48, y: 142, width: 96, height: 28))
+        contentView.addSubview(tabItem)
+
+        let hitPoint = tabItem.convert(NSPoint(x: 8, y: 10), to: nil)
+        XCTAssertTrue(
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(hitPoint, in: window),
+            "Surface tab hit regions should suppress titlebar window dragging on tab items"
+        )
+
+        let missPoint = tabItem.convert(NSPoint(x: 8, y: -20), to: nil)
+        XCTAssertFalse(
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(missPoint, in: window),
+            "Surface tab hit regions must not cover empty tab-bar space"
+        )
+
+        tabItem.isHidden = true
+        XCTAssertFalse(
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(hitPoint, in: window),
+            "Hidden tab items must not keep suppressing window drag"
         )
     }
 
