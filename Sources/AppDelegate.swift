@@ -175,17 +175,22 @@ private enum CmuxThemeNotifications {
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
 /// (cloudVM in particular launches `cmux vm new` and returns immediately).
-/// Self-clears on first match or after `timeoutSeconds`.
+/// Subscribes to `tabManager.$tabs` (the @Published source of truth that
+/// `addWorkspace` updates, regardless of whether a NotificationCenter event
+/// fired) so VM workspaces, dropped attaches, or any other slow async path
+/// is caught. Self-clears on first match or after `timeoutSeconds` (default
+/// 10 minutes so legitimately slow VM provisioning still lands in the
+/// group).
 @MainActor
 final class ConfiguredGroupActionAsyncWorkspaceObserver {
     static var pending: [ObjectIdentifier: ConfiguredGroupActionAsyncWorkspaceObserver] = [:]
     private weak var tabManager: TabManager?
     private let groupId: UUID
     private var knownIds: Set<UUID>
-    private var observer: NSObjectProtocol?
+    private var subscription: AnyCancellable?
     private var timeoutTask: Task<Void, Never>?
 
-    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 60) {
+    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 600) {
         let key = ObjectIdentifier(tabManager)
         pending[key]?.dispose()
         let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
@@ -194,15 +199,11 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             knownIds: knownIds
         )
         pending[key] = watcher
-        watcher.observer = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
-            object: tabManager,
-            queue: .main
-        ) { [weak watcher] _ in
-            Task { @MainActor in
-                watcher?.checkForNewWorkspace()
+        watcher.subscription = tabManager.$tabs
+            .receive(on: DispatchQueue.main)
+            .sink { [weak watcher] tabs in
+                watcher?.checkForNewWorkspace(in: tabs)
             }
-        }
         watcher.timeoutTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
             watcher.dispose()
@@ -215,13 +216,13 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
         self.knownIds = knownIds
     }
 
-    private func checkForNewWorkspace() {
+    private func checkForNewWorkspace(in tabs: [Workspace]) {
         guard let tabManager else { dispose(); return }
         guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else {
             dispose()
             return
         }
-        for tab in tabManager.tabs where !knownIds.contains(tab.id) {
+        for tab in tabs where !knownIds.contains(tab.id) {
             tabManager.addWorkspaceToGroup(workspaceId: tab.id, groupId: groupId)
             dispose()
             return
@@ -229,10 +230,8 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     }
 
     private func dispose() {
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observer = nil
+        subscription?.cancel()
+        subscription = nil
         timeoutTask?.cancel()
         timeoutTask = nil
         if let tabManager {
