@@ -5226,6 +5226,7 @@ extension CMUXCLI {
             let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
             let terminateWorkerPool = null;
+            let pageHiddenForCleanup = false;
             let activeFileId = "";
             let activeTreePath = "";
             let suppressTreeSelectionChange = false;
@@ -5240,7 +5241,13 @@ extension CMUXCLI {
             const patchResponsePromise = fetch(payload.patchURL, { cache: "no-store" });
             patchResponsePromise.catch(() => {});
             const workerPoolPromise = initializeCodeViewWorkerPool();
-            window.addEventListener("pagehide", terminateCodeViewWorkerPool, { once: true });
+            window.addEventListener("pagehide", () => {
+              pageHiddenForCleanup = true;
+              terminateCodeViewWorkerPool();
+            });
+            window.addEventListener("pageshow", () => {
+              pageHiddenForCleanup = false;
+            });
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
               renderDiff().catch((error) => {
@@ -5297,6 +5304,10 @@ extension CMUXCLI {
             async function initializeCodeViewWorkerPool() {
               setWorkerPoolStatus("loading");
               const pool = await createCodeViewWorkerPool();
+              if (pageHiddenForCleanup) {
+                terminateCodeViewWorkerPool();
+                return null;
+              }
               workerPool = pool;
               if (window.__cmuxDiffViewer) {
                 window.__cmuxDiffViewer.workerPool = workerPool;
@@ -5362,10 +5373,16 @@ extension CMUXCLI {
                 terminateWorkerPool();
                 terminateWorkerPool = null;
                 workerPool = null;
+                if (window.__cmuxDiffViewer) {
+                  window.__cmuxDiffViewer.workerPool = null;
+                }
                 return;
               }
               workerPool?.terminate?.();
               workerPool = null;
+              if (window.__cmuxDiffViewer) {
+                window.__cmuxDiffViewer.workerPool = null;
+              }
             }
 
             function observeWorkerPool(pool) {
@@ -5441,7 +5458,7 @@ extension CMUXCLI {
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
-              let workerPoolLoadedForCodeView = workerPoolPromise == null;
+              let codeViewUsesWorkerPool = false;
               let statusVisible = true;
               const batchConfig = {
                 initialBatchSize: getInitialFileTreeRowCount(),
@@ -5452,12 +5469,12 @@ extension CMUXCLI {
 
               workerPoolPromise?.then?.(
                 () => {
-                  workerPoolLoadedForCodeView = true;
-                  setupCodeViewIfReady();
+                  if (!setupCodeViewIfReady() && codeView && !codeViewUsesWorkerPool) {
+                    terminateCodeViewWorkerPool();
+                  }
                 },
                 (error) => {
                   console.warn("cmux diff worker pool startup failed; continuing without worker pool", error);
-                  workerPoolLoadedForCodeView = true;
                   setupCodeViewIfReady();
                 }
               );
@@ -5684,12 +5701,15 @@ extension CMUXCLI {
               }
 
               function setupCodeViewIfReady() {
-                if (codeView || codeViewItems.length === 0 || !workerPoolLoadedForCodeView) {
+                if (codeView || codeViewItems.length === 0) {
                   return false;
                 }
-                codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
+                const poolForCodeView = workerPool ?? undefined;
+                codeViewUsesWorkerPool = poolForCodeView != null;
+                codeView = new CodeView(codeViewOptions(), poolForCodeView);
                 codeView.setup(viewerElement);
                 codeView.setItems(codeViewItems);
+                codeView.syncContainerHeight?.();
                 codeView.render(true);
                 window.__cmuxDiffViewer.codeView = codeView;
                 removeStatus();
