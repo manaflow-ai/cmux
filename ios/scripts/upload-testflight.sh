@@ -106,6 +106,32 @@ EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
 
 mkdir -p "$OUT_DIR"
 
+if [[ "$LANE" == "beta" \
+  && -z "${ASC_API_KEY_ID:-}" \
+  && -z "${ASC_API_ISSUER_ID:-}" \
+  && -z "${ASC_API_KEY_PATH:-}" \
+  && -z "${APPLE_ID:-}" \
+  && -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" \
+  && -z "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
+  DEFAULT_ASC_API_KEY_ID="4WN4S8ANN4"
+  DEFAULT_ASC_API_ISSUER_ID="94d76068-119d-45cd-8700-86eb7a1a6235"
+  DEFAULT_ASC_API_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_$DEFAULT_ASC_API_KEY_ID.p8"
+  if [[ -f "$DEFAULT_ASC_API_KEY_PATH" ]]; then
+    ASC_API_KEY_ID="$DEFAULT_ASC_API_KEY_ID"
+    ASC_API_ISSUER_ID="$DEFAULT_ASC_API_ISSUER_ID"
+    ASC_API_KEY_PATH="$DEFAULT_ASC_API_KEY_PATH"
+  fi
+fi
+
+XCODE_AUTH_ARGS=()
+if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
+  XCODE_AUTH_ARGS=(
+    -authenticationKeyPath "$ASC_API_KEY_PATH"
+    -authenticationKeyID "$ASC_API_KEY_ID"
+    -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+  )
+fi
+
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
   xcodebuild archive \
@@ -120,6 +146,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
     CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     CODE_SIGN_STYLE=Automatic \
+    "${XCODE_AUTH_ARGS[@]}" \
     | tee "$OUT_DIR/archive.log"
 else
   if [[ ! -d "$ARCHIVE_PATH" ]]; then
@@ -149,6 +176,7 @@ xcodebuild -exportArchive \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS" \
   -allowProvisioningUpdates \
+  "${XCODE_AUTH_ARGS[@]}" \
   | tee "$OUT_DIR/export.log"
 
 IPA_PATH="$EXPORT_PATH/cmux.ipa"
