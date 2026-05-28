@@ -587,6 +587,149 @@ final class CMUXCanvasTests: XCTestCase {
         }
     }
 
+    func testFastTrackpadPanSequenceKeepsShellPortalAndPresentationFramesInLockstep() throws {
+        let terminalID = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000501")))
+        let browserID = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000502")))
+        let viewportSize = CGSize(width: 1_200, height: 800)
+        let canvasWindowFrame = CGRect(x: 80, y: 120, width: viewportSize.width, height: viewportSize.height)
+        let style = CanvasShellStyle(headerHeight: 20)
+        let itemIDs = Set([terminalID, browserID])
+        var document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1),
+            items: [
+                CanvasItem(
+                    id: terminalID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 120, y: 160, width: 540, height: 360),
+                    zIndex: 2,
+                    isNativeResolution: true
+                ),
+                CanvasItem(
+                    id: browserID,
+                    content: .surface(SurfaceID()),
+                    frame: PixelRect(x: 720, y: 220, width: 560, height: 380),
+                    zIndex: 3,
+                    isNativeResolution: true
+                ),
+            ]
+        )
+        var camera = CanvasCamera(viewport: document.viewport, viewportSize: viewportSize)
+
+        for delta in [
+            CGSize(width: 18, height: -12),
+            CGSize(width: 36, height: -24),
+            CGSize(width: -54, height: 28),
+            CGSize(width: 72, height: 48),
+            CGSize(width: -90, height: -32),
+        ] {
+            camera = CanvasPresentationEngine.camera(byApplying: .pan(screenDelta: delta), to: camera)
+            document.viewport = camera.viewport
+            let presentation = CanvasPresentationEngine.presentation(
+                document: document,
+                viewportSize: viewportSize,
+                focusedItemID: terminalID,
+                activeItemID: terminalID,
+                contentKinds: [terminalID: .terminal, browserID: .browser],
+                interactionPhase: .panning,
+                configuration: CanvasPresentationConfiguration(
+                    headerHeight: style.headerHeight,
+                    nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: terminalID),
+                    overscanScreenPoints: 400
+                )
+            )
+            let scene = CanvasScene(presentation: presentation)
+            let plan = CanvasShellRenderPlan(scene: scene, style: style)
+            let shellByID = Dictionary(uniqueKeysWithValues: plan.surfaces.map { ($0.id, $0) })
+
+            XCTAssertTrue(presentation.usesUnifiedTexturePresentation)
+            XCTAssertTrue(presentation.nativeOverlays.isEmpty)
+            XCTAssertEqual(Set(presentation.textureSurfaces.map(\.id)), itemIDs)
+
+            for itemID in itemIDs {
+                let surface = try XCTUnwrap(presentation.presentationsByID[itemID])
+                let shellSurface = try XCTUnwrap(shellByID[itemID])
+                let portalFrame = try XCTUnwrap(CanvasWindowCoordinateMapper.windowFrame(
+                    forCanvasRect: shellSurface.contentFrame,
+                    inCanvasWindowFrame: canvasWindowFrame
+                ))
+
+                assertRectEqual(shellSurface.frame, surface.frameInCanvas)
+                assertRectEqual(shellSurface.contentFrame, surface.contentFrameInCanvas)
+                XCTAssertEqual(portalFrame.minX, canvasWindowFrame.minX + surface.contentFrameInCanvas.minX, accuracy: 0.0001)
+                XCTAssertEqual(portalFrame.minY, canvasWindowFrame.maxY - surface.contentFrameInCanvas.maxY, accuracy: 0.0001)
+                XCTAssertEqual(portalFrame.width, surface.contentFrameInCanvas.width, accuracy: 0.0001)
+                XCTAssertEqual(portalFrame.height, surface.contentFrameInCanvas.height, accuracy: 0.0001)
+            }
+        }
+    }
+
+    func testTrackpadPanSettleRemountsNativeOverlayAtLastTextureFrame() throws {
+        let activeID = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000503")))
+        let viewportSize = CGSize(width: 1_200, height: 800)
+        var document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1),
+            items: [
+                CanvasItem(
+                    id: activeID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 240, y: 180, width: 620, height: 420),
+                    zIndex: 4,
+                    isNativeResolution: true
+                ),
+            ]
+        )
+        var camera = CanvasCamera(viewport: document.viewport, viewportSize: viewportSize)
+        for delta in [
+            CGSize(width: 48, height: -24),
+            CGSize(width: 72, height: -36),
+            CGSize(width: -30, height: 18),
+        ] {
+            camera = CanvasPresentationEngine.camera(byApplying: .pan(screenDelta: delta), to: camera)
+        }
+        document.viewport = camera.viewport
+
+        let moving = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: viewportSize,
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal],
+            interactionPhase: .panning,
+            configuration: CanvasPresentationConfiguration(
+                headerHeight: 20,
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID),
+                overscanScreenPoints: 0
+            )
+        )
+        let settled = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: viewportSize,
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal],
+            interactionPhase: .idle,
+            configuration: CanvasPresentationConfiguration(
+                headerHeight: 20,
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID),
+                overscanScreenPoints: 0
+            )
+        )
+
+        let movingSurface = try XCTUnwrap(moving.presentationsByID[activeID])
+        let settledOverlay = try XCTUnwrap(settled.nativeOverlays.first)
+
+        XCTAssertTrue(moving.usesUnifiedTexturePresentation)
+        XCTAssertTrue(moving.nativeOverlays.isEmpty)
+        XCTAssertEqual(moving.textureSurfaces.map(\.id), [activeID])
+        XCTAssertFalse(settled.usesUnifiedTexturePresentation)
+        XCTAssertEqual(settled.nativeOverlays.map(\.id), [activeID])
+        assertRectEqual(settledOverlay.contentFrameInCanvas, movingSurface.contentFrameInCanvas)
+        XCTAssertEqual(settledOverlay.nativeContentSize, movingSurface.nativeContentSize)
+        XCTAssertEqual(settledOverlay.scale, movingSurface.presentationScale, accuracy: 0.0001)
+    }
+
     func testWindowCoordinateMapperUsesCanvasTopLeftCoordinates() throws {
         let frame = try XCTUnwrap(CanvasWindowCoordinateMapper.windowFrame(
             forCanvasRect: CGRect(x: 40, y: 20, width: 320, height: 180),
@@ -594,5 +737,18 @@ final class CMUXCanvasTests: XCTestCase {
         ))
 
         XCTAssertEqual(frame, CGRect(x: 140, y: 800, width: 320, height: 180))
+    }
+
+    private func assertRectEqual(
+        _ lhs: CGRect,
+        _ rhs: CGRect,
+        accuracy: CGFloat = 0.0001,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(lhs.minX, rhs.minX, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(lhs.minY, rhs.minY, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(lhs.width, rhs.width, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(lhs.height, rhs.height, accuracy: accuracy, file: file, line: line)
     }
 }

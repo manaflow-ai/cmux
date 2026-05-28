@@ -1149,7 +1149,7 @@ struct TabBarView: View {
                 }
             },
             onZoomToggle: {
-                _ = splitViewController.togglePaneZoom(pane.id)
+                controller.requestSurfaceContextAction(.toggleZoom, for: SurfaceID(id: tab.id), inPane: pane.id)
             },
             onContextAction: { action in
                 controller.requestSurfaceContextAction(action, for: SurfaceID(id: tab.id), inPane: pane.id)

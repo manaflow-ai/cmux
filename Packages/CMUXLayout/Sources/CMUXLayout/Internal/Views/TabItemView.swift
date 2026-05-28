@@ -165,11 +165,12 @@ struct SurfaceItemView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("WorkspaceTabZoomIndicator.\(tab.id.uuidString)")
                     .onHover { hovering in
                         isZoomHovered = hovering
                     }
                     .saturation(saturation)
-                    .accessibilityLabel("Exit zoom")
+                    .accessibilityLabel(Text(Self.localized("tabContext.exitZoom", defaultValue: "Exit Zoom")))
                 }
             }
 
@@ -338,6 +339,10 @@ struct SurfaceItemView: View {
             existing: renderedFaviconImage,
             incomingData: tab.iconImageData
         )
+    }
+
+    private static func localized(_ key: String, defaultValue: String) -> String {
+        Bundle.module.localizedString(forKey: key, value: defaultValue, table: nil)
     }
 
     private var accessibilityValue: String {
