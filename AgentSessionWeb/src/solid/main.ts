@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import { insertComposerToken } from "../shared/composerTokens";
 import { isComposingEnter } from "../shared/keyboard";
+import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
@@ -321,7 +322,7 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
     case "user": {
       row.className = "codex-user-turn group flex w-full flex-col items-end justify-end gap-1";
       const text = row.querySelector(".text-size-chat");
-      replaceTextWithBreaks(text ?? row, entry.text);
+      (text ?? row).innerHTML = renderPlainTextHTML(entry.text);
       break;
     }
     case "assistant": {
@@ -329,7 +330,7 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
       const content = row.firstElementChild as HTMLDivElement | null;
       if (content) {
         content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
-        replaceTextWithBreaks(content, entry.text);
+        content.innerHTML = renderMarkdownHTML(entry.text);
       }
       break;
     }
@@ -338,22 +339,11 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
       const content = row.firstElementChild as HTMLDivElement | null;
       if (content) {
         content.className = "codex-notice-content text-size-chat-sm";
-        replaceTextWithBreaks(content, entry.text);
+        content.innerHTML = renderPlainTextHTML(entry.text);
       }
       break;
     }
   }
-}
-
-function replaceTextWithBreaks(target: Element, text: string): void {
-  target.replaceChildren();
-  const lines = text.split("\n");
-  lines.forEach((line, index) => {
-    target.append(document.createTextNode(line));
-    if (index < lines.length - 1) {
-      target.append(document.createElement("br"));
-    }
-  });
 }
 
 function renderRateLimitFooter(target: HTMLElement, state: SessionState, providerDisplayName: string): void {

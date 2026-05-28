@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, use
 import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
+import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
@@ -410,7 +411,10 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
             className:
               "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
           },
-          h("div", { className: "text-size-chat mb-px" }, renderPlainText(entry.text)),
+          h("div", {
+            className: "text-size-chat mb-px",
+            dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
+          }),
         ),
       );
     case "assistant":
@@ -422,29 +426,20 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
           {
             className:
               "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]",
+            dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
           },
-          renderPlainText(entry.text),
         ),
       );
     case "notice":
       return h(
         "div",
         { className: `codex-notice-turn ${entry.tone ?? "warning"}` },
-        h("div", { className: "codex-notice-content text-size-chat-sm" }, renderPlainText(entry.text)),
+        h("div", {
+          className: "codex-notice-content text-size-chat-sm",
+          dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
+        }),
       );
   }
-}
-
-function renderPlainText(text: string): React.ReactNode[] {
-  const lines = text.split("\n");
-  return lines.map((line, index) =>
-    h(
-      React.Fragment,
-      { key: index },
-      line,
-      index < lines.length - 1 ? h("br") : null,
-    ),
-  );
 }
 
 function RateLimitFooter({

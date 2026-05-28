@@ -66,6 +66,7 @@ write_index() {
     printf '  </head>\n'
     printf '  <body>\n'
     printf '    <main id="root"></main>\n'
+    printf '    <script src="../markdown-viewer/marked.min.js"></script>\n'
     printf '    <script>\n'
     /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$out_dir/assets/app.js"
     printf '\n    </script>\n'

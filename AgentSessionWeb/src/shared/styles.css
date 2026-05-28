@@ -197,6 +197,74 @@ select {
   overflow-wrap: anywhere;
 }
 
+.codex-assistant-message :where(p) {
+  margin: 0 0 0.85em;
+}
+
+.codex-assistant-message :where(p:last-child) {
+  margin-bottom: 0;
+}
+
+.codex-assistant-message :where(ul, ol) {
+  margin: 0.45em 0 0.85em;
+  padding-left: 1.35rem;
+}
+
+.codex-assistant-message :where(ul) {
+  list-style: disc;
+}
+
+.codex-assistant-message :where(ol) {
+  list-style: decimal;
+}
+
+.codex-assistant-message :where(li) {
+  margin: 0.25em 0;
+}
+
+.codex-assistant-message :where(blockquote) {
+  margin: 0.75em 0;
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--color-token-border);
+  color: var(--agent-soft);
+}
+
+.codex-assistant-message :where(code) {
+  padding: 0.12em 0.3em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-soft) 10%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--codex-chat-code-font-size);
+}
+
+.codex-assistant-message :where(pre) {
+  margin: 0.75em 0;
+  padding: 0.65rem 0.75rem;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--agent-input-bg) 82%, transparent);
+}
+
+.codex-assistant-message :where(pre code) {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.codex-assistant-message :where(a) {
+  color: var(--agent-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.codex-assistant-message :where(hr) {
+  margin: 1rem 0;
+  border-top: 1px solid var(--color-token-border);
+}
+
 .codex-notice-turn {
   display: flex;
   justify-content: flex-start;

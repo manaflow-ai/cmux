@@ -454,7 +454,7 @@ extension AgentSessionWebRenderer {
                 "index=\(indexURL.path)"
             )
 #endif
-            webView.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
+            webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
             loadedRendererKind = rendererKind
             hasFinishedNavigation = false
             hasCompletedVisiblePaintFlush = false
