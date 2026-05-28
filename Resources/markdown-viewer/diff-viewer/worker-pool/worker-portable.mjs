@@ -15106,6 +15106,132 @@ function getLineNodes(nodes) {
 }
 
 //#endregion
+//#region src/utils/computeVirtualFileMetrics.ts
+function computeVirtualFileMetrics(metrics) {
+	return {
+		...DEFAULT_VIRTUAL_FILE_METRICS,
+		...metrics
+	};
+}
+function getVirtualFileHeaderRegion(metrics, disableFileHeader) {
+	const paddingTop = getVirtualFilePaddingTop(metrics, disableFileHeader);
+	return disableFileHeader ? paddingTop : metrics.diffHeaderHeight + paddingTop;
+}
+function getVirtualFilePaddingTop(metrics, disableFileHeader) {
+	return metrics.paddingTop ?? (disableFileHeader ? metrics.spacing : 0);
+}
+function getVirtualFilePaddingBottom(metrics) {
+	return metrics.paddingBottom ?? metrics.spacing;
+}
+function getDefaultHunkSeparatorHeight(type) {
+	switch (type) {
+		case "simple": return 4;
+		case "metadata":
+		case "line-info":
+		case "line-info-basic":
+		case "custom": return 32;
+	}
+}
+
+//#endregion
+//#region src/utils/virtualDiffLayout.ts
+function getExpandedRegion({ isPartial, rangeSize, expandedHunks, hunkIndex, collapsedContextThreshold }) {
+	const normalizedRangeSize = Math.max(rangeSize, 0);
+	if (normalizedRangeSize === 0 || isPartial) {
+		return {
+			fromStart: 0,
+			fromEnd: 0,
+			rangeSize: normalizedRangeSize,
+			collapsedLines: normalizedRangeSize,
+			renderAll: false
+		};
+	}
+	if (expandedHunks === true || normalizedRangeSize <= collapsedContextThreshold) {
+		return {
+			fromStart: normalizedRangeSize,
+			fromEnd: 0,
+			rangeSize: normalizedRangeSize,
+			collapsedLines: 0,
+			renderAll: true
+		};
+	}
+	const region = expandedHunks?.get(hunkIndex);
+	const fromStart = Math.min(Math.max(region?.fromStart ?? 0, 0), normalizedRangeSize);
+	const fromEnd = Math.min(Math.max(region?.fromEnd ?? 0, 0), normalizedRangeSize);
+	const expandedCount = fromStart + fromEnd;
+	const renderAll = expandedCount >= normalizedRangeSize;
+	return {
+		fromStart: renderAll ? normalizedRangeSize : fromStart,
+		fromEnd: renderAll ? 0 : fromEnd,
+		rangeSize: normalizedRangeSize,
+		collapsedLines: Math.max(normalizedRangeSize - expandedCount, 0),
+		renderAll
+	};
+}
+function getHunkSeparatorHeight({ type, metrics }) {
+	return metrics.hunkSeparatorHeight ?? getDefaultHunkSeparatorHeight(type);
+}
+function getHunkSeparatorGap({ type, metrics }) {
+	return type === "simple" || type === "metadata" || type === "line-info-basic" ? 0 : metrics.spacing;
+}
+function hasLeadingHunkSeparator({ type, hunkIndex, hunkSpecs }) {
+	switch (type) {
+		case "simple": return hunkIndex > 0;
+		case "metadata": return hunkSpecs != null;
+		case "line-info":
+		case "line-info-basic":
+		case "custom": return true;
+	}
+}
+function hasTrailingHunkSeparator(type) {
+	return type !== "simple" && type !== "metadata";
+}
+function getLeadingHunkSeparatorLayout({ type, metrics, hunkIndex, hunkSpecs }) {
+	if (!hasLeadingHunkSeparator({
+		type,
+		hunkIndex,
+		hunkSpecs
+	})) {
+		return undefined;
+	}
+	const height = getHunkSeparatorHeight({
+		type,
+		metrics
+	});
+	const gap = getHunkSeparatorGap({
+		type,
+		metrics
+	});
+	const gapBefore = hunkIndex > 0 ? gap : 0;
+	const gapAfter = gap;
+	return {
+		height,
+		gapBefore,
+		gapAfter,
+		totalHeight: gapBefore + height + gapAfter
+	};
+}
+function getTrailingHunkSeparatorLayout({ type, metrics }) {
+	if (!hasTrailingHunkSeparator(type)) {
+		return undefined;
+	}
+	const height = getHunkSeparatorHeight({
+		type,
+		metrics
+	});
+	const gapBefore = getHunkSeparatorGap({
+		type,
+		metrics
+	});
+	return {
+		height,
+		gapBefore,
+		gapAfter: 0,
+		totalHeight: gapBefore + height
+	};
+}
+
+//#endregion
 //#region src/utils/iterateOverDiff.ts
 function iterateOverDiff({ diff, diffStyle, startingLine = 0, totalLines = Infinity, expandedHunks, collapsedContextThreshold = DEFAULT_COLLAPSED_CONTEXT_THRESHOLD, callback }) {
 	const iterationStart = getIterationStartState({
@@ -15199,7 +15325,13 @@ function iterateOverDiff({ diff, diffStyle, startingLine = 0, totalLines = Infin
 		if (state.shouldBreak()) {
 			break;
 		}
-		const leadingRegion = getExpandedRegion(diff.isPartial, hunk.collapsedBefore, expandedHunks, hunkIndex, collapsedContextThreshold);
+		const leadingRegion = getExpandedRegion({
+			isPartial: diff.isPartial,
+			rangeSize: hunk.collapsedBefore,
+			expandedHunks,
+			hunkIndex,
+			collapsedContextThreshold
+		});
 		const trailingRegion = (() => {
 			if (hunk !== state.finalHunk || !hasFinalCollapsedHunk(diff)) {
 				return undefined;
@@ -15210,7 +15342,13 @@ function iterateOverDiff({ diff, diffStyle, startingLine = 0, totalLines = Infin
 				throw new Error(`iterateOverDiff: trailing context mismatch (additions=${additionRemaining}, deletions=${deletionRemaining}) for ${diff.name}`);
 			}
 			const trailingRangeSize = Math.min(additionRemaining, deletionRemaining);
-			return getExpandedRegion(diff.isPartial, trailingRangeSize, expandedHunks, diff.hunks.length, collapsedContextThreshold);
+			return getExpandedRegion({
+				isPartial: diff.isPartial,
+				rangeSize: trailingRangeSize,
+				expandedHunks,
+				hunkIndex: diff.hunks.length,
+				collapsedContextThreshold
+			});
 		})();
 		const expandedLineCount = leadingRegion.fromStart + leadingRegion.fromEnd;
 		function getTrailingCollapsedAfter(unifiedLineIndex$1, splitLineIndex$1) {
@@ -15548,13 +15686,25 @@ function getHunkPrefixCounts({ diff, expandedHunks, collapsedContextThreshold })
 		if (hunk == null) {
 			throw new Error("iterateOverDiff: invalid hunk summary index");
 		}
-		const leadingRegion = getExpandedRegion(diff.isPartial, hunk.collapsedBefore, expandedHunks, index, collapsedContextThreshold);
+		const leadingRegion = getExpandedRegion({
+			isPartial: diff.isPartial,
+			rangeSize: hunk.collapsedBefore,
+			expandedHunks,
+			hunkIndex: index,
+			collapsedContextThreshold
+		});
 		const leadingCount = leadingRegion.fromStart + leadingRegion.fromEnd;
 		splitCount += leadingCount + hunk.splitLineCount;
 		unifiedCount += leadingCount + hunk.unifiedLineCount;
 		if (index === finalHunkIndex && hasFinalCollapsedHunk(diff)) {
 			const trailingRangeSize = getTrailingRangeSize(diff, hunk);
-			const trailingRegion = getExpandedRegion(diff.isPartial, trailingRangeSize, expandedHunks, diff.hunks.length, collapsedContextThreshold);
+			const trailingRegion = getExpandedRegion({
+				isPartial: diff.isPartial,
+				rangeSize: trailingRangeSize,
+				expandedHunks,
+				hunkIndex: diff.hunks.length,
+				collapsedContextThreshold
+			});
 			const trailingCount = trailingRegion.fromStart + trailingRegion.fromEnd;
 			splitCount += trailingCount;
 			unifiedCount += trailingCount;
@@ -15603,36 +15753,6 @@ function getTrailingRangeSize(diff, hunk) {
 		throw new Error(`iterateOverDiff: trailing context mismatch (additions=${additionRemaining}, deletions=${deletionRemaining}) for ${diff.name}`);
 	}
 	return Math.min(additionRemaining, deletionRemaining);
-}
-function getExpandedRegion(isPartial, rangeSize, expandedHunks, hunkIndex, collapsedContextThreshold) {
-	rangeSize = Math.max(rangeSize, 0);
-	if (rangeSize === 0 || isPartial) {
-		return {
-			fromStart: 0,
-			fromEnd: 0,
-			rangeSize,
-			collapsedLines: Math.max(rangeSize, 0)
-		};
-	}
-	if (expandedHunks === true || rangeSize <= collapsedContextThreshold) {
-		return {
-			fromStart: rangeSize,
-			fromEnd: 0,
-			rangeSize,
-			collapsedLines: 0
-		};
-	}
-	const region = expandedHunks?.get(hunkIndex);
-	const fromStart = Math.min(Math.max(region?.fromStart ?? 0, 0), rangeSize);
-	const fromEnd = Math.min(Math.max(region?.fromEnd ?? 0, 0), rangeSize);
-	const expandedCount = fromStart + fromEnd;
-	const renderAll = expandedCount >= rangeSize;
-	return {
-		fromStart: renderAll ? rangeSize : fromStart,
-		fromEnd: renderAll ? 0 : fromEnd,
-		rangeSize,
-		collapsedLines: Math.max(rangeSize - expandedCount, 0)
-	};
 }
 function hasFinalCollapsedHunk(diff) {
 	const lastHunk = diff.hunks.at(-1);
@@ -16360,4 +16480,3 @@ function sendError(id, error) {
 }
 
 //#endregion
-//# sourceMappingURL=worker-portable.js.map

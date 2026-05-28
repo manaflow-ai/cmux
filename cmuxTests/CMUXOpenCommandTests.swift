@@ -364,7 +364,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("id=\"options-menu\""), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
+            .appendingPathComponent("pierre-diffs-1.2.4-trees-1.0.0-beta.4", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))

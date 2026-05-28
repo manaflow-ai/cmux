@@ -7023,7 +7023,7 @@ extension CMUXCLI {
 
     private func ensureDiffViewerAssets(nextTo viewerURL: URL) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory()
-        let assetDirectoryName = "pierre-diffs-1.2.1-trees-1.0.0-beta.4"
+        let assetDirectoryName = "pierre-diffs-1.2.4-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent(assetDirectoryName, isDirectory: true)
