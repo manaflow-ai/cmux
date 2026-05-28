@@ -212,7 +212,10 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: app,
                 keywords: ["app.openMarkdownInCmuxViewer", "markdown", "md", "viewer", "preview", "file"],
                 defaultValue: CmdClickMarkdownRouteSettings.defaultValue,
-                defaultsKey: CmdClickMarkdownRouteSettings.key
+                defaultsKey: CmdClickMarkdownRouteSettings.key,
+                didSet: { _, _, notificationCenter in
+                    CmdClickMarkdownRouteSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
