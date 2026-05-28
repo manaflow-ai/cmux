@@ -140,6 +140,8 @@ extension CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.customSearchEngineName",
+        "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",
