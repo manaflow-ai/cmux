@@ -19901,6 +19901,8 @@ struct CMUXCLI {
                     launchCommand: launchCommand,
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
+                    runtimeStatus: shouldPromoteActiveSession ? .running : nil,
+                    updateRuntimeStatus: shouldPromoteActiveSession,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
@@ -19948,7 +19950,7 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
+                    value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                     icon: "bolt.fill",
                     color: "#4C8DFF",
                     pid: claudePid
@@ -20013,6 +20015,10 @@ struct CMUXCLI {
                         agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
+                        lastNotificationStatus: .idle,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: .idle,
+                        updateRuntimeStatus: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -20039,7 +20045,7 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Idle",
+                    value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                     icon: "pause.circle.fill",
                     color: "#8E8E93"
                 )
@@ -20113,6 +20119,8 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
@@ -20139,7 +20147,7 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Running",
+                value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
                 icon: "bolt.fill",
                 color: "#4C8DFF"
             )
@@ -20181,6 +20189,14 @@ struct CMUXCLI {
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
+            if shouldSuppressClaudeIdlePromptNotification(
+                parsedInput: parsedInput,
+                mappedSession: mappedSession
+            ) {
+                telemetry.breadcrumb("claude-hook.notification.idle-prompt-suppressed")
+                print("{}")
+                return
+            }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
@@ -20204,7 +20220,11 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
             }
 
@@ -20219,7 +20239,10 @@ struct CMUXCLI {
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
+                value: String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                    title
+                ),
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
@@ -20396,7 +20419,7 @@ struct CMUXCLI {
                let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
             } else {
-                statusValue = "Running"
+                statusValue = String(localized: "agent.generic.status.running", defaultValue: "Running")
             }
             try setClaudeStatus(
                 client: client,
@@ -20595,6 +20618,39 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func shouldSuppressClaudeIdlePromptNotification(
+        parsedInput: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard isIdlePromptNotification(parsedInput) else {
+            return false
+        }
+        return mappedSession?.runtimeStatus == .idle
+    }
+
+    private func isIdlePromptNotification(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        let signalParts = notificationSignalParts(in: parsedInput.object)
+            + notificationSignalParts(in: parsedInput.rawObject)
+        return signalParts.contains(where: notificationSignalIsIdlePrompt)
+    }
+
+    private func notificationSignalParts(in object: [String: Any]?) -> [String] {
+        guard let object else { return [] }
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        return [
+            firstString(in: object, keys: ["notification_type", "notificationType", "matcher", "reason", "type", "kind"]),
+            firstString(in: nested, keys: ["notification_type", "notificationType", "matcher", "reason", "type", "kind"]),
+        ].compactMap { $0 }
+    }
+
+    private func notificationSignalIsIdlePrompt(_ signal: String) -> Bool {
+        let lower = signal.lowercased()
+        let tokens = notificationCueTokens(lower)
+        let compact = lower.filter { $0.isLetter || $0.isNumber }
+        return (tokens.count == 2 && tokens[0] == "idle" && tokens[1] == "prompt")
+            || compact == "idleprompt"
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {
