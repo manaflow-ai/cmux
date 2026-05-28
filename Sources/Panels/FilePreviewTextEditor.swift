@@ -118,6 +118,8 @@ extension SavingTextView {
     /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
     static func makeFilePreviewTextView() -> SavingTextView {
         let textView = SavingTextView()
+        // Must run before any `textContainer` access below, or the view locks into TextKit 2.
+        textView.enableLargeDocumentSelectionPerformance()
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -142,6 +144,21 @@ extension SavingTextView {
 }
 
 extension NSTextView {
+    /// Drops the text view to TextKit 1 with non-contiguous layout for large-document performance.
+    ///
+    /// TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line-fragment count, so
+    /// drag-selecting deep into a large file pegs the main thread (`manaflow-ai/cmux#4576`).
+    /// Accessing `layoutManager` puts the view in TextKit 1 compatibility mode, where mouse
+    /// hit-testing is roughly O(log N); `allowsNonContiguousLayout` keeps glyph layout lazy so
+    /// large files still open instantly.
+    ///
+    /// Call this before touching `textContainer`/`textLayoutManager` on a freshly created text
+    /// view, otherwise the first TextKit 2 access locks the view into TextKit 2 and
+    /// `layoutManager` returns `nil`.
+    func enableLargeDocumentSelectionPerformance() {
+        layoutManager?.allowsNonContiguousLayout = true
+    }
+
     func applyFilePreviewTextEditorInsets() {
         let targetInset = FilePreviewTextEditorLayout.textContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
