@@ -5613,9 +5613,13 @@ class TabManager: ObservableObject {
         let isAnchor = workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
         if isAnchor {
             // Anchors don't change group membership via drag (their group
-            // identity owns them), but they CAN end up at a position that
-            // breaks the group's contiguous run. Renormalize so the rest of
-            // the group follows the anchor's new spot in tabs[].
+            // identity owns them), but moving an anchor in `tabs[]` IS how
+            // the user reorders the whole group. Resync `workspaceGroups`
+            // order to the new anchor positions in tabs[] before normalize
+            // rebuilds the section list — otherwise normalize snaps the
+            // anchor back to its old position because it walks
+            // `workspaceGroups` (the old order), not tabs[].
+            syncWorkspaceGroupsOrderToAnchorOrder()
             normalizeWorkspaceGroupContiguity()
             return
         }
@@ -6434,6 +6438,23 @@ class TabManager: ObservableObject {
         // anchor while keeping the rest of the group folded away.
         guard workspaceGroups[index].anchorWorkspaceId != selectedTabId else { return }
         workspaceGroups[index].isCollapsed = false
+    }
+
+    /// Reorder `workspaceGroups` so each group's relative position matches
+    /// the order its anchor occupies in `tabs[]`. Call this after an anchor
+    /// reorder (drag or command-palette move) so `normalizeWorkspaceGroupContiguity`
+    /// places the group's section where the user dropped the anchor instead
+    /// of snapping it back to the old position. Within the pinned-vs-unpinned
+    /// split the relative order is what normalize cares about, so this just
+    /// resorts the full `workspaceGroups` array by anchor index — normalize
+    /// then re-partitions by `isPinned` exactly as before.
+    private func syncWorkspaceGroupsOrderToAnchorOrder() {
+        let anchorIndex: [UUID: Int] = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($1.id, $0) })
+        workspaceGroups.sort { lhs, rhs in
+            let l = anchorIndex[lhs.anchorWorkspaceId] ?? Int.max
+            let r = anchorIndex[rhs.anchorWorkspaceId] ?? Int.max
+            return l < r
+        }
     }
 
     /// Helper for `normalizeWorkspaceGroupContiguity`: hoist the anchor to
