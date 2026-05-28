@@ -31,6 +31,58 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
 }
 
 @MainActor
+final class WorkspaceDockRevealStateTests: XCTestCase {
+    func testTransientRevealClosesWhenDragEndsWithoutDockingTab() {
+        var state = WorkspaceDockRevealState()
+        let tabId = UUID()
+
+        XCTAssertTrue(state.beginTargeting(edge: .left, isEdgeOpen: false, transferTabId: tabId))
+        XCTAssertTrue(state.hasTransientlyOpenedEdges)
+
+        state.endTargeting(edge: .left)
+        let edgesToClose = state.transientEdgesToCloseAfterDragEnd { _, _ in false }
+
+        XCTAssertEqual(edgesToClose, [.left])
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+        XCTAssertTrue(state.targetedEdges.isEmpty)
+    }
+
+    func testTransientRevealStaysOpenWhenDraggedTabLandsInDock() {
+        var state = WorkspaceDockRevealState()
+        let tabId = UUID()
+
+        XCTAssertTrue(state.beginTargeting(edge: .right, isEdgeOpen: false, transferTabId: tabId))
+        state.endTargeting(edge: .right)
+        let edgesToClose = state.transientEdgesToCloseAfterDragEnd { edge, landedTabId in
+            edge == .right && landedTabId == tabId
+        }
+
+        XCTAssertTrue(edgesToClose.isEmpty)
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+    }
+
+    func testAlreadyOpenEdgeIsNotClosedAfterRevealTargetEnds() {
+        var state = WorkspaceDockRevealState()
+
+        XCTAssertFalse(state.beginTargeting(edge: .bottom, isEdgeOpen: true, transferTabId: UUID()))
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+
+        state.endTargeting(edge: .bottom)
+        let edgesToClose = state.transientEdgesToCloseAfterDragEnd { _, _ in false }
+
+        XCTAssertTrue(edgesToClose.isEmpty)
+    }
+
+    func testRevealTargetWithoutTransferDoesNotOpenTransientDock() {
+        var state = WorkspaceDockRevealState()
+
+        XCTAssertFalse(state.beginTargeting(edge: .left, isEdgeOpen: false, transferTabId: nil))
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+        XCTAssertEqual(state.targetedEdges, [.left])
+    }
+}
+
+@MainActor
 final class WindowGlassEffectTests: XCTestCase {
     func testRemoveRestoresOriginalContentHierarchy() {
         _ = NSApplication.shared

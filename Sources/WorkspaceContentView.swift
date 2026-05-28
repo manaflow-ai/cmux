@@ -880,7 +880,7 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     let keyboardShortcutSettingsRevision: UInt64
     let portalPriority: Int
     @ViewBuilder let mainContent: () -> MainContent
-    @State private var targetedRevealEdges: Set<WorkspaceDockEdge> = []
+    @State private var revealState = WorkspaceDockRevealState()
 
     private let tabTransferType = UTType(exportedAs: "com.splittabbar.tabtransfer", conformingTo: .data)
 
@@ -905,6 +905,13 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             dockRevealZone(edge: .left)
             dockRevealZone(edge: .right)
             dockRevealZone(edge: .bottom)
+            if revealState.hasTransientlyOpenedEdges {
+                WorkspaceDockRevealDragEndMonitor {
+                    completeTransientRevealDrag()
+                }
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+            }
         }
         .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
     }
@@ -1063,16 +1070,34 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
 
     private func revealBinding(edge: WorkspaceDockEdge) -> Binding<Bool> {
         Binding(
-            get: { targetedRevealEdges.contains(edge) },
+            get: { revealState.targetedEdges.contains(edge) },
             set: { isTargeted in
                 if isTargeted {
-                    targetedRevealEdges.insert(edge)
-                    layout.openEdge(edge)
+                    let transferTabId = BonsplitTabDragPayload.currentTransfer()?.tab.id
+                    if revealState.beginTargeting(
+                        edge: edge,
+                        isEdgeOpen: layout.isEdgeOpen(edge),
+                        transferTabId: transferTabId
+                    ) {
+                        layout.openEdge(edge)
+                    }
                 } else {
-                    targetedRevealEdges.remove(edge)
+                    revealState.endTargeting(edge: edge)
                 }
             }
         )
+    }
+
+    private func completeTransientRevealDrag() {
+        let edgesToClose = revealState.transientEdgesToCloseAfterDragEnd { edge, tabId in
+            let tabId = TabID(uuid: tabId)
+            return layout.docksSnapshot(for: edge).contains { dock in
+                dock.controller.allTabIds.contains(tabId)
+            }
+        }
+        for edge in edgesToClose {
+            layout.closeEdge(edge)
+        }
     }
 
     private func dockPaneEntries(for docks: [WorkspaceDock]) -> [WorkspaceDockPaneEntry] {
@@ -1137,6 +1162,88 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             addDock: { layout.addDock(edge: dock.edge) },
             removeDock: { layout.removeDock(dock) }
         )
+    }
+}
+
+struct WorkspaceDockRevealState: Equatable {
+    private(set) var targetedEdges: Set<WorkspaceDockEdge> = []
+    private var transientOpenedEdgesByTransferTabId: [WorkspaceDockEdge: UUID] = [:]
+
+    var hasTransientlyOpenedEdges: Bool {
+        !transientOpenedEdgesByTransferTabId.isEmpty
+    }
+
+    mutating func beginTargeting(
+        edge: WorkspaceDockEdge,
+        isEdgeOpen: Bool,
+        transferTabId: UUID?
+    ) -> Bool {
+        targetedEdges.insert(edge)
+        guard !isEdgeOpen, let transferTabId else { return false }
+        transientOpenedEdgesByTransferTabId[edge] = transferTabId
+        return true
+    }
+
+    mutating func endTargeting(edge: WorkspaceDockEdge) {
+        targetedEdges.remove(edge)
+    }
+
+    mutating func transientEdgesToCloseAfterDragEnd(
+        tabIsInEdge: (WorkspaceDockEdge, UUID) -> Bool
+    ) -> [WorkspaceDockEdge] {
+        let transientEdges = transientOpenedEdgesByTransferTabId
+        targetedEdges.subtract(transientEdges.keys)
+        transientOpenedEdgesByTransferTabId.removeAll()
+
+        return WorkspaceDockEdge.allCases.filter { edge in
+            guard let tabId = transientEdges[edge] else { return false }
+            return !tabIsInEdge(edge, tabId)
+        }
+    }
+}
+
+private struct WorkspaceDockRevealDragEndMonitor: NSViewRepresentable {
+    let onDragEnd: () -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.onDragEnd = onDragEnd
+        return view
+    }
+
+    func updateNSView(_ nsView: MonitorView, context: Context) {
+        nsView.onDragEnd = onDragEnd
+    }
+
+    final class MonitorView: NSView {
+        var onDragEnd: (() -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown]
+            ) { [weak self] event in
+                guard event.type != .keyDown || event.keyCode == 53 else {
+                    return event
+                }
+                DispatchQueue.main.async {
+                    self?.onDragEnd?()
+                }
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
     }
 }
 
