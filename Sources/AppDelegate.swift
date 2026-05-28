@@ -13883,6 +13883,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManagerForFocusedCloseShortcut(event: event)
     }
 
+    func debugAuxiliaryWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
+        auxiliaryWindowForFocusedCloseShortcut(event: event)
+    }
+
     func debugResetShortcutRoutingStateForTesting() {
         clearConfiguredShortcutChordState()
         shortcutEventFocusContextCache = nil

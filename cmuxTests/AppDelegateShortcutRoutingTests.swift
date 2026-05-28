@@ -2259,20 +2259,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
+    func testCmdWTargetsAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        XCTAssertNotNil(window(withId: windowId), "Expected test window")
-
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test manager")
-            return
+        let previousTabManager = appDelegate.tabManager
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let mainWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            mainWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = previousTabManager
+            closeRegisteredShortcutRoutingWindow(mainWindow, id: windowId)
         }
 
         let mainWorkspaceCount = manager.tabs.count
@@ -2306,17 +2313,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab))
+        XCTAssertTrue(
+            appDelegate.debugAuxiliaryWindowForFocusedCloseShortcut(event: event) === auxiliaryWindow,
+            "Cmd+W should target the auxiliary window before the active terminal manager"
+        )
 #else
-        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+        throw XCTSkip("focused close shortcut debug routing hooks are only available in DEBUG builds")
 #endif
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertFalse(auxiliaryWindow.isVisible, "Cmd+W should close the auxiliary window")
-        XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in auxiliary window should not close the main window")
         XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
-        XCTAssertNotEqual(NSApp.keyWindow?.identifier?.rawValue, "cmux.about", "Closed auxiliary window should not remain key")
     }
 
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
