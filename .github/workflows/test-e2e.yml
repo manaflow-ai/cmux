@@ -1,4 +1,5 @@
 name: E2E test with video recording
+run-name: ${{ inputs.test_filter }} on ${{ inputs.runner || 'depot-macos-latest' }} @ ${{ inputs.ref || github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -20,20 +21,21 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (macOS 15 default for GUI activation support)"
+        description: "Runner OS (Depot runners for GUI activation support)"
         required: false
-        default: "blacksmith-6vcpu-macos-15"
+        default: "depot-macos-latest"
         type: choice
         options:
-          - blacksmith-6vcpu-macos-15
-          - blacksmith-6vcpu-macos-26
-          - blacksmith-6vcpu-macos-latest
           - depot-macos-latest
           - depot-macos-14
 
+concurrency:
+  group: e2e-${{ inputs.runner || 'depot-macos-latest' }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  cancel-in-progress: true
+
 jobs:
   e2e:
-    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
     timeout-minutes: 20
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
@@ -54,7 +56,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -136,7 +143,6 @@ jobs:
 
       - name: Grant TCC screen recording permission
         if: ${{ inputs.record_video }}
-        continue-on-error: true
         run: |
           FFMPEG_BIN="${FFMPEG_PATH:-/opt/homebrew/bin/ffmpeg}"
 
@@ -175,8 +181,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
         run: |
@@ -257,7 +263,7 @@ jobs:
             -disableAutomaticPackageResolution
             -destination "platform=macOS"
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-            $ONLY_TESTING
+            "$ONLY_TESTING"
             test
           )
 

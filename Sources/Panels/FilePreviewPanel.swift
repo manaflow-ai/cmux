@@ -709,6 +709,10 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
+        if needsSniffBeforeTextOrMedia(url: url) {
+            return .needsSniff
+        }
+
         if let type = UTType(filenameExtension: ext),
            let mediaMode = mediaMode(for: type) {
             return .resolved(mediaMode)
@@ -729,6 +733,19 @@ enum FilePreviewKindResolver {
         let ext = url.pathExtension.lowercased()
         if ext == "plist", looksLikeBinaryPropertyList(url: url) {
             return .resolved(.quickLook)
+        }
+
+        if needsSniffBeforeTextOrMedia(url: url) {
+            if sniffLooksLikeText(url: url) {
+                return .resolved(.text)
+            }
+            if looksLikeMPEGTransportStream(url: url) {
+                return .resolved(.media)
+            }
+            if let mediaMode = contentTypes(for: url).lazy.compactMap({ mediaMode(for: $0) }).first {
+                return .resolved(mediaMode)
+            }
+            return .needsSniff
         }
 
         for type in contentTypes(for: url) {
@@ -793,6 +810,22 @@ enum FilePreviewKindResolver {
         return false
     }
 
+    private static func needsSniffBeforeTextOrMedia(url: URL) -> Bool {
+        let filename = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        if ext == "ts" {
+            return true
+        }
+        guard textFilenames.contains(filename) || textExtensions.contains(ext),
+              let type = UTType(filenameExtension: ext) else {
+            return false
+        }
+
+        return mediaMode(for: type) != nil
+            && !type.conforms(to: .text)
+            && !type.conforms(to: .sourceCode)
+    }
+
     private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
@@ -800,21 +833,49 @@ enum FilePreviewKindResolver {
         return String(data: data, encoding: .ascii) == "bplist00"
     }
 
+    private static func looksLikeMPEGTransportStream(url: URL) -> Bool {
+        guard url.pathExtension.lowercased() == "ts",
+              let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        guard data.count >= 376 else { return false }
+
+        let syncCandidates = [
+            (packetSize: 188, syncOffset: 0),
+            (packetSize: 192, syncOffset: 0),
+            (packetSize: 192, syncOffset: 4),
+            (packetSize: 204, syncOffset: 0)
+        ]
+
+        for candidate in syncCandidates where data.count > candidate.syncOffset {
+            var offset = candidate.syncOffset
+            var syncCount = 0
+            while offset < data.count {
+                guard data[offset] == 0x47 else { break }
+                syncCount += 1
+                offset += candidate.packetSize
+            }
+            if syncCount >= 2 {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
         guard !data.isEmpty else { return true }
-        if String(data: data, encoding: .utf8) != nil {
-            return true
-        }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
         }
         if data.contains(0) {
             return false
         }
-        return false
+        return String(data: data, encoding: .utf8) != nil
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {

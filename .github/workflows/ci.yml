@@ -161,7 +161,7 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -181,7 +181,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -379,11 +384,11 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests-build-and-lag:
-    # Build the full cmux scheme and run the lag regression on WarpBuild.
+    # Build the full cmux scheme and run the lag regression on macOS CI.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -397,7 +402,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -571,7 +581,7 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -585,7 +595,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -655,8 +670,22 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
+      - name: Validate Release artifact slices
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          test -x "$APP_BINARY"
+          test -x "$CLI_BINARY"
+          test -x "$HELPER_BINARY"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          lipo "$APP_BINARY" -verify_arch arm64 x86_64
+          lipo "$CLI_BINARY" -verify_arch arm64 x86_64
+          lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+
   ui-regressions:
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -670,7 +699,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -757,7 +791,7 @@ jobs:
           echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
 
           echo "Waiting for persistent virtual display..."
-          for i in $(seq 1 24); do
+          for _ in $(seq 1 24); do
             if [ -f "$VDISPLAY_READY" ]; then break; fi
             sleep 0.5
           done
@@ -820,7 +854,7 @@ jobs:
 
             # Wait for display ready
             echo "Waiting for virtual display..."
-            for i in $(seq 1 24); do
+            for _ in $(seq 1 24); do
               if [ -f "$DISPLAY_READY" ]; then break; fi
               sleep 0.5
             done
