@@ -5570,7 +5570,14 @@ class TabManager: ObservableObject {
         let tab = tabs[index]
         if tab.isPinned { return }
         let isAnchor = workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
-        if isAnchor { return }
+        if isAnchor {
+            // Anchors don't change group membership via drag (their group
+            // identity owns them), but they CAN end up at a position that
+            // breaks the group's contiguous run. Renormalize so the rest of
+            // the group follows the anchor's new spot in tabs[].
+            normalizeWorkspaceGroupContiguity()
+            return
+        }
         let before: Workspace? = index > 0 ? tabs[index - 1] : nil
         let after: Workspace? = (index + 1) < tabs.count ? tabs[index + 1] : nil
         let beforeGroup = before.flatMap { $0.isPinned ? nil : $0.groupId }
@@ -5851,6 +5858,13 @@ class TabManager: ObservableObject {
         let remainingPinned = tabs.filter { $0.isPinned && !changedIdSet.contains($0.id) }
         let remainingUnpinned = tabs.filter { !$0.isPinned && !changedIdSet.contains($0.id) }
         tabs = remainingPinned + changedWorkspaces + remainingUnpinned
+        // Multi-unpin can land newly-unpinned workspaces in front of group
+        // sections (the simple rebuild above doesn't know about the group
+        // tier). Normalize so the renderer's group-then-ungrouped ordering
+        // invariant holds.
+        if !workspaceGroups.isEmpty {
+            normalizeWorkspaceGroupContiguity()
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: changedIds)
         return changedIds
     }
@@ -8908,6 +8922,11 @@ class TabManager: ObservableObject {
            !workspaceGroups.contains(where: { $0.id == groupId }) {
             workspace.groupId = nil
         }
+        // When the group DOES still exist, the workspace is about to be
+        // reinserted at its old absolute index, which may now sit inside a
+        // different group section after intervening reorders. Renormalize
+        // so the restored member lands beside its group.
+        let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,
@@ -8918,6 +8937,9 @@ class TabManager: ObservableObject {
             let removed = tabs.remove(at: currentIndex)
             let insertIndex = min(max(entry.workspaceIndex, 0), tabs.count)
             tabs.insert(removed, at: insertIndex)
+        }
+        if needsNormalize {
+            normalizeWorkspaceGroupContiguity()
         }
 
         withFocusHistoryRecordingSuppressed {

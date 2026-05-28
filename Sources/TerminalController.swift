@@ -5316,7 +5316,27 @@ class TerminalController {
                 return tm
             }
         }
+        // Group methods route by group_id; locate the TabManager that owns
+        // the group so multi-window socket clients can pass a
+        // workspace_group:N ref/UUID without also passing window_id.
+        if let groupId = v2UUID(params, "group_id") {
+            if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
+                return tm
+            }
+        }
         return tabManager ?? v2MainSync { AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(forGroupId groupId: UUID) -> TabManager? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tm = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            if tm.workspaceGroups.contains(where: { $0.id == groupId }) {
+                return tm
+            }
+        }
+        return nil
     }
 
     func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {

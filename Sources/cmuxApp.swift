@@ -7032,8 +7032,13 @@ struct SettingsView: View {
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
                         SettingsCardDivider()
 
+                        // Use .settingsOnly because these toggles aren't yet
+                        // wired into CmuxSettingsFileStore.supportedSettingsJSONPaths
+                        // /parser; SettingsCardRow asserts on .json(...) paths
+                        // that the parser doesn't know about, which would crash
+                        // the whole Settings window on open.
                         SettingsCardRow(
-                            configurationReview: .json("sidebar.imessageMode.sortInsideGroups"),
+                            configurationReview: .settingsOnly,
                             String(
                                 localized: "settings.app.imessageSortInsideGroups",
                                 defaultValue: "iMessage Mode: Sort Workspaces Inside Groups"
@@ -7052,7 +7057,7 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .json("sidebar.imessageMode.floatGroups"),
+                            configurationReview: .settingsOnly,
                             String(
                                 localized: "settings.app.imessageFloatGroups",
                                 defaultValue: "iMessage Mode: Float Groups by Latest Unread"
