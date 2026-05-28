@@ -431,6 +431,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
             && destination.trimmingCharacters(in: .whitespacesAndNewlines)
                 == other.destination.trimmingCharacters(in: .whitespacesAndNewlines)
             && port == other.port
+            && relayPort == other.relayPort
             && WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile)
                 == WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
