@@ -5251,12 +5251,14 @@ private final class TmuxControlEventStream: @unchecked Sendable {
         }
     }
 
-    func drain() -> [TmuxControlQueuedItem] {
-        queue.sync { [self] in
-            let items = state.items
-            state.items.removeAll(keepingCapacity: true)
-            state.signalPending = false
-            return items
+    func drain() async -> [TmuxControlQueuedItem] {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                let items = state.items
+                state.items.removeAll(keepingCapacity: true)
+                state.signalPending = false
+                continuation.resume(returning: items)
+            }
         }
     }
 
@@ -5509,7 +5511,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tmuxControlEventProcessingTask = Task { [weak self, eventStream = tmuxControlEventStream] in
             for await _ in eventStream.signals {
                 guard let self else { break }
-                for item in eventStream.drain() {
+                for item in await eventStream.drain() {
                     switch item {
                     case .event(let event):
                         let shouldSchedule = await self.tmuxControlEventBuffer.enqueue(event)

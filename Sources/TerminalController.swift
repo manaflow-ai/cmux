@@ -5757,15 +5757,9 @@ class TerminalController {
         } else {
             argv += ["attach", "-t", sessionName]
         }
-        return argv.map(Self.shellQuote).joined(separator: " ")
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return argv
+            .map { TerminalStartupShellQuoting.shellToken($0, allowingBareASCII: true) }
+            .joined(separator: " ")
     }
 
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
