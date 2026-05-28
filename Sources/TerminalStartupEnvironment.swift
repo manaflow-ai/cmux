@@ -76,7 +76,7 @@ extension TerminalSurface {
             .map(String.init)
             .filter { entry in
                 let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedEntry.isEmpty else { return false }
+                guard !trimmedEntry.isEmpty else { return true }
                 return URL(fileURLWithPath: trimmedEntry, isDirectory: true)
                     .standardizedFileURL
                     .path != standardizedDirectory
