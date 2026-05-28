@@ -414,6 +414,10 @@ extension AgentSessionWebRenderer {
                         "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
                         "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
                         "tools": String(localized: "agentSession.web.tools", defaultValue: "Tools"),
+                        "reasoningEffortHigh": String(
+                            localized: "agentSession.web.reasoningEffort.high",
+                            defaultValue: "High"
+                        ),
                         "mentionMenuTitle": String(
                             localized: "agentSession.web.mentionMenuTitle",
                             defaultValue: "Mention"

@@ -144,6 +144,8 @@ function SessionSurface({
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const modelLabel = codexModelLabel(provider);
+  const reasoningEffortLabel =
+    provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
@@ -243,11 +245,14 @@ function SessionSurface({
       h(
         "span",
         { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
-        h(
-          "span",
-          { className: "model-picker-primary flex min-w-0 items-center gap-1 tabular-nums" },
-          h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
-        ),
+        h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+        reasoningEffortLabel
+          ? h(
+              "span",
+              { className: "composer-footer__label--sm shrink-0 text-token-description-foreground" },
+              reasoningEffortLabel,
+            )
+          : null,
       ),
       h(
         "span",

@@ -65,6 +65,7 @@ export type AgentSessionCopy = {
   browseWeb: string;
   autoContext: string;
   tools: string;
+  reasoningEffortHigh: string;
   mentionMenuTitle: string;
   mentionCurrentWorkspace: string;
   skillMenuTitle: string;

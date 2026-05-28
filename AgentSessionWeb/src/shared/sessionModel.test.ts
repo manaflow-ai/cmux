@@ -54,6 +54,7 @@ const context: AppContext = {
     browseWeb: "Browse web",
     autoContext: "Context",
     tools: "Tools",
+    reasoningEffortHigh: "High",
     mentionMenuTitle: "Mention",
     mentionCurrentWorkspace: "Current workspace",
     skillMenuTitle: "Skills",
