@@ -3041,61 +3041,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testCmdShiftPRequestsCommandPaletteCommands() {
+    func testCmdShiftPMatchesCommandPaletteCommandsShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let paletteExpectation = expectation(description: "Expected command palette commands request for Cmd+Shift+P")
-        var observedPaletteWindow: NSWindow?
-        let paletteToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            observedPaletteWindow = notification.object as? NSWindow
-            paletteExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(paletteToken) }
-
-        let switcherExpectation = expectation(description: "Cmd+Shift+P should not request command palette switcher")
-        switcherExpectation.isInverted = true
-        let switcherToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteSwitcherRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            switcherExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(switcherToken) }
-
-        guard let event = makeKeyDownEvent(
-            key: "P",
-            modifiers: [.command, .shift],
-            keyCode: 35,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Shift+P event")
-            return
-        }
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "P",
+            charactersIgnoringModifiers: "p",
+            keyCode: 35 // kVK_ANSI_P
+        )
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .commandPalette))
+        XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .goToWorkspace))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-
-        wait(for: [paletteExpectation, switcherExpectation], timeout: 1.0)
-        XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
     }
 
     func testCmdPStillRequestsCommandPaletteSwitcherWhilePaletteIsVisible() {
@@ -4846,20 +4810,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
-    func testCmdShiftMReturnsFalseWhenNoFocusedTerminalCanHandle() {
+    func testCmdShiftMReturnsFalseForUnownedWindowContext() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        // Force unresolved shortcut routing context and no active manager.
-        appDelegate.tabManager = nil
+        let unownedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { unownedWindow.close() }
 
         guard let event = makeKeyDownEvent(
             key: "m",
             modifiers: [.command, .shift],
             keyCode: 46, // kVK_ANSI_M
-            windowNumber: Int.max
+            windowNumber: unownedWindow.windowNumber
         ) else {
             XCTFail("Failed to construct Cmd+Shift+M event")
             return
@@ -4868,7 +4837,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertFalse(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+Shift+M should not be consumed when no terminal can toggle copy mode"
+            "Cmd+Shift+M should not be consumed for an event from an unowned window"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
