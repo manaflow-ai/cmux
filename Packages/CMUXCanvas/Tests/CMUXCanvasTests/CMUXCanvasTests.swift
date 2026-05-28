@@ -27,8 +27,13 @@ final class CMUXCanvasTests: XCTestCase {
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw XCTSkip("Metal device unavailable")
         }
+        XCTAssertNotNil(
+            CanvasMetalShaderLibrary.packageLibraryURL(),
+            "CMUXCanvas should ship a compiled package metallib instead of falling back to the app target default library"
+        )
         guard let library = CanvasMetalShaderLibrary.makeLibrary(device: device) else {
-            throw XCTSkip("Precompiled Metal library unavailable in this package test host")
+            XCTFail("Precompiled Metal library unavailable in this package test host")
+            return
         }
 
         XCTAssertNotNil(library.makeFunction(name: "cmux_canvas_vertex"))

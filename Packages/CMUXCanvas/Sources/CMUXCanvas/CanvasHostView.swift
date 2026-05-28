@@ -204,6 +204,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         var scene: CanvasScene
         var style: CanvasShellStyle
         var surfaceTextures: [CanvasSurfaceTextureSource]
+        var scheduler = CanvasFrameScheduler()
     }
 
     private let stateLock = NSLock()
@@ -224,7 +225,6 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
     private var shellVertices: [CanvasMetalVertex] = []
     private var overlayVertices: [CanvasMetalVertex] = []
     private var textureVertices: [CanvasMetalTextureVertex] = []
-    private var scheduler = CanvasFrameScheduler()
 
     init(
         backgroundColor: NSColor,
@@ -267,19 +267,17 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
         surfaceTextures: [CanvasSurfaceTextureSource]
     ) {
         stateLock.withLock {
-            self.state = RenderState(
-                backgroundColor: backgroundColor,
-                scene: scene,
-                style: style,
-                surfaceTextures: surfaceTextures
-            )
-            scheduler.markNeedsRender()
+            state.backgroundColor = backgroundColor
+            state.scene = scene
+            state.style = style
+            state.surfaceTextures = surfaceTextures
+            state.scheduler.markNeedsRender()
         }
     }
 
     func markNeedsRender() {
         stateLock.withLock {
-            scheduler.markNeedsRender()
+            state.scheduler.markNeedsRender()
         }
     }
 
@@ -295,7 +293,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
                 surfaces: state.scene.surfaces,
                 alignmentGuides: state.scene.alignmentGuides
             )
-            scheduler.markNeedsRender()
+            state.scheduler.markNeedsRender()
         }
         view.setNeedsDisplay(view.bounds)
     }
@@ -305,7 +303,7 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
             let hasLiveSurfaceTextures = self.state.surfaceTextures.contains {
                 $0.requiresContinuousRendering
             }
-            guard scheduler.consumeFrame() || hasLiveSurfaceTextures else { return nil }
+            guard state.scheduler.consumeFrame() || hasLiveSurfaceTextures else { return nil }
             return self.state
         }
         guard let state = renderState else { return }
@@ -754,14 +752,20 @@ private struct CanvasMetalBitmapTexture {
 }
 
 enum CanvasMetalShaderLibrary {
+    static func packageLibraryURL() -> URL? {
+#if SWIFT_PACKAGE
+        Bundle.module.url(forResource: "default", withExtension: "metallib")
+#else
+        nil
+#endif
+    }
+
     static func makeLibrary(device: MTLDevice?) -> MTLLibrary? {
         guard let device else { return nil }
-#if SWIFT_PACKAGE
-        if let url = Bundle.module.url(forResource: "default", withExtension: "metallib"),
+        if let url = packageLibraryURL(),
            let packageLibrary = try? device.makeLibrary(URL: url) {
             return packageLibrary
         }
-#endif
         return device.makeDefaultLibrary()
     }
 }

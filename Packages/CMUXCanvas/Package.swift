@@ -25,7 +25,7 @@ let package = Package(
             ],
             path: "Sources/CMUXCanvas",
             resources: [
-                .copy("Resources/CanvasShaders.metal"),
+                .process("Resources/CanvasShaders.metal"),
             ]
         ),
         .testTarget(
