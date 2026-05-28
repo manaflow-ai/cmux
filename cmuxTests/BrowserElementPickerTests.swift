@@ -80,6 +80,8 @@ final class BrowserElementPickerTests: XCTestCase {
         XCTAssertTrue(store.clear(surfaceId: surfaceId))
         XCTAssertNil(store.get(surfaceId: surfaceId))
         XCTAssertNotNil(store.get(surfaceId: otherSurfaceId))
+        store.clear(surfaceIds: [surfaceId, otherSurfaceId])
+        XCTAssertNil(store.get(surfaceId: otherSurfaceId))
     }
 
     private func makePick(

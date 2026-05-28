@@ -3593,7 +3593,8 @@ final class BrowserPanel: Panel, ObservableObject {
             WKUserScript(
                 source: BrowserElementPickerBridge.scriptSource,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: .defaultClient
             )
         )
         configuration.userContentController.addUserScript(

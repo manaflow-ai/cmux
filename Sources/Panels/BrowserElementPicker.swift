@@ -452,16 +452,21 @@ struct BrowserElementPickerNativeClick {
 extension BrowserPanel {
     func installElementPickerMessageHandler(for webView: WKWebView) {
         let controller = webView.configuration.userContentController
-        controller.removeScriptMessageHandler(forName: BrowserElementPickerBridge.messageHandlerName)
+        controller.removeScriptMessageHandler(
+            forName: BrowserElementPickerBridge.messageHandlerName,
+            contentWorld: .defaultClient
+        )
         controller.add(
             BrowserElementPickerMessageHandler(panel: self, webViewInstanceID: webViewInstanceID),
+            contentWorld: .defaultClient,
             name: BrowserElementPickerBridge.messageHandlerName
         )
     }
 
     func uninstallElementPickerMessageHandler(from webView: WKWebView) {
         webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: BrowserElementPickerBridge.messageHandlerName
+            forName: BrowserElementPickerBridge.messageHandlerName,
+            contentWorld: .defaultClient
         )
     }
 
@@ -517,7 +522,7 @@ extension BrowserPanel {
 
     func syncElementPickerActiveStateToPage() {
         let script = BrowserElementPickerBridge.setActiveScript(isElementPickerActive)
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        webView.evaluateJavaScript(script, in: nil, in: .defaultClient, completionHandler: nil)
     }
 
     private func consumeElementPickerNativeClickAuthorization() -> Bool {

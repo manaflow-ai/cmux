@@ -338,7 +338,10 @@ class TerminalController {
     private var browserElementPickedObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
-        for surfaceId in Set(surfaceIds) {
+        let uniqueSurfaceIds = Set(surfaceIds)
+        BrowserElementPickStore.shared.clear(surfaceIds: Array(uniqueSurfaceIds))
+
+        for surfaceId in uniqueSurfaceIds {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
@@ -346,7 +349,6 @@ class TerminalController {
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
-            BrowserElementPickStore.shared.clear(surfaceId: surfaceId)
 
             if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
                 v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)

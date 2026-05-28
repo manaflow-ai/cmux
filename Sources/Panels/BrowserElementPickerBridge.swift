@@ -7,10 +7,9 @@ enum BrowserElementPickerBridge {
         let value = isActive ? "true" : "false"
         return """
         (() => {
-          window.__cmuxElementPickerPendingActive = \(value);
-          const picker = window.__cmuxElementPicker;
-          if (picker && typeof picker.setActive === 'function') {
-            return picker.setActive(\(value));
+          const setActive = window.__cmuxElementPickerSetActive;
+          if (typeof setActive === 'function') {
+            return setActive(\(value));
           }
           return false;
         })()
@@ -19,7 +18,8 @@ enum BrowserElementPickerBridge {
 
     static let scriptSource = """
     (() => {
-      if (window.__cmuxElementPickerInstalled) {
+      const installedMarkerName = '__cmuxElementPickerInstalled';
+      if (window[installedMarkerName] === true && typeof window.__cmuxElementPickerSetActive === 'function') {
         return true;
       }
 
@@ -32,14 +32,8 @@ enum BrowserElementPickerBridge {
         }
       };
 
-      const state = window.__cmuxElementPickerState || { active: false, overlay: null };
-      Object.defineProperty(window, '__cmuxElementPickerState', {
-        value: state,
-        writable: false,
-        configurable: false,
-        enumerable: false
-      });
-      Object.defineProperty(window, '__cmuxElementPickerInstalled', {
+      const state = { active: false, overlay: null };
+      Object.defineProperty(window, installedMarkerName, {
         value: true,
         writable: false,
         configurable: false,
@@ -60,12 +54,15 @@ enum BrowserElementPickerBridge {
         return ch;
       }).join('');
 
-      const sanitizedText = (value, limit) => {
-        return String(value || '')
+      const sanitizeBridgeString = (value, limit) => {
+        const maxLength = Math.max(0, Number(limit) || 0);
+        return String(value == null ? '' : value)
           .replace(/[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]/g, '')
-          .slice(0, limit)
+          .slice(0, maxLength)
           .trim();
       };
+
+      const sanitizedText = sanitizeBridgeString;
 
       const elementFromEvent = (event) => {
         const path = event && typeof event.composedPath === 'function' ? event.composedPath() : [];
@@ -186,16 +183,26 @@ enum BrowserElementPickerBridge {
         let current = element;
         let root = current.getRootNode ? current.getRootNode() : document;
         while (root && root.toString && String(root) === '[object ShadowRoot]') {
-          shadowPath.unshift(selectorPath(current, root));
+          shadowPath.unshift(sanitizeBridgeString(selectorPath(current, root), 700));
           current = root.host;
           root = current && current.getRootNode ? current.getRootNode() : document;
         }
-        const outer = selectorPath(current, document);
+        const outer = sanitizeBridgeString(selectorPath(current, document), 700);
         if (shadowPath.length > 0) {
-          const path = [outer].concat(shadowPath);
-          return { selector: path.join(' >> shadow >> '), selector_kind: 'shadow', shadow_path: path, xpath: null };
+          const path = [outer].concat(shadowPath).filter(Boolean).slice(0, 12);
+          return {
+            selector: sanitizeBridgeString(path.join(' >> shadow >> '), 1500),
+            selector_kind: 'shadow',
+            shadow_path: path,
+            xpath: null
+          };
         }
-        return { selector: selectorPath(element, document), selector_kind: 'css', shadow_path: [], xpath: xpathForElement(element) };
+        return {
+          selector: sanitizeBridgeString(selectorPath(element, document), 1500),
+          selector_kind: 'css',
+          shadow_path: [],
+          xpath: sanitizeBridgeString(xpathForElement(element), 1500)
+        };
       };
 
       const whitelistedAttributes = (element) => {
@@ -214,18 +221,18 @@ enum BrowserElementPickerBridge {
         const attributes = whitelistedAttributes(element);
         const text = sanitizedText(element.innerText || element.textContent || element.getAttribute('aria-label') || element.getAttribute('title') || '', 500);
         return {
-          selector: selector.selector,
-          selector_kind: selector.selector_kind,
-          shadow_path: selector.shadow_path,
-          xpath: selector.xpath,
+          selector: sanitizeBridgeString(selector.selector, 1500),
+          selector_kind: selector.selector_kind === 'shadow' ? 'shadow' : 'css',
+          shadow_path: Array.isArray(selector.shadow_path) ? selector.shadow_path.map((part) => sanitizeBridgeString(part, 700)).filter(Boolean).slice(0, 12) : [],
+          xpath: selector.xpath ? sanitizeBridgeString(selector.xpath, 1500) : null,
           text: text,
-          tag: (element.localName || 'element').toLowerCase(),
-          role: element.getAttribute('role') || '',
-          label: element.getAttribute('aria-label') || element.getAttribute('title') || element.getAttribute('alt') || '',
+          tag: sanitizeBridgeString((element.localName || 'element').toLowerCase(), 64),
+          role: sanitizeBridgeString(element.getAttribute('role') || '', 300),
+          label: sanitizeBridgeString(element.getAttribute('aria-label') || element.getAttribute('title') || element.getAttribute('alt') || '', 300),
           attributes: attributes,
-          url: String(document.URL || ''),
-          title: String(document.title || ''),
-          frame_url: String(window.location && window.location.href || ''),
+          url: sanitizeBridgeString(document.URL || '', 2000),
+          title: sanitizeBridgeString(document.title || '', 500),
+          frame_url: sanitizeBridgeString(window.location && window.location.href || '', 2000),
           rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           activation: pickedViaActiveMode ? 'armed' : 'option',
           pointer: { x: event.clientX, y: event.clientY },
@@ -234,6 +241,11 @@ enum BrowserElementPickerBridge {
       };
 
       const setActive = (active) => {
+        if (!getHandler()) {
+          state.active = false;
+          hideOverlay();
+          return false;
+        }
         state.active = !!active;
         if (!state.active) {
           hideOverlay();
@@ -241,17 +253,18 @@ enum BrowserElementPickerBridge {
         return state.active;
       };
 
-      Object.defineProperty(window, '__cmuxElementPicker', {
-        value: {
-          setActive,
-          isActive: () => !!state.active
-        },
+      Object.defineProperty(window, '__cmuxElementPickerSetActive', {
+        value: setActive,
         writable: false,
         configurable: false,
         enumerable: false
       });
 
       document.addEventListener('mousemove', (event) => {
+        if (!getHandler()) {
+          hideOverlay();
+          return;
+        }
         if (!state.active && !event.altKey) {
           hideOverlay();
           return;
@@ -260,6 +273,8 @@ enum BrowserElementPickerBridge {
       }, true);
 
       document.addEventListener('click', (event) => {
+        const handler = getHandler();
+        if (!handler) return;
         const pickedViaActiveMode = !!state.active;
         if (!pickedViaActiveMode && !event.altKey) return;
         const element = elementFromEvent(event);
@@ -269,8 +284,7 @@ enum BrowserElementPickerBridge {
         showOverlay(element, true);
         setActive(false);
         try {
-          const handler = getHandler();
-          if (handler) handler.postMessage(payloadFor(element, event, pickedViaActiveMode));
+          handler.postMessage(payloadFor(element, event, pickedViaActiveMode));
         } catch (_) {}
       }, true);
 
@@ -278,10 +292,6 @@ enum BrowserElementPickerBridge {
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) hideOverlay();
       }, true);
-
-      if (window.__cmuxElementPickerPendingActive === true) {
-        setActive(true);
-      }
 
       return true;
     })()
