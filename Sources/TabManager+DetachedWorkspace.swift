@@ -74,9 +74,11 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
-            }
+            // Intentionally do NOT call `newWorkspace.setCustomTitle(title)` here.
+            // The ctor already seeded `self.title` with `title ?? detached.title`,
+            // and pinning `customTitle` would block OSC-driven `applyProcessTitle`
+            // updates (e.g. claude's `✳ <topic>` titles) from reaching the
+            // workspace row. See https://github.com/manaflow-ai/cmux/issues/4946.
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs
