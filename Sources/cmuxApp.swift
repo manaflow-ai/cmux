@@ -5295,48 +5295,37 @@ struct SettingsView: View {
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
-    @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-    @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
-    @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
-    @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
-    @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
+    @Setting(\.notifications.dockBadge) private var notificationDockBadgeEnabled
+    @Setting(\.notifications.unreadPaneRing) private var notificationPaneRingEnabled
+    @Setting(\.notifications.paneFlash) private var notificationPaneFlashEnabled
+    @Setting(\.notifications.showInMenuBar) private var showMenuBarExtra
+    @Setting(\.app.menuBarOnly) private var menuBarOnly
     @AppStorage(QuitWarningSettings.confirmQuitKey)
     private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
-    @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
-    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
-    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
-    private var warnBeforeClosingTabXButton = CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton
-    @AppStorage(CloseTabWarningSettings.hideTabCloseButtonKey)
-    private var hideTabCloseButton = CloseTabWarningSettings.defaultHideTabCloseButton
-    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
-    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
-    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+    @Setting(\.app.warnBeforeQuit) private var warnBeforeQuitShortcut
+    @Setting(\.app.warnBeforeClosingTab) private var warnBeforeClosingTab
+    @Setting(\.app.warnBeforeClosingTabXButton) private var warnBeforeClosingTabXButton
+    @Setting(\.app.hideTabCloseButton) private var hideTabCloseButton
+    @Setting(\.app.renameSelectsExistingName) private var commandPaletteRenameSelectAllOnFocus
+    @Setting(\.app.commandPaletteSearchesAllSurfaces) private var commandPaletteSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
-    @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
-    private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
-    @AppStorage(LastSurfaceCloseShortcutSettings.key)
-    private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
-    @AppStorage(PaneFirstClickFocusSettings.enabledKey)
-    private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
-    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
-    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @Setting(\.app.workspaceInheritWorkingDirectory) private var workspaceInheritWorkingDirectory
+    @Setting(\.app.keepWorkspaceOpenWhenClosingLastSurface) private var closeWorkspaceOnLastSurfaceShortcut
+    @Setting(\.app.focusPaneOnFirstClick) private var paneFirstClickFocusEnabled
+    @Setting(\.terminal.showScrollBar) private var showTerminalScrollBar
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
-    @AppStorage(TerminalCopyOnSelectSettings.copyOnSelectKey)
-    private var terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
+    @Setting(\.terminal.copyOnSelect) private var terminalCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
-    @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-    private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
-    @AppStorage(AgentHibernationSettings.enabledKey)
-    private var agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
+    @Setting(\.terminal.autoResumeAgentSessions) private var autoResumeAgentSessions
+    @Setting(\.terminal.agentHibernationEnabled) private var agentHibernationEnabled
     @AppStorage(AgentHibernationSettings.idleSecondsKey)
     private var agentHibernationIdleSeconds = AgentHibernationSettings.defaultIdleSeconds
     @AppStorage(AgentHibernationSettings.maxLiveTerminalsKey)
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
-    @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
-    @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
+    @Setting(\.app.reorderOnNotification) private var workspaceAutoReorder
+    @Setting(\.app.iMessageMode) private var iMessageMode
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
