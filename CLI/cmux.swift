@@ -6900,8 +6900,11 @@ struct CMUXCLI {
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "remove":
-            let (wsOpt, _) = parseOption(rest, name: "--workspace")
-            guard let wsId = wsOpt ?? rest.first(where: { !$0.hasPrefix("--") }) else {
+            let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
+            // Strip --window before scanning for a positional so a `--window
+            // <value>` pair never gets parsed as the workspace id.
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
                 throw CLIError(message: "remove requires --workspace <id>")
             }
             params["workspace_id"] = wsId
