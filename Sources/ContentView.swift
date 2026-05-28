@@ -11819,8 +11819,6 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 )
             }
         }
-        .padding(.leading, 6)
-        .padding(.trailing, 6)
         .padding(.vertical, 5)
         .contentShape(Rectangle())
         .background(
@@ -11829,12 +11827,16 @@ private struct SidebarWorkspaceGroupHeaderView: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        // The pill sits on the inner (pre-horizontal-padding) frame so it
+        // aligns with TabItemView's chip — the row applies
+        // `.padding(.horizontal, 6)` AFTER its overlay, and so do we here.
         .sidebarShortcutHintOverlay(
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,
             offsetX: shortcutHintXOffset,
             offsetY: shortcutHintYOffset
         )
+        .padding(.horizontal, 6)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .onHover { hovering in
             isHovered = hovering
