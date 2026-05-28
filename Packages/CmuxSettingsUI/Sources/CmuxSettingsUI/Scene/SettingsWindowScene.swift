@@ -40,9 +40,18 @@ public struct SettingsWindowScene: Scene {
 
 /// Root view of the settings window. Owns the selection state, the
 /// search query, and the `NavigationSplitView` chrome.
+///
+/// Public so a host app that wants to declare its own outer
+/// `Window(...)` scene (to keep its existing window id, default
+/// size, command groups, etc.) can host the package's settings UI
+/// without taking ``SettingsWindowScene`` wholesale.
 @MainActor
-struct SettingsWindowRoot: View {
+public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
+
+    public init(runtime: SettingsRuntime) {
+        self.runtime = runtime
+    }
 
     @State private var selection: SettingsSectionID = .account
     @State private var searchText: String = ""
@@ -55,7 +64,7 @@ struct SettingsWindowRoot: View {
         SettingsSearchIndex(catalog: catalog)
     }
 
-    var body: some View {
+    public var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
@@ -109,7 +118,7 @@ struct SettingsWindowRoot: View {
                 catalog: catalog
             )
         case .account:
-            AccountSection()
+            AccountSection(defaultsStore: defaultsStore, catalog: catalog)
         case .terminal:
             TerminalSection(defaultsStore: defaultsStore, catalog: catalog)
         case .sidebarAppearance:

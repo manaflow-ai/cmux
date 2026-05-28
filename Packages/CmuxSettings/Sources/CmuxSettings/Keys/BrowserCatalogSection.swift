@@ -86,5 +86,23 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "reactGrabVersion"
     )
 
+    public let disabled = DefaultsKey<Bool>(
+        id: "browser.disabled",
+        defaultValue: false,
+        userDefaultsKey: "browserDisabled"
+    )
+
+    public let importHintVariant = DefaultsKey<String>(
+        id: "browser.importHintVariant",
+        defaultValue: "compact",
+        userDefaultsKey: "browserImportHintVariant"
+    )
+
+    public let importHintDismissed = DefaultsKey<Bool>(
+        id: "browser.importHintDismissed",
+        defaultValue: false,
+        userDefaultsKey: "browserImportHintDismissed"
+    )
+
     public init() {}
 }

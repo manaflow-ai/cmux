@@ -111,5 +111,23 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    public let activeTabIndicatorStyle = DefaultsKey<String>(
+        id: "sidebar.activeTabIndicatorStyle",
+        defaultValue: "default",
+        userDefaultsKey: "sidebarActiveTabIndicatorStyle"
+    )
+
+    public let selectionColorHex = DefaultsKey<String>(
+        id: "sidebar.selectionColor",
+        defaultValue: "",
+        userDefaultsKey: "sidebarSelectionColorHex"
+    )
+
+    public let notificationBadgeColorHex = DefaultsKey<String>(
+        id: "sidebar.notificationBadgeColor",
+        defaultValue: "",
+        userDefaultsKey: "sidebarNotificationBadgeColorHex"
+    )
+
     public init() {}
 }

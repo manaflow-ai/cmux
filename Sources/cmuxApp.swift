@@ -5250,41 +5250,31 @@ struct SettingsView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
-    private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-    @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
-    private var customClaudePath = ""
-    @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
-    private var customRipgrepPath = ""
-    @AppStorage(AgentSubagentNotificationSettings.suppressNotificationsKey)
-    private var suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
-    @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
-    private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
-    @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
-    private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
-    @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
-    private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
-    @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
-    @AppStorage(CmdClickSupportedFileRouteSettings.key)
-    private var openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
-    @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+    @Setting(\.integrations.claudeCodeHooksEnabled) private var claudeCodeHooksEnabled
+    @Setting(\.integrations.claudeCodeCustomClaudePath) private var customClaudePath
+    @Setting(\.integrations.ripgrepCustomBinaryPath) private var customRipgrepPath
+    @Setting(\.integrations.suppressSubagentNotifications) private var suppressSubagentNotifications
+    @Setting(\.integrations.cursorHooksEnabled) private var cursorHooksEnabled
+    @Setting(\.integrations.geminiHooksEnabled) private var geminiHooksEnabled
+    @Setting(\.app.sendAnonymousTelemetry) private var sendAnonymousTelemetry
+    @Setting(\.app.preferredEditor) private var preferredEditorCommand
+    @Setting(\.app.openSupportedFilesInCmux) private var openSupportedFilesInCmux
+    @Setting(\.app.openMarkdownInCmuxViewer) private var openMarkdownInCmuxViewer
     @AppStorage(AutomationSettings.portBaseKey) private var cmuxPortBase = AutomationSettings.defaultPortBase
     @AppStorage(AutomationSettings.portRangeKey) private var cmuxPortRange = AutomationSettings.defaultPortRange
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.customSearchEngineNameKey) private var browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
     @AppStorage(BrowserSearchSettings.customSearchEngineURLTemplateKey) private var browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
-    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
-    @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
-    @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
-    @AppStorage(BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-    private var browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
-    @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
-    @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
-    @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @Setting(\.browser.showSearchSuggestions) private var browserSearchSuggestionsEnabled
+    @Setting(\.browser.disabled) private var browserDisabled
+    @Setting(\.browser.discardHiddenWebViews) private var browserHiddenWebViewDiscardEnabled
+    @Setting(\.browser.hiddenWebViewDiscardDelaySeconds) private var browserHiddenWebViewDiscardDelay
+    @Setting(\.browser.importHintDismissed) private var isBrowserImportHintDismissed
+    @Setting(\.browser.showImportHintOnBlankTabs) private var showBrowserImportHintOnBlankTabs
+    @Setting(\.browser.reactGrabVersion) private var reactGrabVersion
+    @Setting(\.browser.openTerminalLinksInCmuxBrowser) private var openTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist

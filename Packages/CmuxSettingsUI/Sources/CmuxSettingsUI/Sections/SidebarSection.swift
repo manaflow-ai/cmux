@@ -118,12 +118,90 @@ public struct SidebarSection: View {
                         }
                     }
                 )
+                SettingsPickerRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.material),
+                    title: "Material",
+                    label: { material in
+                        switch material {
+                        case .sidebar: return "Sidebar"
+                        case .hudWindow: return "HUD"
+                        case .menu: return "Menu"
+                        case .titlebar: return "Titlebar"
+                        case .selection: return "Selection"
+                        case .popover: return "Popover"
+                        case .headerView: return "Header"
+                        case .underWindowBackground: return "Under Window Background"
+                        case .sheet: return "Sheet"
+                        case .windowBackground: return "Window Background"
+                        case .fullScreenUI: return "Full Screen UI"
+                        case .toolTip: return "Tool Tip"
+                        case .contentBackground: return "Content Background"
+                        case .underPageBackground: return "Under Page Background"
+                        }
+                    }
+                )
+                SettingsPickerRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.blendMode),
+                    title: "Blend mode",
+                    label: { mode in
+                        switch mode {
+                        case .behindWindow: return "Behind Window"
+                        case .withinWindow: return "Within Window"
+                        }
+                    }
+                )
+                SettingsPickerRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.state),
+                    title: "State",
+                    label: { state in
+                        switch state {
+                        case .followWindow: return "Follow Window"
+                        case .active: return "Always Active"
+                        case .inactive: return "Always Inactive"
+                        }
+                    }
+                )
                 tintRow(title: "Tint color (#RRGGBB)", key: catalog.sidebarAppearance.tintColorHex)
+                tintRow(title: "Light-mode tint", key: catalog.sidebarAppearance.lightModeTintColorHex)
+                tintRow(title: "Dark-mode tint", key: catalog.sidebarAppearance.darkModeTintColorHex)
                 tintOpacityRow
+                blurOpacityRow
                 cornerRadiusRow
+            }
+            Section("Custom Colors") {
+                SettingsDefaultsTextFieldRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.selectionColorHex),
+                    title: "Selection color (#RRGGBB)",
+                    placeholder: "(default)"
+                )
+                SettingsDefaultsTextFieldRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgeColorHex),
+                    title: "Notification badge color (#RRGGBB)",
+                    placeholder: "(default)"
+                )
+                SettingsDefaultsTextFieldRow(
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.activeTabIndicatorStyle),
+                    title: "Active tab indicator style",
+                    placeholder: "default | underline | dot | none"
+                )
             }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private var blurOpacityRow: some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.blurOpacity)
+        VStack(alignment: .leading) {
+            HStack {
+                Text("Blur opacity")
+                Spacer()
+                Text(String(format: "%.0f%%", model.current * 100))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: Binding(get: { model.current }, set: { model.set($0) }), in: 0...1)
+        }
     }
 
     @ViewBuilder

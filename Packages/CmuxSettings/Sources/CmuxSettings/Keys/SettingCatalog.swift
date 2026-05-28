@@ -32,6 +32,7 @@ public struct SettingCatalog: SettingCatalogSection {
     public let browser = BrowserCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
+    public let integrations = IntegrationsCatalogSection()
 
     public init() {}
 }
