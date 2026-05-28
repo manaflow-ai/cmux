@@ -33,15 +33,22 @@
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 14px;
+  --corner-radius-scale: 1;
+  --radius-md-base: 0.5rem;
+  --radius-lg-base: 0.625rem;
+  --radius-xl-base: 0.75rem;
+  --radius-2xl-base: 1rem;
+  --radius-3xl-base: 1.25rem;
+  --radius-4xl-base: 1.5rem;
   --radius-2xs: 0.125rem;
   --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
-  --radius-3xl: 1.25rem;
-  --radius-4xl: 1.5rem;
+  --radius-md: calc(var(--radius-md-base) * var(--corner-radius-scale));
+  --radius-lg: calc(var(--radius-lg-base) * var(--corner-radius-scale));
+  --radius-xl: calc(var(--radius-xl-base) * var(--corner-radius-scale));
+  --radius-2xl: calc(var(--radius-2xl-base) * var(--corner-radius-scale));
+  --radius-3xl: calc(var(--radius-3xl-base) * var(--corner-radius-scale));
+  --radius-4xl: calc(var(--radius-4xl-base) * var(--corner-radius-scale));
   --spacing-token-button-composer: calc(var(--spacing) * 7);
   --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
   --spacing-token-button-composer-gap: var(--spacing);
@@ -101,6 +108,14 @@
 }
 
 :root[data-codex-window-type="electron"] body {
+  --padding-row-y: calc(var(--spacing) * 1.25);
+  --height-token-nav-row: calc(var(--text-base) * 1.5 + var(--padding-row-y) * 2);
+  --padding-panel-base: calc(var(--spacing) * 5);
+  --padding-panel: var(--padding-panel-base);
+  --thread-content-max-width: 48rem;
+  --markdown-wide-block-max-width: 56rem;
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
+  --text-heading-md: 18px;
   --cursor-interaction: default;
   overscroll-behavior: none;
   overflow: hidden;
@@ -466,11 +481,6 @@ select {
 
 .codex-composer-surface {
   color: var(--color-token-foreground);
-  background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
-}
-
-:root.dark .codex-composer-surface {
-  background: color-mix(in srgb, var(--color-token-dropdown-background) 90%, transparent);
 }
 
 .codex-composer-inner {
@@ -482,6 +492,10 @@ select {
 }
 
 @supports (corner-shape: superellipse(1.5)) {
+  :root {
+    --corner-radius-scale: 1.25;
+  }
+
   .codex-composer-surface,
   .codex-user-bubble,
   .codex-notice-content,

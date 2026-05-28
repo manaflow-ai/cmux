@@ -475,7 +475,7 @@ function SessionSurface({
               "div",
               {
                 className:
-                  "codex-composer-surface relative flex flex-col bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] " +
+                  "codex-composer-surface relative flex flex-col bg-token-input-background/90 backdrop-blur-lg electron:ring electron:ring-black/10 electron:shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] electron:dark:bg-token-dropdown-background " +
                   (isSingleLineComposer ? "overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"),
               },
               composerControls,
