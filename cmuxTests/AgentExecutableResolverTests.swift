@@ -36,7 +36,8 @@ final class AgentExecutableResolverTests: XCTestCase {
 
         let resolver = AgentExecutableResolver(
             environment: ["PATH": root.path, "HOME": root.path],
-            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
         )
 
         XCTAssertThrowsError(try resolver.resolve(.opencode)) { error in
@@ -117,7 +118,8 @@ final class AgentExecutableResolverTests: XCTestCase {
 
         let resolver = AgentExecutableResolver(
             environment: ["PATH": resourceBin.path, "HOME": root.path],
-            bundleResourceURL: root.appendingPathComponent("Contents/Resources", isDirectory: true)
+            bundleResourceURL: root.appendingPathComponent("Contents/Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
         )
 
         XCTAssertThrowsError(try resolver.resolve(.claude)) { error in

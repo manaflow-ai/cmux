@@ -156,6 +156,7 @@ struct AgentExecutableResolver {
     var fileManager: FileManager
     var bundleResourceURL: URL?
     var extraSearchDirectories: [String]
+    var includeStandardSearchDirectories: Bool
     var configuredExecutablePaths: [AgentSessionProviderID: String]
 
     init(
@@ -163,12 +164,14 @@ struct AgentExecutableResolver {
         fileManager: FileManager = .default,
         bundleResourceURL: URL? = Bundle.main.resourceURL,
         extraSearchDirectories: [String] = [],
+        includeStandardSearchDirectories: Bool = true,
         configuredExecutablePaths: [AgentSessionProviderID: String] = [:]
     ) {
         self.environment = environment
         self.fileManager = fileManager
         self.bundleResourceURL = bundleResourceURL
         self.extraSearchDirectories = extraSearchDirectories
+        self.includeStandardSearchDirectories = includeStandardSearchDirectories
         self.configuredExecutablePaths = configuredExecutablePaths
     }
 
@@ -215,12 +218,14 @@ struct AgentExecutableResolver {
         if let home = environment["HOME"], !home.isEmpty {
             directories.append(contentsOf: userRuntimeSearchDirectories(home: home))
         }
-        directories.append(contentsOf: [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin"
-        ])
+        if includeStandardSearchDirectories {
+            directories.append(contentsOf: [
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin"
+            ])
+        }
 
         var seen: Set<String> = []
         return directories.compactMap { rawDirectory in
