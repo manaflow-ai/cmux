@@ -3373,11 +3373,11 @@ extension CMUXCLI {
             async function waitForReplacement() {
               try {
                 const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
-                if (await applyReplacementFrom(response)) {
-                  return;
-                }
-              } catch {}
-              window.setTimeout(waitForReplacement, 1000);
+                await applyReplacementFrom(response);
+              } catch (error) {
+                document.documentElement.dataset.cmuxDiffWait = "failed";
+                console.warn("cmux diff viewer deferred load failed", error);
+              }
             }
 
             waitForReplacement();
@@ -5171,8 +5171,6 @@ extension CMUXCLI {
               status.textContent = label("parsingDiff");
               setWorkerPoolStatus("loading");
               workerPool = await createCodeViewWorkerPool();
-              codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
-              codeView.setup(viewerElement);
               setupJumpSelector(diffItems);
               updateToolbarState();
               window.__cmuxDiffViewer = { codeView, items: diffItems, state: appState, workerPool };
@@ -5184,6 +5182,7 @@ extension CMUXCLI {
               window.addEventListener("pagehide", () => workerPool?.terminate?.(), { once: true });
 
               await streamPatchIntoCodeView({
+                CodeView,
                 parsePatchFiles,
                 processFile,
                 treesModule,
@@ -5273,7 +5272,7 @@ extension CMUXCLI {
               return `Commit ${index + 1}`;
             }
 
-            async function streamPatchIntoCodeView({ parsePatchFiles, processFile, treesModule }) {
+            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, treesModule }) {
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5316,25 +5315,20 @@ extension CMUXCLI {
                 const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
                 const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
                 const stats = fileStats(fileDiff);
-                const hasDiffHunks = (fileDiff.hunks?.length ?? 0) > 0;
                 const status = gitStatus(fileDiff);
-                const itemId = model.itemById.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
+                const itemId = model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
                 const item = {
                   id: itemId,
                   type: "diff",
                   fileDiff,
-                  gitStatus: status,
-                  renderable: hasDiffHunks,
-                  stats,
-                  treePath,
-                  version: 1,
+                  version: 0,
                 };
                 const fileOrder = model.items.length;
                 model.fileIndex += 1;
                 model.items.push(item);
                 model.pendingItems.push(item);
                 model.pendingItemById.set(item.id, item);
-                model.itemById.set(item.id, item);
+                model.itemIdToFile.set(item.id, fileDiff);
                 model.itemIdByTreePath.set(treePath, item.id);
                 model.treePathByItemId.set(item.id, treePath);
                 model.diffStats.addedLines += stats.added;
@@ -5369,9 +5363,10 @@ extension CMUXCLI {
                 const newId = uniqueDiffItemId(model, `${treePath}${suffix}`);
                 state.currentItem.id = newId;
                 state.currentItemId = newId;
-                if (model.itemById.has(oldId)) {
-                  model.itemById.delete(oldId);
-                  model.itemById.set(newId, state.currentItem);
+                if (model.itemIdToFile.has(oldId)) {
+                  const fileDiff = model.itemIdToFile.get(oldId);
+                  model.itemIdToFile.delete(oldId);
+                  model.itemIdToFile.set(newId, fileDiff);
                 }
                 if (model.treePathByItemId.has(oldId)) {
                   model.treePathByItemId.delete(oldId);
@@ -5387,12 +5382,12 @@ extension CMUXCLI {
               }
 
               function uniqueDiffItemId(model, baseId) {
-                if (!model.itemById.has(baseId)) {
+                if (!model.itemIdToFile.has(baseId)) {
                   return baseId;
                 }
                 let suffix = model.nextCollisionSuffixByBase.get(baseId) ?? 2;
                 let nextId = `${baseId}-${suffix}`;
-                while (model.itemById.has(nextId)) {
+                while (model.itemIdToFile.has(nextId)) {
                   suffix += 1;
                   nextId = `${baseId}-${suffix}`;
                 }
@@ -5483,7 +5478,7 @@ extension CMUXCLI {
                 }
                 const batch = diffModel.pendingItems.splice(0, diffModel.pendingItems.length);
                 diffModel.pendingItemById.clear();
-                const codeBatch = batch.filter((item) => item.renderable !== false);
+                const codeBatch = batch.filter(isRenderableDiffItem);
                 const hadCodeItems = codeViewItems.length > 0;
                 diffItems.push(...batch);
                 for (const item of batch) {
@@ -5494,10 +5489,15 @@ extension CMUXCLI {
                   for (const item of codeBatch) {
                     codeViewItemIds.add(item.id);
                   }
-                  codeView.addItems(codeBatch);
-                  if (!renderedInitialCodeBatch) {
+                  if (!codeView) {
+                    codeView = new CodeView(codeViewOptions(), workerPool ?? undefined);
+                    codeView.setup(viewerElement);
+                    codeView.setItems(codeViewItems);
                     codeView.render(true);
+                    window.__cmuxDiffViewer.codeView = codeView;
                     renderedInitialCodeBatch = true;
+                  } else {
+                    codeView.addItems(codeBatch);
                   }
                 }
                 appendJumpOptions(batch);
@@ -5521,6 +5521,9 @@ extension CMUXCLI {
               }
 
               function finalizeCodeViewLayout() {
+                if (!codeView) {
+                  return;
+                }
                 codeView.syncContainerHeight?.();
                 codeView.render(true);
               }
@@ -5783,7 +5786,7 @@ extension CMUXCLI {
                 },
                 fileIndex: 0,
                 gitStatusByPath: new Map(),
-                itemById: new Map(),
+                itemIdToFile: new Map(),
                 itemIdByTreePath: new Map(),
                 lastTreeSource: undefined,
                 nextCollisionSuffixByBase: new Map(),
@@ -5974,10 +5977,11 @@ extension CMUXCLI {
             }
 
             function applyCodeViewOptions() {
+              const options = codeViewOptions();
               if (!codeView) {
+                syncWorkerRenderOptions();
                 return;
               }
-              const options = codeViewOptions();
               codeView.setOptions(options);
               syncWorkerRenderOptions();
               codeView.render(true);
@@ -6456,7 +6460,7 @@ extension CMUXCLI {
                 return {
                   item: item ?? { id: itemId ?? path, fileDiff },
                   path,
-                  status: item?.gitStatus ?? gitStatus(fileDiff),
+                  status: gitStatus(fileDiff),
                   stats: statsByPath instanceof Map ? statsByPath.get(path) ?? fileStats(fileDiff) : fileStats(fileDiff),
                 };
               });
@@ -6559,22 +6563,22 @@ extension CMUXCLI {
               const pathCounts = new Map();
               const pathOrdinals = new Map();
               for (const item of items) {
-                const name = item.treePath ?? fileName(item.fileDiff ?? {});
+                const name = fileName(item.fileDiff ?? {});
                 pathCounts.set(name, (pathCounts.get(name) ?? 0) + 1);
               }
               return items.map((item) => {
                 const fileDiff = item.fileDiff ?? {};
-                const basePath = item.treePath ?? fileName(fileDiff);
+                const basePath = fileName(fileDiff);
                 const nextOrdinal = (pathOrdinals.get(basePath) ?? 0) + 1;
                 pathOrdinals.set(basePath, nextOrdinal);
                 const treePath = pathCounts.get(basePath) > 1 ? `${basePath} (${nextOrdinal})` : basePath;
-                const stats = item.stats ?? fileStats(fileDiff);
+                const stats = fileStats(fileDiff);
                 treePathByItemId.set(item.id, treePath);
                 itemIdByTreePath.set(treePath, item.id);
                 return {
                   item,
                   path: treePath,
-                  status: item.gitStatus ?? gitStatus(fileDiff),
+                  status: gitStatus(fileDiff),
                   stats,
                 };
               });
@@ -6619,7 +6623,7 @@ extension CMUXCLI {
             function updateDiffStats(items) {
               updateDiffStatsFromEntries(items.map((item) => ({
                 item,
-                stats: item.stats ?? fileStats(item.fileDiff ?? {}),
+                stats: fileStats(item.fileDiff ?? {}),
               })));
             }
 
@@ -6794,6 +6798,10 @@ extension CMUXCLI {
 
             function gitStatus(fileDiff) {
               return gitStatusType(fileDiff.type);
+            }
+
+            function isRenderableDiffItem(item) {
+              return (item?.fileDiff?.hunks?.length ?? 0) > 0;
             }
 
             function gitStatusType(changeType) {
