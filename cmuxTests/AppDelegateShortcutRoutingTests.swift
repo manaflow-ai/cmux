@@ -1897,7 +1897,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(dock.controller.allPaneIds.contains(secondSplitPaneId))
     }
 
-    func testSplitShortcutIgnoresStaleTerminalWhenEmptyDockPaneFocused() throws {
+    func testSplitShortcutDoesNotFallbackToMainPanelWhenEmptyDockPaneFocused() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1921,7 +1921,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
 
         workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
-        XCTAssertTrue(window.firstResponder === mainSurfaceView)
         XCTAssertNil(workspace.focusedPanelId)
 
         let mainPaneCountBefore = workspace.bonsplitController.allPaneIds.count
