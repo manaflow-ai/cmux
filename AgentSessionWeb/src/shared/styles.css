@@ -678,6 +678,28 @@ select {
   outline: none;
 }
 
+.prompt-editor-mention {
+  --inline-mention-base-color: color-mix(in srgb, var(--color-token-text-link-foreground) 80%, var(--color-token-foreground) 20%);
+  --inline-mention-color: var(--inline-mention-resolved-base-color, var(--inline-mention-base-color));
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  color: var(--inline-mention-color);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.prompt-editor-mention:hover {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+  text-underline-offset: 2px;
+}
+
+.prompt-editor-mention-icon {
+  color: currentColor;
+}
+
 .codex-left-rail,
 .codex-right-rail,
 .model-picker,
@@ -1162,6 +1184,7 @@ select {
 }
 
 .codex-top-tray-item:hover,
+.codex-top-tray-item[data-selected="true"],
 .codex-top-tray-item:focus-visible {
   background: var(--color-token-list-hover-background);
   opacity: 1;

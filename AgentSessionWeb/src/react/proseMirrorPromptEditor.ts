@@ -1,9 +1,27 @@
 import React, { useImperativeHandle, useLayoutEffect, useRef } from "react";
-import { Schema } from "prosemirror-model";
+import { Schema, type Node as ProseMirrorNode } from "prosemirror-model";
 import { splitBlock } from "prosemirror-commands";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { isComposingEnter } from "../shared/keyboard";
+
+export type PromptMention = {
+  description?: string;
+  displayName?: string;
+  fsPath?: string;
+  kind: "at" | "agent" | "skill";
+  label: string;
+  name: string;
+  path: string;
+};
+
+export type PromptAutocompleteState = {
+  anchorPos: number;
+  kind: "mention" | "skill";
+  query: string;
+};
+
+type PromptAutocompleteKey = "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape";
 
 const promptSchema = new Schema({
   nodes: {
@@ -15,6 +33,109 @@ const promptSchema = new Schema({
       toDOM: () => ["p", 0],
     },
     text: { group: "inline" },
+    atMention: {
+      attrs: {
+        label: { validate: "string" },
+        path: { validate: "string" },
+        fsPath: { validate: "string", default: "" },
+      },
+      inline: true,
+      group: "inline",
+      draggable: false,
+      selectable: false,
+      toDOM: (node) => mentionDom({
+        text: node.attrs.label,
+        icon: "@",
+        dataAttributes: {
+          "at-mention-label": node.attrs.label,
+          "at-mention-path": node.attrs.path,
+          "at-mention-fs-path": node.attrs.fsPath,
+        },
+      }),
+      parseDOM: [{
+        tag: "span[at-mention-label][at-mention-path]",
+        getAttrs: (node) => {
+          const element = node as HTMLElement;
+          return {
+            label: element.getAttribute("at-mention-label"),
+            path: element.getAttribute("at-mention-path"),
+            fsPath: element.getAttribute("at-mention-fs-path") ?? "",
+          };
+        },
+      }],
+    },
+    agentMention: {
+      attrs: {
+        name: { validate: "string" },
+        displayName: { validate: "string", default: "" },
+        path: { validate: "string" },
+      },
+      inline: true,
+      group: "inline",
+      draggable: false,
+      selectable: false,
+      toDOM: (node) => {
+        const displayName = node.attrs.displayName || node.attrs.name;
+        return mentionDom({
+          text: `@${displayName}`,
+          dataAttributes: {
+            "agent-mention-name": node.attrs.name,
+            "agent-mention-display-name": displayName,
+            "agent-mention-path": node.attrs.path,
+          },
+        });
+      },
+      parseDOM: [{
+        tag: "span[agent-mention-name][agent-mention-path]",
+        getAttrs: (node) => {
+          const element = node as HTMLElement;
+          const name = element.getAttribute("agent-mention-name") ?? "";
+          return {
+            name,
+            displayName: element.getAttribute("agent-mention-display-name") ?? name,
+            path: element.getAttribute("agent-mention-path") ?? "",
+          };
+        },
+      }],
+    },
+    skillMention: {
+      attrs: {
+        name: { validate: "string" },
+        displayName: { validate: "string", default: "" },
+        path: { validate: "string" },
+        description: { validate: "string", default: "" },
+      },
+      inline: true,
+      group: "inline",
+      draggable: false,
+      selectable: false,
+      toDOM: (node) => {
+        const displayName = node.attrs.displayName || node.attrs.name;
+        return mentionDom({
+          text: displayName,
+          icon: "$",
+          dataAttributes: {
+            "skill-mention-name": node.attrs.name,
+            "skill-mention-display-name": displayName,
+            "skill-mention-path": node.attrs.path,
+          },
+          title: node.attrs.description,
+        });
+      },
+      parseDOM: [{
+        tag: "span[skill-mention-name][skill-mention-path]",
+        getAttrs: (node) => {
+          const element = node as HTMLElement;
+          const name = element.getAttribute("skill-mention-name") ?? "";
+          return {
+            name,
+            displayName: element.getAttribute("skill-mention-display-name") ?? name,
+            path: element.getAttribute("skill-mention-path") ?? "",
+            description: element.getAttribute("title") ?? "",
+          };
+        },
+      }],
+    },
   },
   marks: {},
 });
@@ -23,6 +144,7 @@ const placeholderKey = new PluginKey<string>("agentPromptPlaceholder");
 
 export type PromptEditorHandle = {
   focus: () => void;
+  insertMention: (mention: PromptMention) => void;
   insertText: (text: string) => void;
 };
 
@@ -30,6 +152,8 @@ type PromptEditorProps = {
   ariaLabel?: string;
   className?: string;
   minHeight?: string;
+  onAutocompleteChange?: (state: PromptAutocompleteState | null) => void;
+  onAutocompleteKeyDown?: (key: PromptAutocompleteKey) => boolean;
   onSubmit: () => void;
   onTextChange: (text: string) => void;
   onTriggerToken?: (token: "@" | "$") => void;
@@ -39,22 +163,44 @@ type PromptEditorProps = {
 
 export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditor(
-    { ariaLabel, className, minHeight = "2.75rem", onSubmit, onTextChange, onTriggerToken, placeholder, value },
+    {
+      ariaLabel,
+      className,
+      minHeight = "2.75rem",
+      onAutocompleteChange,
+      onAutocompleteKeyDown,
+      onSubmit,
+      onTextChange,
+      onTriggerToken,
+      placeholder,
+      value,
+    },
     ref,
   ) {
     const hostRef = useRef<HTMLDivElement | null>(null);
     const viewRef = useRef<EditorView | null>(null);
     const latestSubmitRef = useRef(onSubmit);
+    const latestAutocompleteChangeRef = useRef(onAutocompleteChange);
+    const latestAutocompleteKeyDownRef = useRef(onAutocompleteKeyDown);
     const latestTextChangeRef = useRef(onTextChange);
     const latestTriggerTokenRef = useRef(onTriggerToken);
     const latestTextRef = useRef(value);
     latestSubmitRef.current = onSubmit;
+    latestAutocompleteChangeRef.current = onAutocompleteChange;
+    latestAutocompleteKeyDownRef.current = onAutocompleteKeyDown;
     latestTextChangeRef.current = onTextChange;
     latestTriggerTokenRef.current = onTriggerToken;
 
     useImperativeHandle(ref, () => ({
       focus() {
         viewRef.current?.focus();
+      },
+      insertMention(mention) {
+        const view = viewRef.current;
+        if (!view) {
+          return;
+        }
+        insertPromptMentionAtSelection(view, mention);
       },
       insertText(text) {
         const view = viewRef.current;
@@ -95,10 +241,15 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
             }
             latestTextChangeRef.current(nextText);
           }
+          latestAutocompleteChangeRef.current?.(autocompleteStateForSelection(view));
         },
         handleKeyDown(_view, event) {
           if (isComposingEnter(event, _view.composing)) {
             return false;
+          }
+          if (isAutocompleteKey(event.key) && latestAutocompleteKeyDownRef.current?.(event.key)) {
+            event.preventDefault();
+            return true;
           }
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
@@ -235,12 +386,29 @@ function docFromText(text: string) {
   }));
 }
 
-function textFromDoc(doc: ReturnType<typeof docFromText>): string {
+function textFromDoc(doc: ProseMirrorNode): string {
   const paragraphs: string[] = [];
   doc.forEach((node) => {
-    paragraphs.push(node.textContent);
+    const parts: string[] = [];
+    node.forEach((child) => {
+      parts.push(textFromInlineNode(child));
+    });
+    paragraphs.push(parts.join(""));
   });
   return paragraphs.join("\n");
+}
+
+function textFromInlineNode(node: ProseMirrorNode): string {
+  switch (node.type.name) {
+    case "atMention":
+      return `@${node.attrs.label}`;
+    case "agentMention":
+      return `@${node.attrs.displayName || node.attrs.name}`;
+    case "skillMention":
+      return `$${node.attrs.name}`;
+    default:
+      return node.textContent;
+  }
 }
 
 function replaceEditorText(view: EditorView, text: string): void {
@@ -266,4 +434,115 @@ function insertPromptTextAtSelection(view: EditorView, text: string): void {
   transaction.setSelection(TextSelection.create(transaction.doc, cursor));
   view.dispatch(transaction);
   view.focus();
+}
+
+function insertPromptMentionAtSelection(view: EditorView, mention: PromptMention): void {
+  const { state } = view;
+  const { from, to } = state.selection;
+  const trigger = mention.kind === "skill" ? "$" : "@";
+  const insertFrom = autocompleteStateForSelection(view)?.anchorPos ?? (
+    state.doc.textBetween(Math.max(0, from - 1), from, "\n", "\n") === trigger ? from - 1 : from
+  );
+  const before = state.doc.textBetween(Math.max(0, insertFrom - 2), insertFrom, "\n", "\n");
+  const after = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 2), "\n", "\n");
+  const prefix = before.length > 0 && !/\s$/.test(before) ? " " : "";
+  const suffix = after.length > 0 && !/^\s/.test(after) ? " " : "";
+  const nodes = [];
+  if (prefix) {
+    nodes.push(state.schema.text(prefix));
+  }
+  nodes.push(nodeForMention(state.schema, mention));
+  if (suffix) {
+    nodes.push(state.schema.text(suffix));
+  }
+  const transaction = state.tr.replaceWith(insertFrom, to, nodes);
+  const cursor = insertFrom + nodes.reduce((total, node) => total + node.nodeSize, 0);
+  transaction.setSelection(TextSelection.create(transaction.doc, cursor));
+  view.dispatch(transaction);
+  view.focus();
+}
+
+function nodeForMention(schema: Schema, mention: PromptMention): ProseMirrorNode {
+  switch (mention.kind) {
+    case "skill":
+      return schema.nodes.skillMention.create({
+        name: mention.name,
+        displayName: mention.displayName ?? mention.label,
+        path: mention.path,
+        description: mention.description ?? "",
+      });
+    case "agent":
+      return schema.nodes.agentMention.create({
+        name: mention.name,
+        displayName: mention.displayName ?? mention.label,
+        path: mention.path,
+      });
+    case "at":
+      return schema.nodes.atMention.create({
+        label: mention.label,
+        path: mention.path,
+        fsPath: mention.fsPath ?? mention.path,
+      });
+  }
+}
+
+function autocompleteStateForSelection(view: EditorView): PromptAutocompleteState | null {
+  const { state } = view;
+  const { from, empty } = state.selection;
+  if (!empty) {
+    return null;
+  }
+  const textBefore = state.doc.textBetween(0, from, "\n", "\n");
+  const match = /(^|\s)([@$][^\s@$]*)$/.exec(textBefore);
+  if (!match) {
+    return null;
+  }
+  const token = match[2] ?? "";
+  const trigger = token.charAt(0);
+  const query = token.slice(1);
+  return {
+    anchorPos: from - token.length,
+    kind: trigger === "$" ? "skill" : "mention",
+    query,
+  };
+}
+
+function isAutocompleteKey(key: string): key is PromptAutocompleteKey {
+  return key === "ArrowDown" || key === "ArrowUp" || key === "Enter" || key === "Tab" || key === "Escape";
+}
+
+function mentionDom({
+  dataAttributes,
+  icon,
+  text,
+  title,
+}: {
+  dataAttributes: Record<string, string>;
+  icon?: string;
+  text: string;
+  title?: string;
+}): HTMLElement {
+  const root = document.createElement("span");
+  root.className =
+    "prompt-editor-mention group/inline-mention cursor-pointer inline-mention-brand-aware font-medium px-0.5 cursor-interaction";
+  if (title) {
+    root.title = title;
+  }
+  for (const [key, value] of Object.entries(dataAttributes)) {
+    root.setAttribute(key, value);
+  }
+  if (icon) {
+    const iconWrapper = document.createElement("span");
+    iconWrapper.className = "prompt-editor-mention-icon relative mr-[3px] inline-block h-[1lh] w-4 align-bottom";
+    const iconGlyph = document.createElement("span");
+    iconGlyph.className = "icon-xs absolute top-1/2 -translate-y-1/2";
+    iconGlyph.textContent = icon;
+    iconWrapper.append(iconGlyph);
+    root.append(iconWrapper);
+  }
+  const label = document.createElement("span");
+  label.className = "min-w-0 break-words";
+  label.textContent = text;
+  root.append(label);
+  return root;
 }

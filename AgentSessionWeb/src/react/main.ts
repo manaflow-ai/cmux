@@ -28,7 +28,12 @@ import {
   type TranscriptEntry,
 } from "../shared/sessionModel";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
-import { PromptEditor, type PromptEditorHandle } from "./proseMirrorPromptEditor";
+import {
+  PromptEditor,
+  type PromptAutocompleteState,
+  type PromptEditorHandle,
+  type PromptMention,
+} from "./proseMirrorPromptEditor";
 
 const h = React.createElement;
 
@@ -141,17 +146,65 @@ function SessionSurface({
   const modelLabel = codexModelLabel(provider);
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
+  const [menuQuery, setMenuQuery] = useState("");
+  const [menuIndex, setMenuIndex] = useState(0);
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const composerLayout = useMeasuredComposerLayout(state.input);
   const isSingleLineComposer = composerLayout.isSingleLine;
+  const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
+  const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
     setMenuKind(null);
+    setMenuQuery("");
     setProviderMenuOpen(false);
     void sendInput(state, dispatch);
   };
-  const insertComposerMenuItem = (value: string) => {
-    editorRef.current?.insertText(value);
+  const insertComposerMenuItem = (item: ComposerMenuItem) => {
+    editorRef.current?.insertMention(item.mention);
     setMenuKind(null);
+    setMenuQuery("");
+    setMenuIndex(0);
+  };
+  const updateComposerAutocomplete = (autocomplete: PromptAutocompleteState | null) => {
+    if (!autocomplete) {
+      setMenuKind(null);
+      setMenuQuery("");
+      setMenuIndex(0);
+      return;
+    }
+    setMenuKind(autocomplete.kind);
+    setMenuQuery(autocomplete.query);
+    setMenuIndex(0);
+  };
+  const handleComposerAutocompleteKey = (key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape"): boolean => {
+    if (!menuKind) {
+      return false;
+    }
+    if (key === "Escape") {
+      setMenuKind(null);
+      setMenuQuery("");
+      setMenuIndex(0);
+      return true;
+    }
+    if (menuItems.length === 0) {
+      return key === "Enter" || key === "Tab";
+    }
+    if (key === "ArrowDown") {
+      setMenuIndex((index) => (index + 1) % menuItems.length);
+      return true;
+    }
+    if (key === "ArrowUp") {
+      setMenuIndex((index) => (index - 1 + menuItems.length) % menuItems.length);
+      return true;
+    }
+    if (key === "Enter" || key === "Tab") {
+      const selectedItem = menuItems[highlightedMenuIndex >= 0 ? highlightedMenuIndex : 0];
+      if (selectedItem) {
+        insertComposerMenuItem(selectedItem);
+      }
+      return true;
+    }
+    return false;
   };
   const selectProviderMenuItem = (providerId: ProviderId) => {
     selectProvider(providerId, state, dispatch);
@@ -250,9 +303,15 @@ function SessionSurface({
     value: state.input,
     ariaLabel: state.context?.copy.promptPlaceholder ?? "",
     placeholder: state.context?.copy.promptPlaceholder ?? "",
+    onAutocompleteChange: updateComposerAutocomplete,
+    onAutocompleteKeyDown: handleComposerAutocompleteKey,
     onTextChange: (input: string) => dispatch({ type: "setInput", input }),
     onSubmit: submit,
-    onTriggerToken: (token: "@" | "$") => setMenuKind(token === "@" ? "mention" : "skill"),
+    onTriggerToken: (token: "@" | "$") => {
+      setMenuKind(token === "@" ? "mention" : "skill");
+      setMenuQuery("");
+      setMenuIndex(0);
+    },
   });
   const leftControls = h(
     "div",
@@ -385,9 +444,10 @@ function SessionSurface({
             { className: "codex-composer-frame relative" },
             menuKind
               ? h(ComposerTopTray, {
-                  kind: menuKind,
-                  state,
+                  highlightedIndex: highlightedMenuIndex,
+                  items: menuItems,
                   onChoose: insertComposerMenuItem,
+                  onHighlight: setMenuIndex,
                 })
               : null,
             h(
@@ -606,58 +666,16 @@ function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: Se
 }
 
 function ComposerTopTray({
-  kind,
-  state,
+  highlightedIndex,
+  items,
   onChoose,
+  onHighlight,
 }: {
-  kind: Exclude<ComposerMenuKind, null>;
-  state: SessionState;
-  onChoose: (value: string) => void;
+  highlightedIndex: number;
+  items: ComposerMenuItem[];
+  onChoose: (item: ComposerMenuItem) => void;
+  onHighlight: (index: number) => void;
 }) {
-  const copy = state.context?.copy;
-  const items = kind === "mention"
-    ? [
-        state.context?.workingDirectory
-          ? {
-              id: "workspace",
-              icon: "@",
-              label: copy?.mentionCurrentWorkspace ?? "Current workspace",
-              detail: basename(state.context.workingDirectory),
-              value: `@${state.context.workingDirectory}`,
-            }
-          : null,
-        ...state.providers.map((provider) => ({
-          id: provider.id,
-          icon: providerBadgeLabel(provider),
-          label: provider.displayName,
-          detail: provider.executableName,
-          value: `@${provider.displayName}`,
-        })),
-      ].filter((item): item is ComposerMenuItem => Boolean(item))
-    : [
-        {
-          id: "plan",
-          icon: "$",
-          label: copy?.skillPlan ?? "Plan",
-          detail: "$plan",
-          value: "$plan",
-        },
-        {
-          id: "review",
-          icon: "$",
-          label: copy?.skillCodeReview ?? "Code review",
-          detail: "$codex-review",
-          value: "$codex-review",
-        },
-        {
-          id: "research",
-          icon: "$",
-          label: copy?.skillResearch ?? "Research",
-          detail: "$research",
-          value: "$research",
-        },
-      ];
-
   return h(
     "div",
     { className: "codex-top-tray-shell absolute z-20" },
@@ -667,17 +685,20 @@ function ComposerTopTray({
       h(
         "div",
         { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
-        items.map((item) =>
+        items.map((item, index) =>
           h(
             "button",
             {
               key: item.id,
               className: "codex-top-tray-item",
               type: "button",
+              "aria-selected": index === highlightedIndex ? "true" : undefined,
               "cmdk-item": "",
+              "data-selected": index === highlightedIndex ? "true" : undefined,
               "data-list-navigation-item": true,
+              onMouseEnter: () => onHighlight(index),
               onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
-              onClick: () => onChoose(item.value),
+              onClick: () => onChoose(item),
             },
             h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
             h(
@@ -698,8 +719,97 @@ type ComposerMenuItem = {
   icon: string;
   id: string;
   label: string;
-  value: string;
+  mention: PromptMention;
 };
+
+function composerMenuItems(kind: Exclude<ComposerMenuKind, null>, state: SessionState, query: string): ComposerMenuItem[] {
+  const copy = state.context?.copy;
+  const items = kind === "mention"
+    ? [
+        state.context?.workingDirectory
+          ? {
+              id: "workspace",
+              icon: "@",
+              label: copy?.mentionCurrentWorkspace ?? "Current workspace",
+              detail: basename(state.context.workingDirectory),
+              mention: {
+                kind: "at",
+                label: basename(state.context.workingDirectory),
+                name: basename(state.context.workingDirectory),
+                path: state.context.workingDirectory,
+                fsPath: state.context.workingDirectory,
+              },
+            }
+          : null,
+        ...state.providers.map((provider) => ({
+          id: provider.id,
+          icon: providerBadgeLabel(provider),
+          label: provider.displayName,
+          detail: provider.executableName,
+          mention: {
+            kind: "agent" as const,
+            label: provider.displayName,
+            name: provider.id,
+            displayName: provider.displayName,
+            path: `provider://${provider.id}`,
+            description: provider.executableName,
+          },
+        })),
+      ].filter((item): item is ComposerMenuItem => Boolean(item))
+    : [
+        {
+          id: "plan",
+          icon: "$",
+          label: copy?.skillPlan ?? "Plan",
+          detail: "$plan",
+          mention: {
+            kind: "skill" as const,
+            label: "Plan",
+            name: "plan",
+            displayName: "Plan",
+            path: "skill://plan",
+          },
+        },
+        {
+          id: "review",
+          icon: "$",
+          label: copy?.skillCodeReview ?? "Code review",
+          detail: "$codex-review",
+          mention: {
+            kind: "skill" as const,
+            label: "Code review",
+            name: "codex-review",
+            displayName: "Code review",
+            path: "skill://codex-review",
+          },
+        },
+        {
+          id: "research",
+          icon: "$",
+          label: copy?.skillResearch ?? "Research",
+          detail: "$research",
+          mention: {
+            kind: "skill" as const,
+            label: "Research",
+            name: "research",
+            displayName: "Research",
+            path: "skill://research",
+          },
+        },
+      ];
+  return filterComposerMenuItems(items, query);
+}
+
+function filterComposerMenuItems(items: ComposerMenuItem[], query: string): ComposerMenuItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return items;
+  }
+  return items.filter((item) => {
+    const haystack = `${item.label} ${item.detail} ${item.mention.name}`.toLowerCase();
+    return haystack.includes(normalizedQuery);
+  });
+}
 
 function basename(path: string): string {
   const segments = path.split("/").filter(Boolean);
