@@ -130,6 +130,60 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testParsesStandardSSHURL() throws {
+        let url = try XCTUnwrap(URL(string: "ssh://alice@dev.example.com:2222?title=Dev%20SSH"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.destination, "alice@dev.example.com")
+            XCTAssertEqual(request.port, 2222)
+            XCTAssertEqual(request.title, "Dev SSH")
+            XCTAssertEqual(request.cliArguments, ["ssh", "--port", "2222", "--name", "Dev SSH", "alice@dev.example.com"])
+        case .success(nil):
+            XCTFail("Expected standard SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testParsesStandardSSHURLWithBlankUserAsHostOnly() throws {
+        let url = try XCTUnwrap(URL(string: "ssh://%20@dev.example.com"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.destination, "dev.example.com")
+            XCTAssertEqual(request.cliArguments, ["ssh", "dev.example.com"])
+        case .success(nil):
+            XCTFail("Expected standard SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testRejectsStandardSSHURLWithPathDestination() throws {
+        let url = try XCTUnwrap(URL(string: "ssh://dev.example.com/run"))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .failure(.conflictingDestinationParameters):
+            break
+        default:
+            XCTFail("Expected path destination rejection")
+        }
+    }
+
+    func testRejectsStandardSSHURLWithInvalidPort() throws {
+        for port in ["0", "65536"] {
+            let url = try XCTUnwrap(URL(string: "ssh://dev.example.com:\(port)"))
+
+            switch CmuxSSHURLRequest.parse(url) {
+            case .failure(.invalidPort):
+                break
+            default:
+                XCTFail("Expected invalid port rejection for \(port)")
+            }
+        }
+    }
+
     func testParsesNoFocusFlagWithoutValue() throws {
         let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
 

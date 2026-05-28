@@ -20745,6 +20745,40 @@
         }
       }
     },
+    "defaultTerminal.updateFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS could not update every default terminal handler."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS はすべてのデフォルトターミナルハンドラを更新できませんでした。"
+          }
+        }
+      }
+    },
+    "dialog.defaultTerminal.setFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could Not Set Default Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトターミナルに設定できませんでした"
+          }
+        }
+      }
+    },
     "dialog.sshURL.blocked.ok": {
       "extractionState": "manual",
       "localizations": {
@@ -25837,6 +25871,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ghostty設定をTextEditで開く"
+          }
+        }
+      }
+    },
+    "command.makeDefaultTerminal.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバル"
+          }
+        }
+      }
+    },
+    "command.makeDefaultTerminal.keywords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "default,terminal,ssh,launch,services,handler,command,tool,executable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト,ターミナル,ssh,起動,サービス,ハンドラ,コマンド,tool,実行ファイル"
+          }
+        }
+      }
+    },
+    "command.makeDefaultTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make cmux the Default Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をデフォルトターミナルにする"
           }
         }
       }
@@ -43083,6 +43168,40 @@
         }
       }
     },
+    "error.defaultTerminal.missingContentType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A required file-type handler is unavailable on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac で必要なファイルタイプハンドラを利用できません。"
+          }
+        }
+      }
+    },
+    "error.defaultTerminal.registrationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not register as the default terminal app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をデフォルトターミナルアプリとして登録できませんでした。"
+          }
+        }
+      }
+    },
     "error.clipboardFolderPath": {
       "extractionState": "manual",
       "localizations": {
@@ -43963,6 +44082,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Налаштування Ghostty…"
+          }
+        }
+      }
+    },
+    "menu.app.makeDefaultTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make cmux the Default Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をデフォルトターミナルにする"
           }
         }
       }
@@ -55531,6 +55667,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux.json 열기"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトターミナル"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.buttonDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.buttonSet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに設定"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.buttonSetting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定中..."
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.dialog.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに設定"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.dialog.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux will ask macOS to use this app for SSH links, .command/.tool files, and UNIX executables. macOS may show a confirmation prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は、このアプリを SSH リンク、.command/.tool ファイル、UNIX 実行ファイルに使うよう macOS に要求します。macOS が確認を表示する場合があります。"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.dialog.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set cmux as default terminal?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をデフォルトターミナルに設定しますか?"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.subtitleDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux handles SSH links, .command/.tool files, and UNIX executables."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は SSH リンク、.command/.tool ファイル、UNIX 実行ファイルを処理します。"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.subtitleNotDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set cmux as the handler for SSH links, .command/.tool files, and UNIX executables."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH リンク、.command/.tool ファイル、UNIX 実行ファイルのハンドラとして cmux を設定します。"
+          }
+        }
+      }
+    },
+    "settings.app.defaultTerminal.subtitleSetting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS may ask you to confirm this change."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS がこの変更の確認を求める場合があります。"
           }
         }
       }
@@ -79879,6 +80185,23 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "app.appIcon dock icon application app switcher alternate програма загальні параметри поведінка док рядок меню статус бічна панель Іконка програми"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.default-terminal": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler デフォルトターミナル SSH リンク 実行ファイル"
                 }
             }
         }

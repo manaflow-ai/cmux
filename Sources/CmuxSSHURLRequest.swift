@@ -81,6 +81,9 @@ struct CmuxSSHURLRequest: Equatable {
         _ url: URL,
         supportedSchemes: Set<String> = activeSupportedSchemes
     ) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
+        if isStandardSSHURLScheme(url.scheme) {
+            return parseStandardSSHURL(url)
+        }
         guard isSupportedScheme(url.scheme, supportedSchemes: supportedSchemes) else {
             return .success(nil)
         }
@@ -195,6 +198,113 @@ struct CmuxSSHURLRequest: Equatable {
                 noFocus: noFocus
             )
         )
+    }
+
+    private static func isStandardSSHURLScheme(_ scheme: String?) -> Bool {
+        scheme?.lowercased() == "ssh"
+    }
+
+    private static func parseStandardSSHURL(_ url: URL) -> Result<CmuxSSHURLRequest?, CmuxSSHURLParseError> {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return .failure(.missingDestination)
+        }
+
+        let path = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard path.isEmpty else {
+            return .failure(.conflictingDestinationParameters)
+        }
+
+        let queryItems = components.queryItems ?? []
+        let allowedQueryNames: Set<String> = ["title", "name", "no-focus"]
+        var seenQueryNames = Set<String>()
+        for item in queryItems {
+            let name = item.name.lowercased()
+            guard allowedQueryNames.contains(name) else {
+                return .failure(.unsupportedParameter(displayParameterName(item.name)))
+            }
+            guard seenQueryNames.insert(name).inserted else {
+                return .failure(.duplicateParameter(displayParameterName(item.name)))
+            }
+        }
+
+        guard let hostValue = components.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !hostValue.isEmpty else {
+            return .failure(.missingDestination)
+        }
+        let normalizedHost = normalizedStandardSSHHost(hostValue)
+        guard !normalizedHost.hasPrefix("-") else {
+            return .failure(.destinationStartsWithDash)
+        }
+        guard isAllowedSSHHost(normalizedHost) else {
+            return .failure(.destinationContainsUnsafeCharacters)
+        }
+
+        let userValue = components.user?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let userValue, !userValue.isEmpty {
+            guard !userValue.hasPrefix("-") else {
+                return .failure(.destinationStartsWithDash)
+            }
+            guard isAllowedSSHUser(userValue) else {
+                return .failure(.destinationContainsUnsafeCharacters)
+            }
+        }
+        let destination: String
+        if let userValue, !userValue.isEmpty {
+            destination = "\(userValue)@\(normalizedHost)"
+        } else {
+            destination = normalizedHost
+        }
+        guard destination.count <= maxDestinationLength else {
+            return .failure(.destinationTooLong(maxLength: maxDestinationLength))
+        }
+
+        let port = components.port
+        if let port {
+            guard port > 0, port <= 65_535 else {
+                return .failure(.invalidPort)
+            }
+        }
+
+        let titleValue = normalizedQueryValue(namedAnyOf: ["title"], in: queryItems)
+        let nameValue = normalizedQueryValue(namedAnyOf: ["name"], in: queryItems)
+        guard titleValue == nil || nameValue == nil else {
+            return .failure(.conflictingTitleParameters)
+        }
+        let title = titleValue ?? nameValue
+        if let title {
+            guard title.count <= maxTitleLength else {
+                return .failure(.titleTooLong(maxLength: maxTitleLength))
+            }
+            guard !containsUnsafeHiddenCharacter(title) else {
+                return .failure(.titleContainsUnsafeCharacters)
+            }
+        }
+
+        let noFocus: Bool
+        switch normalizedBooleanValue(named: "no-focus", in: queryItems) {
+        case .success(let value):
+            noFocus = value
+        case .failure(let error):
+            return .failure(error)
+        }
+
+        return .success(
+            CmuxSSHURLRequest(
+                originalURL: url,
+                destination: destination,
+                port: port,
+                title: title,
+                sshOptions: [],
+                noFocus: noFocus
+            )
+        )
+    }
+
+    private static func normalizedStandardSSHHost(_ host: String) -> String {
+        if host.contains(":"), !host.hasPrefix("[") {
+            return "[\(host)]"
+        }
+        return host
     }
 
     private static func isSupportedScheme(_ scheme: String?, supportedSchemes: Set<String>) -> Bool {
