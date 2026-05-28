@@ -68,6 +68,11 @@ export type AgentSessionCopy = {
   browseWeb: string;
   autoContext: string;
   tools: string;
+  changePermissions: string;
+  permissionsDefault: string;
+  permissionsFullAccess: string;
+  permissionsAutoReview: string;
+  permissionsCustom: string;
   reasoningEffortHigh: string;
   mentionMenuTitle: string;
   mentionCurrentWorkspace: string;

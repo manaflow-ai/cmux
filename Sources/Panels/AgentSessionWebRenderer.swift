@@ -427,6 +427,26 @@ extension AgentSessionWebRenderer {
                         "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
                         "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
                         "tools": String(localized: "agentSession.web.tools", defaultValue: "Tools"),
+                        "changePermissions": String(
+                            localized: "agentSession.web.changePermissions",
+                            defaultValue: "Change permissions"
+                        ),
+                        "permissionsDefault": String(
+                            localized: "agentSession.web.permissions.default",
+                            defaultValue: "Default permissions"
+                        ),
+                        "permissionsFullAccess": String(
+                            localized: "agentSession.web.permissions.fullAccess",
+                            defaultValue: "Full access"
+                        ),
+                        "permissionsAutoReview": String(
+                            localized: "agentSession.web.permissions.autoReview",
+                            defaultValue: "Auto-review"
+                        ),
+                        "permissionsCustom": String(
+                            localized: "agentSession.web.permissions.custom",
+                            defaultValue: "Custom (config.toml)"
+                        ),
                         "reasoningEffortHigh": String(
                             localized: "agentSession.web.reasoningEffort.high",
                             defaultValue: "High"

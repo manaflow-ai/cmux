@@ -59,6 +59,7 @@ const CODEX_SUBMIT_BUTTON =
   "focus-visible:outline-token-button-background cursor-interaction size-token-button-composer flex items-center justify-center rounded-full p-0.5 transition-opacity focus-visible:outline-2 bg-token-foreground";
 
 type ComposerMenuKind = "mention" | "skill" | null;
+type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
 
 type FooterControlSpec = {
   canHideLabel: boolean;
@@ -285,6 +286,8 @@ function SessionSurface({
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const [isPickingFiles, setIsPickingFiles] = useState(false);
   const [isPlanMode, setIsPlanMode] = useState(false);
+  const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<ComposerPermissionMode>("default");
   const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
   const isSingleLineComposer = composerLayout.isSingleLine;
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
@@ -297,6 +300,7 @@ function SessionSurface({
     setMenuQuery("");
     setProviderMenuOpen(false);
     setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
     const providerInput = promptTextWithPlanMode(state.input, isPlanMode);
     const text = promptTextWithAttachments(providerInput, attachments);
     void sendInput(state, dispatch, {
@@ -317,14 +321,6 @@ function SessionSurface({
     setMenuIndex(0);
     setAddContextMenuOpen(false);
   };
-  const openSkillMenu = (query = "") => {
-    setMenuKind("skill");
-    setMenuQuery(query);
-    setMenuIndex(0);
-    setProviderMenuOpen(false);
-    setAddContextMenuOpen(false);
-    editorRef.current?.focus();
-  };
   const insertSkillMenuItem = (id: string) => {
     const item = composerMenuItems("skill", state, "").find((item) => item.id === id);
     if (item) {
@@ -335,6 +331,7 @@ function SessionSurface({
   const togglePlanMode = () => {
     setIsPlanMode((value) => !value);
     setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
     editorRef.current?.focus();
   };
   const pickLocalFiles = async () => {
@@ -346,6 +343,7 @@ function SessionSurface({
     setMenuQuery("");
     setMenuIndex(0);
     setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
     try {
       const result = await callNative<{ files?: PickedLocalFile[] }>("app.pickFiles");
       const nextAttachments = (result.files ?? [])
@@ -438,7 +436,14 @@ function SessionSurface({
         "data-state": providerMenuOpen ? "open" : "closed",
         "data-codex-intelligence-trigger": true,
         "data-selected-reasoning-effort": "high",
-        onClick: () => setProviderMenuOpen((open) => canSelect && !open),
+        onClick: () => {
+          if (!canSelect) {
+            return;
+          }
+          setAddContextMenuOpen(false);
+          setPermissionsMenuOpen(false);
+          setProviderMenuOpen((open) => !open);
+        },
         onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
@@ -529,7 +534,14 @@ function SessionSurface({
     h(AddContextDropdown, {
       isOpen: addContextMenuOpen,
       isPickingFiles,
-      onOpenChange: setAddContextMenuOpen,
+      onOpenChange: (isOpen: boolean) => {
+        setAddContextMenuOpen(isOpen);
+        if (isOpen) {
+          setPermissionsMenuOpen(false);
+          setProviderMenuOpen(false);
+          setMenuKind(null);
+        }
+      },
       onChoose: insertComposerMenuItem,
       onPickFiles: () => void pickLocalFiles(),
       onTogglePlanMode: togglePlanMode,
@@ -540,6 +552,20 @@ function SessionSurface({
       ariaLabel: state.context?.copy.browseWeb ?? "Browse web",
       icon: globeIcon(),
       onClick: () => insertSkillMenuItem("research"),
+    }),
+    h(PermissionsDropdown, {
+      copy: state.context?.copy,
+      isOpen: permissionsMenuOpen,
+      mode: permissionMode,
+      onModeChange: setPermissionMode,
+      onOpenChange: (isOpen: boolean) => {
+        setPermissionsMenuOpen(isOpen);
+        if (isOpen) {
+          setAddContextMenuOpen(false);
+          setProviderMenuOpen(false);
+          setMenuKind(null);
+        }
+      },
     }),
     h(ComposerFooterButton, {
       ariaLabel: state.context?.copy.skillPlan ?? "Plan",
@@ -554,11 +580,6 @@ function SessionSurface({
           onClear: () => setIsPlanMode(false),
         })
       : null,
-    h(ComposerFooterButton, {
-      ariaLabel: state.context?.copy.tools ?? "Tools",
-      icon: toolsIcon(),
-      onClick: () => openSkillMenu(),
-    }),
   );
   const secondaryControls = h(
     "div",
@@ -1102,6 +1123,115 @@ function ComposerModeIndicator({
   );
 }
 
+function PermissionsDropdown({
+  copy,
+  isOpen,
+  mode,
+  onModeChange,
+  onOpenChange,
+}: {
+  copy?: AgentSessionCopy;
+  isOpen: boolean;
+  mode: ComposerPermissionMode;
+  onModeChange: (mode: ComposerPermissionMode) => void;
+  onOpenChange: (isOpen: boolean) => void;
+}) {
+  const triggerLabel = copy?.changePermissions ?? "Change permissions";
+  const selectedLabel = permissionModeLabel(copy, mode);
+  const options: ComposerPermissionMode[] = ["default", "auto-review", "full-access", "custom"];
+  const selectMode = (nextMode: ComposerPermissionMode) => {
+    onModeChange(nextMode);
+    onOpenChange(false);
+  };
+  return h(
+    "div",
+    {
+      className: "permissions-root relative inline-flex",
+      onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          onOpenChange(false);
+        }
+      },
+    },
+    h(
+      "button",
+      {
+        className:
+          `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} min-w-0 rounded-full`,
+        type: "button",
+        "aria-label": triggerLabel,
+        "aria-haspopup": "menu",
+        "aria-expanded": isOpen,
+        "data-permission-mode": mode,
+        "data-state": isOpen ? "open" : "closed",
+        onClick: () => onOpenChange(!isOpen),
+        onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            onOpenChange(true);
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onOpenChange(false);
+          }
+        },
+      },
+      permissionModeIcon(mode, "icon-xs shrink-0"),
+      h("span", { className: "permissions-trigger-label composer-footer__label--xs max-w-40 truncate whitespace-nowrap text-left" }, selectedLabel),
+      h("span", { className: "permissions-trigger-chevron icon-2xs shrink-0", "aria-hidden": true }, chevronIcon()),
+    ),
+    isOpen
+      ? h(
+          "div",
+          {
+            className:
+              "permissions-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+            role: "menu",
+            "aria-label": triggerLabel,
+          },
+          options.map((option) =>
+            h(PermissionsMenuItem, {
+              isSelected: option === mode,
+              key: option,
+              label: permissionModeLabel(copy, option),
+              mode: option,
+              onSelect: () => selectMode(option),
+            }),
+          ),
+        )
+      : null,
+  );
+}
+
+function PermissionsMenuItem({
+  isSelected,
+  label,
+  mode,
+  onSelect,
+}: {
+  isSelected: boolean;
+  label: string;
+  mode: ComposerPermissionMode;
+  onSelect: () => void;
+}) {
+  return h(
+    "button",
+    {
+      className: "permissions-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      type: "button",
+      role: "menuitemradio",
+      "aria-checked": isSelected,
+      "data-permission-mode": mode,
+      "data-selected": isSelected ? "true" : undefined,
+      onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+      onClick: onSelect,
+    },
+    h("span", { className: "permissions-item-icon icon-xs shrink-0", "aria-hidden": true }, permissionModeIcon(mode, "icon-xs shrink-0")),
+    h("span", { className: "permissions-item-label min-w-0 flex-1 truncate" }, label),
+    isSelected ? h("span", { className: "permissions-item-check icon-xs shrink-0", "aria-hidden": true }, checkIcon()) : null,
+  );
+}
+
 function AddContextDropdown({
   isOpen,
   isPickingFiles,
@@ -1362,6 +1492,32 @@ function filterComposerMenuItems(items: ComposerMenuItem[], query: string): Comp
   });
 }
 
+function permissionModeLabel(copy: AgentSessionCopy | undefined, mode: ComposerPermissionMode): string {
+  switch (mode) {
+    case "auto-review":
+      return copy?.permissionsAutoReview ?? "Auto-review";
+    case "full-access":
+      return copy?.permissionsFullAccess ?? "Full access";
+    case "custom":
+      return copy?.permissionsCustom ?? "Custom (config.toml)";
+    case "default":
+      return copy?.permissionsDefault ?? "Default permissions";
+  }
+}
+
+function permissionModeIcon(mode: ComposerPermissionMode, className = "icon-xs shrink-0") {
+  switch (mode) {
+    case "auto-review":
+      return shieldWarningIcon(className);
+    case "full-access":
+      return shieldCodeIcon(className);
+    case "custom":
+      return settingsCogIcon(className);
+    case "default":
+      return permissionsDefaultIcon(className);
+  }
+}
+
 function basename(path: string): string {
   const segments = path.split("/").filter(Boolean);
   return segments[segments.length - 1] ?? path;
@@ -1527,16 +1683,74 @@ function sparkleIcon(className = "icon-sm") {
   );
 }
 
-function toolsIcon() {
+function permissionsDefaultIcon(className = "icon-sm") {
   return h(
     "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
-      d: "M12.42 3.58l1.25 1.25M4.75 15.25l5.82-5.82M10.57 9.43l4.18 4.18c.43.43.43 1.13 0 1.56l-.58.58c-.43.43-1.13.43-1.56 0L8.43 11.57M11.08 4.92l4-2l2 2l-2 4L6.33 17.67H2.5v-3.84l8.58-8.91Z",
-      stroke: "currentColor",
-      strokeWidth: "1.35",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
+      d: "M12.6683 4.16699C12.6683 3.84391 12.4065 3.58203 12.0834 3.58203C11.7603 3.58203 11.4984 3.84391 11.4984 4.16699V7.91699L11.4847 8.05078C11.4227 8.35375 11.1547 8.58203 10.8334 8.58203C10.4662 8.58203 10.1685 8.28411 10.1683 7.91699V3.75C10.1683 3.42691 9.90646 3.16504 9.58337 3.16504C9.26029 3.16504 8.99841 3.42691 8.99841 3.75V7.91699C8.99824 8.28411 8.70053 8.58203 8.33337 8.58203C7.96621 8.58203 7.66851 8.28411 7.66833 7.91699V5C7.66833 4.67691 7.40646 4.41504 7.08337 4.41504C6.76029 4.41504 6.49841 4.67691 6.49841 5V9.30371C6.53326 9.3429 6.56715 9.38359 6.59998 9.42578L8.02478 11.2588C8.25005 11.5486 8.19821 11.9659 7.90857 12.1914C7.6187 12.4169 7.20048 12.365 6.97498 12.0752L5.55017 10.2432C5.15812 9.7391 4.41813 9.73637 4.01501 10.1924C4.04396 10.426 4.11486 10.8323 4.25525 11.3486C4.44664 12.0525 4.75404 12.9113 5.21619 13.7383C6.14103 15.3931 7.62465 16.835 10.0004 16.835C12.8545 16.8348 15.1682 14.5211 15.1683 11.667V6.25C15.1683 5.92691 14.9065 5.66504 14.5834 5.66504C14.2603 5.66504 13.9984 5.92691 13.9984 6.25V9.16699C13.9982 9.53411 13.7005 9.83203 13.3334 9.83203C12.9662 9.83203 12.6685 9.53411 12.6683 9.16699V4.16699ZM13.9984 4.42578C14.1828 4.36671 14.3794 4.33496 14.5834 4.33496C15.641 4.33496 16.4984 5.19237 16.4984 6.25V11.667C16.4982 15.2557 13.589 18.1649 10.0004 18.165C6.95953 18.165 5.10939 16.2734 4.05505 14.3867C3.52774 13.4431 3.1843 12.4787 2.97205 11.6982C2.76447 10.9349 2.66834 10.2954 2.66833 10C2.66833 9.87959 2.70117 9.76148 2.76306 9.6582C3.28988 8.78018 4.26555 8.40372 5.16833 8.56152V5C5.16833 3.94237 6.02575 3.08496 7.08337 3.08496C7.31706 3.08496 7.54039 3.12845 7.74744 3.20508C7.98218 2.41297 8.7151 1.83496 9.58337 1.83496C10.1836 1.83496 10.7186 2.11176 11.0697 2.54395C11.3639 2.35978 11.7107 2.25195 12.0834 2.25195C13.141 2.25195 13.9984 3.10937 13.9984 4.16699V4.42578Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function shieldCodeIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      fillRule: "evenodd",
+      clipRule: "evenodd",
+      d: "M9.06543 1.95123C9.66107 1.69076 10.3389 1.69071 10.9346 1.95123L15.9346 4.13873C16.7832 4.51008 17.3311 5.34917 17.3311 6.27545V10.5528C17.3309 14.6017 14.0489 17.8847 10 17.8848C5.95108 17.8846 2.66813 14.6017 2.66797 10.5528V6.27545C2.66797 5.34924 3.21695 4.51012 4.06543 4.13873L9.06543 1.95123ZM10.4014 3.16998C10.1456 3.05814 9.85444 3.05819 9.59863 3.16998L4.59863 5.35748C4.23427 5.51708 3.99805 5.87764 3.99805 6.27545V10.5528C3.99821 13.8671 6.68563 16.5546 10 16.5547C13.3144 16.5546 16.0008 13.8671 16.001 10.5528V6.27545C16.001 5.87756 15.7658 5.51703 15.4014 5.35748L10.4014 3.16998Z",
+      fill: "currentColor",
+    }),
+    h("path", {
+      d: "M13.4678 11.4318L13.333 11.4182H10.833C10.466 11.4183 10.1682 11.7162 10.168 12.0832C10.168 12.4504 10.4659 12.7481 10.833 12.7482H13.333L13.4678 12.7346C13.7706 12.6724 13.9981 12.4044 13.9981 12.0832C13.9979 11.7621 13.7706 11.494 13.4678 11.4318Z",
+      fill: "currentColor",
+    }),
+    h("path", {
+      d: "M7.65336 12.426C7.46431 12.7406 7.05607 12.8424 6.74125 12.6535C6.42646 12.4646 6.32395 12.0563 6.51274 11.7414L7.55668 10.0002L6.51274 8.25899C6.32395 7.94412 6.42646 7.53583 6.74125 7.34688C7.05607 7.15799 7.46431 7.25975 7.65336 7.57442L8.90336 9.6584C9.0296 9.86893 9.0296 10.1315 8.90336 10.342L7.65336 12.426Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function shieldWarningIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      fillRule: "evenodd",
+      clipRule: "evenodd",
+      d: "M9.06543 1.95123C9.66107 1.69076 10.3389 1.69071 10.9346 1.95123L15.9346 4.13873C16.7832 4.51008 17.3311 5.34917 17.3311 6.27545V10.5528C17.3309 14.6017 14.0489 17.8847 10 17.8848C5.95108 17.8846 2.66813 14.6017 2.66797 10.5528V6.27545C2.66797 5.34924 3.21695 4.51012 4.06543 4.13873L9.06543 1.95123ZM10.4014 3.16998C10.1456 3.05814 9.85444 3.05819 9.59863 3.16998L4.59863 5.35748C4.23427 5.51708 3.99805 5.87764 3.99805 6.27545V10.5528C3.99821 13.8671 6.68563 16.5546 10 16.5547C13.3144 16.5546 16.0008 13.8671 16.001 10.5528V6.27545C16.001 5.87756 15.7658 5.51703 15.4014 5.35748L10.4014 3.16998Z",
+      fill: "currentColor",
+    }),
+    h("path", {
+      d: "M10.8883 13.1116C10.8883 13.6025 10.4903 14.0005 9.99936 14.0005C9.50844 14.0005 9.11047 13.6025 9.11047 13.1116C9.11047 12.6207 9.50844 12.2227 9.99936 12.2227C10.4903 12.2227 10.8883 12.6207 10.8883 13.1116Z",
+      fill: "currentColor",
+    }),
+    h("path", {
+      d: "M10.5169 10.8949L11.1135 7.31519C11.2283 6.62672 10.6974 6 9.99941 6C9.30145 6 8.77053 6.62672 8.88528 7.31519L9.4819 10.8949C9.52406 11.1479 9.74294 11.3333 9.99941 11.3333C10.2559 11.3333 10.4748 11.1479 10.5169 10.8949Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function settingsCogIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      fillRule: "evenodd",
+      clipRule: "evenodd",
+      d: "M9.99944 7.24939C11.5169 7.2495 12.7473 8.47995 12.7475 9.99744C12.7475 11.5151 11.517 12.7454 9.99944 12.7455C8.48176 12.7455 7.2514 11.5151 7.2514 9.99744C7.25155 8.47988 8.48186 7.24939 9.99944 7.24939ZM9.99944 8.57947C9.2164 8.57947 8.58163 9.21442 8.58148 9.99744C8.58148 10.7806 9.2163 11.4154 9.99944 11.4154C10.7825 11.4153 11.4174 10.7805 11.4174 9.99744C11.4173 9.21449 10.7824 8.57958 9.99944 8.57947Z",
+      fill: "currentColor",
+    }),
+    h("path", {
+      fillRule: "evenodd",
+      clipRule: "evenodd",
+      d: "M10.6391 1.67517C11.2939 1.67532 11.8991 2.02577 12.226 2.59314L13.2485 4.36755H15.2963C15.9505 4.36758 16.555 4.71709 16.8823 5.28357L17.5219 6.39001C17.8489 6.95668 17.8481 7.65542 17.5209 8.22205L16.4975 9.99451L17.5239 11.7689C17.8519 12.3357 17.8521 13.0347 17.5248 13.6019L16.8862 14.7084C16.559 15.2747 15.9543 15.6243 15.3002 15.6244H13.2514L12.2299 17.3988C11.9029 17.9663 11.297 18.3168 10.642 18.3168L9.3637 18.3158C8.71064 18.3155 8.10718 17.9678 7.77972 17.4027L6.74847 15.6234L4.69964 15.6244C4.04558 15.6242 3.44087 15.2747 3.1137 14.7084L2.47503 13.6019C2.14791 13.0349 2.14836 12.3366 2.47601 11.7699L3.50237 9.99548L2.47894 8.22205C2.15175 7.65533 2.15174 6.95673 2.47894 6.39001L3.11761 5.28259C3.44458 4.71663 4.04894 4.36813 4.70257 4.36755L6.75042 4.36658L7.77581 2.59119C8.10301 2.02476 8.7076 1.67527 9.36175 1.67517H10.6391ZM9.36273 3.00623C9.1835 3.00623 9.01679 3.10199 8.92718 3.2572L7.82659 5.16345C7.63652 5.49253 7.28473 5.69529 6.90472 5.69568L4.70355 5.69763C4.52451 5.69782 4.3585 5.79355 4.26898 5.94861L3.6303 7.05505C3.54091 7.2102 3.54077 7.40192 3.6303 7.55701L4.73089 9.46326C4.92108 9.7929 4.92135 10.1992 4.73089 10.5287L3.62737 12.4359C3.5378 12.591 3.53792 12.7817 3.62737 12.9369L4.26605 14.0433C4.35567 14.1982 4.52067 14.2932 4.69964 14.2933L6.90276 14.2943C7.28242 14.2946 7.63335 14.497 7.82366 14.8256L8.93011 16.7357C9.01984 16.8905 9.18578 16.9857 9.36468 16.9857H10.642C10.8213 16.9857 10.987 16.89 11.0766 16.7347L12.1752 14.8275C12.3653 14.4975 12.7182 14.2943 13.0991 14.2943H15.3002C15.4794 14.2942 15.6452 14.1985 15.7348 14.0433L16.3725 12.9379C16.4621 12.7826 16.4621 12.5911 16.3725 12.4359L15.27 10.5287C15.1032 10.2404 15.0808 9.89331 15.2055 9.59021L15.269 9.46326L16.3696 7.55701C16.4591 7.40189 16.459 7.21022 16.3696 7.05505L15.7309 5.94861C15.6412 5.79363 15.4754 5.69863 15.2963 5.69861L13.0951 5.69763L12.9535 5.68884C12.6751 5.65158 12.4217 5.50519 12.2504 5.28259L12.1723 5.16443L11.0737 3.2572C10.9841 3.10175 10.8175 3.00525 10.6381 3.00525L9.36273 3.00623Z",
+      fill: "currentColor",
     }),
   );
 }
