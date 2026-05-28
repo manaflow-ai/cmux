@@ -5696,9 +5696,13 @@ class TerminalController {
     nonisolated static func defaultTmuxExecutablePath() -> String {
         defaultTmuxExecutablePath(
             environmentPath: ProcessInfo.processInfo.environment["PATH"],
-            commonPaths: ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"],
+            commonPaths: defaultTmuxExecutableCommonPaths,
             isExecutable: { FileManager.default.isExecutableFile(atPath: $0) }
         )
+    }
+
+    nonisolated static var defaultTmuxExecutableCommonPaths: [String] {
+        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"]
     }
 
     nonisolated static func defaultTmuxExecutablePath(

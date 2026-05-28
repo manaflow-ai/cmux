@@ -2427,11 +2427,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testDefaultTmuxExecutablePathFallsBackToCommonExecutablePaths() {
         let result = TerminalController.defaultTmuxExecutablePath(
             environmentPath: "/usr/bin",
-            commonPaths: ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"],
-            isExecutable: { $0 == "/usr/local/bin/tmux" }
+            commonPaths: TerminalController.defaultTmuxExecutableCommonPaths,
+            isExecutable: { $0 == "/opt/local/bin/tmux" }
         )
 
-        XCTAssertEqual(result, "/usr/local/bin/tmux")
+        XCTAssertEqual(result, "/opt/local/bin/tmux")
     }
 
     func testTmuxAttachLocalPreservesCallerContextFocusAndResolvesCwd() throws {
