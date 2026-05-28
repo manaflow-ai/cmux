@@ -2074,6 +2074,8 @@ class TabManager: ObservableObject {
             if rerunPending,
                workspacePullRequestFollowUpShouldBypassRepoCache,
                result.usedCachedRepoData {
+                workspacePullRequestNextPollAtByKey[key] = .distantPast
+                needsFollowUpPass = true
                 continue
             }
 
