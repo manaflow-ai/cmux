@@ -916,11 +916,13 @@ struct OpenCodeServerAuth: Equatable {
 final class CodexAppServerSession {
     typealias DataWriter = (Data) throws -> Void
     typealias OutputSink = (_ stream: String, _ text: String) -> Void
+    typealias ActivitySink = (_ activity: [String: Any]) -> Void
     typealias FailureSink = (_ details: String?) -> Void
 
     private let workingDirectory: String?
     private let writeData: DataWriter
     private let outputSink: OutputSink
+    private let activitySink: ActivitySink
     private let failureSink: FailureSink
     private var nextRequestID = 1
     private var initializeRequestID: Int?
@@ -935,11 +937,13 @@ final class CodexAppServerSession {
         workingDirectory: String?,
         writeData: @escaping DataWriter,
         outputSink: @escaping OutputSink,
+        activitySink: @escaping ActivitySink = { _ in },
         failureSink: @escaping FailureSink = { _ in }
     ) {
         self.workingDirectory = workingDirectory
         self.writeData = writeData
         self.outputSink = outputSink
+        self.activitySink = activitySink
         self.failureSink = failureSink
     }
 
@@ -1063,6 +1067,34 @@ final class CodexAppServerSession {
             if let delta = params?["delta"] as? String {
                 outputSink("stdout", delta)
             }
+        case "item/started":
+            if let item = params?["item"] as? [String: Any] {
+                emitActivity(for: item, defaultStatus: "inProgress")
+            }
+        case "item/completed":
+            if let item = params?["item"] as? [String: Any] {
+                emitActivity(for: item, defaultStatus: "completed")
+            }
+        case "item/commandExecution/outputDelta":
+            guard let itemID = params?["itemId"] as? String else { break }
+            emitActivity(
+                activityID: itemID,
+                kind: "command",
+                status: "inProgress",
+                action: Self.commandAction(status: "inProgress"),
+                detail: nil,
+                outputDelta: params?["delta"] as? String
+            )
+        case "item/fileChange/patchUpdated":
+            guard let itemID = params?["itemId"] as? String else { break }
+            let summary = Self.fileChangeSummary(from: params?["changes"])
+            emitActivity(
+                activityID: itemID,
+                kind: "fileChange",
+                status: "inProgress",
+                action: Self.fileChangeAction(changeType: summary.changeType, status: "inProgress"),
+                detail: summary.path
+            )
         case "error":
             let error = params?["error"] as? [String: Any]
             let details = error?["message"] as? String
@@ -1076,6 +1108,153 @@ final class CodexAppServerSession {
         default:
             break
         }
+    }
+
+    private func emitActivity(for item: [String: Any], defaultStatus: String) {
+        guard let itemID = item["id"] as? String,
+              let itemType = item["type"] as? String else {
+            return
+        }
+        let status = Self.activityStatus(from: item, defaultStatus: defaultStatus)
+        switch itemType {
+        case "commandExecution":
+            emitActivity(
+                activityID: itemID,
+                kind: "command",
+                status: status,
+                action: Self.commandAction(status: status),
+                detail: Self.commandText(from: item)
+            )
+        case "fileChange":
+            let summary = Self.fileChangeSummary(from: item["changes"])
+            emitActivity(
+                activityID: itemID,
+                kind: "fileChange",
+                status: status,
+                action: Self.fileChangeAction(changeType: summary.changeType, status: status),
+                detail: summary.path
+            )
+        default:
+            break
+        }
+    }
+
+    private func emitActivity(
+        activityID: String,
+        kind: String,
+        status: String,
+        action: String,
+        detail: String?,
+        outputDelta: String? = nil
+    ) {
+        var activity: [String: Any] = [
+            "activityId": activityID,
+            "kind": kind,
+            "status": status,
+            "action": action
+        ]
+        if let detail, !detail.isEmpty {
+            activity["detail"] = detail
+        }
+        if let outputDelta, !outputDelta.isEmpty {
+            activity["outputDelta"] = outputDelta
+        }
+        activitySink(activity)
+    }
+
+    private static func activityStatus(from item: [String: Any], defaultStatus: String) -> String {
+        if let parsedCommand = item["parsedCmd"] as? [String: Any],
+           let isFinished = parsedCommand["isFinished"] as? Bool,
+           !isFinished {
+            return "inProgress"
+        }
+        let rawStatus = (item["executionStatus"] as? String) ?? (item["status"] as? String)
+        switch rawStatus?.lowercased() {
+        case "interrupted", "canceled", "cancelled", "stopped":
+            return "stopped"
+        case "failed", "failure", "error":
+            return "failed"
+        case "inprogress", "in_progress", "running", "started":
+            return "inProgress"
+        case "completed", "complete", "succeeded", "success":
+            return "completed"
+        default:
+            return defaultStatus
+        }
+    }
+
+    private static func commandAction(status: String) -> String {
+        switch status {
+        case "inProgress":
+            return String(localized: "agentSession.codex.activity.command.running", defaultValue: "Running")
+        case "stopped":
+            return String(localized: "agentSession.codex.activity.command.stopped", defaultValue: "Stopped")
+        default:
+            return String(localized: "agentSession.codex.activity.command.ran", defaultValue: "Ran")
+        }
+    }
+
+    private static func commandText(from item: [String: Any]) -> String? {
+        if let parsedCommand = item["parsedCmd"] as? [String: Any] {
+            for key in ["cmd", "command", "name"] {
+                if let value = nonEmptyString(parsedCommand[key]) {
+                    return value
+                }
+            }
+        }
+        for key in ["command", "cmd", "commandText", "name"] {
+            if let value = nonEmptyString(item[key]) {
+                return value
+            }
+        }
+        if let command = item["command"] as? [Any] {
+            let text = command.compactMap { $0 as? String }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+        return nil
+    }
+
+    private static func fileChangeAction(changeType: String?, status: String) -> String {
+        switch (changeType, status) {
+        case ("add", "inProgress"):
+            return String(localized: "agentSession.codex.activity.file.creating", defaultValue: "Creating")
+        case ("add", _):
+            return String(localized: "agentSession.codex.activity.file.created", defaultValue: "Created")
+        case ("delete", "inProgress"):
+            return String(localized: "agentSession.codex.activity.file.deleting", defaultValue: "Deleting")
+        case ("delete", _):
+            return String(localized: "agentSession.codex.activity.file.deleted", defaultValue: "Deleted")
+        case (_, "inProgress"):
+            return String(localized: "agentSession.codex.activity.file.editing", defaultValue: "Editing")
+        default:
+            return String(localized: "agentSession.codex.activity.file.edited", defaultValue: "Edited")
+        }
+    }
+
+    private static func fileChangeSummary(from value: Any?) -> (path: String?, changeType: String?) {
+        if let changes = value as? [String: Any] {
+            for key in changes.keys.sorted() {
+                let change = changes[key] as? [String: Any]
+                return (key, change?["type"] as? String)
+            }
+        }
+        if let changes = value as? [[String: Any]],
+           let first = changes.first {
+            let path = nonEmptyString(first["path"]) ?? nonEmptyString(first["filePath"]) ?? nonEmptyString(first["name"])
+            return (path, first["type"] as? String)
+        }
+        return (nil, nil)
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        let string: String?
+        if let value = value as? String {
+            string = value
+        } else {
+            string = nil
+        }
+        let trimmed = string?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private func handleServerRequest(_ object: [String: Any], method: String) {
@@ -1316,6 +1495,13 @@ private final class AgentSessionProcessStore {
                         providerID: plan.provider,
                         stream: stream,
                         text: text
+                    )
+                },
+                activitySink: { [weak self] activity in
+                    self?.emitActivity(
+                        sessionId: sessionId,
+                        providerID: plan.provider,
+                        activity: activity
                     )
                 },
                 failureSink: { [weak self] _ in
@@ -1676,6 +1862,18 @@ private final class AgentSessionProcessStore {
             "stream": stream,
             "text": text
         ])
+    }
+
+    private func emitActivity(
+        sessionId: String,
+        providerID: AgentSessionProviderID,
+        activity: [String: Any]
+    ) {
+        var event = activity
+        event["type"] = "provider.activity"
+        event["sessionId"] = sessionId
+        event["providerId"] = providerID.rawValue
+        eventSink?(event)
     }
 
     private func emitExit(

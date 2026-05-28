@@ -363,7 +363,48 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
       }
       break;
     }
+    case "activity": {
+      row.className = `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}`;
+      row.replaceChildren(activityContentElement(entry));
+      if (entry.output) {
+        const output = document.createElement("pre");
+        output.className = "codex-tool-activity-output text-size-chat-sm";
+        output.innerHTML = renderPlainTextHTML(entry.output);
+        row.append(output);
+      }
+      break;
+    }
   }
+}
+
+function activityContentElement(entry: TranscriptEntry): HTMLDivElement {
+  const summary = document.createElement("div");
+  summary.className =
+    "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left";
+
+  const icon = document.createElement("span");
+  icon.className = "codex-tool-activity-icon icon-xs shrink-0";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = activityGlyph(entry);
+
+  const text = document.createElement("span");
+  text.className =
+    "codex-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1";
+
+  const action = document.createElement("span");
+  action.className = "codex-tool-activity-action";
+  action.innerHTML = renderPlainTextHTML(entry.text);
+  text.append(action);
+
+  if (entry.detail) {
+    const detail = document.createElement("span");
+    detail.className = "codex-tool-activity-detail";
+    detail.innerHTML = ` ${renderPlainTextHTML(entry.detail)}`;
+    text.append(detail);
+  }
+
+  summary.append(icon, text);
+  return summary;
 }
 
 function renderRateLimitFooter(
@@ -492,6 +533,20 @@ function speedometerIcon(): SVGSVGElement {
   path.setAttribute("stroke-linejoin", "round");
   icon.append(path);
   return icon;
+}
+
+function activityGlyph(entry: TranscriptEntry): string {
+  if (entry.activityStatus === "stopped" || entry.activityStatus === "failed") {
+    return "!";
+  }
+  switch (entry.activityKind) {
+    case "command":
+      return "$";
+    case "fileChange":
+      return "+";
+    default:
+      return "*";
+  }
 }
 
 function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {

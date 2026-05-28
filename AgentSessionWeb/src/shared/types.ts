@@ -107,6 +107,17 @@ export type AgentEvent =
       text: string;
     }
   | {
+      type: "provider.activity";
+      sessionId: string;
+      providerId: ProviderId;
+      activityId: string;
+      kind: "command" | "fileChange" | "other";
+      status: "inProgress" | "completed" | "failed" | "stopped";
+      action: string;
+      detail?: string;
+      outputDelta?: string;
+    }
+  | {
       type: "provider.exit";
       sessionId: string;
       providerId: ProviderId;

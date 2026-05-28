@@ -290,6 +290,95 @@ select {
   border-color: color-mix(in srgb, var(--agent-accent) 30%, transparent);
 }
 
+.codex-tool-activity-turn {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.codex-tool-activity-summary {
+  max-width: 100%;
+  border: 0;
+  color: color-mix(in srgb, var(--color-token-foreground) 40%, transparent);
+  background: transparent;
+  font-size: var(--codex-chat-font-size);
+  line-height: calc(var(--codex-chat-font-size) + 8px);
+}
+
+.codex-tool-activity-turn.inProgress .codex-tool-activity-summary {
+  color: color-mix(in srgb, var(--color-token-description-foreground) 90%, transparent);
+}
+
+.codex-tool-activity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--color-token-foreground) 35%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.codex-tool-activity-turn.inProgress .codex-tool-activity-icon {
+  animation: codex-tool-activity-pulse 1.2s ease-in-out infinite;
+}
+
+.codex-tool-activity-text {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.codex-tool-activity-action {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--color-token-foreground) 58%, transparent);
+}
+
+.codex-tool-activity-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-token-foreground) 40%, transparent);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-tool-activity-summary:hover .codex-tool-activity-action,
+.codex-tool-activity-summary:hover .codex-tool-activity-detail,
+.codex-tool-activity-summary:hover .codex-tool-activity-icon {
+  color: var(--color-token-foreground);
+}
+
+.codex-tool-activity-output {
+  max-width: min(100%, var(--markdown-wide-block-max-width));
+  max-height: 180px;
+  margin: 0 0 0 20px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-token-border) 62%, transparent);
+  border-radius: var(--radius-md);
+  color: color-mix(in srgb, var(--color-token-description-foreground) 86%, transparent);
+  background: color-mix(in srgb, var(--agent-input-bg) 74%, transparent);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+
+@keyframes codex-tool-activity-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .agent-log-line,
 .log-line {
   display: grid;

@@ -446,6 +446,39 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
           dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
         }),
       );
+    case "activity":
+      return h(
+        "div",
+        { className: `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}` },
+        h(
+          "div",
+          {
+            className:
+              "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left",
+          },
+          h("span", { className: "codex-tool-activity-icon icon-xs shrink-0", "aria-hidden": true }, activityGlyph(entry)),
+          h(
+            "span",
+            { className: "codex-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1" },
+            h("span", {
+              className: "codex-tool-activity-action",
+              dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
+            }),
+            entry.detail
+              ? h("span", {
+                  className: "codex-tool-activity-detail",
+                  dangerouslySetInnerHTML: { __html: ` ${renderPlainTextHTML(entry.detail)}` },
+                })
+              : null,
+          ),
+        ),
+        entry.output
+          ? h("pre", {
+              className: "codex-tool-activity-output text-size-chat-sm",
+              dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
+            })
+          : null,
+      );
   }
 }
 
@@ -736,6 +769,20 @@ function skillsIcon() {
       fill: "currentColor",
     }),
   );
+}
+
+function activityGlyph(entry: TranscriptEntry): string {
+  if (entry.activityStatus === "stopped" || entry.activityStatus === "failed") {
+    return "!";
+  }
+  switch (entry.activityKind) {
+    case "command":
+      return "$";
+    case "fileChange":
+      return "+";
+    default:
+      return "*";
+  }
 }
 
 function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode, onClick?: () => void) {

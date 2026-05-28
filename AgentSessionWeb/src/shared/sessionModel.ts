@@ -11,10 +11,15 @@ export type LogEntry = {
 
 export type TranscriptEntry = {
   id: string;
-  role: "user" | "assistant" | "notice";
+  role: "user" | "assistant" | "notice" | "activity";
   text: string;
   tone?: "error" | "warning";
   sessionId?: string;
+  activityId?: string;
+  activityKind?: "command" | "fileChange" | "other";
+  activityStatus?: "inProgress" | "completed" | "failed" | "stopped";
+  detail?: string;
+  output?: string;
 };
 
 export type SessionState = {
@@ -350,6 +355,14 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         log: appendLog(state, event.stream, event.text),
         transcript: appendProviderTranscript(state, event),
       };
+    case "provider.activity":
+      if (event.sessionId !== state.runningSessionId) {
+        return state;
+      }
+      return {
+        ...state,
+        transcript: appendProviderActivityTranscript(state, event),
+      };
     case "provider.exit":
       if (!isCurrentOrPendingStartExit(state, event)) {
         return state;
@@ -460,6 +473,50 @@ function appendProviderTranscript(
     text: event.text,
     sessionId: event.sessionId,
   });
+}
+
+function appendProviderActivityTranscript(
+  state: SessionState,
+  event: Extract<AgentEvent, { type: "provider.activity" }>,
+): TranscriptEntry[] {
+  const existingIndex = lastActivityIndex(state.transcript, event.sessionId, event.activityId);
+  if (existingIndex >= 0) {
+    const previous = state.transcript[existingIndex];
+    return [
+      ...state.transcript.slice(0, existingIndex),
+      {
+        ...previous,
+        text: event.action,
+        detail: event.detail ?? previous.detail,
+        activityKind: event.kind,
+        activityStatus: event.status,
+        output: (previous.output ?? "") + (event.outputDelta ?? ""),
+      },
+      ...state.transcript.slice(existingIndex + 1),
+    ];
+  }
+
+  return appendTranscript(state.transcript, {
+    id: makeClientId(),
+    role: "activity",
+    text: event.action,
+    detail: event.detail,
+    sessionId: event.sessionId,
+    activityId: event.activityId,
+    activityKind: event.kind,
+    activityStatus: event.status,
+    output: event.outputDelta,
+  });
+}
+
+function lastActivityIndex(entries: TranscriptEntry[], sessionId: string, activityId: string): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry.role === "activity" && entry.sessionId === sessionId && entry.activityId === activityId) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function appendNoticeTranscript(

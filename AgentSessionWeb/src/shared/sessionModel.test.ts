@@ -200,6 +200,63 @@ test("provider stdout deltas append to the current assistant transcript turn", (
   });
 });
 
+test("provider activity updates a single transcript turn by activity id", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const started = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.activity",
+      providerId: "codex",
+      sessionId: "session-1",
+      activityId: "item-1",
+      kind: "command",
+      status: "inProgress",
+      action: "Running",
+      detail: "bun test",
+    },
+  });
+  const withOutput = reduceSession(started, {
+    type: "event",
+    event: {
+      type: "provider.activity",
+      providerId: "codex",
+      sessionId: "session-1",
+      activityId: "item-1",
+      kind: "command",
+      status: "inProgress",
+      action: "Running",
+      outputDelta: "ok\\n",
+    },
+  });
+  const completed = reduceSession(withOutput, {
+    type: "event",
+    event: {
+      type: "provider.activity",
+      providerId: "codex",
+      sessionId: "session-1",
+      activityId: "item-1",
+      kind: "command",
+      status: "completed",
+      action: "Ran",
+      detail: "bun test",
+    },
+  });
+
+  expect(completed.transcript).toHaveLength(1);
+  expect(completed.transcript[0]).toMatchObject({
+    role: "activity",
+    text: "Ran",
+    detail: "bun test",
+    output: "ok\\n",
+    activityKind: "command",
+    activityStatus: "completed",
+  });
+});
+
 test("sent action appends a user transcript turn", () => {
   const running = {
     ...reduceSession(initialState("react"), { type: "context", context }),
