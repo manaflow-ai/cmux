@@ -107,8 +107,8 @@ function SessionSurface({
   );
   const composerInput = h(PromptEditor, {
     ref: editorRef,
-    className: "composer-input composer-input-multiline min-w-0 text-base",
-    minHeight: "2rem",
+    className: "composer-editor text-base [&_.ProseMirror]:leading-5",
+    minHeight: "2.75rem",
     value: state.input,
     ariaLabel: state.context?.copy.promptPlaceholder ?? "",
     placeholder: state.context?.copy.promptPlaceholder ?? "",
@@ -118,7 +118,7 @@ function SessionSurface({
   });
   const leftControls = h(
     "div",
-    { className: "codex-left-rail flex min-w-0 items-center gap-1" },
+    { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
     codexIconButton("plus", state.context?.copy.attachFile ?? "Attach file", plusIcon()),
     codexIconButton("browse", state.context?.copy.browseWeb ?? "Browse web", globeIcon()),
     codexIconButton("context", state.context?.copy.autoContext ?? "Context", sparkleIcon()),
@@ -127,7 +127,7 @@ function SessionSurface({
   );
   const rightActions = h(
     "div",
-    { className: "codex-right-rail" },
+    { className: "codex-right-rail flex shrink-0 items-center gap-2" },
     showStart
       ? h(
           "button",
@@ -224,12 +224,23 @@ function SessionSurface({
                 { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
                 h(
                   "div",
+                  { className: "composer-input-row mb-1 flex-grow overflow-y-auto px-3" },
+                  composerInput,
+                ),
+                h(
+                  "div",
                   {
-                    className: "composer-layout composer-layout-multiline",
+                    className:
+                      "composer-footer composer-footer-codex grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] mb-2 px-2",
                   },
-                  h("div", { className: "composer-left-slot" }, leftControls),
-                  h("div", { className: "composer-input-slot" }, composerInput),
-                  h("div", { className: "composer-right-slot" }, rightActions),
+                  leftControls,
+                  h("div", { className: "flex items-center" }),
+                  h(
+                    "div",
+                    { className: "flex w-full min-w-0 items-center justify-end gap-2" },
+                    h("div", { className: "flex min-w-0 flex-1 justify-end" }),
+                    rightActions,
+                  ),
                 ),
               ),
             ),

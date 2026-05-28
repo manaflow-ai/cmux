@@ -86,8 +86,13 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           const nextState = view.state.apply(transaction);
           view.updateState(nextState);
           const nextText = textFromDoc(nextState.doc);
-          if (nextText !== latestTextRef.current) {
+          const previousText = latestTextRef.current;
+          if (nextText !== previousText) {
             latestTextRef.current = nextText;
+            const insertedTrigger = singleInsertedTrigger(previousText, nextText);
+            if (insertedTrigger) {
+              latestTriggerTokenRef.current?.(insertedTrigger);
+            }
             latestTextChangeRef.current(nextText);
           }
         },
@@ -166,6 +171,29 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
     return React.createElement("div", { className, ref: hostRef });
   },
 );
+
+function singleInsertedTrigger(previous: string, next: string): "@" | "$" | null {
+  if (next.length !== previous.length + 1) {
+    return null;
+  }
+  let prefixLength = 0;
+  while (
+    prefixLength < previous.length &&
+    previous.charCodeAt(prefixLength) === next.charCodeAt(prefixLength)
+  ) {
+    prefixLength += 1;
+  }
+  let suffixLength = 0;
+  while (
+    suffixLength < previous.length - prefixLength &&
+    previous.charCodeAt(previous.length - 1 - suffixLength) ===
+      next.charCodeAt(next.length - 1 - suffixLength)
+  ) {
+    suffixLength += 1;
+  }
+  const inserted = next.slice(prefixLength, next.length - suffixLength);
+  return inserted === "@" || inserted === "$" ? inserted : null;
+}
 
 function placeholderPlugin(initialPlaceholder: string): Plugin {
   return new Plugin<string>({

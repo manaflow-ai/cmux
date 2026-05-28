@@ -214,7 +214,6 @@ select {
 }
 
 .codex-composer-surface {
-  min-height: 92px;
   color: var(--color-token-foreground);
   background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
   box-shadow:
@@ -241,6 +240,20 @@ select {
   overflow-y: auto;
   padding: 0 8px;
   line-height: 20px;
+}
+
+.composer-input-row {
+  min-width: 0;
+  scrollbar-width: none;
+}
+
+.composer-input-row::-webkit-scrollbar {
+  display: none;
+}
+
+.composer-editor {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .h-token-button-composer {
@@ -459,7 +472,6 @@ select {
 .codex-left-rail {
   min-width: 0;
   flex: 0 1 auto;
-  gap: 4px;
   margin: 0;
   overflow-x: auto;
   padding: 0;
@@ -473,7 +485,6 @@ select {
 .codex-right-rail {
   flex: 0 0 auto;
   justify-content: flex-end;
-  gap: 4px;
 }
 
 .model-picker,
@@ -798,7 +809,6 @@ select {
   }
 
   .composer-footer-codex {
-    display: grid;
     flex-wrap: nowrap;
     gap: 5px;
     padding: 0 0.5rem;
