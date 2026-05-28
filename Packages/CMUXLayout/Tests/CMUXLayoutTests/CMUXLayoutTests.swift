@@ -5249,6 +5249,80 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertTrue(presentation.surfaces.allSatisfy { $0.renderMode == .snapshotTexture })
     }
 
+    func testCanvasPresentationFramesTranslateRigidlyDuringHorizontalAndDiagonalPans() throws {
+        let terminalID = LayoutItemID()
+        let browserID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1),
+            items: [
+                CanvasItem(
+                    id: terminalID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 80, y: 60, width: 520, height: 380),
+                    zIndex: 1,
+                    isNativeResolution: true
+                ),
+                CanvasItem(
+                    id: browserID,
+                    content: .surface(SurfaceID()),
+                    frame: PixelRect(x: 660, y: 120, width: 560, height: 420),
+                    zIndex: 2,
+                    isNativeResolution: true
+                ),
+            ]
+        )
+        let viewportSize = CGSize(width: 1_400, height: 900)
+        let baseCamera = CanvasCamera(origin: .zero, scale: 1, viewportSize: viewportSize)
+
+        func presentation(camera: CanvasCamera) -> CanvasPresentationState {
+            CanvasPresentationEngine.presentation(
+                document: document,
+                camera: camera,
+                focusedItemID: terminalID,
+                activeItemID: terminalID,
+                contentKinds: [terminalID: .terminal, browserID: .browser],
+                interactionPhase: .panning,
+                configuration: CanvasPresentationConfiguration(
+                    nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: terminalID),
+                    overscanScreenPoints: 0
+                )
+            )
+        }
+
+        let basePresentation = presentation(camera: baseCamera)
+        let baseFrames = Dictionary(uniqueKeysWithValues: basePresentation.presentationSurfaces.map { ($0.id, $0.frameInCanvas) })
+        let baseContentFrames = Dictionary(uniqueKeysWithValues: basePresentation.presentationSurfaces.map { ($0.id, $0.contentFrameInCanvas) })
+
+        for delta in [
+            CGSize(width: 220, height: 0),
+            CGSize(width: -180, height: 0),
+            CGSize(width: 140, height: -90),
+            CGSize(width: -120, height: 150),
+        ] {
+            let panned = presentation(camera: baseCamera.panned(screenDelta: delta))
+
+            XCTAssertTrue(panned.usesUnifiedTexturePresentation)
+            XCTAssertTrue(panned.nativeOverlays.isEmpty)
+            XCTAssertEqual(Set(panned.textureSurfaces.map(\.id)), Set([terminalID, browserID]))
+
+            for surface in panned.presentationSurfaces {
+                let baseFrame = try XCTUnwrap(baseFrames[surface.id])
+                let baseContentFrame = try XCTUnwrap(baseContentFrames[surface.id])
+
+                XCTAssertEqual(surface.frameInCanvas.minX, baseFrame.minX + delta.width, accuracy: 0.0001)
+                XCTAssertEqual(surface.frameInCanvas.minY, baseFrame.minY + delta.height, accuracy: 0.0001)
+                XCTAssertEqual(surface.frameInCanvas.width, baseFrame.width, accuracy: 0.0001)
+                XCTAssertEqual(surface.frameInCanvas.height, baseFrame.height, accuracy: 0.0001)
+
+                XCTAssertEqual(surface.contentFrameInCanvas.minX, baseContentFrame.minX + delta.width, accuracy: 0.0001)
+                XCTAssertEqual(surface.contentFrameInCanvas.minY, baseContentFrame.minY + delta.height, accuracy: 0.0001)
+                XCTAssertEqual(surface.contentFrameInCanvas.width, baseContentFrame.width, accuracy: 0.0001)
+                XCTAssertEqual(surface.contentFrameInCanvas.height, baseContentFrame.height, accuracy: 0.0001)
+            }
+        }
+    }
+
     func testCanvasPresentationEngineAppliesInteractionOverridesAndGuides() {
         let itemID = LayoutItemID()
         let document = CanvasDocument(
