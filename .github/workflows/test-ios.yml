@@ -6,6 +6,9 @@ on:
       - "ios/**"
       - "Packages/CMUXAuthCore/**"
       - "Packages/CMUXMobileCore/**"
+      - "Sources/Mobile/**"
+      - "Sources/GhosttyTerminalView.swift"
+      - "Sources/TerminalController.swift"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       - ".github/workflows/test-ios.yml"
   workflow_dispatch:

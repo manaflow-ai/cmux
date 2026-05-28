@@ -116,8 +116,13 @@ struct CMUXMobileRootView: View {
                 }
                 return
             }
-            connectUITestAttachURLIfNeeded()
-            if store.connectionState != .connected {
+            let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
+            if !startedUITestAttachURL,
+               MobileRootAuthGate.shouldReconnectStoredMac(
+                stackAuthenticated: authManager.isAuthenticated,
+                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                connectionState: store.connectionState
+            ) {
                 let stackUserID = authManager.currentUser?.id
                 Task {
                     await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
@@ -210,18 +215,22 @@ struct CMUXMobileRootView: View {
         }
     }
 
-    private func connectUITestAttachURLIfNeeded() {
+    @discardableResult
+    private func connectUITestAttachURLIfNeeded() -> Bool {
         #if DEBUG
         guard UITestConfig.mockDataEnabled,
               !didConsumeUITestAttachURL,
               isAuthenticated,
               let attachURL = UITestConfig.attachURL else {
-            return
+            return false
         }
         didConsumeUITestAttachURL = true
         Task {
             await store.connectPairingURL(attachURL)
         }
+        return true
+        #else
+        return false
         #endif
     }
 }
@@ -265,6 +274,14 @@ enum MobileRootAuthGate {
         case .superseded:
             return connectionState != .connected || !hasActiveUnexpiredTicket
         }
+    }
+
+    static func shouldReconnectStoredMac(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool,
+        connectionState: MobileConnectionState
+    ) -> Bool {
+        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
     }
 
     @MainActor

@@ -359,7 +359,7 @@ enum MobileShellRouteAuthPolicy {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleHost(host)
+            return isTailscaleHost(host) || isPrivateLANHost(host) || isLocalDNSHost(host)
         case (.iroh, .peer):
             return true
         default:
@@ -371,15 +371,6 @@ enum MobileShellRouteAuthPolicy {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        default:
-            return false
-        }
-    }
-
-    static func routeAllowsUnauthenticatedManualAttempt(_ route: CmxAttachRoute) -> Bool {
-        switch (route.kind, route.endpoint) {
-        case (.tailscale, let .hostPort(host, _)):
-            return normalizedManualNetworkHost(host) != nil
         default:
             return false
         }
@@ -446,6 +437,22 @@ enum MobileShellRouteAuthPolicy {
         host.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .hasSuffix(".ts.net")
+    }
+
+    private static func isPrivateLANHost(_ host: String) -> Bool {
+        guard let octets = ipv4Octets(host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
+            return false
+        }
+        return octets[0] == 10 ||
+            (octets[0] == 172 && (16...31).contains(octets[1])) ||
+            (octets[0] == 192 && octets[1] == 168) ||
+            (octets[0] == 169 && octets[1] == 254)
+    }
+
+    private static func isLocalDNSHost(_ host: String) -> Bool {
+        host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasSuffix(".local")
     }
 }
 
@@ -2659,10 +2666,7 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
-                guard MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(route) else {
-                    throw MobileShellConnectionError.insecureManualRoute
-                }
-                return try JSONSerialization.data(withJSONObject: request)
+                throw MobileShellConnectionError.insecureManualRoute
             }
             do {
                 auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()

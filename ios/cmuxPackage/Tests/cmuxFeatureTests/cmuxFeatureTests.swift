@@ -185,12 +185,9 @@ import UIKit
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
-    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
     #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(lanIP))
-    #expect(MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(localDNS))
-    #expect(!MobileShellRouteAuthPolicy.routeAllowsUnauthenticatedManualAttempt(pretendLoopback))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
     #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
@@ -370,6 +367,21 @@ import UIKit
         pairingResult: .connected,
         connectionState: .connected,
         hasActiveUnexpiredTicket: false
+    ))
+    #expect(MobileRootAuthGate.shouldReconnectStoredMac(
+        stackAuthenticated: true,
+        attachTicketAuthenticated: false,
+        connectionState: .disconnected
+    ))
+    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+        stackAuthenticated: true,
+        attachTicketAuthenticated: true,
+        connectionState: .disconnected
+    ))
+    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: true,
+        connectionState: .disconnected
     ))
 }
 
@@ -716,8 +728,9 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForPrivateLANIPWithoutStackAuth() async throws {
+@Test func manualHostPairingUsesNetworkRouteForPrivateLANIPWithStackAuth() async throws {
     let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
     ])
     let runtime = testRuntime(
@@ -743,14 +756,15 @@ import UIKit
     }
     #expect(route.kind == .tailscale)
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-lan" })
     #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForLocalDNSNameWithoutStackAuth() async throws {
+@Test func manualHostPairingUsesNetworkRouteForLocalDNSNameWithStackAuth() async throws {
     let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
     ])
     let runtime = testRuntime(
@@ -776,14 +790,15 @@ import UIKit
     }
     #expect(route.kind == .tailscale)
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-local-dns" })
     #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
 @MainActor
-@Test func manualHostPairingDoesNotProbeGeneralManualHostForAttachTicket() async throws {
+@Test func manualHostPairingProbesLANHostForAttachTicketBeforeStackAuthFallback() async throws {
     let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
     ])
     let runtime = testRuntime(
@@ -801,8 +816,8 @@ import UIKit
     #expect(store.connectionError == nil)
     #expect(store.connectedHostName == "Studio LAN")
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-fallback" })
     #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
@@ -1493,7 +1508,7 @@ import UIKit
 }
 
 @MainActor
-@Test func pairLinkWithoutAttachTokenDoesNotSendStackAuthToArbitraryHost() async throws {
+@Test func pairLinkWithoutAttachTokenRejectsArbitraryHostBeforeSendingAuth() async throws {
     let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
         workspaceID: UUID().uuidString,
@@ -1517,11 +1532,9 @@ import UIKit
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
-    #expect(requests.allSatisfy { $0.attachToken == nil })
-    #expect(store.connectionState == .connected)
-    #expect(store.connectionError == nil)
+    #expect(requests.isEmpty)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError != nil)
 }
 
 @MainActor
@@ -1562,8 +1575,9 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHostWithoutStackAuth() async throws {
+@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHostWithStackAuth() async throws {
     let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "default-port-lan-workspace", title: "Default Port LAN Workspace"),
     ])
     let runtime = testRuntime(
@@ -1583,8 +1597,8 @@ import UIKit
     let route = try #require(store.activeRoute)
     #expect(route.kind == .tailscale)
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == nil })
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-default-lan" })
     #expect(requests.allSatisfy { $0.attachToken == nil })
 }
 
@@ -4471,13 +4485,17 @@ private func rpcResultFrame(result: [String: Any]) throws -> Data {
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
 
-private func rpcErrorFrame(message: String) throws -> Data {
+private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data {
+    var error: [String: Any] = [
+        "message": message,
+    ]
+    if let code {
+        error["code"] = code
+    }
     let envelope: [String: Any] = [
         "id": UUID().uuidString,
         "ok": false,
-        "error": [
-            "message": message,
-        ],
+        "error": error,
     ]
     let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
