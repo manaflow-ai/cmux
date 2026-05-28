@@ -45,8 +45,11 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUT_DIR="${OUT_DIR:-/tmp/cmux-mobile-attach-qr-$TAG}"
+TMP_ROOT="${TMPDIR:-/tmp}"
+OUT_DIR="${OUT_DIR:-${TMP_ROOT%/}/cmux-mobile-attach-qr-$TAG}"
+umask 077
 mkdir -p "$OUT_DIR"
+chmod 700 "$OUT_DIR"
 
 PARAMS="$(
   TTL_SECONDS="$TTL_SECONDS" ROUTE_ID="$ROUTE_ID" ROUTE_KIND="$ROUTE_KIND" python3 - <<'PY'
@@ -72,7 +75,11 @@ PY
 RAW_JSON="$OUT_DIR/attach-ticket.raw.json"
 HTML_PATH="$OUT_DIR/index.html"
 
-CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create "$PARAMS" > "$RAW_JSON"
+RAW_JSON_TMP="$(mktemp "$OUT_DIR/attach-ticket.raw.json.XXXXXX")"
+trap 'rm -f "$RAW_JSON_TMP"' EXIT
+CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create "$PARAMS" > "$RAW_JSON_TMP"
+chmod 600 "$RAW_JSON_TMP"
+mv "$RAW_JSON_TMP" "$RAW_JSON"
 
 REPO_ROOT="$REPO_ROOT" RAW_JSON="$RAW_JSON" HTML_PATH="$HTML_PATH" ROUTE_ID="$ROUTE_ID" ROUTE_KIND="$ROUTE_KIND" node <<'NODE'
 const fs = require("fs");
@@ -172,10 +179,17 @@ const html = `<!doctype html>
 </body>
 </html>`;
 
-fs.writeFileSync(htmlPath, html);
-fs.writeFileSync(path.join(path.dirname(htmlPath), "attach-ticket.filtered.json"), JSON.stringify(payload, null, 2));
+writePrivateFileSync(htmlPath, html);
+writePrivateFileSync(path.join(path.dirname(htmlPath), "attach-ticket.filtered.json"), JSON.stringify(payload, null, 2));
 console.log(htmlPath);
 console.log(payload.attach_url);
+}
+
+function writePrivateFileSync(targetPath, contents) {
+  const tmpPath = `${targetPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, contents, { mode: 0o600 });
+  fs.renameSync(tmpPath, targetPath);
+  fs.chmodSync(targetPath, 0o600);
 }
 
 function escapeHTML(value) {

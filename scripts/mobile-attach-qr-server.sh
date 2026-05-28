@@ -32,7 +32,8 @@ PORT = int(sys.argv[1])
 TAG = os.environ["TAG"]
 SCRIPT_DIR = os.environ["SCRIPT_DIR"]
 QR_SCRIPT = os.path.join(SCRIPT_DIR, "mobile-attach-qr.sh")
-OUT_DIR = f"/tmp/cmux-mobile-attach-qr-{TAG}"
+TMP_ROOT = os.environ.get("TMPDIR", "/tmp").rstrip("/") or "/tmp"
+OUT_DIR = os.path.join(TMP_ROOT, f"cmux-mobile-attach-qr-{TAG}")
 TAG_SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", TAG.lower())).strip("-") or "dev"
 IOS_BUNDLE_ID = f"dev.cmux.ios.{TAG_SLUG}"
 
@@ -108,7 +109,7 @@ def regenerate(force: bool = False) -> tuple[bool, str]:
         env["CMUX_TAG"] = TAG
         try:
             subprocess.run(
-                [QR_SCRIPT, "--tag", TAG],
+                [QR_SCRIPT, "--tag", TAG, "--out-dir", OUT_DIR],
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
