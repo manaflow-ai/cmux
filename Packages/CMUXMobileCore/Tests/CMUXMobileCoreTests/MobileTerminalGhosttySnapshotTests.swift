@@ -327,6 +327,20 @@ import Testing
     #expect(snapshot.renderedVisibleLines == ["", "       line"])
 }
 
+@Test func ghosttyTextBuilderPreservesCursorAfterFullEraseDisplay() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-erase-display-cursor",
+        columns: 12,
+        rows: 4,
+        scrollbackText: nil,
+        viewportText: "\u{001B}[3;5H\u{001B}[2J@\u{001B}[3;6H"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["", "", "    @", ""])
+    #expect(snapshot.cursor.column == 5)
+    #expect(snapshot.cursor.row == 2)
+}
+
 @Test func ghosttyTextBuilderPreservesFinalCursorPosition() throws {
     let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
         terminalID: "terminal-cursor-position",

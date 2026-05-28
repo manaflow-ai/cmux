@@ -1309,6 +1309,7 @@ class TabManager: ObservableObject {
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
     private var workspacePullRequestFollowUpShouldBypassRepoCache = false
     private var backgroundGitMetadataPollCursor = 0
+    private var backgroundGitMetadataPanelPollCursorByWorkspaceID: [UUID: Int] = [:]
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -1534,23 +1535,42 @@ class TabManager: ObservableObject {
         workspaceGitMetadataFallbackTimer = timer
     }
 
-    private func refreshTrackedWorkspaceGitMetadata(reason: String) {
+    @discardableResult
+    private func refreshTrackedWorkspaceGitMetadata(reason: String) -> [WorkspaceGitProbeKey] {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
         guard !tabs.isEmpty else {
             backgroundGitMetadataPollCursor = 0
-            return
+            backgroundGitMetadataPanelPollCursorByWorkspaceID.removeAll()
+            return []
         }
 
         let startIndex = min(max(backgroundGitMetadataPollCursor, 0), max(tabs.count - 1, 0))
         var scheduledCount = 0
+        var scheduledKeys: [WorkspaceGitProbeKey] = []
         for offset in 0..<tabs.count {
             let workspaceIndex = (startIndex + offset) % tabs.count
             let workspace = tabs[workspaceIndex]
-            for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
+            let candidatePanelIds = trackedWorkspaceGitMetadataPollCandidatePanelIds(
                 in: workspace,
                 activeProbeKeys: activeProbeKeys,
                 includeActiveProbes: true
-            ) {
+            )
+            let sortedPanelIds = candidatePanelIds.sorted { lhs, rhs in
+                lhs.uuidString < rhs.uuidString
+            }
+            guard !sortedPanelIds.isEmpty else {
+                backgroundGitMetadataPanelPollCursorByWorkspaceID.removeValue(forKey: workspace.id)
+                continue
+            }
+
+            let panelStartIndex = min(
+                max(backgroundGitMetadataPanelPollCursorByWorkspaceID[workspace.id] ?? 0, 0),
+                max(sortedPanelIds.count - 1, 0)
+            )
+            for panelOffset in 0..<sortedPanelIds.count {
+                let panelIndex = (panelStartIndex + panelOffset) % sortedPanelIds.count
+                let panelId = sortedPanelIds[panelIndex]
+                scheduledKeys.append(WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId))
                 scheduleWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspace.id,
                     panelId: panelId,
@@ -1558,12 +1578,21 @@ class TabManager: ObservableObject {
                 )
                 scheduledCount += 1
                 if scheduledCount >= Self.backgroundGitMetadataPollBatchLimit {
-                    backgroundGitMetadataPollCursor = (workspaceIndex + 1) % tabs.count
-                    return
+                    let nextPanelIndex = (panelIndex + 1) % sortedPanelIds.count
+                    if nextPanelIndex == 0 {
+                        backgroundGitMetadataPanelPollCursorByWorkspaceID.removeValue(forKey: workspace.id)
+                        backgroundGitMetadataPollCursor = (workspaceIndex + 1) % tabs.count
+                    } else {
+                        backgroundGitMetadataPanelPollCursorByWorkspaceID[workspace.id] = nextPanelIndex
+                        backgroundGitMetadataPollCursor = workspaceIndex
+                    }
+                    return scheduledKeys
                 }
             }
+            backgroundGitMetadataPanelPollCursorByWorkspaceID.removeValue(forKey: workspace.id)
         }
         backgroundGitMetadataPollCursor = 0
+        return scheduledKeys
     }
 
     private var sidebarGitMetadataWatchEnabled: Bool {
@@ -1593,6 +1622,8 @@ class TabManager: ObservableObject {
             workspaceGitCleanIndexSignatureByKey.removeAll()
             workspaceGitCleanIndexContentSignatureByKey.removeAll()
             workspaceGitHeadSignatureByKey.removeAll()
+            backgroundGitMetadataPollCursor = 0
+            backgroundGitMetadataPanelPollCursorByWorkspaceID.removeAll()
             resetWorkspacePullRequestRefreshState()
             clearAllWorkspaceSidebarGitMetadata()
             return
@@ -2368,8 +2399,9 @@ class TabManager: ObservableObject {
         return nil
     }
 
-    func refreshTrackedWorkspaceGitMetadataForTesting() {
-        refreshTrackedWorkspaceGitMetadata(reason: "test")
+    @discardableResult
+    func refreshTrackedWorkspaceGitMetadataForTesting() -> [UUID] {
+        refreshTrackedWorkspaceGitMetadata(reason: "test").map(\.panelId)
     }
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
@@ -3116,6 +3148,7 @@ class TabManager: ObservableObject {
         workspaceGitHeadSignatureByKey = workspaceGitHeadSignatureByKey.filter { key, _ in
             key.workspaceId != workspaceId
         }
+        backgroundGitMetadataPanelPollCursorByWorkspaceID.removeValue(forKey: workspaceId)
         stopWorkspaceGitMetadataWatchers(workspaceId: workspaceId)
         updateWorkspaceGitMetadataFallbackTimer()
         clearWorkspacePullRequestTracking(workspaceId: workspaceId)
@@ -10294,6 +10327,8 @@ extension TabManager {
             clearWorkspaceGitProbe(key)
         }
         workspaceGitTrackedDirectoryByKey.removeAll()
+        backgroundGitMetadataPollCursor = 0
+        backgroundGitMetadataPanelPollCursorByWorkspaceID.removeAll()
         updateWorkspaceGitMetadataFallbackTimer()
         resetWorkspacePullRequestRefreshState()
 

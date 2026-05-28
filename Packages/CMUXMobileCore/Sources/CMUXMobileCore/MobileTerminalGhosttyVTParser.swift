@@ -127,8 +127,6 @@ enum MobileTerminalGhosttyVTParser {
             case 2, 3:
                 rows = [[]]
                 wrappedRowIndices.removeAll(keepingCapacity: true)
-                row = 0
-                column = 0
                 wrapPending = false
             default:
                 guard row >= 0 else { return }

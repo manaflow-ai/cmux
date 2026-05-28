@@ -940,6 +940,39 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    func testBackgroundGitMetadataFallbackContinuesWithinOversizedWorkspace() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        while workspace.panels.count < 6 {
+            XCTAssertNotNil(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        }
+
+        let directory = FileManager.default.temporaryDirectory.path
+        let panelIds = workspace.panels.keys.sorted { lhs, rhs in
+            lhs.uuidString < rhs.uuidString
+        }
+        for panelId in panelIds {
+            workspace.panelDirectories[panelId] = directory
+            workspace.panelGitBranches[panelId] = SidebarGitBranchState(branch: "main", isDirty: false)
+        }
+
+        let firstBatch = manager.refreshTrackedWorkspaceGitMetadataForTesting()
+        XCTAssertEqual(Set(firstBatch).count, 4)
+
+        let secondBatch = manager.refreshTrackedWorkspaceGitMetadataForTesting()
+        XCTAssertTrue(
+            Set(firstBatch + secondBatch).isSuperset(of: Set(panelIds)),
+            "Fallback git metadata polling must advance within a single oversized workspace."
+        )
+    }
+
     func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() throws {
         let defaults = UserDefaults.standard
         let unrelatedDefaultsKey = "cmux.tests.unrelated-defaults-\(UUID().uuidString)"
