@@ -1983,10 +1983,16 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ],
             ],
         ]
+        func decodedParams(from commandLine: Data) throws -> [String: Any] {
+            let payload = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: commandLine, options: []) as? [String: Any]
+            )
+            return try XCTUnwrap(payload["params"] as? [String: Any])
+        }
+
         let requestData = try JSONSerialization.data(withJSONObject: request, options: []) + Data([0x0A])
         let rewrittenData = restoredWorkspace.rewriteRemoteRelayCommandLine(requestData)
-        let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: rewrittenData, options: []) as? [String: Any])
-        let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+        let params = try decodedParams(from: rewrittenData)
 
         XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspace.id.uuidString)
         XCTAssertEqual(params["surface_id"] as? String, restoredPanelId.uuidString)
@@ -2011,6 +2017,45 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(caller["surface_id"] as? String, restoredPanelId.uuidString)
         XCTAssertEqual(caller["panel_id"] as? String, restoredPanelId.uuidString)
         XCTAssertEqual(caller["tab_id"] as? String, restoredWorkspace.id.uuidString)
+
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+        restoredWorkspace.disconnectRemoteConnection(clearConfiguration: false)
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+        let preservedDisconnectParams = try decodedParams(
+            from: restoredWorkspace.rewriteRemoteRelayCommandLine(requestData)
+        )
+        XCTAssertEqual(preservedDisconnectParams["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(preservedDisconnectParams["surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(preservedDisconnectParams["panel_id"] as? String, restoredPanelId.uuidString)
+        let preservedCaller = try XCTUnwrap(preservedDisconnectParams["caller"] as? [String: Any])
+        XCTAssertEqual(preservedCaller["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(preservedCaller["surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(preservedCaller["panel_id"] as? String, restoredPanelId.uuidString)
+
+        restoredWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        XCTAssertTrue(restoredWorkspace.remotePTYSessionIDMatches(panelId: restoredPanelId, sessionID: sessionID))
+        let reconfiguredParams = try decodedParams(from: restoredWorkspace.rewriteRemoteRelayCommandLine(requestData))
+        XCTAssertEqual(reconfiguredParams["workspace_id"] as? String, restoredWorkspace.id.uuidString)
+        XCTAssertEqual(reconfiguredParams["surface_id"] as? String, restoredPanelId.uuidString)
+        XCTAssertEqual(reconfiguredParams["panel_id"] as? String, restoredPanelId.uuidString)
+
+        restoredWorkspace.disconnectRemoteConnection(clearConfiguration: true)
+        XCTAssertNil(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID
+        )
+        let clearedParams = try decodedParams(from: restoredWorkspace.rewriteRemoteRelayCommandLine(requestData))
+        XCTAssertEqual(clearedParams["workspace_id"] as? String, originalWorkspaceId.uuidString)
+        XCTAssertEqual(clearedParams["surface_id"] as? String, originalPanelId.uuidString)
+        XCTAssertEqual(clearedParams["panel_id"] as? String, originalPanelId.uuidString)
     }
 
     func testPersistentSSHPTYReattachRewritesStaleRemoteRelayContextIDs() throws {
