@@ -11913,7 +11913,13 @@ enum SidebarWorkspaceGroupConfigOpener {
     }
 
     static func openWorkspaceGroupsDocs() {
-        guard let url = URL(string: "https://cmux.com/docs/workspace-groups") else { return }
+        // Point at the canonical reference shipped in this repo. The
+        // /docs/workspace-groups web route isn't shipped yet (deferred to a
+        // separate PR that adds the localized Next.js page under
+        // web/app/[locale]/docs); swap this URL when that route lands.
+        guard let url = URL(
+            string: "https://github.com/manaflow-ai/cmux/blob/main/docs/workspace-groups.md"
+        ) else { return }
         NSWorkspace.shared.open(url)
     }
 }

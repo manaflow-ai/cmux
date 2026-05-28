@@ -5582,19 +5582,25 @@ class TabManager: ObservableObject {
         let after: Workspace? = (index + 1) < tabs.count ? tabs[index + 1] : nil
         let beforeGroup = before.flatMap { $0.isPinned ? nil : $0.groupId }
         let afterGroup = after.flatMap { $0.isPinned ? nil : $0.groupId }
-        // Only infer membership when both neighbors share a non-nil groupId
-        // — i.e. the drop position is unambiguously INSIDE a group's run.
-        // Boundary drops (one neighbor in a group, the other nil or in a
-        // different group) leave membership unchanged: users can explicitly
-        // pull workspaces out of groups via the context menu / CLI / drag-
-        // out, and "drop just after the last group member" should land in
-        // the ungrouped section, not get pulled back into the group.
+        let currentGroup = tab.groupId
+        // Three-way inference:
+        //  1. Still adjacent to a member of the current group → preserve.
+        //  2. Both neighbors share a NON-current group → join that group.
+        //  3. Drop is fully outside any group (neither neighbor matches the
+        //     current group, and there's no unambiguous interior-of-other) →
+        //     clear membership.
+        // Without case 3 a member dragged into the ungrouped section would
+        // get snapped back by normalize. Without case 1 a member moved
+        // within its own group (only one neighbor still inside) would lose
+        // membership.
         let inferred: UUID?
-        if let beforeGroup, beforeGroup == afterGroup {
+        if let currentGroup,
+           (beforeGroup == currentGroup || afterGroup == currentGroup) {
+            inferred = currentGroup
+        } else if let beforeGroup, beforeGroup == afterGroup {
             inferred = beforeGroup
         } else {
-            // Don't change membership; let normalize handle ordering.
-            inferred = tab.groupId
+            inferred = nil
         }
         if tab.groupId != inferred {
             tab.groupId = inferred
