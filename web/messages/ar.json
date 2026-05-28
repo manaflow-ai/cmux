@@ -1143,5 +1143,8 @@
       "intro": "تفتح هذه الصفحة القواعد في مساحة عمل cmux الحالية.",
       "fallback": "يعرض cmux القواعد أولاً ويسألك قبل لصقها في مساحة العمل الحالية. إذا لم يتم فتح cmux، فقم بتثبيت cmux وانقر فوق Open in cmux مرة أخرى."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "منشئ OpenClaw. مؤسس PSPDFKit."
   }
 }

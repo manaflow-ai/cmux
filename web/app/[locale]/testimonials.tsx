@@ -14,7 +14,8 @@ export const testimonials = [
     key: "steipete",
     name: "Peter Steinberger",
     handle: "@steipete",
-    avatar: "/avatars/steipete.png",
+    subtitleKey: "steipete",
+    avatar: "/avatars/steipete.jpg",
     text: "I'm late to the party, but cmux is great. Current split: Codex Mac app for knowledge work, learning, reading; cmux + Codex CLI for coding.",
     lang: "en",
     url: "https://x.com/steipete/status/2058093406874689770",
@@ -411,12 +412,33 @@ export function getTestimonialTranslation(
   }
 }
 
+export function getTestimonialSubtitle(
+  testimonial: Testimonial,
+  t: (key: string) => string
+): string | null {
+  if ("subtitleKey" in testimonial && testimonial.subtitleKey) {
+    try {
+      return t(testimonial.subtitleKey);
+    } catch {
+      return null;
+    }
+  }
+
+  if ("subtitle" in testimonial && testimonial.subtitle) {
+    return testimonial.subtitle;
+  }
+
+  return null;
+}
+
 export function TestimonialCard({
   testimonial,
   translation,
+  subtitle,
 }: {
   testimonial: Testimonial;
   translation?: string | null;
+  subtitle?: string | null;
 }) {
   return (
     <a
@@ -432,7 +454,9 @@ export function TestimonialCard({
             alt={testimonial.name}
             width={40}
             height={40}
-            className="rounded-full shrink-0"
+            loading="lazy"
+            decoding="async"
+            className="rounded-full shrink-0 object-cover"
           />
         ) : (
           <Initials name={testimonial.name} />
@@ -441,9 +465,9 @@ export function TestimonialCard({
           <div className="font-medium text-sm truncate">
             {testimonial.name}
           </div>
-          {"subtitle" in testimonial && testimonial.subtitle && (
+          {subtitle && (
             <div className="text-xs text-muted truncate">
-              {testimonial.subtitle}
+              {subtitle}
             </div>
           )}
           <div className="text-xs text-muted truncate">

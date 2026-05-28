@@ -1143,5 +1143,8 @@
       "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
       "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw yaratıcısı. PSPDFKit kurucusu."
   }
 }
