@@ -841,13 +841,20 @@ enum FilePreviewKindResolver {
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
         guard data.count >= 376 else { return false }
 
-        for packetSize in [188, 192, 204] where data.count > packetSize {
-            var offset = 0
+        let syncCandidates = [
+            (packetSize: 188, syncOffset: 0),
+            (packetSize: 192, syncOffset: 0),
+            (packetSize: 192, syncOffset: 4),
+            (packetSize: 204, syncOffset: 0)
+        ]
+
+        for candidate in syncCandidates where data.count > candidate.syncOffset {
+            var offset = candidate.syncOffset
             var syncCount = 0
             while offset < data.count {
                 guard data[offset] == 0x47 else { break }
                 syncCount += 1
-                offset += packetSize
+                offset += candidate.packetSize
             }
             if syncCount >= 2 {
                 return true
