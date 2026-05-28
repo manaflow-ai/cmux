@@ -610,6 +610,13 @@ struct BrowserPanelView: View {
         return "\(base) (\(KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools).displayString))"
     }
 
+    private var elementPickerButtonHelp: String {
+        if panel.isElementPickerActive {
+            return String(localized: "browser.elementPicker.active.help", defaultValue: "Element picker active. Click an element to send context to the focused agent.")
+        }
+        return String(localized: "browser.elementPicker.help", defaultValue: "Pick Element (Option-click)")
+    }
+
     private var browserImportHintSummary: String {
         InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
@@ -1033,6 +1040,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                elementPickerButton
                 screenshotPageButton
                 reactGrabButton
                 browserProfileButton
@@ -1157,6 +1165,32 @@ struct BrowserPanelView: View {
     private var screenshotPageButtonColor: Color {
         if screenshotPageCopied {
             return .green
+        }
+        return panel.shouldRenderWebView ? devToolsColorOption.color : Color.secondary
+    }
+
+    private var elementPickerButton: some View {
+        Button(action: {
+            panel.toggleElementPicker()
+        }) {
+            Image(systemName: panel.isElementPickerActive ? "scope" : "cursorarrow.rays")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(elementPickerButtonColor)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.shouldRenderWebView)
+        .opacity(panel.shouldRenderWebView ? 1.0 : 0.4)
+        .safeHelp(elementPickerButtonHelp)
+        .accessibilityIdentifier("BrowserElementPickerButton")
+    }
+
+    private var elementPickerButtonColor: Color {
+        if panel.isElementPickerActive {
+            return cmuxAccentColor()
         }
         return panel.shouldRenderWebView ? devToolsColorOption.color : Color.secondary
     }

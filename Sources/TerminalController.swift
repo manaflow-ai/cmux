@@ -335,6 +335,7 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
+    private var browserElementPickedObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
         for surfaceId in Set(surfaceIds) {
@@ -345,6 +346,7 @@ class TerminalController {
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
+            BrowserElementPickStore.shared.clear(surfaceId: surfaceId)
 
             if let surfaceRef = v2RefByUUID[.surface]?[surfaceId] {
                 v2UUIDByRef[.surface]?.removeValue(forKey: surfaceRef)
@@ -367,6 +369,48 @@ class TerminalController {
                 queue.append(event)
                 self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
             }
+        }
+        browserElementPickedObserver = NotificationCenter.default.addObserver(
+            forName: .browserElementPicked,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let pick = note.userInfo?[BrowserElementPickNotificationKey.pick] as? BrowserElementPick else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.sendBrowserElementPickToFocusedTerminal(pick)
+            }
+        }
+    }
+
+    private func sendBrowserElementPickToFocusedTerminal(_ pick: BrowserElementPick) {
+        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: pick.workspaceId) else {
+            return
+        }
+
+        let terminalPanel = workspace.focusedTerminalPanel ??
+            workspace.lastRememberedTerminalPanelForConfigInheritance() ??
+            workspace.panels.values
+                .compactMap { $0 as? TerminalPanel }
+                .sorted { $0.id.uuidString < $1.id.uuidString }
+                .first
+        guard let terminalPanel else {
+            return
+        }
+
+        switch terminalPanel.sendInputResult(pick.terminalContext) {
+        case .sent:
+            terminalPanel.surface.forceRefresh(reason: "terminalController.browserElementPick")
+        case .queued:
+            break
+        case .inputQueueFull, .surfaceUnavailable, .processExited:
+#if DEBUG
+            cmuxDebugLog(
+                "browser.elementPicker.terminalDrop workspace=\(pick.workspaceId.uuidString.prefix(8)) " +
+                "surface=\(pick.surfaceId.uuidString.prefix(8)) target=\(terminalPanel.id.uuidString.prefix(8))"
+            )
+#endif
         }
     }
 
@@ -2257,6 +2301,7 @@ class TerminalController {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "browser.download.wait",
+        "browser.picked.wait",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -2363,6 +2408,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+        case "browser.picked.wait":
+            return v2Result(id: request.id, v2BrowserPickedWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
@@ -3677,6 +3724,12 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
         case "browser.errors.list":
             return v2Result(id: id, self.v2BrowserErrorsList(params: params))
+        case "browser.picked":
+            return v2Result(id: id, self.v2BrowserPickedGet(params: params))
+        case "browser.picked.get":
+            return v2Result(id: id, self.v2BrowserPickedGet(params: params))
+        case "browser.picked.clear":
+            return v2Result(id: id, self.v2BrowserPickedClear(params: params))
         case "browser.highlight":
             return v2Result(id: id, self.v2BrowserHighlight(params: params))
         case "browser.state.save":
@@ -3987,6 +4040,10 @@ class TerminalController {
             "browser.console.list",
             "browser.console.clear",
             "browser.errors.list",
+            "browser.picked",
+            "browser.picked.get",
+            "browser.picked.clear",
+            "browser.picked.wait",
             "browser.highlight",
             "browser.state.save",
             "browser.state.load",
@@ -13737,6 +13794,141 @@ class TerminalController {
         }
     }
 
+    private func v2BrowserPickedGet(params: [String: Any]) -> V2CallResult {
+        v2BrowserWithPanel(params: params) { _, ws, surfaceId, _ in
+            var payload: [String: Any] = [
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "has_pick": false,
+                "pick": NSNull(),
+            ]
+            if let pick = BrowserElementPickStore.shared.get(surfaceId: surfaceId) {
+                payload["has_pick"] = true
+                payload["pick"] = pick.socketPayload
+            }
+            return .ok(payload)
+        }
+    }
+
+    private func v2BrowserPickedClear(params: [String: Any]) -> V2CallResult {
+        v2BrowserWithPanel(params: params) { _, ws, surfaceId, _ in
+            let cleared = BrowserElementPickStore.shared.clear(surfaceId: surfaceId)
+            return .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "cleared": cleared,
+            ])
+        }
+    }
+
+    private struct V2BrowserPickedWaitSnapshot {
+        let workspaceId: UUID
+        let workspaceRef: Any
+        let surfaceId: UUID
+        let surfaceRef: Any
+        let error: V2CallResult?
+    }
+
+    private nonisolated func v2BrowserPickedWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        let requestedTimeoutMs = max(
+            1,
+            Self.v2WorkerInt(params, "timeout_ms") ??
+                Self.v2WorkerInt(params, "timeout") ??
+                30_000
+        )
+        let timeoutMs = min(requestedTimeoutMs, 120_000)
+        let includeCurrent = Self.v2WorkerBool(params, "include_current") ?? false
+        let snapshot = v2BrowserPickedWaitSnapshot(params: params)
+        if let error = snapshot.error {
+            return error
+        }
+        guard let pick = BrowserElementPickStore.shared.waitForPick(
+            surfaceId: snapshot.surfaceId,
+            includeCurrent: includeCurrent,
+            timeoutMs: timeoutMs
+        ) else {
+            return .err(
+                code: "timeout",
+                message: "No browser element pick observed",
+                data: [
+                    "timeout_ms": timeoutMs,
+                    "requested_timeout_ms": requestedTimeoutMs,
+                    "surface_id": snapshot.surfaceId.uuidString,
+                ]
+            )
+        }
+        return .ok([
+            "workspace_id": snapshot.workspaceId.uuidString,
+            "workspace_ref": snapshot.workspaceRef,
+            "surface_id": snapshot.surfaceId.uuidString,
+            "surface_ref": snapshot.surfaceRef,
+            "pick": pick.socketPayload,
+        ])
+    }
+
+    private nonisolated func v2BrowserPickedWaitSnapshot(params: [String: Any]) -> V2BrowserPickedWaitSnapshot {
+        v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                return V2BrowserPickedWaitSnapshot(
+                    workspaceId: UUID(),
+                    workspaceRef: NSNull(),
+                    surfaceId: UUID(),
+                    surfaceRef: NSNull(),
+                    error: .err(code: "unavailable", message: "TabManager not available", data: nil)
+                )
+            }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return V2BrowserPickedWaitSnapshot(
+                    workspaceId: UUID(),
+                    workspaceRef: NSNull(),
+                    surfaceId: UUID(),
+                    surfaceRef: NSNull(),
+                    error: .err(code: "not_found", message: "Workspace not found", data: nil)
+                )
+            }
+            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
+            if let error = resolvedSurface.error {
+                return V2BrowserPickedWaitSnapshot(
+                    workspaceId: ws.id,
+                    workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
+                    surfaceId: UUID(),
+                    surfaceRef: NSNull(),
+                    error: error
+                )
+            }
+            guard let surfaceId = resolvedSurface.surfaceId else {
+                return V2BrowserPickedWaitSnapshot(
+                    workspaceId: ws.id,
+                    workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
+                    surfaceId: UUID(),
+                    surfaceRef: NSNull(),
+                    error: .err(code: "not_found", message: "No focused browser surface", data: nil)
+                )
+            }
+            guard ws.browserPanel(for: surfaceId) != nil else {
+                return V2BrowserPickedWaitSnapshot(
+                    workspaceId: ws.id,
+                    workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
+                    surfaceId: surfaceId,
+                    surfaceRef: v2Ref(kind: .surface, uuid: surfaceId),
+                    error: .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                )
+            }
+            return V2BrowserPickedWaitSnapshot(
+                workspaceId: ws.id,
+                workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
+                surfaceId: surfaceId,
+                surfaceRef: v2Ref(kind: .surface, uuid: surfaceId),
+                error: nil
+            )
+        }
+    }
+
     private struct V2BrowserDownloadWaitSnapshot {
         let workspaceId: UUID
         let workspaceRef: Any
@@ -13845,6 +14037,26 @@ class TerminalController {
             return Int(raw)
         }
         return nil
+    }
+
+    private nonisolated static func v2WorkerBool(_ params: [String: Any], _ key: String) -> Bool? {
+        if let boolValue = params[key] as? Bool {
+            return boolValue
+        }
+        if let number = params[key] as? NSNumber {
+            return number.boolValue
+        }
+        guard let raw = v2WorkerString(params, key)?.lowercased() else {
+            return nil
+        }
+        switch raw {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     private nonisolated func v2BrowserDownloadWaitSnapshot(params: [String: Any]) -> V2BrowserDownloadWaitSnapshot {

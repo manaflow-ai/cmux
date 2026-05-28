@@ -7447,6 +7447,8 @@
         }
       }
     },
+    "browser.elementPicker.active.help": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Element picker active. Click an element to send context to the focused agent." } }, "ja": { "stringUnit": { "state": "translated", "value": "要素ピッカーが有効です。要素をクリックすると、フォーカス中のエージェントにコンテキストを送ります。" } } } },
+    "browser.elementPicker.help": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Pick Element (Option-click)" } }, "ja": { "stringUnit": { "state": "translated", "value": "要素を選択 (Optionクリック)" } } } },
     "browser.profile.buttonHelp": {
       "extractionState": "manual",
       "localizations": {

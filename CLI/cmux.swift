@@ -10320,6 +10320,32 @@ struct CMUXCLI {
             }
         }
 
+        func displayBrowserPick(_ rawPick: Any?) -> String {
+            guard let pick = rawPick as? [String: Any] else {
+                return "No picked element"
+            }
+
+            let selector = stringPayloadValue(pick["selector"]) ?? ""
+            let text = stringPayloadValue(pick["text"]) ?? ""
+            var lines: [String] = []
+            if !selector.isEmpty {
+                lines.append("selector: \(selector)")
+            }
+            if let xpath = stringPayloadValue(pick["xpath"]), !xpath.isEmpty {
+                lines.append("xpath: \(xpath)")
+            }
+            if !text.isEmpty {
+                lines.append("text: \(text)")
+            }
+            if let url = stringPayloadValue(pick["url"]), !url.isEmpty {
+                lines.append("url: \(url)")
+            }
+            if lines.isEmpty {
+                return displayBrowserValue(pick)
+            }
+            return lines.joined(separator: "\n")
+        }
+
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
             var payload = try client.sendV2(method: "system.identify")
@@ -10440,6 +10466,71 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser profiles subcommand: \(profileVerb)")
             }
             return
+        }
+
+        if subcommand == "picked" || subcommand == "pick" || subcommand == "element" {
+            let sid = try requireSurface()
+            let firstToken = subArgs.first?.lowercased()
+            let hasExplicitVerb = firstToken.map { !$0.hasPrefix("-") } ?? false
+            let pickVerb = hasExplicitVerb ? (firstToken ?? "get") : "get"
+            let pickArgs = hasExplicitVerb ? Array(subArgs.dropFirst()) : subArgs
+
+            switch pickVerb {
+            case "get", "read", "current", "last":
+                let payload = try client.sendV2(method: "browser.picked.get", params: ["surface_id": sid])
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if (payload["has_pick"] as? Bool) == true {
+                    print(displayBrowserPick(payload["pick"]))
+                } else {
+                    print("No picked element")
+                }
+                return
+            case "clear", "reset":
+                let payload = try client.sendV2(method: "browser.picked.clear", params: ["surface_id": sid])
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    print((payload["cleared"] as? Bool) == true ? "Cleared picked element" : "No picked element")
+                }
+                return
+            case "wait":
+                let (timeoutOptMs, rem1) = parseOption(pickArgs, name: "--timeout-ms")
+                let (timeoutOptSec, _) = parseOption(rem1, name: "--timeout")
+                var timeoutMs = 30_000
+                if let timeoutOptMs {
+                    guard let parsed = Int(timeoutOptMs), parsed > 0 else {
+                        throw CLIError(message: "--timeout-ms must be a positive integer")
+                    }
+                    timeoutMs = parsed
+                } else if let timeoutOptSec {
+                    guard let seconds = Double(timeoutOptSec), seconds > 0 else {
+                        throw CLIError(message: "--timeout must be a positive number")
+                    }
+                    timeoutMs = max(1, Int(seconds * 1000.0))
+                }
+                var params: [String: Any] = [
+                    "surface_id": sid,
+                    "timeout_ms": timeoutMs,
+                ]
+                if hasFlag(pickArgs, name: "--include-current") {
+                    params["include_current"] = true
+                }
+                let responseTimeout = max(1.0, Double(timeoutMs) / 1000.0) + 5.0
+                let payload = try client.sendV2(
+                    method: "browser.picked.wait",
+                    params: params,
+                    responseTimeout: responseTimeout
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    print(displayBrowserPick(payload["pick"]))
+                }
+                return
+            default:
+                throw CLIError(message: "Unsupported browser picked subcommand: \(pickVerb)")
+            }
         }
 
         if subcommand == "import" {
@@ -13692,6 +13783,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              picked [get|wait|clear] [--timeout-ms <ms>|--timeout <seconds>] [--include-current]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
