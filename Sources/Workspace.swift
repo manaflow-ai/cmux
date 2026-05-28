@@ -14620,6 +14620,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
+    @discardableResult
     func closePanel(_ panelId: UUID, force: Bool = false, preservingEmptyPane: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             // Close the tab in bonsplit (this triggers delegate callback)
