@@ -265,6 +265,15 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
 
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: aliasURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertNil(aliasPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(aliasPanel.shouldPersistSessionSnapshot())
+
         let normalLocalhostURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app"))
         let normalLocalhostPanel = BrowserPanel(
             workspaceId: UUID(),
@@ -286,10 +295,13 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
         let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
 
         store.recordVisit(url: schemeURL, title: "Diff")
         store.recordVisit(url: loopbackURL, title: "Diff")
+        store.recordVisit(url: aliasURL, title: "Diff")
+        store.recordTypedNavigation(url: aliasURL)
         store.recordTypedNavigation(url: loopbackURL)
         XCTAssertTrue(store.entries.isEmpty)
 

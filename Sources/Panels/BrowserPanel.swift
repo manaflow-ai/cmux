@@ -1661,10 +1661,14 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     }
     guard url.fragment == "cmux-diff-viewer",
           url.scheme?.lowercased() == "http",
-          url.host == "127.0.0.1" else {
+          let host = url.host else {
         return false
     }
-    return true
+    return RemoteLoopbackProxyAlias.isLoopbackHost(host) ||
+        RemoteLoopbackProxyAlias.localhostFamilyHost(
+            forAliasHost: host,
+            aliasHost: RemoteLoopbackProxyAlias.aliasHost
+        ) != nil
 }
 
 @MainActor
