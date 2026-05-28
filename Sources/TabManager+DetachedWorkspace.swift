@@ -81,12 +81,8 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            applyCreationWorkspaceCustomization(
-                to: newWorkspace,
-                explicitTitle: title,
-                explicitTitleSource: titleSource,
-                repairInitialTabTitle: false
-            )
+            // The constructor seeds the initial label without pinning it.
+            // Process-derived titles must continue to accept OSC updates.
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs
