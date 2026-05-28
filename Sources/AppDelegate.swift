@@ -546,6 +546,31 @@ final class CmuxMainThreadTurnProfiler {
 }
 #endif
 
+enum FeedNotificationActionSecurity {
+    static let privilegedActionIdentifiers: Set<String> = [
+        "feed.permission.once",
+        "feed.permission.always",
+        "feed.permission.deny",
+        "feed.diff.apply",
+        "feed.diff.reject",
+        "feed.exit_plan.ultraplan",
+        "feed.exit_plan.manual",
+        "feed.exit_plan.bypassPermissions",
+        "feed.exit_plan.autoAccept"
+    ]
+
+    static func options(
+        for identifier: String,
+        additional: UNNotificationActionOptions = []
+    ) -> UNNotificationActionOptions {
+        var options = additional
+        if privilegedActionIdentifiers.contains(identifier) {
+            options.insert(.authenticationRequired)
+        }
+        return options
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     nonisolated(unsafe) static var shared: AppDelegate?
@@ -740,12 +765,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     private let updateController = UpdateController()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
+    @MainActor private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
-    private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
+    @MainActor private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
                 TerminalController.shouldSuppressSocketCommandActivation()
@@ -14416,16 +14441,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             actions: [
                 UNNotificationAction(
                     identifier: "feed.permission.once",
-                    title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once")
+                    title: String(localized: "feed.notification.permission.allowOnce", defaultValue: "Allow Once"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.permission.once")
                 ),
                 UNNotificationAction(
                     identifier: "feed.permission.always",
-                    title: String(localized: "feed.notification.permission.always", defaultValue: "Always")
+                    title: String(localized: "feed.notification.permission.always", defaultValue: "Always"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.permission.always")
                 ),
                 UNNotificationAction(
                     identifier: "feed.permission.deny",
                     title: String(localized: "feed.notification.permission.deny", defaultValue: "Deny"),
-                    options: [.destructive]
+                    options: FeedNotificationActionSecurity.options(
+                        for: "feed.permission.deny",
+                        additional: [.destructive]
+                    )
+                ),
+            ],
+            intentIdentifiers: [],
+            options: []
+        )
+        let diffApprovalCategory = UNNotificationCategory(
+            identifier: "CMUXFeedDiffApproval",
+            actions: [
+                UNNotificationAction(
+                    identifier: "feed.diff.apply",
+                    title: String(localized: "feed.notification.diff.apply", defaultValue: "Apply"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.diff.apply")
+                ),
+                UNNotificationAction(
+                    identifier: "feed.diff.reject",
+                    title: String(localized: "feed.notification.diff.reject", defaultValue: "Reject"),
+                    options: FeedNotificationActionSecurity.options(
+                        for: "feed.diff.reject",
+                        additional: [.destructive]
+                    )
                 ),
             ],
             intentIdentifiers: [],
@@ -14436,15 +14486,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             actions: [
                 UNNotificationAction(
                     identifier: "feed.exit_plan.ultraplan",
-                    title: String(localized: "feed.notification.exitPlan.ultraplan", defaultValue: "Ultraplan")
+                    title: String(localized: "feed.notification.exitPlan.ultraplan", defaultValue: "Ultraplan"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.exit_plan.ultraplan")
                 ),
                 UNNotificationAction(
                     identifier: "feed.exit_plan.manual",
-                    title: String(localized: "feed.notification.exitPlan.manual", defaultValue: "Manual")
+                    title: String(localized: "feed.notification.exitPlan.manual", defaultValue: "Manual"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.exit_plan.manual")
+                ),
+                UNNotificationAction(
+                    identifier: "feed.exit_plan.bypassPermissions",
+                    title: String(localized: "feed.notification.exitPlan.bypass", defaultValue: "Bypass"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.exit_plan.bypassPermissions")
                 ),
                 UNNotificationAction(
                     identifier: "feed.exit_plan.autoAccept",
-                    title: String(localized: "feed.notification.exitPlan.autoAccept", defaultValue: "Auto")
+                    title: String(localized: "feed.notification.exitPlan.autoAccept", defaultValue: "Auto"),
+                    options: FeedNotificationActionSecurity.options(for: "feed.exit_plan.autoAccept")
                 ),
             ],
             intentIdentifiers: [],
@@ -14465,7 +14523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories([
-            category, permissionCategory, exitPlanCategory, questionCategory
+            category, permissionCategory, diffApprovalCategory, exitPlanCategory, questionCategory
         ])
         center.delegate = self
     }
@@ -14476,6 +14534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleFeedNotificationResponse(_ response: UNNotificationResponse) -> Bool {
         let categoryId = response.notification.request.content.categoryIdentifier
         guard categoryId == "CMUXFeedPermission"
+           || categoryId == "CMUXFeedDiffApproval"
            || categoryId == "CMUXFeedExitPlan"
            || categoryId == "CMUXFeedQuestion"
         else { return false }
@@ -14483,33 +14542,144 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let requestId = response.notification.request.content.userInfo["requestId"] as? String else {
             return true
         }
+        let itemId = response.notification.request.content.userInfo["itemId"] as? String
 
+        let delivery: FeedCoordinator.ReplyDeliveryResult?
         switch response.actionIdentifier {
         case "feed.permission.once":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.once))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .permission(.once)
+            )
         case "feed.permission.always":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.always))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .permission(.always)
+            )
         case "feed.permission.deny":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .permission(.deny))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .permission(.deny)
+            )
+        case "feed.diff.apply":
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .permission(.once)
+            )
+        case "feed.diff.reject":
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .permission(.deny)
+            )
         case "feed.exit_plan.ultraplan":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.ultraplan))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .exitPlan(.ultraplan)
+            )
         case "feed.exit_plan.bypassPermissions":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.bypassPermissions))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .exitPlan(.bypassPermissions)
+            )
         case "feed.exit_plan.autoAccept":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.autoAccept))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .exitPlan(.autoAccept)
+            )
         case "feed.exit_plan.manual":
-            FeedCoordinator.shared.deliverReply(requestId: requestId, decision: .exitPlan(.manual))
+            guard let itemId else {
+                postFeedReplyFailureNotification(requestId: requestId, delivery: .notFound)
+                return true
+            }
+            delivery = FeedCoordinator.shared.deliverReply(
+                requestId: requestId,
+                itemId: itemId,
+                decision: .exitPlan(.manual)
+            )
         case "feed.question.open":
             // Open the app / focus the Feed sidebar; actual reply happens in-app.
             NSApp.activate(ignoringOtherApps: true)
+            delivery = nil
         case UNNotificationDismissActionIdentifier,
              UNNotificationDefaultActionIdentifier:
             // Tap on the banner body opens the app so user can act in-UI.
             NSApp.activate(ignoringOtherApps: true)
+            delivery = nil
         default:
-            break
+            delivery = nil
+        }
+
+        if let delivery, !delivery.delivered {
+            postFeedReplyFailureNotification(requestId: requestId, delivery: delivery)
         }
         return true
+    }
+
+    private func postFeedReplyFailureNotification(
+        requestId: String,
+        delivery: FeedCoordinator.ReplyDeliveryResult
+    ) {
+        let content = UNMutableNotificationContent()
+        content.title = String(
+            localized: "feed.notification.replyFailed.title",
+            defaultValue: "cmux decision not delivered"
+        )
+        content.body = String(
+            localized: "feed.notification.replyFailed.body",
+            defaultValue: "The request is no longer pending in cmux. Open the Feed to check current state."
+        )
+        content.interruptionLevel = .passive
+        content.threadIdentifier = "cmux-feed"
+        content.userInfo = [
+            "requestId": requestId,
+            "reason": delivery.errorCode
+        ]
+        let notification = UNNotificationRequest(
+            identifier: "feed.reply.failed.\(requestId).\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(notification) { _ in }
     }
 
     private func disableNativeTabbingShortcut() {
@@ -15282,6 +15452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    @MainActor
     private func recordJumpUnreadFocusFromModelIfNeeded(
         tabManager: TabManager,
         tabId: UUID,
@@ -15352,6 +15523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    @MainActor
     func tabTitle(for tabId: UUID) -> String? {
         if let context = contextContainingTabId(tabId) {
             return context.tabManager.tabs.first(where: { $0.id == tabId })?.title
@@ -15359,6 +15531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
     }
 
+    @MainActor
     private func bringToFront(
         _ window: NSWindow,
         reason: MainWindowVisibilityController.Reason = .focusMainWindow
@@ -15367,6 +15540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    @MainActor
     private func recordMultiWindowNotificationOpenFailureIfNeeded(
         tabId: UUID,
         surfaceId: UUID?,
@@ -15609,6 +15783,7 @@ private extension AppDelegate {
         return allowFallback ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
     }
 
+    @MainActor
     private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
         var candidateManagers: [TabManager] = []
         var seenManagers = Set<ObjectIdentifier>()
@@ -15644,11 +15819,13 @@ private extension AppDelegate {
         return panels
     }
 
+    @MainActor
     @discardableResult
     func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeTitlebarDoubleClickMouseDown(event: event)
     }
 
+    @MainActor
     @discardableResult
     func handleMinimalModeSidebarChromeMouseDown(window: NSWindow, event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeSidebarChromeMouseDown(window: window, event: event)

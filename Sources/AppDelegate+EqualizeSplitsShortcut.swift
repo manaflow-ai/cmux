@@ -1,3 +1,4 @@
+@MainActor
 extension AppDelegate {
     func performEqualizeSplitsShortcut() {
         guard let tabManager, let workspace = tabManager.selectedWorkspace else {

@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "cmux";
+"NSFaceIDUsageDescription" = "cmux-remote uses Face ID to protect stored SSH credentials.";
+"NSLocalNetworkUsageDescription" = "cmux-remote uses your local network to reach cmux running on your Mac.";

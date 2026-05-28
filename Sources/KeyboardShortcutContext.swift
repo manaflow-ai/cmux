@@ -66,6 +66,7 @@ extension Notification.Name {
     static let debugBrowserReloadShortcutInvoked = Notification.Name("cmux.debugBrowserReloadShortcutInvoked")
 }
 
+@MainActor
 extension AppDelegate {
     func reloadBrowserPanelForShortcut(_ panel: BrowserPanel) {
 #if DEBUG

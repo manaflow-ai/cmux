@@ -696,6 +696,84 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
 
+    func testFeedHookDiffApprovalRequestIsActionableAndPreserved() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("feed-diff-approval")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-feed-diff-approval-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_CODEX_PID": "515151",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(id: id, ok: true, result: [
+                "status": "resolved",
+                "decision": [
+                    "kind": "permission",
+                    "mode": "once",
+                ],
+            ])
+        }
+        let input = """
+        {"event":"DiffApprovalRequest","session_id":"diff-session","cwd":"\(root.path)","tool_name":"DiffApprovalRequest","tool_input":{"patch":"diff --git a/file b/file"},"request_id":"diff-req-1"}
+        """
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "codex"],
+            environment: environment,
+            standardInput: input,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let stdout = try XCTUnwrap(self.jsonObject(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let hookOutput = try XCTUnwrap(stdout["hookSpecificOutput"] as? [String: Any])
+        XCTAssertEqual(hookOutput["hookEventName"] as? String, "DiffApprovalRequest")
+        let decision = try XCTUnwrap(hookOutput["decision"] as? [String: Any])
+        XCTAssertEqual(decision["behavior"] as? String, "allow")
+
+        let command = try XCTUnwrap(
+            state.commands.first { $0.contains(#""method":"feed.push""#) },
+            "Expected a feed.push socket command, saw \(state.commands)"
+        )
+        let payload = try XCTUnwrap(self.jsonObject(command))
+        let params = try XCTUnwrap(payload["params"] as? [String: Any])
+        XCTAssertEqual((params["wait_timeout_seconds"] as? NSNumber)?.doubleValue, 120)
+        let event = try XCTUnwrap(params["event"] as? [String: Any])
+        XCTAssertEqual(event["hook_event_name"] as? String, "DiffApprovalRequest")
+        XCTAssertEqual(event["tool_name"] as? String, "DiffApprovalRequest")
+        XCTAssertEqual(event["_opencode_request_id"] as? String, "diff-req-1")
+        XCTAssertEqual(event["_ppid"] as? Int, 515151)
+    }
+
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")

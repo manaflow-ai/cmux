@@ -59,6 +59,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case preToolUse = "PreToolUse"
         case postToolUse = "PostToolUse"
         case permissionRequest = "PermissionRequest"
+        case diffApprovalRequest = "DiffApprovalRequest"
         case askUserQuestion = "AskUserQuestion"
         case exitPlanMode = "ExitPlanMode"
         case todoWrite = "TodoWrite"

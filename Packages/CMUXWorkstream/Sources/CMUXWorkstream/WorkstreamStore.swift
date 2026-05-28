@@ -266,12 +266,14 @@ public final class WorkstreamStore {
     ) -> (WorkstreamKind, WorkstreamPayload) {
         let toolInput = event.toolInputJSON ?? "{}"
         switch event.hookEventName {
-        case .permissionRequest:
+        case .permissionRequest, .diffApprovalRequest:
             return (
                 .permissionRequest,
                 .permissionRequest(
                     requestId: event.requestId ?? event.sessionId,
-                    toolName: event.toolName ?? "unknown",
+                    toolName: event.hookEventName == .diffApprovalRequest
+                        ? event.hookEventName.rawValue
+                        : (event.toolName ?? "unknown"),
                     toolInputJSON: toolInput,
                     pattern: nil
                 )

@@ -4057,6 +4057,10 @@ class TerminalController {
             "version": 2,
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
+            "features": [
+                "feed.reply.item_id_required",
+                "feed.question_selections"
+            ],
             "methods": methods.sorted()
         ]
     }
@@ -10854,6 +10858,13 @@ class TerminalController {
                 data: nil
             )
         }
+        guard let itemId = Self.v2RequiredFeedItemID(params["item_id"]) else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.permission.reply requires item_id",
+                data: nil
+            )
+        }
         guard let modeRaw = params["mode"] as? String,
               let mode = WorkstreamPermissionMode(rawValue: modeRaw)
         else {
@@ -10863,11 +10874,19 @@ class TerminalController {
                 data: nil
             )
         }
-        FeedCoordinator.shared.deliverReply(
+        let delivery = FeedCoordinator.shared.deliverReply(
             requestId: requestId,
+            itemId: itemId,
             decision: .permission(mode)
         )
-        return .ok(["delivered": true])
+        guard delivery.delivered else {
+            return .err(
+                code: delivery.errorCode,
+                message: delivery.message,
+                data: delivery.payload(requestId: requestId)
+            )
+        }
+        return .ok(delivery.payload(requestId: requestId))
     }
 
     private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
@@ -10878,18 +10897,86 @@ class TerminalController {
                 data: nil
             )
         }
-        guard let selections = params["selections"] as? [String] else {
+        guard let itemId = Self.v2RequiredFeedItemID(params["item_id"]) else {
             return .err(
                 code: "invalid_params",
-                message: "feed.question.reply requires selections: [string]",
+                message: "feed.question.reply requires item_id",
                 data: nil
             )
         }
-        FeedCoordinator.shared.deliverReply(
+        let hasSelections = params["selections"] != nil
+        let hasQuestionSelections = params["question_selections"] != nil
+        let hasSelectionIds = params["selection_ids"] != nil
+        let providedSelectionForms = [hasSelections, hasQuestionSelections, hasSelectionIds].filter { $0 }.count
+        guard providedSelectionForms == 1 else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.question.reply accepts exactly one of selections, question_selections, or selection_ids",
+                data: nil
+            )
+        }
+        let selections: [String]
+        if let provided = params["selections"] as? [String] {
+            selections = provided
+        } else if let questionSelections = Self.v2FeedQuestionSelections(params["question_selections"]),
+                  let resolved = FeedCoordinator.shared.questionSelectionLabels(
+                    requestId: requestId,
+                    itemId: itemId,
+                    questionSelections: questionSelections
+                  ) {
+            selections = resolved
+        } else if let selectionIds = params["selection_ids"] as? [String],
+                  let resolved = FeedCoordinator.shared.questionSelectionLabels(
+                    requestId: requestId,
+                    itemId: itemId,
+                    selectionIds: selectionIds
+                  ) {
+            selections = resolved
+        } else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.question.reply requires selections or resolvable selection_ids",
+                data: nil
+            )
+        }
+        let delivery = FeedCoordinator.shared.deliverReply(
             requestId: requestId,
+            itemId: itemId,
             decision: .question(selections: selections)
         )
-        return .ok(["delivered": true])
+        guard delivery.delivered else {
+            return .err(
+                code: delivery.errorCode,
+                message: delivery.message,
+                data: delivery.payload(requestId: requestId)
+            )
+        }
+        return .ok(delivery.payload(requestId: requestId))
+    }
+
+    private nonisolated static func v2FeedQuestionSelections(
+        _ raw: Any?
+    ) -> [(questionId: String, optionIds: [String])]? {
+        guard let entries = raw as? [[String: Any]], !entries.isEmpty else {
+            return nil
+        }
+        var selections: [(questionId: String, optionIds: [String])] = []
+        for entry in entries {
+            guard let questionId = entry["question_id"] as? String,
+                  !questionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let optionIds = entry["option_ids"] as? [String],
+                  !optionIds.isEmpty else {
+                return nil
+            }
+            selections.append((questionId: questionId, optionIds: optionIds))
+        }
+        return selections
+    }
+
+    private nonisolated static func v2RequiredFeedItemID(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
@@ -10897,6 +10984,13 @@ class TerminalController {
             return .err(
                 code: "invalid_params",
                 message: "feed.exit_plan.reply requires request_id",
+                data: nil
+            )
+        }
+        guard let itemId = Self.v2RequiredFeedItemID(params["item_id"]) else {
+            return .err(
+                code: "invalid_params",
+                message: "feed.exit_plan.reply requires item_id",
                 data: nil
             )
         }
@@ -10910,11 +11004,19 @@ class TerminalController {
             )
         }
         let feedback = params["feedback"] as? String
-        FeedCoordinator.shared.deliverReply(
+        let delivery = FeedCoordinator.shared.deliverReply(
             requestId: requestId,
+            itemId: itemId,
             decision: .exitPlan(mode, feedback: feedback)
         )
-        return .ok(["delivered": true])
+        guard delivery.delivered else {
+            return .err(
+                code: delivery.errorCode,
+                message: delivery.message,
+                data: delivery.payload(requestId: requestId)
+            )
+        }
+        return .ok(delivery.payload(requestId: requestId))
     }
 
     private func v2FeedJump(params: [String: Any]) -> V2CallResult {

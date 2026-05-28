@@ -103,6 +103,10 @@ final class FeedCoordinator: @unchecked Sendable {
         // Register the waiter before the store sees the event so a very
         // fast reply can't slip through.
         waiterLock.lock()
+        if waiters[requestId] != nil {
+            waiterLock.unlock()
+            return .duplicateRequest
+        }
         waiters[requestId] = waiter
         waiterLock.unlock()
 
@@ -145,6 +149,9 @@ final class FeedCoordinator: @unchecked Sendable {
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
+            if let decision = w?.decision ?? resolvedDecision(for: itemIdSlot.value) {
+                return .resolved(itemId: itemIdSlot.value, decision: decision)
+            }
             cancelNotification(requestId: requestId)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
@@ -153,30 +160,70 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Called by the `feed.*.reply` handlers. Marks the corresponding
     /// item resolved on the main-actor store and wakes any waiter.
-    func deliverReply(requestId: String, decision: WorkstreamDecision) {
-        waiterLock.lock()
-        if let waiter = waiters[requestId] {
-            waiter.decision = decision
-            waiter.semaphore.signal()
-        }
-        waiterLock.unlock()
+    @discardableResult
+    func deliverReply(
+        requestId: String,
+        itemId itemIdRaw: String? = nil,
+        decision: WorkstreamDecision
+    ) -> ReplyDeliveryResult {
+        var waiterSignaled = false
 
-        let resolve: @Sendable () -> Void = { [requestId, decision] in
+        let storeResult = ReplyStoreResultSlot()
+        let resolve: @Sendable () -> Void = { [requestId, itemIdRaw, decision] in
             MainActor.assumeIsolated {
                 let store = FeedCoordinator.shared.store
-                guard let store else { return }
-                if let itemId = Self.findItemId(for: requestId, in: store.items) {
-                    store.markResolved(itemId, decision: decision)
+                guard let store else {
+                    storeResult.value = .storeUnavailable
+                    return
                 }
+                guard let itemId = Self.findItemId(
+                    for: requestId,
+                    itemId: itemIdRaw,
+                    in: store.items
+                ),
+                      let item = store.items.first(where: { $0.id == itemId })
+                else {
+                    storeResult.value = .notFound
+                    return
+                }
+                guard item.status.isPending else {
+                    storeResult.value = .notPending
+                    return
+                }
+                storeResult.value = .resolved
+                store.markResolved(itemId, decision: decision)
             }
         }
         if Thread.isMainThread {
             resolve()
         } else {
-            DispatchQueue.main.async(execute: resolve)
+            DispatchQueue.main.sync(execute: resolve)
         }
 
-        cancelNotification(requestId: requestId)
+        if storeResult.value == .resolved || itemIdRaw == nil {
+            waiterLock.lock()
+            if let waiter = waiters[requestId], waiter.decision == nil {
+                waiter.decision = decision
+                waiter.semaphore.signal()
+                waiterSignaled = true
+            }
+            waiterLock.unlock()
+        }
+
+        if waiterSignaled || storeResult.value == .resolved {
+            cancelNotification(requestId: requestId)
+            return .delivered(waiterSignaled: waiterSignaled, storeResolved: storeResult.value == .resolved)
+        }
+        switch storeResult.value {
+        case .storeUnavailable:
+            return .storeUnavailable
+        case .notFound:
+            return .notFound
+        case .notPending:
+            return .notPending
+        case .resolved:
+            return .notFound
+        }
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
@@ -186,30 +233,147 @@ final class FeedCoordinator: @unchecked Sendable {
         return waiter.decision == nil
     }
 
+    func questionSelectionLabels(
+        requestId: String,
+        itemId itemIdRaw: String? = nil,
+        selectionIds: [String]
+    ) -> [String]? {
+        let labels = QuestionSelectionLabelsSlot()
+        let resolve: @Sendable () -> Void = { [requestId, itemIdRaw, selectionIds] in
+            MainActor.assumeIsolated {
+                guard let store = FeedCoordinator.shared.store,
+                      let item = Self.findQuestionItem(
+                        requestId: requestId,
+                        itemId: itemIdRaw,
+                        in: store.items
+                      ),
+                      case .question(_, let questions) = item.payload
+                else { return }
+                var optionsById: [String: String] = [:]
+                for option in questions.flatMap(\.options) where optionsById[option.id] == nil {
+                    optionsById[option.id] = option.label
+                }
+                let resolved = selectionIds.compactMap { optionsById[$0] }
+                guard resolved.count == selectionIds.count else { return }
+                labels.value = resolved
+            }
+        }
+        if Thread.isMainThread {
+            resolve()
+        } else {
+            DispatchQueue.main.sync(execute: resolve)
+        }
+        return labels.value
+    }
+
+    func questionSelectionLabels(
+        requestId: String,
+        itemId itemIdRaw: String? = nil,
+        questionSelections: [(questionId: String, optionIds: [String])]
+    ) -> [String]? {
+        let labels = QuestionSelectionLabelsSlot()
+        let resolve: @Sendable () -> Void = { [requestId, itemIdRaw, questionSelections] in
+            MainActor.assumeIsolated {
+                guard let store = FeedCoordinator.shared.store,
+                      let item = Self.findQuestionItem(
+                        requestId: requestId,
+                        itemId: itemIdRaw,
+                        in: store.items
+                      ),
+                      case .question(_, let questions) = item.payload
+                else { return }
+                var questionsById: [String: WorkstreamQuestionPrompt] = [:]
+                for question in questions where questionsById[question.id] == nil {
+                    questionsById[question.id] = question
+                }
+                var resolved: [String] = []
+                for selection in questionSelections {
+                    guard let question = questionsById[selection.questionId] else { return }
+                    var optionsById: [String: String] = [:]
+                    for option in question.options where optionsById[option.id] == nil {
+                        optionsById[option.id] = option.label
+                    }
+                    let selected = selection.optionIds.compactMap { optionsById[$0] }
+                    guard selected.count == selection.optionIds.count else { return }
+                    resolved.append(selected.joined(separator: ", "))
+                }
+                guard resolved.count == questionSelections.count else { return }
+                labels.value = resolved
+            }
+        }
+        if Thread.isMainThread {
+            resolve()
+        } else {
+            DispatchQueue.main.sync(execute: resolve)
+        }
+        return labels.value
+    }
+
+    private static func findQuestionItem(
+        requestId: String,
+        itemId itemIdRaw: String?,
+        in items: [WorkstreamItem]
+    ) -> WorkstreamItem? {
+        if let itemIdRaw {
+            guard let itemId = UUID(uuidString: itemIdRaw),
+                  let item = items.first(where: { $0.id == itemId }),
+                  case .question(let rid, _) = item.payload,
+                  rid == requestId
+            else { return nil }
+            return item
+        }
+        return items.reversed().first { item in
+            if case .question(let rid, _) = item.payload {
+                return rid == requestId
+            }
+            return false
+        }
+    }
+
     private static func findItemId(
         for requestId: String,
+        itemId itemIdRaw: String? = nil,
         in items: [WorkstreamItem]
     ) -> UUID? {
+        if let itemIdRaw {
+            guard let itemId = UUID(uuidString: itemIdRaw),
+                  let item = items.first(where: { $0.id == itemId }),
+                  Self.item(item, hasRequestId: requestId) else {
+                return nil
+            }
+            return itemId
+        }
         for item in items.reversed() {
-            switch item.payload {
-            case .permissionRequest(let rid, _, _, _) where rid == requestId:
+            if Self.item(item, hasRequestId: requestId) {
                 return item.id
-            case .exitPlan(let rid, _, _) where rid == requestId:
-                return item.id
-            case .question(let rid, _) where rid == requestId:
-                return item.id
-            default:
-                continue
             }
         }
         return nil
+    }
+
+    private static func item(_ item: WorkstreamItem, hasRequestId requestId: String) -> Bool {
+        switch item.payload {
+        case .permissionRequest(let rid, _, _, _) where rid == requestId:
+            return true
+        case .exitPlan(let rid, _, _) where rid == requestId:
+            return true
+        case .question(let rid, _) where rid == requestId:
+            return true
+        default:
+            return false
+        }
     }
 
     private func expireTimedOutItem(_ itemId: UUID?) {
         guard let itemId else { return }
         let expire: @Sendable () -> Void = { [itemId] in
             MainActor.assumeIsolated {
-                FeedCoordinator.shared.store?.markExpired(itemId)
+                guard let store = FeedCoordinator.shared.store,
+                      let item = store.items.first(where: { $0.id == itemId }),
+                      item.status.isPending else {
+                    return
+                }
+                store.markExpired(itemId)
             }
         }
         if Thread.isMainThread {
@@ -219,10 +383,90 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
+    private func resolvedDecision(for itemId: UUID?) -> WorkstreamDecision? {
+        guard let itemId else { return nil }
+        let slot = WorkstreamDecisionSlot()
+        let lookup: @Sendable () -> Void = { [itemId] in
+            MainActor.assumeIsolated {
+                guard let store = FeedCoordinator.shared.store,
+                      let item = store.items.first(where: { $0.id == itemId }),
+                      case .resolved(let decision, _) = item.status else {
+                    return
+                }
+                slot.value = decision
+            }
+        }
+        if Thread.isMainThread {
+            lookup()
+        } else {
+            DispatchQueue.main.sync(execute: lookup)
+        }
+        return slot.value
+    }
+
     enum IngestBlockingResult {
         case acknowledged(itemId: UUID?)
         case resolved(itemId: UUID?, decision: WorkstreamDecision)
         case timedOut(itemId: UUID?)
+        case duplicateRequest
+    }
+
+    enum ReplyDeliveryResult: Equatable {
+        case delivered(waiterSignaled: Bool, storeResolved: Bool)
+        case notFound
+        case notPending
+        case storeUnavailable
+
+        var delivered: Bool {
+            if case .delivered = self { return true }
+            return false
+        }
+
+        var errorCode: String {
+            switch self {
+            case .delivered:
+                return "ok"
+            case .notFound:
+                return "not_found"
+            case .notPending:
+                return "not_pending"
+            case .storeUnavailable:
+                return "unavailable"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .delivered:
+                return "feed reply delivered"
+            case .notFound:
+                return "feed reply request_id is not pending or does not exist"
+            case .notPending:
+                return "feed reply request_id is no longer pending"
+            case .storeUnavailable:
+                return "feed store is unavailable"
+            }
+        }
+
+        func payload(requestId: String) -> [String: Any] {
+            var payload: [String: Any] = [
+                "delivered": delivered,
+                "request_id": requestId,
+                "reason": errorCode
+            ]
+            if case .delivered(let waiterSignaled, let storeResolved) = self {
+                payload["waiter_signaled"] = waiterSignaled
+                payload["store_resolved"] = storeResolved
+            }
+            return payload
+        }
+    }
+
+    fileprivate enum StoreReplyResult: Equatable {
+        case resolved
+        case notFound
+        case notPending
+        case storeUnavailable
     }
 }
 
@@ -241,6 +485,18 @@ private final class UnsafeItemIdSlot: @unchecked Sendable {
     var value: UUID?
 }
 
+private final class ReplyStoreResultSlot: @unchecked Sendable {
+    var value: FeedCoordinator.StoreReplyResult = .storeUnavailable
+}
+
+private final class QuestionSelectionLabelsSlot: @unchecked Sendable {
+    var value: [String]?
+}
+
+private final class WorkstreamDecisionSlot: @unchecked Sendable {
+    var value: WorkstreamDecision?
+}
+
 private final class SnapshotSlot: @unchecked Sendable {
     var value: [WorkstreamItem] = []
 }
@@ -250,7 +506,7 @@ private final class SnapshotSlot: @unchecked Sendable {
 enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
     static var isAppActiveOverride: (@Sendable () -> Bool)?
-    static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
+    static var notificationPostObserver: (@Sendable (WorkstreamEvent, String, String) -> Void)?
 }
 #endif
 
@@ -430,13 +686,6 @@ private extension FeedCoordinator {
                 return
             }
 
-            #if DEBUG
-            if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
-                observer(event, requestId)
-                return
-            }
-            #endif
-
             let categoryId: String
             let title: String
             let body: String
@@ -444,23 +693,28 @@ private extension FeedCoordinator {
             case .permissionRequest:
                 categoryId = "CMUXFeedPermission"
                 title = String(
-                    localized: "feed.notification.permission.title",
-                    defaultValue: "\(event.source.capitalized) permission"
+                    localized: "feed.notification.decisionNeeded",
+                    defaultValue: "Decision needed"
                 )
-                body = event.toolName.map {
-                    String(
-                        localized: "feed.notification.permission.body",
-                        defaultValue: "\($0) needs approval"
-                    )
-                } ?? String(
+                body = String(
+                    localized: "feed.notification.decisionNeeded",
+                    defaultValue: "Decision needed"
+                )
+            case .diffApprovalRequest:
+                categoryId = "CMUXFeedDiffApproval"
+                title = String(
+                    localized: "feed.notification.decisionNeeded",
+                    defaultValue: "Decision needed"
+                )
+                body = String(
                     localized: "feed.notification.decisionNeeded",
                     defaultValue: "Decision needed"
                 )
             case .exitPlanMode:
                 categoryId = "CMUXFeedExitPlan"
                 title = String(
-                    localized: "feed.notification.exitPlan.title",
-                    defaultValue: "\(event.source.capitalized) plan ready"
+                    localized: "feed.notification.decisionNeeded",
+                    defaultValue: "Decision needed"
                 )
                 body = String(
                     localized: "feed.notification.exitPlan.body",
@@ -469,8 +723,8 @@ private extension FeedCoordinator {
             case .askUserQuestion:
                 categoryId = "CMUXFeedQuestion"
                 title = String(
-                    localized: "feed.notification.question.title",
-                    defaultValue: "\(event.source.capitalized) question"
+                    localized: "feed.notification.decisionNeeded",
+                    defaultValue: "Decision needed"
                 )
                 body = String(
                     localized: "feed.notification.question.body",
@@ -479,6 +733,13 @@ private extension FeedCoordinator {
             default:
                 return
             }
+
+            #if DEBUG
+            if let observer = FeedCoordinatorTestHooks.notificationPostObserver {
+                observer(event, requestId, categoryId)
+                return
+            }
+            #endif
 
             let policyContext = makeFeedNotificationPolicyContext(
                 event: event,
@@ -567,10 +828,14 @@ private extension FeedCoordinator {
         content.body = body
         content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
         content.categoryIdentifier = categoryId
-        content.userInfo = [
+        var userInfo: [String: Any] = [
             "requestId": requestId,
             "workstreamId": event.sessionId,
         ]
+        if let itemId = store.items.reversed().first(where: { Self.item($0, hasRequestId: requestId) })?.id {
+            userInfo["itemId"] = itemId.uuidString
+        }
+        content.userInfo = userInfo
 
         let request = UNNotificationRequest(
             identifier: "feed.\(requestId)",
@@ -776,6 +1041,11 @@ enum FeedSocketEncoding {
             var dict: [String: Any] = ["status": "timed_out"]
             if let itemId { dict["item_id"] = itemId.uuidString }
             return dict
+        case .duplicateRequest:
+            return [
+                "status": "duplicate_request",
+                "reason": "request_id is already waiting for a decision"
+            ]
         }
     }
 
@@ -864,6 +1134,10 @@ enum FeedSocketEncoding {
         case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
             dict["request_id"] = requestId
             dict["tool_name"] = toolName
+            if toolName == "DiffApprovalRequest" {
+                dict["hook_event_name"] = "DiffApprovalRequest"
+                dict["decision_kind"] = "diff"
+            }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
             if let pattern { dict["pattern"] = pattern }
         case .exitPlan(let requestId, let plan, let defaultMode):

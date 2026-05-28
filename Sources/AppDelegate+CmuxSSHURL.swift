@@ -131,6 +131,7 @@ private final class CmuxSSHURLConfirmationGate: NSObject {
     }
 }
 
+@MainActor
 extension AppDelegate {
     func deferInitialMainWindowBootstrapForExternalConfirmation() {
         guard !didAttemptStartupSessionRestore, !didHandleExplicitOpenIntentAtStartup else { return }
