@@ -357,7 +357,6 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertFalse(context.allowsPaneDropHitTesting)
         XCTAssertFalse(context.allowsFileDropOverlayHitTesting)
         XCTAssertFalse(context.allowsWorkspaceDropOverlayHitTesting)
-        XCTAssertFalse(context.allowsDragPasteboardLookup)
         XCTAssertFalse(context.allowsBrowserPortalDragRouting)
         XCTAssertFalse(context.allowsTerminalPortalDragRouting)
     }
@@ -367,7 +366,6 @@ final class PortalTabDragRoutingTests: XCTestCase {
 
         XCTAssertTrue(context.allowsPortalPointerHitTesting)
         XCTAssertFalse(context.allowsTabBarPassThroughHitTesting)
-        XCTAssertFalse(context.allowsDragPasteboardLookup)
     }
 
     func testWindowInputRoutingContextPreservesNoEventWorkspaceDropHitTesting() {
@@ -375,7 +373,6 @@ final class PortalTabDragRoutingTests: XCTestCase {
 
         XCTAssertTrue(context.allowsWorkspaceDropOverlayHitTesting)
         XCTAssertFalse(context.allowsPaneDropHitTesting)
-        XCTAssertFalse(context.allowsDragPasteboardLookup)
     }
 
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {

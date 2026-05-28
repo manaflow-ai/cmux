@@ -187,17 +187,6 @@ struct WindowInputRoutingContext: Equatable {
             || eventType == .mouseMoved
     }
 
-    var allowsDragPasteboardLookup: Bool {
-        switch eventKind {
-        case .pointerDrag,
-             .pointerHover,
-             .appKitRouting:
-            return true
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .other:
-            return false
-        }
-    }
-
     var allowsBrowserPortalDragRouting: Bool {
         switch eventKind {
         case .pointerDrag, .pointerHover:
@@ -225,10 +214,6 @@ struct WindowInputRoutingContext: Equatable {
 
     static func allowsPaneDropHitTesting(eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext(eventType: eventType).allowsPaneDropHitTesting
-    }
-
-    static func allowsFileDropPaneHitTesting(eventType: NSEvent.EventType?) -> Bool {
-        WindowInputRoutingContext(eventType: eventType).allowsFileDropPaneHitTesting
     }
 
     static func allowsFileDropOverlayHitTesting(eventType: NSEvent.EventType?) -> Bool {
