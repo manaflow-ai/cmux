@@ -733,6 +733,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     var debugSuppressSplitShortcutForTransientTerminalFocusStateOverride: Bool?
     var debugShortcutEventFocusContextOverride: ShortcutEventFocusContext?
+    var debugSuppressShortcutRoutingContextForTesting = false
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -7450,6 +7451,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func preferredMainWindowContextForShortcutRouting(event: NSEvent) -> MainWindowContext? {
+#if DEBUG
+        if debugSuppressShortcutRoutingContextForTesting {
+            return nil
+        }
+#endif
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
             return context
         }
@@ -13867,6 +13873,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func debugResetShortcutRoutingStateForTesting() {
         clearConfiguredShortcutChordState()
         shortcutEventFocusContextCache = nil
+        debugSuppressShortcutRoutingContextForTesting = false
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {

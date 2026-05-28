@@ -4621,34 +4621,32 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
-    func testCmdShiftMReturnsFalseForUnownedWindowContext() {
+    func testCmdShiftMReturnsFalseWhenNoFocusedTerminalCanHandle() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        let unownedWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer { unownedWindow.close() }
-
-        guard let event = makeKeyDownEvent(
-            key: "m",
-            modifiers: [.command, .shift],
-            keyCode: 46, // kVK_ANSI_M
-            windowNumber: unownedWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Shift+M event")
-            return
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.debugSuppressShortcutRoutingContextForTesting = true
+        appDelegate.tabManager = nil
+        defer {
+            appDelegate.debugSuppressShortcutRoutingContextForTesting = false
+            appDelegate.tabManager = originalTabManager
         }
 
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "M",
+            charactersIgnoringModifiers: "m",
+            keyCode: 46 // kVK_ANSI_M
+        )
+
 #if DEBUG
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .toggleTerminalCopyMode))
         XCTAssertFalse(
             appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+Shift+M should not be consumed for an event from an unowned window"
+            "Cmd+Shift+M should not be consumed when no terminal can toggle copy mode"
         )
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
