@@ -1917,8 +1917,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         window.makeKeyAndOrderFront(nil)
         drainMainQueue()
-        XCTAssertTrue(window.makeFirstResponder(mainSurfaceView))
         workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+
+        XCTAssertTrue(window.makeFirstResponder(mainSurfaceView))
         XCTAssertNil(workspace.focusedPanelId)
         XCTAssertTrue(window.firstResponder === mainSurfaceView)
 
