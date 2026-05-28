@@ -1099,7 +1099,7 @@ struct OpenCodeEventTextAccumulator {
     mutating func consumeEvent(_ event: [String: Any], sessionID: String) -> [String] {
         guard let type = event["type"] as? String,
               let properties = event["properties"] as? [String: Any],
-              properties["sessionID"] as? String == sessionID else {
+              Self.eventSessionID(properties) == sessionID else {
             return []
         }
 
@@ -1113,6 +1113,39 @@ struct OpenCodeEventTextAccumulator {
         default:
             return []
         }
+    }
+
+    private static func eventSessionID(_ properties: [String: Any]) -> String? {
+        firstString(
+            properties["sessionID"],
+            properties["sessionId"],
+            properties["session_id"],
+            nestedString(properties, "info", "sessionID"),
+            nestedString(properties, "info", "sessionId"),
+            nestedString(properties, "info", "session_id"),
+            nestedString(properties, "message", "sessionID"),
+            nestedString(properties, "message", "sessionId"),
+            nestedString(properties, "message", "session_id"),
+            nestedString(properties, "part", "sessionID"),
+            nestedString(properties, "part", "sessionId"),
+            nestedString(properties, "part", "session_id")
+        )
+    }
+
+    private static func nestedString(_ dictionary: [String: Any], _ key: String, _ nestedKey: String) -> String? {
+        guard let nested = dictionary[key] as? [String: Any] else { return nil }
+        return nested[nestedKey] as? String
+    }
+
+    private static func firstString(_ values: Any?...) -> String? {
+        for value in values {
+            guard let string = value as? String else { continue }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     private mutating func consumeMessageUpdated(_ properties: [String: Any]) -> [String] {

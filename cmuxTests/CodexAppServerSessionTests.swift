@@ -160,6 +160,52 @@ final class CodexAppServerSessionTests: XCTestCase {
         )
     }
 
+    func testOpenCodeEventTextAccumulatorAcceptsNestedSessionIDs() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.updated",
+                "properties": [
+                    "part": [
+                        "id": "part-1",
+                        "sessionID": "session-1",
+                        "messageID": "message-1",
+                        "type": "text",
+                        "text": "nested"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.updated",
+                "properties": [
+                    "info": [
+                        "id": "message-1",
+                        "sessionID": "session-1",
+                        "role": "assistant"
+                    ]
+                ]
+            ], sessionID: "session-1"),
+            ["nested"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeEvent([
+                "type": "message.part.delta",
+                "properties": [
+                    "sessionID": "session-2",
+                    "messageID": "message-1",
+                    "partID": "part-1",
+                    "field": "text",
+                    "delta": "ignored"
+                ]
+            ], sessionID: "session-1"),
+            []
+        )
+    }
+
     func testClaudeStreamJSONAccumulatorExtractsAssistantTextDeltas() {
         var accumulator = ClaudeStreamJSONAccumulator()
 
