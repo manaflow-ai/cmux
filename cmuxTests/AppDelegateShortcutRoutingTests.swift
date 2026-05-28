@@ -3675,60 +3675,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.tests.renameWorkspaceShortcut")
+        defer { closeTestWindow(window) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        let workspaceExpectation = expectation(description: "Expected command palette rename workspace notification")
         var observedWorkspaceWindow: NSWindow?
-        var didObserveWorkspaceNotification = false
         let workspaceToken = NotificationCenter.default.addObserver(
             forName: .commandPaletteRenameWorkspaceRequested,
             object: nil,
             queue: nil
         ) { notification in
-            guard !didObserveWorkspaceNotification else { return }
-            didObserveWorkspaceNotification = true
             observedWorkspaceWindow = notification.object as? NSWindow
-            workspaceExpectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(workspaceToken) }
 
-        let renameTabExpectation = expectation(description: "Rename tab notification should not fire for Cmd+Shift+R")
-        renameTabExpectation.isInverted = true
+        var renameTabRequestCount = 0
         let renameTabToken = NotificationCenter.default.addObserver(
             forName: .commandPaletteRenameTabRequested,
             object: nil,
             queue: nil
         ) { _ in
-            renameTabExpectation.fulfill()
+            renameTabRequestCount += 1
         }
         defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-        guard let event = makeKeyDownEvent(
-            key: "r",
-            modifiers: [.command, .shift],
-            keyCode: 15, // kVK_ANSI_R
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Shift+R event")
-            return
-        }
+        let event = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "R",
+            charactersIgnoringModifiers: "r",
+            keyCode: 15 // kVK_ANSI_R
+        )
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .renameWorkspace))
+        XCTAssertFalse(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .renameTab))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [workspaceExpectation, renameTabExpectation], timeout: 1.0)
-        XCTAssertEqual(observedWorkspaceWindow?.windowNumber, window.windowNumber)
+        XCTAssertTrue(appDelegate.requestRenameWorkspaceViaCommandPalette(preferredWindow: window))
+        XCTAssertTrue(observedWorkspaceWindow === window)
+        XCTAssertEqual(renameTabRequestCount, 0)
     }
 
     func testCmdOptionEMatchesEditWorkspaceDescriptionShortcut() {
