@@ -283,6 +283,44 @@ jobs:
             fi
           fi
 
+          XCODEBUILD_ENV=(
+            "DEVELOPER_DIR=$DEVELOPER_DIR"
+            "PATH=$PATH"
+            "HOME=$HOME"
+            "USER=$USER"
+            "LOGNAME=${LOGNAME:-$USER}"
+            "CI=${CI:-true}"
+            "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
+            "RUNNER_TEMP=${RUNNER_TEMP:-}"
+            "TMPDIR=${TMPDIR:-/tmp}"
+          )
+          if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
+            XCODEBUILD_ENV+=("${DISPLAY_ENV_PREFIX[@]}")
+          fi
+
+          RUN_XCODEBUILD=(env "${XCODEBUILD_ENV[@]}")
+          CURRENT_USER="$(id -un)"
+          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$GUI_USER" ] && [ "$GUI_USER" != "root" ] && GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)"; then
+            echo "Console GUI user: $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
+            if command -v automationmodetool >/dev/null 2>&1; then
+              sudo -n automationmodetool enable-automationmode-without-authentication \
+                || echo "::warning::Could not enable Automation Mode"
+            fi
+
+            if sudo -n true 2>/dev/null; then
+              RUN_XCODEBUILD=(
+                sudo -n launchctl asuser "$GUI_UID"
+                sudo -n -H -u "$GUI_USER" /usr/bin/env "${XCODEBUILD_ENV[@]}"
+              )
+              echo "Running xcodebuild in console user's GUI bootstrap"
+            else
+              echo "::warning::Passwordless sudo unavailable; running xcodebuild in current bootstrap"
+            fi
+          else
+            echo "::warning::No non-root console GUI user found; running xcodebuild in current bootstrap"
+          fi
+
           XCODEBUILD_CMD=(
             xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
@@ -294,11 +332,7 @@ jobs:
           )
 
           set +e
-          if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
-            OUTPUT=$(env "${DISPLAY_ENV_PREFIX[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
-          else
-            OUTPUT=$("${XCODEBUILD_CMD[@]}" 2>&1)
-          fi
+          OUTPUT=$("${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
           EXIT_CODE=$?
           set -e
 
