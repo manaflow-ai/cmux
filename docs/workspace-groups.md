@@ -93,20 +93,25 @@ cmux workspace-group list
 
 Per-group configuration is keyed by the anchor's working directory in `~/.config/cmux/cmux.json` (this surface lands in a follow-up; the file location is reserved). The intent:
 
-```json
+```jsonc
 {
   "workspaceGroups": {
     "byCwd": {
       "/Users/you/manaflow/cmux": {
         "color": "#7A4FD8",
         "icon": "ladybug.fill",
+        // Where the header's + button places its new workspace:
+        //   "top" (default) → second slot, right after the anchor
+        //   "end"           → after the trailing member
+        "newWorkspacePlacement": "top",
         "contextMenu": [
           { "label": "New worktree", "command": ["scripts/new-worktree.sh"] },
           { "action": "newWorkspace" }
         ]
       },
       "~/projects/*": {
-        "icon": "leaf.fill"
+        "icon": "leaf.fill",
+        "newWorkspacePlacement": "end"
       }
     }
   }
@@ -114,6 +119,11 @@ Per-group configuration is keyed by the anchor's working directory in `~/.config
 ```
 
 Matching: keys containing `*` or `?` are globs; otherwise they are path prefixes. Longest match wins.
+
+Resolution order for `+` placement:
+1. Explicit `--placement top|end` on `cmux workspace-group new-workspace`, or `"placement"` in the v2 `workspace.group.new_workspace` params.
+2. The per-cwd entry above.
+3. Global default via UserDefaults (`defaults write com.cmuxterm.app workspaceGroup.newWorkspacePlacement end` to flip; defaults to `top`).
 
 ## iMessage mode
 
