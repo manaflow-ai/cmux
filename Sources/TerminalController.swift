@@ -6157,6 +6157,16 @@ class TerminalController {
         let rawChildren: [String]
         if let provided = params["child_workspace_ids"] as? [String] {
             rawChildren = provided
+        } else if params["child_workspace_ids"] != nil,
+                  !(params["child_workspace_ids"] is NSNull) {
+            // Reject malformed shapes (single string, mixed array, etc.) so
+            // a typo in a script doesn't silently apply the create to the
+            // current sidebar selection. Empty/absent → fall through.
+            return .err(
+                code: "invalid_params",
+                message: "child_workspace_ids must be an array of workspace handles",
+                data: ["child_workspace_ids": String(describing: params["child_workspace_ids"] ?? "")]
+            )
         } else {
             let fallbackIds: [UUID] = v2MainSync {
                 let selected = tabManager.sidebarSelectedWorkspaceIds

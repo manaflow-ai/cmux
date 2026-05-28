@@ -5582,17 +5582,19 @@ class TabManager: ObservableObject {
         let after: Workspace? = (index + 1) < tabs.count ? tabs[index + 1] : nil
         let beforeGroup = before.flatMap { $0.isPinned ? nil : $0.groupId }
         let afterGroup = after.flatMap { $0.isPinned ? nil : $0.groupId }
+        // Only infer membership when both neighbors share a non-nil groupId
+        // — i.e. the drop position is unambiguously INSIDE a group's run.
+        // Boundary drops (one neighbor in a group, the other nil or in a
+        // different group) leave membership unchanged: users can explicitly
+        // pull workspaces out of groups via the context menu / CLI / drag-
+        // out, and "drop just after the last group member" should land in
+        // the ungrouped section, not get pulled back into the group.
         let inferred: UUID?
         if let beforeGroup, beforeGroup == afterGroup {
             inferred = beforeGroup
-        } else if let beforeGroup, afterGroup == nil {
-            // Sitting right after the last member of a group: keep it inside.
-            inferred = beforeGroup
-        } else if let afterGroup, beforeGroup == nil {
-            // Sitting right before the first member of a group: join it.
-            inferred = afterGroup
         } else {
-            inferred = nil
+            // Don't change membership; let normalize handle ordering.
+            inferred = tab.groupId
         }
         if tab.groupId != inferred {
             tab.groupId = inferred
