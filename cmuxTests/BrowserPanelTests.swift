@@ -274,6 +274,28 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertEqual(normalLocalhostPanel.preferredURLStringForSessionSnapshot(), normalLocalhostURL.absoluteString)
         XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
     }
+
+    func testDiffViewerURLIsNotRecordedInBrowserHistory() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString).json")
+        let store = BrowserHistoryStore(fileURL: fileURL)
+        defer {
+            store.clearHistory()
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+
+        let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
+
+        store.recordVisit(url: schemeURL, title: "Diff")
+        store.recordVisit(url: loopbackURL, title: "Diff")
+        store.recordTypedNavigation(url: loopbackURL)
+        XCTAssertTrue(store.entries.isEmpty)
+
+        store.recordVisit(url: normalURL, title: "Normal")
+        XCTAssertEqual(store.entries.map(\.url), [normalURL.absoluteString])
+    }
 }
 
 

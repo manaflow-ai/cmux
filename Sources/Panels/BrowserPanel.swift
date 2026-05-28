@@ -1654,6 +1654,19 @@ func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
     return bundleIdentifier
 }
 
+func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
+    guard let url else { return false }
+    if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+        return true
+    }
+    guard url.fragment == "cmux-diff-viewer",
+          url.scheme?.lowercased() == "http",
+          url.host == "127.0.0.1" else {
+        return false
+    }
+    return true
+}
+
 @MainActor
 final class BrowserHistoryStore: ObservableObject {
     static let shared = BrowserHistoryStore()
@@ -1780,6 +1793,7 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
 
         guard let url else { return }
+        guard !browserIsTemporaryHistoryURL(url) else { return }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return }
         // Skip URLs whose host lacks a TLD (e.g. "https://news.").
@@ -1825,6 +1839,7 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
 
         guard let url else { return }
+        guard !browserIsTemporaryHistoryURL(url) else { return }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return }
         // Skip URLs whose host lacks a TLD (e.g. "https://news.").
@@ -7436,16 +7451,7 @@ extension BrowserPanel {
     }
 
     private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        guard url.fragment == "cmux-diff-viewer",
-              url.scheme?.lowercased() == "http",
-              url.host == "127.0.0.1" else {
-            return false
-        }
-        return true
+        browserIsTemporaryHistoryURL(url)
     }
 
 }
