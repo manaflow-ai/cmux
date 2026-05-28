@@ -548,6 +548,36 @@ extension AgentSessionWebRenderer {
 #endif
         }
 
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard navigationAction.navigationType == .linkActivated,
+                  let url = navigationAction.request.url else {
+                decisionHandler(.allow)
+                return
+            }
+            if isInPageFragment(url, currentURL: webView.url) {
+                decisionHandler(.allow)
+                return
+            }
+            handleExternalLink(url)
+            decisionHandler(.cancel)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if let url = navigationAction.request.url {
+                handleExternalLink(url)
+            }
+            return nil
+        }
+
         func flushVisiblePaintIfReady() {
             guard hasFinishedNavigation,
                   !hasCompletedVisiblePaintFlush,
@@ -774,6 +804,49 @@ extension AgentSessionWebRenderer {
                 _ = error
 #endif
             }
+        }
+
+        private func handleExternalLink(_ url: URL) {
+            guard let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" || scheme == "mailto" else {
+                return
+            }
+
+            guard scheme == "http" || scheme == "https" else {
+                NSWorkspace.shared.open(url)
+                return
+            }
+
+            guard let app = AppDelegate.shared,
+                  let location = app.workspaceContainingPanel(
+                      panelId: panelId,
+                      preferredWorkspaceId: workspaceId
+                  ),
+                  let paneId = location.workspace.paneId(forPanelId: panelId) else {
+                NSWorkspace.shared.open(url)
+                return
+            }
+
+            _ = location.workspace.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: true
+            )
+        }
+
+        private func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {
+            guard url.fragment != nil else { return false }
+            if (url.scheme == nil || url.scheme == "about"), (url.host ?? "").isEmpty {
+                return true
+            }
+            guard let currentURL else { return false }
+            if url.isFileURL, currentURL.isFileURL {
+                return (url.path as NSString).standardizingPath ==
+                    (currentURL.path as NSString).standardizingPath
+            }
+            return url.scheme == currentURL.scheme &&
+                url.host == currentURL.host &&
+                url.path == currentURL.path
         }
 
         private static func responderChainContains(_ responder: NSResponder?, target: NSResponder) -> Bool {

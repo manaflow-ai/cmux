@@ -90,13 +90,16 @@ function sanitizeRenderedHTML(html: string): string {
   return template.innerHTML;
 }
 
-function isSafeURL(value: string): boolean {
+export function isSafeURL(value: string): boolean {
   const trimmed = value.trim();
-  if (trimmed.startsWith("#") || trimmed.startsWith("/")) {
+  if (trimmed.startsWith("#")) {
     return true;
   }
+  if (trimmed.startsWith("/") || !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return false;
+  }
   try {
-    const url = new URL(trimmed, window.location.href);
+    const url = new URL(trimmed);
     return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:";
   } catch {
     return false;
