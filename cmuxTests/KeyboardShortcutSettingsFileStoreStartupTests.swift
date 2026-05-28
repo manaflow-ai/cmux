@@ -1060,6 +1060,114 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesCustomBrowserSearchEngine() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            BrowserSearchSettings.searchEngineKey,
+            BrowserSearchSettings.customSearchEngineNameKey,
+            BrowserSearchSettings.customSearchEngineURLTemplateKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineNameKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "defaultSearchEngine": "custom",
+                    "customSearchEngineName": "Kagi Site Search",
+                    "customSearchEngineURLTemplate": "https://kagi.com/search?q={query}"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            let configuration = BrowserSearchSettings.currentConfiguration(defaults: defaults)
+            let url = try XCTUnwrap(configuration.searchURL(query: "browser settings"))
+
+            XCTAssertEqual(configuration.engine, .custom)
+            XCTAssertEqual(configuration.displayName, "Kagi Site Search")
+            XCTAssertEqual(url.host, "kagi.com")
+            XCTAssertTrue(url.absoluteString.contains("q=browser%20settings"))
+        }
+    }
+
+    func testSettingsFileStoreAppliesBlankCustomBrowserSearchNameAndIgnoresInvalidCustomURLWithoutAbortingBrowserSection() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            BrowserSearchSettings.searchEngineKey,
+            BrowserSearchSettings.customSearchEngineNameKey,
+            BrowserSearchSettings.customSearchEngineURLTemplateKey,
+            BrowserSearchSettings.searchSuggestionsEnabledKey,
+            BrowserThemeSettings.modeKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineNameKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
+            defaults.removeObject(forKey: BrowserThemeSettings.modeKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "defaultSearchEngine": "google",
+                    "customSearchEngineName": "   ",
+                    "customSearchEngineURLTemplate": "ftp://search.example.test?q={query}",
+                    "showSearchSuggestions": false,
+                    "theme": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: BrowserSearchSettings.searchEngineKey), BrowserSearchEngine.google.rawValue)
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserSearchSettings.customSearchEngineNameKey),
+                BrowserSearchSettings.defaultCustomSearchEngineName
+            )
+            XCTAssertNotEqual(
+                defaults.string(forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey),
+                "ftp://search.example.test?q={query}"
+            )
+            XCTAssertEqual(defaults.object(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey) as? Bool, false)
+            XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
+        }
+    }
+
     func testSettingsFileStoreRejectsInvalidTerminalTextBoxMaxLinesSetting() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [

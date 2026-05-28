@@ -571,12 +571,14 @@ final class VSCodeServeWebController {
 
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
-            let data = fileHandle.availableData
-            guard !data.isEmpty else {
-                fileHandle.readabilityHandler = nil
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock:
                 return
+            case .endOfFile:
+                fileHandle.readabilityHandler = nil
             }
-            collector.append(data)
         }
         stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
@@ -663,9 +665,12 @@ final class VSCodeServeWebController {
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
         while true {
-            let data = fileHandle.availableData
-            guard !data.isEmpty else { return }
-            collector.append(data)
+            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock, .endOfFile:
+                return
+            }
         }
     }
 

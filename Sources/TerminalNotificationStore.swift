@@ -459,7 +459,7 @@ enum NotificationSoundSettings {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errorPipe.fileHandleForReading)
             let errorOutput = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if fileManager.fileExists(atPath: normalizedDestination.path) {

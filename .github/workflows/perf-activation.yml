@@ -11,11 +11,12 @@ on:
       runner:
         description: macOS runner
         required: false
-        default: warp-macos-15-arm64-6x
+        default: blacksmith-6vcpu-macos-15
         type: choice
         options:
-          - warp-macos-15-arm64-6x
-          - depot-macos-latest
+          - blacksmith-6vcpu-macos-15
+          - blacksmith-6vcpu-macos-26
+          - blacksmith-6vcpu-macos-latest
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -35,7 +36,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -85,8 +86,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
+          key: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-
 
       - name: Resolve Swift packages
         run: |
@@ -133,12 +134,17 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
-          swift scripts/bench-window-visibility.swift \
-            "$APP_PATH" \
-            "com.cmuxterm.app.debug.$PERF_TAG" \
-            30 \
-            --cmd-tab-activation \
-            --cg-visibility \
+          # The GitHub Actions runner process runs in launchd's system
+          # bootstrap, not the console user's Aqua session, so windows
+          # created by apps launched via NSWorkspace.openApplication do
+          # not show up in CGWindowListCopyWindowInfo([.optionOnScreenOnly]).
+          # Re-enter the Aqua session via launchctl asuser before running
+          # the bench so visibility polling sees real on-screen windows.
+          CONSOLE_USER="$(stat -f %Su /dev/console)"
+          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
+            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
             > perf-results/cmd-tab-activation.txt
           cat perf-results/cmd-tab-activation.txt
 

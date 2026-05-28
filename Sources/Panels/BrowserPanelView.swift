@@ -417,6 +417,8 @@ struct BrowserPanelView: View {
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
+    @AppStorage(BrowserSearchSettings.customSearchEngineNameKey) private var customSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
+    @AppStorage(BrowserSearchSettings.customSearchEngineURLTemplateKey) private var customSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
@@ -466,8 +468,12 @@ struct BrowserPanelView: View {
     private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
 
-    private var searchEngine: BrowserSearchEngine {
-        BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
+    private var searchConfiguration: BrowserSearchConfiguration {
+        BrowserSearchSettings.configuration(
+            engineRaw: searchEngineRaw,
+            customName: customSearchEngineName,
+            customURLTemplate: customSearchEngineURLTemplate
+        )
     }
 
     private var searchSuggestionsEnabled: Bool {
@@ -583,7 +589,7 @@ struct BrowserPanelView: View {
             panelId: panel.id,
             popupFrame: frame,
             colorScheme: browserChromeColorScheme,
-            engineName: searchEngine.displayName,
+            engineName: searchConfiguration.displayName,
             items: omnibarState.suggestions,
             selectedIndex: omnibarState.selectedSuggestionIndex,
             isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
@@ -740,7 +746,7 @@ struct BrowserPanelView: View {
         .overlay(alignment: .topLeading) {
             if shouldRenderOmnibarSuggestionsInSwiftUI {
                 OmnibarSuggestionsView(
-                    engineName: searchEngine.displayName,
+                    engineName: searchConfiguration.displayName,
                     items: omnibarState.suggestions,
                     selectedIndex: omnibarState.selectedSuggestionIndex,
                     isLoadingRemoteSuggestions: isLoadingRemoteSuggestions,
@@ -791,6 +797,8 @@ struct BrowserPanelView: View {
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
+                BrowserSearchSettings.customSearchEngineNameKey: BrowserSearchSettings.defaultCustomSearchEngineName,
+                BrowserSearchSettings.customSearchEngineURLTemplateKey: BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                 BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
                 BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
@@ -2305,16 +2313,25 @@ struct BrowserPanelView: View {
         }()
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
+        let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
+        let allowsRemoteSuggestions = remoteSuggestionsEnabled && remoteSuggestionsEngine != nil
+        if !allowsRemoteSuggestions {
+            latestRemoteSuggestionQuery = ""
+            latestRemoteSuggestions = []
+        }
         let staleRemote: [String]
         if query.isEmpty || isSingleCharacterQuery {
             staleRemote = []
         } else {
-            staleRemote = staleRemoteSuggestionsForDisplay(query: query)
+            staleRemote = staleRemoteSuggestionsForDisplay(
+                query: query,
+                allowsRemoteSuggestions: allowsRemoteSuggestions
+            )
         }
         let resolvedURL = query.isEmpty ? nil : panel.resolveNavigableURL(from: query)
         let items = buildOmnibarSuggestions(
             query: query,
-            engineName: searchEngine.displayName,
+            engineName: searchConfiguration.displayName,
             historyEntries: historyEntries,
             openTabMatches: openTabMatches,
             remoteQueries: staleRemote,
@@ -2341,7 +2358,7 @@ struct BrowserPanelView: View {
             latestRemoteSuggestions = forcedRemote
             let merged = buildOmnibarSuggestions(
                 query: query,
-                engineName: searchEngine.displayName,
+                engineName: searchConfiguration.displayName,
                 historyEntries: historyEntries,
                 openTabMatches: openTabMatches,
                 remoteQueries: forcedRemote,
@@ -2365,7 +2382,7 @@ struct BrowserPanelView: View {
         guard omnibarInputIntent(for: query) != .urlLike else { return }
 
         // Keep current remote rows visible while fetching fresh predictions.
-        let engine = searchEngine
+        guard let engine = remoteSuggestionsEngine else { return }
         isLoadingRemoteSuggestions = true
         suggestionTask = Task {
             let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
@@ -2380,7 +2397,7 @@ struct BrowserPanelView: View {
                 latestRemoteSuggestions = remote
                 let merged = buildOmnibarSuggestions(
                     query: query,
-                    engineName: searchEngine.displayName,
+                    engineName: searchConfiguration.displayName,
                     historyEntries: panel.historyStore.suggestions(for: query, limit: 12),
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
@@ -2402,11 +2419,15 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func staleRemoteSuggestionsForDisplay(query: String) -> [String] {
+    private func staleRemoteSuggestionsForDisplay(
+        query: String,
+        allowsRemoteSuggestions: Bool = true
+    ) -> [String] {
         staleOmnibarRemoteSuggestionsForDisplay(
             query: query,
             previousRemoteQuery: latestRemoteSuggestionQuery,
-            previousRemoteSuggestions: latestRemoteSuggestions
+            previousRemoteSuggestions: latestRemoteSuggestions,
+            allowsRemoteSuggestions: allowsRemoteSuggestions
         )
     }
 
@@ -2961,8 +2982,10 @@ func staleOmnibarRemoteSuggestionsForDisplay(
     query: String,
     previousRemoteQuery: String,
     previousRemoteSuggestions: [String],
+    allowsRemoteSuggestions: Bool = true,
     limit: Int = 8
 ) -> [String] {
+    guard allowsRemoteSuggestions else { return [] }
     let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedPreviousQuery = previousRemoteQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let loweredQuery = trimmedQuery.lowercased()

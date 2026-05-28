@@ -2643,7 +2643,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
-    func testNativePreviewSessionsDetachAndReuseViewsAcrossRecreation() throws {
+    func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {
         let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -2706,12 +2706,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ))
         XCTAssertNil(mediaView.superview)
 
-        XCTAssertTrue(quickLookView === sessions.quickLook.view(
+        let remountedQuickLookView = sessions.quickLook.view(
             panel: panel,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
-        ))
+        )
+        XCTAssertFalse(quickLookView === remountedQuickLookView)
+        XCTAssertTrue(quickLookView.superview === host)
+        sessions.quickLook.dismantle(quickLookView)
         XCTAssertNil(quickLookView.superview)
     }
 
@@ -2720,6 +2723,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         let textView = NSTextView()
         textView.string = "edited from text view"
@@ -2740,6 +2744,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
@@ -2772,6 +2777,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         try "loaded after clean save".write(to: url, atomically: true, encoding: .utf8)
@@ -2798,6 +2804,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -2836,6 +2843,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -2865,6 +2873,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
         if let task = panel.saveTextContent() {
@@ -2891,6 +2900,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: linkURL.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited through link")
         if let task = panel.saveTextContent() {
@@ -2911,6 +2921,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         if let task = panel.saveTextContent() {
             await task.value
@@ -2926,6 +2937,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
         try FileManager.default.removeItem(at: url)
@@ -2944,6 +2956,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainer?.lineFragmentPadding = 5
 
         let firstWindow = windowHosting(textView)
+        defer { closeWindow(firstWindow) }
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -2952,6 +2965,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainer?.lineFragmentPadding = 5
 
         let secondWindow = windowHosting(textView)
+        defer { closeWindow(secondWindow) }
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -3012,10 +3026,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         panel.focus()
 
         let textView = SavingTextView()
         let window = windowHosting(textView)
+        defer { closeWindow(window) }
         panel.attachTextView(textView)
 
         XCTAssertTrue(window.firstResponder === textView)
@@ -3052,6 +3068,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await waitForPanelPreviewMode(panel, .text)
         await waitForPanelTextContent(panel, "extensionless text")
 
@@ -3273,6 +3290,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             await Task.yield()
         }
         XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+    }
+
+    private func closeWindow(_ window: NSWindow) {
+        window.contentView = nil
+        window.close()
     }
 
     private func windowHosting(_ textView: NSTextView) -> NSWindow {

@@ -151,6 +151,43 @@ public enum AgentLaunchSanitizer {
         return preserveOptions(tail, policy: codexPolicy)
     }
 
+    public static func removingSavedWorkingDirectoryOptions(
+        from args: [String],
+        workingDirectory: String?
+    ) -> [String] {
+        guard let workingDirectory = normalizedWorkingDirectory(workingDirectory) else {
+            return args
+        }
+
+        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let optionPrefixes = valueOptions.map { "\($0)=" }
+        var result: [String] = []
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                result.append(contentsOf: args[index...])
+                break
+            }
+            if valueOptions.contains(arg),
+               index + 1 < args.count,
+               workingDirectoryValue(args[index + 1], matches: workingDirectory) {
+                index += 2
+                continue
+            }
+            if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
+                let value = String(arg.dropFirst(prefix.count))
+                if workingDirectoryValue(value, matches: workingDirectory) {
+                    index += 1
+                    continue
+                }
+            }
+            result.append(arg)
+            index += 1
+        }
+        return result
+    }
+
     private static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
         if codexForkCommand(in: args) != nil {
             return preservedCodexForkArguments(args: args)
@@ -348,6 +385,21 @@ public enum AgentLaunchSanitizer {
         if droppedOptions.contains(arg) { return true }
         guard let equals = arg.firstIndex(of: "=") else { return false }
         return droppedOptions.contains(String(arg[..<equals]))
+    }
+
+    private static func normalizedWorkingDirectory(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func workingDirectoryValue(_ value: String, matches workingDirectory: String) -> Bool {
+        guard value == workingDirectory else {
+            return (value as NSString).expandingTildeInPath == (workingDirectory as NSString).expandingTildeInPath
+        }
+        return true
     }
 
     private static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {

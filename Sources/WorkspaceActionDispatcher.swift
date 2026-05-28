@@ -32,14 +32,15 @@ enum WorkspaceActionDispatcher {
         in tabManager: TabManager,
         target: Target
     ) -> PinState? {
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: target.workspaceIds)
         guard !targetWorkspaceIds.isEmpty else { return nil }
 
         let anchorWorkspaceId = target.anchorWorkspaceId.flatMap { anchorId in
-            tabManager.tabs.contains { $0.id == anchorId } ? anchorId : nil
+            workspacesById[anchorId] == nil ? nil : anchorId
         } ?? targetWorkspaceIds[0]
 
-        guard let anchorWorkspace = tabManager.tabs.first(where: { $0.id == anchorWorkspaceId }) else {
+        guard let anchorWorkspace = workspacesById[anchorWorkspaceId] else {
             return nil
         }
 
@@ -67,16 +68,10 @@ enum WorkspaceActionDispatcher {
         in tabManager: TabManager
     ) -> PinResult {
         let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: state.targetWorkspaceIds)
-        var changedWorkspaceIds: [UUID] = []
-
-        for workspaceId in targetWorkspaceIds {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-            let wasPinned = workspace.isPinned
-            tabManager.setPinned(workspace, pinned: state.pinned)
-            if wasPinned != state.pinned {
-                changedWorkspaceIds.append(workspaceId)
-            }
-        }
+        let changedWorkspaceIds = tabManager.setPinned(
+            workspaceIds: targetWorkspaceIds,
+            pinned: state.pinned
+        )
 
         return PinResult(
             targetWorkspaceIds: targetWorkspaceIds,
