@@ -894,7 +894,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             },
             "Expected a real swipe gesture to pan the canvas viewport. before=\(beforeViewport) layout=\(String(describing: canvasLayout()))"
         )
-        assertCanvasRecordedUnifiedPresentationDuringPan()
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
         XCTAssertTrue(
             waitForCondition(timeout: 8.0) {
                 guard let layout = self.canvasLayout() else { return false }
@@ -953,9 +953,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         assertSelectedCanvasPanelAligned(panelType: "terminal", timeout: 8.0)
         assertTrackpadSwipeChangesViewportAndKeepsPanelAligned(window: window, direction: .up, panelType: "terminal")
-        assertCanvasRecordedUnifiedPresentationDuringPan()
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
         assertTrackpadSwipeChangesViewportAndKeepsPanelAligned(window: window, direction: .down, panelType: "terminal")
-        assertCanvasRecordedUnifiedPresentationDuringPan()
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
 
         let focusBrowser = socketJSON(
             method: "debug.canvas.drag",
@@ -982,9 +982,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         assertSelectedCanvasPanelAligned(panelType: "browser", timeout: 8.0)
         assertTrackpadSwipeChangesViewportAndKeepsPanelAligned(window: window, direction: .up, panelType: "browser")
-        assertCanvasRecordedUnifiedPresentationDuringPan()
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
         assertTrackpadSwipeChangesViewportAndKeepsPanelAligned(window: window, direction: .down, panelType: "browser")
-        assertCanvasRecordedUnifiedPresentationDuringPan()
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
     }
 
     func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
@@ -2076,6 +2076,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func assertCanvasRecordedUnifiedPresentationDuringPan(
         timeout: TimeInterval = 6.0,
+        minimumTextureSurfaceCount: Int = 1,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -2084,9 +2085,19 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 guard let layout = self.canvasLayout() else { return false }
                 let phases = layout["canvasRecentInteractionPhases"] as? [String] ?? []
                 let count = (layout["canvasRecentUnifiedTexturePresentationCount"] as? NSNumber)?.intValue ?? 0
-                return phases.contains("panning") && count > 0
+                let records = layout["canvasRecentPresentationRecords"] as? [[String: Any]] ?? []
+                let sawAllTexturePanFrame = records.contains { record in
+                    guard record["interactionPhase"] as? String == "panning",
+                          record["usesUnifiedTexturePresentation"] as? Bool == true else {
+                        return false
+                    }
+                    let nativeOverlayCount = (record["nativeOverlayCount"] as? NSNumber)?.intValue ?? -1
+                    let textureSurfaceCount = (record["textureSurfaceCount"] as? NSNumber)?.intValue ?? 0
+                    return nativeOverlayCount == 0 && textureSurfaceCount >= minimumTextureSurfaceCount
+                }
+                return phases.contains("panning") && count > 0 && sawAllTexturePanFrame
             },
-            "Expected trackpad pan to use unified texture presentation before remounting native portals. layout=\(String(describing: canvasLayout()))",
+            "Expected trackpad pan to park native portals and use all-texture presentation before remounting. layout=\(String(describing: canvasLayout()))",
             file: file,
             line: line
         )

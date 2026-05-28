@@ -18367,6 +18367,13 @@ class TerminalController {
         let isNativeResolution: Bool
     }
 
+    private struct LayoutDebugCanvasPresentationRecord: Codable, Sendable {
+        let interactionPhase: String
+        let usesUnifiedTexturePresentation: Bool
+        let nativeOverlayCount: Int
+        let textureSurfaceCount: Int
+    }
+
     private struct LayoutDebugResponse: Codable, Sendable {
         let layout: PaneLayoutSnapshot
         let selectedPanels: [LayoutDebugSelectedPanel]
@@ -18380,6 +18387,7 @@ class TerminalController {
         let canvasPresentationInteractionPhase: String?
         let canvasUsesUnifiedTexturePresentation: Bool?
         let canvasRecentInteractionPhases: [String]
+        let canvasRecentPresentationRecords: [LayoutDebugCanvasPresentationRecord]
         let canvasRecentUnifiedTexturePresentationCount: Int
         let canvasItems: [LayoutDebugCanvasItem]
         let mainWindowNumber: Int?
@@ -18662,7 +18670,15 @@ class TerminalController {
                 canvasActiveRenderMode: canvasScene.activeMountDirective?.renderMode.rawValue,
                 canvasPresentationInteractionPhase: canvasPresentationDebug?.interactionPhase.rawValue,
                 canvasUsesUnifiedTexturePresentation: canvasPresentationDebug?.usesUnifiedTexturePresentation,
-                canvasRecentInteractionPhases: canvasPresentationDebug?.recentInteractionPhases.map(\.rawValue) ?? [],
+                canvasRecentInteractionPhases: canvasPresentationDebug?.recentRecords.map(\.interactionPhase.rawValue) ?? [],
+                canvasRecentPresentationRecords: canvasPresentationDebug?.recentRecords.map {
+                    LayoutDebugCanvasPresentationRecord(
+                        interactionPhase: $0.interactionPhase.rawValue,
+                        usesUnifiedTexturePresentation: $0.usesUnifiedTexturePresentation,
+                        nativeOverlayCount: $0.nativeOverlayCount,
+                        textureSurfaceCount: $0.textureSurfaceCount
+                    )
+                } ?? [],
                 canvasRecentUnifiedTexturePresentationCount: canvasPresentationDebug?.recentUnifiedTexturePresentationCount ?? 0,
                 canvasItems: canvasItems,
                 mainWindowNumber: NSApp.mainWindow?.windowNumber,

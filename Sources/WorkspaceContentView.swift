@@ -29,8 +29,15 @@ enum WorkspaceCanvasPortalDebugRegistry {
 struct WorkspaceCanvasPresentationDebugSnapshot {
     let interactionPhase: CanvasInteractionPhase
     let usesUnifiedTexturePresentation: Bool
-    let recentInteractionPhases: [CanvasInteractionPhase]
+    let recentRecords: [WorkspaceCanvasPresentationDebugRecord]
     let recentUnifiedTexturePresentationCount: Int
+}
+
+struct WorkspaceCanvasPresentationDebugRecord {
+    let interactionPhase: CanvasInteractionPhase
+    let usesUnifiedTexturePresentation: Bool
+    let nativeOverlayCount: Int
+    let textureSurfaceCount: Int
 }
 
 @MainActor
@@ -38,7 +45,7 @@ enum WorkspaceCanvasPresentationDebugRegistry {
     private struct Entry {
         var interactionPhase: CanvasInteractionPhase
         var usesUnifiedTexturePresentation: Bool
-        var recentInteractionPhases: [CanvasInteractionPhase]
+        var recentRecords: [WorkspaceCanvasPresentationDebugRecord]
         var recentUnifiedTexturePresentationCount: Int
     }
 
@@ -49,14 +56,21 @@ enum WorkspaceCanvasPresentationDebugRegistry {
         var entry = entriesByWorkspaceID[workspaceID] ?? Entry(
             interactionPhase: presentation.interactionPhase,
             usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
-            recentInteractionPhases: [],
+            recentRecords: [],
             recentUnifiedTexturePresentationCount: 0
         )
         entry.interactionPhase = presentation.interactionPhase
         entry.usesUnifiedTexturePresentation = presentation.usesUnifiedTexturePresentation
-        entry.recentInteractionPhases.append(presentation.interactionPhase)
-        if entry.recentInteractionPhases.count > maximumRecentEntryCount {
-            entry.recentInteractionPhases.removeFirst(entry.recentInteractionPhases.count - maximumRecentEntryCount)
+        entry.recentRecords.append(
+            WorkspaceCanvasPresentationDebugRecord(
+                interactionPhase: presentation.interactionPhase,
+                usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
+                nativeOverlayCount: presentation.nativeOverlays.count,
+                textureSurfaceCount: presentation.textureSurfaces.count
+            )
+        )
+        if entry.recentRecords.count > maximumRecentEntryCount {
+            entry.recentRecords.removeFirst(entry.recentRecords.count - maximumRecentEntryCount)
         }
         if presentation.usesUnifiedTexturePresentation {
             entry.recentUnifiedTexturePresentationCount += 1
@@ -69,7 +83,7 @@ enum WorkspaceCanvasPresentationDebugRegistry {
         return WorkspaceCanvasPresentationDebugSnapshot(
             interactionPhase: entry.interactionPhase,
             usesUnifiedTexturePresentation: entry.usesUnifiedTexturePresentation,
-            recentInteractionPhases: entry.recentInteractionPhases,
+            recentRecords: entry.recentRecords,
             recentUnifiedTexturePresentationCount: entry.recentUnifiedTexturePresentationCount
         )
     }
