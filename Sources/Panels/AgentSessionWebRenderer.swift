@@ -985,6 +985,78 @@ struct OpenCodeServerAuth: Equatable {
     }
 }
 
+struct ClaudeStreamJSONAccumulator {
+    private var emittedTextByMessageID: [String: String] = [:]
+    private var emittedAssistantText = ""
+    private var emittedAnyAssistantText = false
+
+    mutating func consumeLine(_ line: String) -> [String] {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+
+        if let delta = assistantTextDelta(from: object), !delta.isEmpty {
+            emittedAnyAssistantText = true
+            emittedAssistantText += delta
+            return [delta]
+        }
+
+        if !emittedAnyAssistantText,
+           object["type"] as? String == "result",
+           let result = object["result"] as? String,
+           !result.isEmpty {
+            emittedAnyAssistantText = true
+            return [result]
+        }
+
+        return []
+    }
+
+    private mutating func assistantTextDelta(from object: [String: Any]) -> String? {
+        if object["type"] as? String == "content_block_delta",
+           let delta = object["delta"] as? [String: Any],
+           let text = delta["text"] as? String {
+            return text
+        }
+
+        guard object["type"] as? String == "assistant" else {
+            return nil
+        }
+        let message = (object["message"] as? [String: Any]) ?? object
+        let fullText = Self.contentText(from: message["content"])
+        guard !fullText.isEmpty else { return nil }
+
+        let messageID = (message["id"] as? String) ?? "assistant"
+        let previousText = emittedTextByMessageID[messageID] ??
+            (fullText.hasPrefix(emittedAssistantText) ? emittedAssistantText : "")
+        emittedTextByMessageID[messageID] = fullText
+        if fullText.hasPrefix(previousText) {
+            return String(fullText.dropFirst(previousText.count))
+        }
+        return fullText
+    }
+
+    private static func contentText(from content: Any?) -> String {
+        if let text = content as? String {
+            return text
+        }
+        if let part = content as? [String: Any] {
+            if let type = part["type"] as? String,
+               type != "text" {
+                return ""
+            }
+            return part["text"] as? String ?? ""
+        }
+        if let parts = content as? [Any] {
+            return parts.map(contentText(from:)).joined()
+        }
+        return ""
+    }
+}
+
 @MainActor
 final class CodexAppServerSession {
     typealias DataWriter = (Data) throws -> Void
@@ -1762,6 +1834,19 @@ private final class AgentSessionProcessStore {
             return
         }
 
+        if stream == "stdout",
+           session.providerID == .claude {
+            for delta in session.consumeClaudeStreamJSONLine(text) {
+                emitOutput(
+                    sessionId: session.sessionId,
+                    providerID: session.providerID,
+                    stream: stream,
+                    text: delta
+                )
+            }
+            return
+        }
+
         emitOutput(
             sessionId: session.sessionId,
             providerID: session.providerID,
@@ -1979,6 +2064,7 @@ private final class AgentSessionProcessStore {
         let stdin: Pipe
         let openCodeAuthorizationHeader: String?
         var codexAppServerSession: CodexAppServerSession?
+        private var claudeStreamJSONAccumulator = ClaudeStreamJSONAccumulator()
         var openCodeBaseURL: URL?
         var openCodeSessionID: String?
         var isOpenCodeSessionCreateInFlight = false
@@ -2019,6 +2105,10 @@ private final class AgentSessionProcessStore {
                 return Self.flushBufferedOutput(buffer: &stdoutBuffer)
             }
             return Self.flushBufferedOutput(buffer: &stderrBuffer)
+        }
+
+        func consumeClaudeStreamJSONLine(_ line: String) -> [String] {
+            claudeStreamJSONAccumulator.consumeLine(line)
         }
 
         private static func appendOutputData(_ data: Data, buffer: inout Data) -> [String] {

@@ -25,6 +25,57 @@ final class CodexAppServerSessionTests: XCTestCase {
         )
     }
 
+    func testClaudeStreamJSONAccumulatorExtractsAssistantTextDeltas() {
+        var accumulator = ClaudeStreamJSONAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"system","subtype":"init"}"#),
+            []
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"hello"}]}}"#),
+            ["hello"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"hello world"}]}}"#),
+            [" world"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"hello world"}]}}"#),
+            []
+        )
+    }
+
+    func testClaudeStreamJSONAccumulatorFallsBackToResultWhenNoAssistantTextArrived() {
+        var accumulator = ClaudeStreamJSONAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"result","subtype":"success","result":"done"}"#),
+            ["done"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"result","subtype":"success","result":"done again"}"#),
+            []
+        )
+    }
+
+    func testClaudeStreamJSONAccumulatorDoesNotDuplicateFinalAssistantMessageAfterDeltas() {
+        var accumulator = ClaudeStreamJSONAccumulator()
+
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"hel"}}"#),
+            ["hel"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"lo"}}"#),
+            ["lo"]
+        )
+        XCTAssertEqual(
+            accumulator.consumeLine(#"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"hello world"}]}}"#),
+            [" world"]
+        )
+    }
+
     func testEncodesPromptAsJSONRPCInsteadOfRawStdin() throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
