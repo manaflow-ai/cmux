@@ -1441,14 +1441,19 @@ struct WorkspaceDockTitlebarStateBinder: NSViewRepresentable {
                 clearBoundWindow()
                 boundWindow = window as? CmuxMainWindow
             }
+            boundWindow?.workspaceDockTitlebarBindingOwner = self
             boundWindow?.workspaceDockTitlebarLayout = layout
             let controlFrame = convert(bounds, to: nil)
             boundWindow?.workspaceDockTitlebarControlFrameInWindow = controlFrame.isEmpty ? nil : controlFrame
         }
 
         private func clearBoundWindow() {
-            boundWindow?.workspaceDockTitlebarLayout = nil
-            boundWindow?.workspaceDockTitlebarControlFrameInWindow = nil
+            guard let window = boundWindow else { return }
+            defer { boundWindow = nil }
+            guard window.workspaceDockTitlebarBindingOwner === self else { return }
+            window.workspaceDockTitlebarLayout = nil
+            window.workspaceDockTitlebarControlFrameInWindow = nil
+            window.workspaceDockTitlebarBindingOwner = nil
         }
     }
 }

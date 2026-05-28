@@ -37,6 +37,7 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 @MainActor
 final class CmuxMainWindow: NSWindow {
     weak var workspaceDockTitlebarLayout: WorkspaceDockLayout?
+    weak var workspaceDockTitlebarBindingOwner: AnyObject?
     var workspaceDockTitlebarControlFrameInWindow: NSRect?
 
     private var isSoftHiddenForVisibilityController = false

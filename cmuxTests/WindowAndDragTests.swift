@@ -223,6 +223,39 @@ final class CmuxMainWindowDockTitlebarHitTests: XCTestCase {
         XCTAssertNil(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 790, y: 479)))
         XCTAssertNil(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 729, y: 455)))
     }
+
+    func testStaleDockTitlebarBinderDoesNotClearCurrentBinding() {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
+        let window = CmuxMainWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer {
+            window.orderOut(nil)
+        }
+
+        let firstLayout = WorkspaceDockLayout(configuration: .default)
+        let secondLayout = WorkspaceDockLayout(configuration: .default)
+        let staleBinder = WorkspaceDockTitlebarStateBinder.BinderView(layout: firstLayout)
+        let currentBinder = WorkspaceDockTitlebarStateBinder.BinderView(layout: secondLayout)
+
+        staleBinder.frame = NSRect(x: 700, y: 470, width: 58, height: 18)
+        currentBinder.frame = NSRect(x: 700, y: 470, width: 58, height: 18)
+        contentView.addSubview(staleBinder)
+        staleBinder.bindToWindow()
+        contentView.addSubview(currentBinder)
+        currentBinder.bindToWindow()
+
+        XCTAssertTrue(window.workspaceDockTitlebarLayout === secondLayout)
+
+        staleBinder.removeFromSuperview()
+
+        XCTAssertTrue(window.workspaceDockTitlebarLayout === secondLayout)
+        XCTAssertEqual(window.workspaceDockTitlebarControlFrameInWindow, currentBinder.convert(currentBinder.bounds, to: nil))
+    }
 }
 
 @MainActor
