@@ -77,13 +77,47 @@ public struct SettingsWindowRoot: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $selection) {
-            ForEach(sidebarItems) { section in
-                Label(section.title, systemImage: section.symbolName).tag(section)
+            if searchText.isEmpty {
+                ForEach(sidebarItems) { section in
+                    Label(section.title, systemImage: section.symbolName).tag(section)
+                }
+            } else {
+                let matches = searchMatches
+                if !matches.sections.isEmpty {
+                    Section(String(localized: "settings.search.sections", defaultValue: "Sections")) {
+                        ForEach(matches.sections) { section in
+                            Label(section.title, systemImage: section.symbolName).tag(section)
+                        }
+                    }
+                }
+                if !matches.settings.isEmpty {
+                    Section(String(localized: "settings.search.settings", defaultValue: "Settings")) {
+                        ForEach(matches.settings, id: \.self) { entry in
+                            Button {
+                                selection = entry.section
+                            } label: {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(entry.title)
+                                    Text(entry.section.title)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                if matches.sections.isEmpty && matches.settings.isEmpty {
+                    Text(String(localized: "settings.search.noResults", defaultValue: "No results"))
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                        .padding(.vertical, 4)
+                }
             }
         }
         .listStyle(.sidebar)
         .navigationTitle("Settings")
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text("Search"))
+        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .frame(minWidth: 220)
     }
 
@@ -94,6 +128,28 @@ public struct SettingsWindowRoot: View {
     /// avoid landing the user on an empty pane.
     private var sidebarItems: [SettingsSectionID] {
         SettingsSectionID.allCases.filter { $0 != .browserImport }
+    }
+
+    /// Live search results when the user has typed a query in the
+    /// sidebar search field.
+    private var searchMatches: (sections: [SettingsSectionID], settings: [CuratedSettingEntry]) {
+        let tokens = searchText
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .split { $0.isWhitespace }
+            .map(String.init)
+        guard !tokens.isEmpty else { return ([], []) }
+
+        let matchingSections = sidebarItems.filter { section in
+            let haystack = "\(section.title) \(section.searchKeywords)"
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return tokens.allSatisfy { haystack.contains($0) }
+        }
+        let matchingSettings: [CuratedSettingEntry] = [CuratedSettingEntry].cmuxDefault.filter { entry in
+            let haystack = "\(entry.title) \(entry.synonyms)"
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return tokens.allSatisfy { haystack.contains($0) }
+        }
+        return (matchingSections, matchingSettings)
     }
 
     @ViewBuilder
