@@ -868,14 +868,7 @@ enum FilePreviewKindResolver {
         if data.contains(0) {
             return false
         }
-        guard let sample = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        return sample.unicodeScalars.allSatisfy { scalar in
-            let value = scalar.value
-            return !CharacterSet.controlCharacters.contains(scalar)
-                || value == 0x09 || value == 0x0A || value == 0x0D || value == 0xFEFF
-        }
+        return String(data: data, encoding: .utf8) != nil
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {
