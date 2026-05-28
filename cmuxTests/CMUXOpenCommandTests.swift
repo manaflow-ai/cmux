@@ -400,6 +400,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", originalURL, "--title", "Bun PR"],
+            environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
             readPatchSidecar: false
         )
 

@@ -1123,14 +1123,29 @@ extension CMUXCLI {
 
         if let trustedRemoteURL = diffInputTrustedRemotePatchURL(rawInput) {
             let sourceURL = URL(string: rawInput) ?? trustedRemoteURL
-            return DiffInput(
-                patch: "",
-                sourceLabel: sourceURL.absoluteString,
-                defaultTitle: diffInputURLTitle(sourceURL),
-                emptyMessage: nil,
-                externalURL: diffInputExternalURL(sourceURL).absoluteString,
-                remotePatchURL: trustedRemoteURL
-            )
+            if diffViewerShouldStreamRemotePatch() {
+                return DiffInput(
+                    patch: "",
+                    sourceLabel: sourceURL.absoluteString,
+                    defaultTitle: diffInputURLTitle(sourceURL),
+                    emptyMessage: nil,
+                    externalURL: diffInputExternalURL(sourceURL).absoluteString,
+                    remotePatchURL: trustedRemoteURL
+                )
+            }
+            do {
+                return DiffInput(
+                    patch: try fetchDiffURL(trustedRemoteURL),
+                    sourceLabel: sourceURL.absoluteString,
+                    defaultTitle: diffInputURLTitle(sourceURL),
+                    emptyMessage: nil,
+                    externalURL: diffInputExternalURL(sourceURL).absoluteString
+                )
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError(message: "Failed to fetch diff URL: \(trustedRemoteURL.absoluteString)")
+            }
         }
 
         if let url = diffInputPatchURL(rawInput) {
@@ -1171,6 +1186,13 @@ extension CMUXCLI {
             emptyMessage: nil,
             externalURL: nil
         )
+    }
+
+    private func diffViewerShouldStreamRemotePatch() -> Bool {
+        let value = ProcessInfo.processInfo.environment["CMUX_DIFF_VIEWER_STREAM_REMOTE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "yes"
     }
 
     private func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
