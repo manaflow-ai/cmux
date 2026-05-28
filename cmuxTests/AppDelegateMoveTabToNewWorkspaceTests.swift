@@ -169,6 +169,57 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(destinationWorkspace.panels.count, 2)
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/4946.
+    ///
+    /// Detaching a tab into a new workspace must not pin the destination
+    /// workspace's `customTitle`. Pinning blocks the OSC-driven
+    /// `applyProcessTitle` pipeline, which is what feeds claude code's
+    /// dynamic `✳ <topic>` titles into the workspace row.
+    func testMoveSurfaceToNewWorkspaceDoesNotPinCustomTitleAndAllowsLaterOSCUpdates() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+
+        // Seed the source panel's title with what a shell PROMPT_COMMAND
+        // typically emits before the user starts claude. This is the value
+        // the buggy code pins onto the detached workspace's `customTitle`.
+        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "user@host:~/git/repo")
+
+        let result = try XCTUnwrap(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            focus: false,
+            focusWindow: false
+        ))
+        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+
+        // 1. The destination workspace must not have its title pinned. A
+        //    drag-created workspace should behave like one created via
+        //    "New Workspace" — `customTitle` stays `nil` until the user
+        //    renames it explicitly.
+        XCTAssertNil(
+            destinationWorkspace.customTitle,
+            "Detached workspace must not pin customTitle; pinning blocks OSC title updates."
+        )
+
+        // 2. Simulate the OSC SET_TITLE that claude emits once it starts
+        //    rendering its first message. With customTitle pinned, this
+        //    call short-circuits inside `applyProcessTitle` and the
+        //    workspace title never moves off the shell prompt.
+        let claudeTitle = "✳ Investigate workspace title bug"
+        destinationWorkspace.applyProcessTitle(claudeTitle)
+        XCTAssertEqual(
+            destinationWorkspace.title,
+            claudeTitle,
+            "applyProcessTitle must update self.title on a freshly detached workspace."
+        )
+    }
+
     func testMoveSurfaceToExistingWorkspaceClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
         let app = AppDelegate()
         let windowId = UUID()
