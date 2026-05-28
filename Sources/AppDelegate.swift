@@ -12561,9 +12561,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
-            return handleToggleFocusedWorkspaceGroupCollapsedShortcut(
+            // Only consume the event when the toggle actually fired (focused
+            // workspace was in a group). Otherwise fall through so a rebinding
+            // that shares this chord with another action still works.
+            if handleToggleFocusedWorkspaceGroupCollapsedShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            )
+            ) {
+                return true
+            }
         }
 
         if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {

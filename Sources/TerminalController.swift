@@ -6121,6 +6121,7 @@ class TerminalController {
             "custom_color": v2OrNull(group.customColor),
             "icon_symbol": v2OrNull(group.iconSymbol),
             "member_workspace_ids": memberIds.map { $0.uuidString },
+            "member_workspace_refs": memberIds.map { v2Ref(kind: .workspace, uuid: $0) },
             "member_count": memberIds.count
         ]
     }
