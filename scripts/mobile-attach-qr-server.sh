@@ -21,6 +21,7 @@ exec python3 - "$PORT" <<'PYEOF'
 import http.server
 import json
 import os
+import re
 import socketserver
 import subprocess
 import sys
@@ -32,6 +33,8 @@ TAG = os.environ["TAG"]
 SCRIPT_DIR = os.environ["SCRIPT_DIR"]
 QR_SCRIPT = os.path.join(SCRIPT_DIR, "mobile-attach-qr.sh")
 OUT_DIR = f"/tmp/cmux-mobile-attach-qr-{TAG}"
+TAG_SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", TAG.lower())).strip("-") or "dev"
+IOS_BUNDLE_ID = f"dev.cmux.ios.{TAG_SLUG}"
 
 _LOCK = threading.Lock()
 _LAST_GEN_TS = 0.0
@@ -96,7 +99,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _open_tag(self) -> None:
         # Fire two side effects in parallel: launch the tagged macOS `.app`
         # via the CMUX Tag Opener at :17320, and launch the matching
-        # `dev.cmux.ios.mobile` app on the first connected iPhone via
+        # tagged iOS app on the first connected iPhone via
         # devicectl. Errors on either side don't abort the other.
         mac_result = self._launch_mac_tag()
         ios_result = self._launch_ios_app()
@@ -128,7 +131,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 [
                     "xcrun", "devicectl", "device", "process", "launch",
                     "--device", device_id,
-                    "dev.cmux.ios.mobile",
+                    IOS_BUNDLE_ID,
                 ],
                 check=True,
                 timeout=15,

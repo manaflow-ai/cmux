@@ -75,7 +75,7 @@ struct CMUXMobileRootView: View {
                     showAddDevice()
                 }
             } else {
-                WorkspaceShellView(store: store)
+                WorkspaceShellView(store: store, signOut: signOut)
             }
         }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
@@ -1509,6 +1509,7 @@ struct MobilePairingScannerSheet: View {
 
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
+    let signOut: () -> Void
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -1556,7 +1557,7 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: { Task { await AuthManager.shared.signOut() } }
+                signOut: signOut
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -1605,7 +1606,7 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: store.createWorkspace,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: { Task { await AuthManager.shared.signOut() } }
+                signOut: signOut
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {

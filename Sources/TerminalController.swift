@@ -9597,7 +9597,9 @@ class TerminalController {
         let rawLines = output.split(separator: "\n", omittingEmptySubsequences: false).count
         let plain = Self.mobilePlainTerminalText(output)
         let nonEmpty = plain.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
-        cmuxDebugLog("mobile.vtFile bytes=\(data.count) lines=\(rawLines) nonEmptyLines=\(nonEmpty) action=\(bindingAction)")
+        let hexHead = data.prefix(80).map { String(format: "%02x", $0) }.joined()
+        let hexTail = data.suffix(40).map { String(format: "%02x", $0) }.joined()
+        cmuxDebugLog("mobile.vtFile bytes=\(data.count) lines=\(rawLines) nonEmptyLines=\(nonEmpty) action=\(bindingAction) head=\(hexHead) tail=\(hexTail)")
         #endif
         if let lineLimit {
             output = tailTerminalLines(output, maxLines: lineLimit)

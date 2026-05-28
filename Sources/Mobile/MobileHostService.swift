@@ -337,7 +337,12 @@ final class MobileHostService {
                     if request.method == "mobile.host.status" {
                         return MobileHostPublicStatusCache.result()
                     }
-                    return await TerminalController.shared.mobileHostHandleRPC(request)
+                    let result = await TerminalController.shared.mobileHostHandleRPC(request)
+                    await MobileHostService.shared.recordCreatedResourcesIfNeeded(
+                        request: request,
+                        result: result
+                    )
+                    return result
                 },
                 onClose: { id in
                     MobileHostConnectionRegistry.shared.remove(id: id)
@@ -446,7 +451,12 @@ final class MobileHostService {
                 if request.method == "mobile.host.status" {
                     return await MobileHostService.shared.publicHostStatusResult()
                 }
-                return await TerminalController.shared.mobileHostHandleRPC(request)
+                let result = await TerminalController.shared.mobileHostHandleRPC(request)
+                await MobileHostService.shared.recordCreatedResourcesIfNeeded(
+                    request: request,
+                    result: result
+                )
+                return result
             },
             onClose: { id in
                 await MobileHostService.shared.removeConnection(id: id)
@@ -482,8 +492,8 @@ final class MobileHostService {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        if let ticket = ticketStore.validTicket(authToken: request.auth?.attachToken) {
-            switch Self.ticketAuthorizationError(ticket: ticket, request: request) {
+        if let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
+            switch Self.ticketAuthorizationError(authorization: authorization, request: request) {
             case nil:
                 return nil
             case let error?:
@@ -521,8 +531,48 @@ final class MobileHostService {
         }.value
     }
 
+    private func recordCreatedResourcesIfNeeded(
+        request: MobileHostRPCRequest,
+        result: MobileHostRPCResult
+    ) {
+        guard let attachToken = request.auth?.attachToken else { return }
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else { return }
+
+        switch request.method {
+        case "workspace.create":
+            ticketStore.recordCreatedResources(
+                authToken: attachToken,
+                workspaceID: object["created_workspace_id"] as? String,
+                terminalID: nil
+            )
+        case "mobile.terminal.create", "terminal.create":
+            ticketStore.recordCreatedResources(
+                authToken: attachToken,
+                workspaceID: nil,
+                terminalID: object["created_terminal_id"] as? String
+            )
+        default:
+            break
+        }
+    }
+
     private static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
+        request: MobileHostRPCRequest
+    ) -> MobileHostRPCError? {
+        ticketAuthorizationError(
+            authorization: MobileAttachTicketAuthorization(
+                ticket: ticket,
+                createdWorkspaceIDs: [],
+                createdTerminalIDs: []
+            ),
+            request: request
+        )
+    }
+
+    private static func ticketAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
         let workspaceSelection = stringParamSelection(
@@ -550,7 +600,7 @@ final class MobileHostService {
         case "mobile.terminal.snapshot", "terminal.snapshot",
              "mobile.terminal.input", "terminal.input":
             return ticketTerminalAuthorizationError(
-                ticket: ticket,
+                authorization: authorization,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
@@ -564,10 +614,20 @@ final class MobileHostService {
     }
 
     private static func ticketTerminalAuthorizationError(
-        ticket: CmxAttachTicket,
+        authorization: MobileAttachTicketAuthorization,
         workspaceSelection: String?,
         terminalSelection: String?
     ) -> MobileHostRPCError? {
+        if let terminalSelection,
+           authorization.createdTerminalIDs.contains(terminalSelection) {
+            return nil
+        }
+        if let workspaceSelection,
+           authorization.createdWorkspaceIDs.contains(workspaceSelection) {
+            return nil
+        }
+
+        let ticket = authorization.ticket
         if let workspaceSelection, workspaceSelection != ticket.workspaceID {
             return scopedTicketError
         }
@@ -588,9 +648,18 @@ final class MobileHostService {
 
     static func debugTicketAuthorizationError(
         ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest
+        request: MobileHostRPCRequest,
+        createdWorkspaceIDs: Set<String> = [],
+        createdTerminalIDs: Set<String> = []
     ) -> MobileHostRPCError? {
-        ticketAuthorizationError(ticket: ticket, request: request)
+        ticketAuthorizationError(
+            authorization: MobileAttachTicketAuthorization(
+                ticket: ticket,
+                createdWorkspaceIDs: createdWorkspaceIDs,
+                createdTerminalIDs: createdTerminalIDs
+            ),
+            request: request
+        )
     }
 
     private static var scopedTicketError: MobileHostRPCError {

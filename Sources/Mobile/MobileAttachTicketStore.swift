@@ -14,6 +14,8 @@ final class MobileAttachTicketStore {
     private struct Record {
         let ticket: CmxAttachTicket
         let issuedAt: Date
+        var createdWorkspaceIDs: Set<String> = []
+        var createdTerminalIDs: Set<String> = []
     }
 
     private let lock = NSLock()
@@ -59,6 +61,10 @@ final class MobileAttachTicketStore {
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
+        validAuthorization(authToken: authToken, now: now)?.ticket
+    }
+
+    func validAuthorization(authToken: String?, now: Date = Date()) -> MobileAttachTicketAuthorization? {
         lock.lock()
         defer { lock.unlock() }
 
@@ -71,7 +77,39 @@ final class MobileAttachTicketStore {
               record.ticket.expiresAt > now else {
             return nil
         }
-        return record.ticket
+        return MobileAttachTicketAuthorization(
+            ticket: record.ticket,
+            createdWorkspaceIDs: record.createdWorkspaceIDs,
+            createdTerminalIDs: record.createdTerminalIDs
+        )
+    }
+
+    func recordCreatedResources(
+        authToken: String?,
+        workspaceID: String?,
+        terminalID: String?,
+        now: Date = Date()
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        pruneExpired(now: now)
+        guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !authToken.isEmpty,
+              var record = recordsByAuthToken[authToken],
+              record.ticket.expiresAt > now else {
+            return
+        }
+
+        if let workspaceID = workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceID.isEmpty {
+            record.createdWorkspaceIDs.insert(workspaceID)
+        }
+        if let terminalID = terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !terminalID.isEmpty {
+            record.createdTerminalIDs.insert(terminalID)
+        }
+        recordsByAuthToken[authToken] = record
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
@@ -115,6 +153,12 @@ final class MobileAttachTicketStore {
         #endif
         return UUID().uuidString + UUID().uuidString
     }
+}
+
+struct MobileAttachTicketAuthorization {
+    let ticket: CmxAttachTicket
+    let createdWorkspaceIDs: Set<String>
+    let createdTerminalIDs: Set<String>
 }
 
 enum MobileHostIdentity {

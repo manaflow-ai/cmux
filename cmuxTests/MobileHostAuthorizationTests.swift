@@ -45,6 +45,31 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
     }
 
+    func testAttachTicketStoreRecordsCreatedResourceScopes() throws {
+        let store = MobileAttachTicketStore()
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 3600
+        )
+
+        store.recordCreatedResources(
+            authToken: ticket.authToken,
+            workspaceID: "created-workspace",
+            terminalID: "created-terminal"
+        )
+
+        let authorization = try XCTUnwrap(store.validAuthorization(authToken: ticket.authToken))
+        XCTAssertEqual(authorization.createdWorkspaceIDs, Set(["created-workspace"]))
+        XCTAssertEqual(authorization.createdTerminalIDs, Set(["created-terminal"]))
+    }
+
     func testMobileWorkspaceRPCRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -456,6 +481,54 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
+    func testAttachTicketAcceptsSnapshotForCreatedWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-snapshot",
+            method: "terminal.snapshot",
+            params: [
+                "workspace_id": "created-workspace",
+                "terminal_id": "created-terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(
+            ticket: ticket,
+            request: request,
+            createdWorkspaceIDs: ["created-workspace"]
+        )
+
+        XCTAssertNil(error)
+    }
+
+    func testAttachTicketAcceptsSnapshotForCreatedTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-snapshot",
+            method: "terminal.snapshot",
+            params: [
+                "workspace_id": "other-workspace",
+                "terminal_id": "created-terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(
+            ticket: ticket,
+            request: request,
+            createdTerminalIDs: ["created-terminal"]
+        )
 
         XCTAssertNil(error)
     }
