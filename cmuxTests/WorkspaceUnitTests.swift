@@ -5296,6 +5296,43 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testDragToSplitAppliesMovedBackgroundTabSelection() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+        guard let movedPanel = workspace.newBrowserSurface(inPane: originalPaneId, focus: false),
+              let movedTabId = workspace.surfaceIdFromPanelId(movedPanel.id) else {
+            XCTFail("Expected background browser surface")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, originalFocusedPanelId)
+
+        guard let newPaneId = workspace.layoutController.splitPane(
+            originalPaneId,
+            orientation: .horizontal,
+            movingTab: movedTabId,
+            insertFirst: false
+        ) else {
+            XCTFail("Expected drag-to-split to create a new pane")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.layoutController.focusedPaneId, newPaneId)
+        XCTAssertEqual(workspace.layoutController.selectedTab(inPane: newPaneId)?.id, movedTabId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            movedPanel.id,
+            "Drag-to-split should apply the moved tab selection so native portal/focus state follows the new pane"
+        )
+    }
+
     func testBrowserSplitWithFocusFalseAllowsSubsequentExplicitFocusOnSplitPanel() {
         let workspace = Workspace()
         guard let originalFocusedPanelId = workspace.focusedPanelId else {
