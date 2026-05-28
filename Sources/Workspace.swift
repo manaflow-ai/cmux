@@ -12655,6 +12655,18 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontPoints = fontPoints
     }
 
+    private func terminalConfigTemplateForStartupCommand(
+        _ configTemplate: CmuxSurfaceConfigTemplate?,
+        clearsWorkingDirectory: Bool
+    ) -> CmuxSurfaceConfigTemplate {
+        var template = configTemplate ?? CmuxSurfaceConfigTemplate()
+        template.waitAfterCommand = true
+        if clearsWorkingDirectory {
+            template.workingDirectory = nil
+        }
+        return template
+    }
+
     private func resolvedTerminalInheritanceFontPoints(
         for terminalPanel: TerminalPanel,
         sourceSurface: ghostty_surface_t,
@@ -12863,12 +12875,10 @@ final class Workspace: Identifiable, ObservableObject {
         // to $SHELL), and a dead VM looks identical to a healthy workspace with a
         // local prompt — which is what we saw during dogfood.
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            if usesRemoteTerminalStartupCommand {
-                template.workingDirectory = nil
-            }
-            inheritedConfig = template
+            inheritedConfig = terminalConfigTemplateForStartupCommand(
+                inheritedConfig,
+                clearsWorkingDirectory: usesRemoteTerminalStartupCommand
+            )
         }
 #if DEBUG
         dlog(
@@ -13046,12 +13056,10 @@ final class Workspace: Identifiable, ObservableObject {
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            if usesRemoteTerminalStartupCommand {
-                template.workingDirectory = nil
-            }
-            inheritedConfig = template
+            inheritedConfig = terminalConfigTemplateForStartupCommand(
+                inheritedConfig,
+                clearsWorkingDirectory: usesRemoteTerminalStartupCommand
+            )
         }
 
         // Create new terminal panel
@@ -16039,10 +16047,10 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            template.workingDirectory = nil
-            inheritedConfig = template
+            inheritedConfig = terminalConfigTemplateForStartupCommand(
+                inheritedConfig,
+                clearsWorkingDirectory: true
+            )
         }
         let terminalWorkingDirectory = startupCommand == nil ? workingDirectory : nil
 
