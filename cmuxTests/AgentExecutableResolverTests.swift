@@ -204,7 +204,7 @@ final class AgentExecutableResolverTests: XCTestCase {
         let plan = try resolver.resolve(.opencode)
         XCTAssertEqual(
             plan.arguments(assigningOpenCodePort: 54321),
-            ["serve", "--hostname", "127.0.0.1", "--port", "54321", "--print-logs"]
+            ["serve", "--hostname", "localhost", "--port", "54321", "--print-logs"]
         )
     }
 

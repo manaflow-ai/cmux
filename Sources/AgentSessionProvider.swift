@@ -43,7 +43,7 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
                 "--verbose"
             ]
         case .opencode:
-            return ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]
+            return ["serve", "--hostname", "localhost", "--port", "0", "--print-logs"]
         }
     }
 
