@@ -115,9 +115,8 @@ enum FileExternalOpenAction {
         return NSWorkspace.shared.open(fileURL)
     }
 
-    @discardableResult
-    static func revealInFinder(fileURL: URL) -> Bool {
-        NSWorkspace.shared.selectFile(fileURL.path, inFileViewerRootedAtPath: "")
+    static func revealInFinder(fileURL: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 }
 
