@@ -854,6 +854,39 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasCommandPaletteOpensOverview() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before opening canvas from command palette. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        XCTAssertFalse(
+            canvasLayout()?["canvasOverviewActive"] as? Bool ?? true,
+            "Expected split view to start outside canvas overview. layout=\(String(describing: canvasLayout()))"
+        )
+
+        openCanvasCommandFromPalette(app, query: "show canvas")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                guard let layout = self.canvasLayout() else { return false }
+                return layout["canvasOverviewActive"] as? Bool == true &&
+                    layout["canvasPolicy"] as? String == "freeform" &&
+                    self.canvasItemCount() >= 2
+            },
+            "Expected Show Canvas command palette action to enter canvas overview with existing panes. layout=\(String(describing: canvasLayout()))"
+        )
+    }
+
     func testCanvasTrackpadSwipePansViewportAndRestoresNativeSurface() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
