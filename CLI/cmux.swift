@@ -432,6 +432,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
     var lastBody: String?
+    var lastPreToolNeedsInputNotificationSignature: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
@@ -799,6 +800,8 @@ private final class ClaudeHookSessionStore {
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
+        lastPreToolNeedsInputNotificationSignature: String? = nil,
+        clearLastPreToolNeedsInputNotificationSignature: Bool = false,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -823,6 +826,7 @@ private final class ClaudeHookSessionStore {
                 agentLifecycle: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
+                lastPreToolNeedsInputNotificationSignature: nil,
                 lastNotificationStatus: nil,
                 lastEmittedNotificationFingerprint: nil,
                 lastEmittedNotificationAt: nil,
@@ -853,6 +857,11 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            if clearLastPreToolNeedsInputNotificationSignature {
+                record.lastPreToolNeedsInputNotificationSignature = nil
+            } else if let signature = normalizeOptional(lastPreToolNeedsInputNotificationSignature) {
+                record.lastPreToolNeedsInputNotificationSignature = signature
+            }
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
                 state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
@@ -862,6 +871,30 @@ private final class ClaudeHookSessionStore {
                     updatedAt: now
                 )
             }
+        }
+    }
+
+    func clearPreToolNeedsInputNotificationSignature(sessionId: String?) throws {
+        guard let normalizedSessionId = normalizeOptional(sessionId) else {
+            return
+        }
+        try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionId] else { return }
+            record.lastPreToolNeedsInputNotificationSignature = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSessionId] = record
+        }
+    }
+
+    func clearLastNeedsInputSummary(sessionId: String?) throws {
+        guard let normalizedSessionId = normalizeOptional(sessionId) else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionId] else { return }
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastPreToolNeedsInputNotificationSignature = nil
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalizedSessionId] = record
         }
     }
 
@@ -884,6 +917,7 @@ private final class ClaudeHookSessionStore {
             agentLifecycle: nil,
             lastSubtitle: nil,
             lastBody: nil,
+            lastPreToolNeedsInputNotificationSignature: nil,
             lastNotificationStatus: nil,
             lastEmittedNotificationFingerprint: nil,
             lastEmittedNotificationAt: nil,
@@ -19931,14 +19965,16 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                try setClaudeStatus(
+                setClaudeStatusBestEffort(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     value: "Running",
                     icon: "bolt.fill",
                     color: "#4C8DFF",
-                    pid: claudePid
+                    pid: claudePid,
+                    telemetry: telemetry,
+                    stage: "claude-hook.session-start.set-status"
                 )
             }
             print("OK")
@@ -20022,13 +20058,15 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                try? setClaudeStatus(
+                setClaudeStatusBestEffort(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     value: "Idle",
                     icon: "pause.circle.fill",
-                    color: "#8E8E93"
+                    color: "#8E8E93",
+                    telemetry: telemetry,
+                    stage: "claude-hook.stop.set-status"
                 )
                 if let completion {
                     let title = String(
@@ -20114,6 +20152,12 @@ struct CMUXCLI {
                     launchCommand: mappedSession?.launchCommand
                 )
             }
+            clearLastNeedsInputSummaryBestEffort(
+                sessionStore: sessionStore,
+                sessionId: parsedInput.sessionId,
+                telemetry: telemetry,
+                stage: "claude-hook.prompt-submit.clear-needs-input-summary"
+            )
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             setAgentLifecycle(
                 client: client,
@@ -20122,13 +20166,15 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
-            try setClaudeStatus(
+            setClaudeStatusBestEffort(
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                telemetry: telemetry,
+                stage: "claude-hook.prompt-submit.set-status"
             )
             print("OK")
 
@@ -20164,9 +20210,26 @@ struct CMUXCLI {
                 return
             }
             if let mappedSession,
+               let savedSignature = mappedSession.lastPreToolNeedsInputNotificationSignature,
+               !savedSignature.isEmpty {
+                if shouldSuppressPreToolNeedsInputDuplicate(summary: summary, savedSignature: savedSignature) {
+                    clearLastNeedsInputSummaryBestEffort(
+                        sessionStore: sessionStore,
+                        sessionId: parsedInput.sessionId,
+                        telemetry: telemetry,
+                        stage: "claude-hook.notification.clear-duplicate-needs-input-summary"
+                    )
+                    telemetry.breadcrumb("claude-hook.notification.duplicate-pre-tool-needs-input")
+                    print("OK")
+                    return
+                }
+            }
+
+            if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+               shouldUseSavedNeedsInputSummary(for: summary) {
+                let savedSubtitle = mappedSession.lastSubtitle ?? summary.subtitle
+                summary = (subtitle: savedSubtitle, body: savedBody)
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -20176,41 +20239,18 @@ struct CMUXCLI {
                 client: client
             )
 
-            let title = String(
-                localized: "cli.claude-hook.notification.title",
-                defaultValue: "Claude Code"
-            )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
-
-            if let sessionId = parsedInput.sessionId {
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
-                )
-            }
-
-            setAgentLifecycle(
+            let response = try publishClaudeNeedsInput(
                 client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-            _ = try? setClaudeStatus(
-                client: client,
+                sessionStore: sessionStore,
+                sessionId: parsedInput.sessionId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
+                cwd: parsedInput.cwd,
+                transcriptPath: parsedInput.transcriptPath,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                telemetry: telemetry
             )
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
         case "session-end":
@@ -20326,35 +20366,21 @@ struct CMUXCLI {
                 return
             }
 
-            // AskUserQuestion means Claude is about to ask the user something.
-            // Save question text in session so the Notification handler can use it
-            // instead of the generic "Claude Code needs your attention".
-            if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion",
-               let question = describeAskUserQuestion(parsedInput.object),
-               let sessionId = parsedInput.sessionId {
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
+            if let needsInput = claudePreToolNeedsInputSummary(parsedInput.object) {
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
+                _ = try publishClaudeNeedsInput(
+                    client: client,
+                    sessionStore: sessionStore,
+                    sessionId: parsedInput.sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
+                    subtitle: needsInput.subtitle,
+                    body: needsInput.body,
+                    markPreToolNeedsInput: true,
+                    telemetry: telemetry
                 )
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
-                )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
                 print("OK")
                 return
             }
@@ -20369,6 +20395,12 @@ struct CMUXCLI {
                     agentLifecycle: .running
                 )
             }
+            clearLastNeedsInputSummaryBestEffort(
+                sessionStore: sessionStore,
+                sessionId: parsedInput.sessionId,
+                telemetry: telemetry,
+                stage: "claude-hook.pre-tool-use.clear-needs-input-summary"
+            )
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             setAgentLifecycle(
                 client: client,
@@ -20385,14 +20417,16 @@ struct CMUXCLI {
             } else {
                 statusValue = "Running"
             }
-            try setClaudeStatus(
+            setClaudeStatusBestEffort(
                 client: client,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: claudePid,
+                telemetry: telemetry,
+                stage: "claude-hook.pre-tool-use.set-status"
             )
             print("OK")
 
@@ -20457,7 +20491,197 @@ struct CMUXCLI {
         if let pid {
             cmd += " --pid=\(pid)"
         }
-        _ = try client.send(command: cmd)
+        _ = try sendV1Command(cmd, client: client)
+    }
+
+    private func setClaudeStatusBestEffort(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String? = nil,
+        value: String,
+        icon: String,
+        color: String,
+        pid: Int? = nil,
+        telemetry: CLISocketSentryTelemetry,
+        stage: String
+    ) {
+        do {
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                value: value,
+                icon: icon,
+                color: color,
+                pid: pid
+            )
+        } catch {
+            telemetry.captureError(stage: stage, error: error)
+        }
+    }
+
+    private func claudePreToolNeedsInputSummary(_ object: [String: Any]?) -> (subtitle: String, body: String)? {
+        guard let toolName = object?["tool_name"] as? String,
+              toolName == "AskUserQuestion" else {
+            return nil
+        }
+        let subtitle = claudeWaitingSubtitle()
+        let body = describeAskUserQuestion(object) ?? String(
+            localized: "agent.claude.input.body.askingQuestion",
+            defaultValue: "The assistant is asking a question"
+        )
+        return (subtitle, body)
+    }
+
+    @discardableResult
+    private func publishClaudeNeedsInput(
+        client: SocketClient,
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        subtitle: String,
+        body: String,
+        markPreToolNeedsInput: Bool = false,
+        telemetry: CLISocketSentryTelemetry
+    ) throws -> String {
+        let title = String(
+            localized: "cli.claude-hook.notification.title",
+            defaultValue: "Claude Code"
+        )
+        let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
+        let preToolNeedsInputSignature: String?
+        if markPreToolNeedsInput {
+            preToolNeedsInputSignature = needsInputNotificationSignature(subtitle: subtitle, body: body)
+        } else {
+            preToolNeedsInputSignature = nil
+        }
+
+        var didPersistPreToolNeedsInputSignature = false
+        if let sessionId {
+            do {
+                try sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    transcriptPath: transcriptPath,
+                    agentLifecycle: .needsInput,
+                    lastSubtitle: subtitle,
+                    lastBody: body,
+                    lastPreToolNeedsInputNotificationSignature: preToolNeedsInputSignature,
+                    clearLastPreToolNeedsInputNotificationSignature: !markPreToolNeedsInput
+                )
+                didPersistPreToolNeedsInputSignature = markPreToolNeedsInput
+            } catch {
+                telemetry.captureError(stage: "claude-hook.publish-needs-input.persist-summary", error: error)
+            }
+        }
+
+        let statusValue = String(localized: "agent.claude.input.status.needsInput", defaultValue: "Needs input")
+        setAgentLifecycle(
+            client: client,
+            key: Self.claudeCodeStatusKey,
+            lifecycle: .needsInput,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        setClaudeStatusBestEffort(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            value: statusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            telemetry: telemetry,
+            stage: "claude-hook.publish-needs-input.set-status"
+        )
+
+        do {
+            return try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+        } catch {
+            if didPersistPreToolNeedsInputSignature {
+                clearPreToolNeedsInputNotificationSignatureBestEffort(
+                    sessionStore: sessionStore,
+                    sessionId: sessionId,
+                    telemetry: telemetry,
+                    stage: "claude-hook.publish-needs-input.rollback-pre-tool-signature"
+                )
+            }
+            throw error
+        }
+    }
+
+    private func needsInputNotificationSignature(subtitle: String, body: String) -> String {
+        "\(subtitle)\n\(body)"
+    }
+
+    private func shouldUseSavedNeedsInputSummary(for summary: (subtitle: String, body: String)) -> Bool {
+        summary.subtitle == "Waiting" ||
+            summary.subtitle == claudeWaitingSubtitle() ||
+            isGenericNeedsInputAttention(summary)
+    }
+
+    private func isGenericNeedsInputAttention(_ summary: (subtitle: String, body: String)) -> Bool {
+        guard summary.subtitle == "Attention" || summary.subtitle == claudeAttentionSubtitle() else { return false }
+        switch normalizedSingleLine(summary.body).lowercased() {
+        case "claude needs your attention",
+             "claude needs your input",
+             "needs input",
+             "needs your attention",
+             "needs your input",
+             "the assistant needs your attention",
+             "the assistant needs your input",
+             "入力が必要です",
+             "入力待ち":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func claudeWaitingSubtitle() -> String {
+        String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting")
+    }
+
+    private func claudeAttentionSubtitle() -> String {
+        String(localized: "agent.claude.input.subtitle.attention", defaultValue: "Attention")
+    }
+
+    private func shouldSuppressPreToolNeedsInputDuplicate(
+        summary: (subtitle: String, body: String),
+        savedSignature: String
+    ) -> Bool {
+        shouldUseSavedNeedsInputSummary(for: summary) ||
+            needsInputNotificationSignature(subtitle: summary.subtitle, body: summary.body) == savedSignature
+    }
+
+    private func clearLastNeedsInputSummaryBestEffort(
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        telemetry: CLISocketSentryTelemetry,
+        stage: String
+    ) {
+        do {
+            try sessionStore.clearLastNeedsInputSummary(sessionId: sessionId)
+        } catch {
+            telemetry.captureError(stage: stage, error: error)
+        }
+    }
+
+    private func clearPreToolNeedsInputNotificationSignatureBestEffort(
+        sessionStore: ClaudeHookSessionStore,
+        sessionId: String?,
+        telemetry: CLISocketSentryTelemetry,
+        stage: String
+    ) {
+        do {
+            try sessionStore.clearPreToolNeedsInputNotificationSignature(sessionId: sessionId)
+        } catch {
+            telemetry.captureError(stage: stage, error: error)
+        }
     }
 
     private func setAgentLifecycle(
@@ -20672,8 +20896,13 @@ struct CMUXCLI {
             }
         }
 
-        if parts.isEmpty { return "Asking a question" }
-        return parts.joined(separator: "\n")
+        if parts.isEmpty {
+            return redactClaudeSensitiveSpans(String(
+                localized: "agent.claude.input.body.askingQuestion",
+                defaultValue: "The assistant is asking a question"
+            ))
+        }
+        return redactClaudeSensitiveSpans(parts.joined(separator: "\n"))
     }
 
     private func describeToolUse(_ object: [String: Any]?) -> String? {
