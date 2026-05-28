@@ -161,7 +161,7 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -383,7 +383,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -571,7 +571,7 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -656,7 +656,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
   ui-regressions:
-    runs-on: blacksmith-6vcpu-macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
     steps:
       - name: Checkout

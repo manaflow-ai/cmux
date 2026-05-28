@@ -9,12 +9,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: blacksmith-6vcpu-macos-15
+          - os: warp-macos-15-arm64-6x
             timeout: 30
             startup_smoke: true
             virtual_display: true
             skip_zig: false
-          - os: blacksmith-6vcpu-macos-26
+          - os: warp-macos-26-arm64-6x
             timeout: 30
             startup_smoke: true
             virtual_display: false
