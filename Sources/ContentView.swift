@@ -2522,8 +2522,22 @@ struct ContentView: View {
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
 
+        guard let target = workspace.focusedBonsplitPaneForCommands() else {
+            NSSound.beep()
+            return
+        }
+        let panels = workspace.openFileSurfaces(
+            inPane: target.paneId,
+            controller: target.controller,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        )
+        guard !panels.isEmpty else {
+            NSSound.beep()
+            return
+        }
         sidebarSelectionState.selection = .tabs
-        _ = workspace.openFileSurfacesInFocusedPane(filePaths: [filePath], focus: true, reuseExisting: true)
     }
 
     private func syncFileExplorerDirectory() {
