@@ -26,7 +26,14 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
     }
 
     public static func postStateDidLoadNotification() {
-        NotificationCenter.default.post(name: stateDidLoadNotification, object: nil)
+        // Dispatch async so SwiftUI views that subscribed to this notification
+        // inside `body` are guaranteed to have their .onReceive subscription
+        // installed before the post arrives. Without this, a small persisted
+        // state file can finish loading during the same render pass and the
+        // notification gets missed.
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: stateDidLoadNotification, object: nil)
+        }
     }
 
     public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
