@@ -16439,13 +16439,14 @@ class TerminalController {
                 ?? window?.screen?.backingScaleFactor
                 ?? NSScreen.main?.backingScaleFactor
                 ?? 1
+            let frame = window?.frame ?? .zero
             return [
                 "backing_scale": scale,
                 "window_frame": [
-                    "x": window?.frame.origin.x ?? 0,
-                    "y": window?.frame.origin.y ?? 0,
-                    "width": window?.frame.width ?? 0,
-                    "height": window?.frame.height ?? 0,
+                    "x": frame.origin.x,
+                    "y": frame.origin.y,
+                    "width": frame.width,
+                    "height": frame.height,
                 ],
             ]
         }

@@ -3838,10 +3838,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private static func terminalSnapshotImage(of view: GhosttySurfaceScrollView) -> NSImage? {
+        #if DEBUG
         if let cgImage = view.debugCopyIOSurfaceCGImage() {
             let size = CGSize(width: cgImage.width, height: cgImage.height)
             return NSImage(cgImage: cgImage, size: size)
         }
+        #endif
         return snapshotImage(of: view)
     }
 
