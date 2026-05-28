@@ -1186,9 +1186,12 @@ class TabManager: ObservableObject {
                 "tabCount": tabs.count
             ])
             let previousTabId = oldValue
-            if let previousTabId,
-               let previousPanelId = focusedPanelId(for: previousTabId) {
-                lastFocusedPanelByTab[previousTabId] = previousPanelId
+            if let previousTabId {
+                if let previousPanelId = focusedPanelId(for: previousTabId) {
+                    lastFocusedPanelByTab[previousTabId] = previousPanelId
+                } else {
+                    lastFocusedPanelByTab.removeValue(forKey: previousTabId)
+                }
             }
             if shouldRecordFocusHistory {
                 if let previousTabId {
@@ -6726,6 +6729,10 @@ class TabManager: ObservableObject {
 
     func rememberFocusedSurface(tabId: UUID, surfaceId: UUID) {
         lastFocusedPanelByTab[tabId] = surfaceId
+    }
+
+    func forgetFocusedSurface(tabId: UUID) {
+        lastFocusedPanelByTab.removeValue(forKey: tabId)
     }
 
     func applyWindowBackgroundForSelectedTab() {

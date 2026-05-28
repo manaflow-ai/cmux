@@ -16231,6 +16231,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearPanelFocusForNoVisibleTarget(controller: BonsplitController) {
         setFocusedBonsplitController(controller)
+        owningTabManager?.forgetFocusedSurface(tabId: id)
         for panel in panels.values {
             panel.unfocus()
         }

@@ -2435,6 +2435,51 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertTrue(workspace.dockLayout.isOpenController(dock.controller))
     }
 
+    func testClosedDockOnlyWorkspaceDoesNotReopenFromRememberedFocus() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+
+        XCTAssertTrue(workspace.closePanel(mainPanelId, force: true))
+        drainMainQueue()
+        workspace.focusPanel(dockPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        let otherWorkspace = manager.addWorkspace(select: true)
+        drainMainQueue()
+        XCTAssertEqual(manager.selectedWorkspace?.id, otherWorkspace.id)
+
+        manager.selectedTabId = workspace.id
+        drainMainQueue()
+        XCTAssertTrue(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        workspace.dockLayout.closeEdge(.left)
+        drainMainQueue()
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertNil(workspace.focusedPanelId)
+
+        manager.selectedTabId = otherWorkspace.id
+        drainMainQueue()
+        manager.selectedTabId = workspace.id
+        drainMainQueue()
+
+        XCTAssertFalse(
+            workspace.dockLayout.isEdgeOpen(.left),
+            "Returning to a workspace should not reveal a dock edge the user just closed"
+        )
+        XCTAssertNil(workspace.focusedPanelId)
+    }
+
     func testOpenBrowserUsesFocusedDockPane() {
         let previousBrowserDisabled = UserDefaults.standard.object(forKey: BrowserAvailabilitySettings.disabledKey)
         BrowserAvailabilitySettings.setDisabled(false)
