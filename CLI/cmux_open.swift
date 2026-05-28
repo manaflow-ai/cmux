@@ -2182,7 +2182,10 @@ extension CMUXCLI {
             _ = try gitStdout(["update-ref", agentTurnDiffBaselineRefName(for: stashCommit), stashCommit], in: repoRoot)
             return stashCommit
         }
-        return try gitSingleLine(["rev-parse", "HEAD"], in: repoRoot)
+        if let headCommit = try? gitSingleLine(["rev-parse", "HEAD"], in: repoRoot) {
+            return headCommit
+        }
+        return try gitSingleLine(["hash-object", "-t", "tree", "/dev/null"], in: repoRoot)
     }
 
     private func agentTurnDiffBaselineRefName(for commit: String) -> String {
