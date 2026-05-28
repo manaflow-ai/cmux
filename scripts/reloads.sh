@@ -148,6 +148,11 @@ XCODEBUILD_ARGS=(
   -scheme cmux
   -configuration Release
   -destination 'platform=macOS'
+  -allowProvisioningUpdates
+  DEVELOPMENT_TEAM="${CMUX_DEV_TEAM:-HH3SJBAS42}"
+  CODE_SIGN_STYLE=Automatic
+  CODE_SIGN_ENTITLEMENTS="${CMUX_STAGING_ENTITLEMENTS:-$HOME/Library/Application Support/cmux/staging.entitlements}"
+  ONLY_ACTIVE_ARCH=YES
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
@@ -246,7 +251,23 @@ if [[ -f "$INFO_PLIST" ]]; then
   if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
     rm -f "$CMUX_SOCKET_PATH_VALUE"
   fi
-  /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+  # Re-sign the patched staging app. Prefer a stable dev-cert signature
+  # (keeps TCC permission grants across rebuilds) and preserve the built
+  # entitlements; fall back to ad-hoc if no identity is available.
+  CMUX_SIGN_IDENTITY="${CMUX_SIGN_IDENTITY:-Apple Development: sean@mobility-labs.com}"
+  ENT_TMP="$(mktemp -t cmux-staging-ent).plist"
+  /usr/bin/codesign -d --entitlements ":$ENT_TMP" "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+  if /usr/bin/security find-identity -v -p codesigning 2>/dev/null | grep -qF "$CMUX_SIGN_IDENTITY"; then
+    if [[ -s "$ENT_TMP" ]]; then
+      /usr/bin/codesign --force --sign "$CMUX_SIGN_IDENTITY" --timestamp=none --generate-entitlement-der --entitlements "$ENT_TMP" "$STAGING_APP_PATH" >/dev/null 2>&1 \
+        || /usr/bin/codesign --force --sign "$CMUX_SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+    else
+      /usr/bin/codesign --force --sign "$CMUX_SIGN_IDENTITY" --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+    fi
+  else
+    /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$STAGING_APP_PATH" >/dev/null 2>&1 || true
+  fi
+  rm -f "$ENT_TMP"
 fi
 APP_PATH="$STAGING_APP_PATH"
 
