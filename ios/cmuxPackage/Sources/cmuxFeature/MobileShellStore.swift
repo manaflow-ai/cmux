@@ -1141,6 +1141,26 @@ public final class CMUXMobileShellStore {
         await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
+    /// Raw-bytes overload. The libghostty render path on iOS uses this
+    /// for input that may include binary sequences (mouse reports,
+    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
+    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
+    /// then the Mac decodes back to Data. If we ever need true binary
+    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
+    /// `input` param to a base64 field.
+    public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
+        guard !data.isEmpty else { return }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        let workspaceCandidate = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
+        })
+        guard let workspace = workspaceCandidate else { return }
+        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+    }
+
     private func submitTerminalRawInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
@@ -1904,12 +1924,13 @@ public final class CMUXMobileShellStore {
                 }
             }
 
-            let stream = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
+            let topics: [String] = ["terminal.updated", "workspace.updated", "terminal.bytes"]
+            let stream = await client.subscribe(to: Set(topics))
             let requestData: Data
             do {
                 requestData = try MobileCoreRPCClient.requestData(
                     method: "mobile.events.subscribe",
-                    params: ["topics": ["terminal.updated", "workspace.updated"]]
+                    params: ["topics": topics]
                 )
             } catch {
                 mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -1944,9 +1965,49 @@ public final class CMUXMobileShellStore {
                     await self.refreshSelectedTerminalSnapshot()
                 } else if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                } else if event.topic == "terminal.bytes" {
+                    // Raw PTY bytes coming from the Mac surface's libghostty
+                    // pty-tee. Fan them out to whichever GhosttySurfaceView
+                    // is mounted for the named surface so it can call
+                    // `ghostty_surface_process_output` and converge on the
+                    // same grid as the Mac by construction.
+                    self.handleTerminalBytesEvent(event)
                 }
             }
         }
+    }
+
+    /// Per-surface byte sinks for the libghostty render path. A mounted
+    /// `GhosttySurfaceView` registers itself here and receives raw PTY
+    /// bytes pushed from the Mac via `terminal.bytes` events. The Mac
+    /// installs `ghostty_surface_set_pty_tee_cb` on its own surface so
+    /// every byte the Mac's read thread sees is mirrored here byte for
+    /// byte. The iOS surface feeds them into its own libghostty,
+    /// producing the same grid by construction.
+    private var terminalByteSinksBySurfaceID: [String: (Data) -> Void] = [:]
+
+    public func registerTerminalByteSink(
+        surfaceID: String,
+        sink: @escaping (Data) -> Void
+    ) {
+        terminalByteSinksBySurfaceID[surfaceID] = sink
+    }
+
+    public func unregisterTerminalByteSink(surfaceID: String) {
+        terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+            let surfaceID = payload["surface_id"] as? String,
+            let b64 = payload["data_b64"] as? String,
+            let bytes = Data(base64Encoded: b64)
+        else {
+            return
+        }
+        terminalByteSinksBySurfaceID[surfaceID]?(bytes)
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {

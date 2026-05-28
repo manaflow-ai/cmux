@@ -5340,6 +5340,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceSuspendedForAgentHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Heap-allocated userdata for the libghostty PTY tee callback (cmux
+    /// fork extension). Installed in `createSurface` after
+    /// `ghostty_surface_new` succeeds; released alongside
+    /// `surfaceCallbackContext` whenever we tear down or rebuild the
+    /// surface. The Mac sync server reads the tee'd bytes to broadcast
+    /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
+    private var mobileByteTeeContext: Unmanaged<MobileTerminalByteTeeUserdata>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -5699,6 +5706,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
               cmuxSurfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
+            let teeContext = mobileByteTeeContext
+            mobileByteTeeContext = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -5713,6 +5722,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            teeContext?.release()
             return nil
         }
         return surface
@@ -5921,6 +5931,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -5930,6 +5943,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -5937,6 +5951,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 #endif
@@ -5946,6 +5961,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            teeContext?.release()
         }
     }
 
@@ -5956,6 +5972,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -5969,6 +5988,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -5982,6 +6002,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            teeContext?.release()
         }
     }
 
@@ -6467,6 +6488,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
+        // Install the PTY tee so MobileTerminalByteTee receives every byte
+        // the read thread produces, in order, before the VT parser runs.
+        // Paired iPhones consume these bytes via `terminal.bytes` events
+        // and feed them into their own libghostty surface, guaranteeing
+        // grid parity by construction. The userdata box is released
+        // alongside `surfaceCallbackContext` when the surface tears down.
+        mobileByteTeeContext?.release()
+        let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: id))
+        ghostty_surface_set_pty_tee_cb(
+            createdSurface,
+            cmuxMobileTerminalByteTeeCallback,
+            teeContext.toOpaque()
+        )
+        mobileByteTeeContext = teeContext
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
