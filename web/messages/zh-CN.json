@@ -1143,5 +1143,8 @@
       "intro": "此页面打开当前 cmux 工作区中的规则。",
       "fallback": "cmux 首先显示规则并在将它们粘贴到当前工作区之前进行询问。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw 创建者。PSPDFKit 创始人。"
   }
 }
