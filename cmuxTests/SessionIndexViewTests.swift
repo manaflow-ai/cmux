@@ -141,7 +141,8 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.cwd, worktreeCwd.path)
         XCTAssertEqual(
             entry.resumeCommandWithCwd,
-            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
         )
     }
 
@@ -165,7 +166,8 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.cwd, startCwd.path)
         XCTAssertEqual(
             entry.resumeCommandWithCwd,
-            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
         )
     }
 
@@ -190,7 +192,8 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(entry.cwd, laterCwd.path)
         XCTAssertEqual(
             entry.resumeCommandWithCwd,
-            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && "
+                + posixShWrappedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)")
         )
     }
 
@@ -715,7 +718,8 @@ private extension SessionAgent {
             return .claude(
                 model: nil,
                 permissionMode: nil,
-                configDirectoryForResume: claudeConfigDirectoryForResume
+                configDirectoryForResume: claudeConfigDirectoryForResume,
+                resumeWorkingDirectory: nil
             )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
