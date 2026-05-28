@@ -12,8 +12,10 @@ Build, install, and launch the cmux iOS app with an isolated tag.
 By default this reloads only the simulator. Use --device to also reload the
 first available paired iPhone/iPad, or --device-only to skip the simulator.
 
-Device signing uses the local Xcode account and profiles. Set
-IOS_DEVELOPMENT_TEAM or pass --team when the project cannot infer a team.
+Device signing uses the local Xcode account, or App Store Connect API
+credentials from ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_PATH, or
+ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
+--team when the project cannot infer a team.
 EOF
 }
 
@@ -138,6 +140,22 @@ BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
 
+LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
+if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
+  ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+fi
+
+XCODE_AUTH_ARGS=()
+if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
+  XCODE_AUTH_ARGS=(
+    -authenticationKeyPath "$ASC_API_KEY_PATH"
+    -authenticationKeyID "$ASC_API_KEY_ID"
+    -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+  )
+fi
+
 run_and_capture() {
   local log_path="$1"
   shift
@@ -158,8 +176,9 @@ print_device_build_failure() {
 error: physical device reload needs local iOS signing setup.
 
 Xcode could not sign the tagged app for a connected device. Set up an Apple
-Developer account in Xcode, make sure the device is registered for the team,
-then retry with either:
+Developer account in Xcode or provide App Store Connect API credentials through
+ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH, make sure the device is
+registered for the team, then retry with either:
 
   IOS_DEVELOPMENT_TEAM=<TEAM_ID> ios/scripts/reload.sh --tag $TAG --device
   ios/scripts/reload.sh --tag $TAG --device --team <TEAM_ID>
@@ -225,9 +244,9 @@ for device in data.get("result", {}).get("devices", []):
 
     coredevice_id = str(device.get("identifier") or "")
     hardware_udid = str(hardware.get("udid") or "")
-    identifier = coredevice_id or hardware_udid
-    destination_id = identifier
-    if not destination_id:
+    destination_id = hardware_udid or coredevice_id
+    install_id = coredevice_id or hardware_udid
+    if not destination_id or not install_id:
         continue
 
     name = properties.get("name") or destination_id
@@ -251,6 +270,7 @@ for device in data.get("result", {}).get("devices", []):
     )
     devices.append({
         "identifier": destination_id,
+        "install_identifier": install_id,
         "name": name,
         "ids": ids,
         "available": available,
@@ -282,7 +302,7 @@ if requested_id:
                 file=sys.stderr,
             )
             raise SystemExit(1)
-        print(f"{device['identifier']}\t{device['name']}")
+        print(f"{device['identifier']}\t{device['install_identifier']}\t{device['name']}")
         raise SystemExit(0)
     print(f"error: requested device id not found: {requested_id}", file=sys.stderr)
     raise SystemExit(1)
@@ -305,14 +325,14 @@ if requested_name:
                 file=sys.stderr,
             )
             raise SystemExit(1)
-        print(f"{device['identifier']}\t{device['name']}")
+        print(f"{device['identifier']}\t{device['install_identifier']}\t{device['name']}")
         raise SystemExit(0)
     print(f"error: requested device name not found: {requested_name}", file=sys.stderr)
     raise SystemExit(1)
 
 for device in devices:
     if device["available"]:
-        print(f"{device['identifier']}\t{device['name']}")
+        print(f"{device['identifier']}\t{device['install_identifier']}\t{device['name']}")
         raise SystemExit(0)
 
 print("error: no available paired physical iPhone/iPad found", file=sys.stderr)
@@ -397,7 +417,9 @@ EOF
 reload_device() {
   local selection
   local selected_device_id
+  local selected_device_install_id
   local selected_device_name
+  local selection_remainder
   local device_destination
   local device_app_path
   local build_log
@@ -407,8 +429,13 @@ reload_device() {
   selection="$(select_device)"
   tab=$'\t'
   selected_device_id="${selection%%$tab*}"
-  selected_device_name="${selection#*$tab}"
-  device_destination="platform=iOS,id=$selected_device_id"
+  selection_remainder="${selection#*$tab}"
+  selected_device_install_id="${selection_remainder%%$tab*}"
+  selected_device_name="${selection_remainder#*$tab}"
+  device_destination="generic/platform=iOS"
+  if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
+    device_destination="platform=iOS,id=$selected_device_id"
+  fi
   device_app_path="$DERIVED_DATA/Build/Products/Debug-iphoneos/cmux.app"
   build_log="${TMPDIR:-/tmp}/cmux-ios-device-build-$TAG_SLUG.log"
 
@@ -430,6 +457,8 @@ reload_device() {
   if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
     build_args+=(-allowProvisioningDeviceRegistration)
   fi
+
+  build_args+=("${XCODE_AUTH_ARGS[@]}")
 
   build_args+=(
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
@@ -461,10 +490,10 @@ reload_device() {
   fi
 
   echo "==> Installing physical device app"
-  xcrun devicectl device install app --device "$selected_device_id" "$device_app_path"
+  xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
 
   if [[ "$LAUNCH" -eq 1 ]]; then
-    xcrun devicectl device process launch --terminate-existing --device "$selected_device_id" "$BUNDLE_ID" >/dev/null
+    xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null
   fi
 
   cat <<EOF
