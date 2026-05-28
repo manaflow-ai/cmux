@@ -808,6 +808,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["geminiIntegration"]) {
             snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
+        if let value = jsonBool(section["antigravityIntegration"]) {
+            snapshot.managedUserDefaults[AntigravityIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
                 logInvalid("automation.portBase", sourcePath: sourcePath)

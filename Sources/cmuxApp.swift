@@ -4920,6 +4920,18 @@ enum GeminiIntegrationSettings {
     }
 }
 
+enum AntigravityIntegrationSettings {
+    static let hooksEnabledKey = "antigravityHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -5235,6 +5247,8 @@ struct SettingsView: View {
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
     private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+    @AppStorage(AntigravityIntegrationSettings.hooksEnabledKey)
+    private var antigravityHooksEnabled = AntigravityIntegrationSettings.defaultHooksEnabled
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
@@ -7290,6 +7304,25 @@ struct SettingsView: View {
                     }
 
                     SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.antigravityIntegration"),
+                            String(localized: "settings.automation.antigravity", defaultValue: "Antigravity CLI Integration"),
+                            subtitle: antigravityHooksEnabled
+                                ? String(localized: "settings.automation.antigravity.subtitleOn", defaultValue: "Sidebar shows Antigravity session status and notifications.")
+                                : String(localized: "settings.automation.antigravity.subtitleOff", defaultValue: "Antigravity runs without cmux integration.")
+                        ) {
+                            Toggle("", isOn: $antigravityHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsAntigravityHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.antigravity.note", defaultValue: "Hooks must be installed with `cmux hooks antigravity install`. They no-op outside cmux terminals."))
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(configurationReview: .json("automation.portBase"), String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -8099,6 +8132,7 @@ struct SettingsView: View {
         suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+        antigravityHooksEnabled = AntigravityIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)

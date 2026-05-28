@@ -64588,6 +64588,98 @@
         }
       }
     },
+    "settings.automation.antigravity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity CLI Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity CLI連携"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity CLI 연동"
+          }
+        }
+      }
+    },
+    "settings.automation.antigravity.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux hooks antigravity install`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux hooks antigravity install`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux hooks antigravity install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다."
+          }
+        }
+      }
+    },
+    "settings.automation.antigravity.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AntigravityはCmux連携なしで動作します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity가 cmux 연동 없이 실행됩니다."
+          }
+        }
+      }
+    },
+    "settings.automation.antigravity.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Antigravity session status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにAntigravityセッションのステータスと通知が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Antigravity 세션 상태와 알림이 표시됩니다."
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {

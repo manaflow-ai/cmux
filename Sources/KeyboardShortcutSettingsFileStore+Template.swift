@@ -157,6 +157,7 @@ extension CmuxSettingsFileStore {
                     "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
+                    "antigravityIntegration": AntigravityIntegrationSettings.defaultHooksEnabled,
                     "portBase": AutomationSettings.defaultPortBase,
                     "portRange": AutomationSettings.defaultPortRange,
                 ],
