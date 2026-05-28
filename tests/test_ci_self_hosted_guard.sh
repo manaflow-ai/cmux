@@ -53,12 +53,43 @@ check_e2e_runner_fallbacks() {
     fi
   done
 
+  if ! grep -Fq 'RUNNER_CONTEXT_NAME: ${{ runner.name }}' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must inspect the actual runner name for Depot runs"
+    exit 1
+  fi
+
+  if ! grep -Fq "startsWith(inputs.runner || 'depot-macos-latest', 'depot-macos-')" "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*\*\)$/ {
+      in_reject = 1
+      saw_error = 0
+      saw_exit = 0
+      next
+    }
+    in_reject && /echo "::error::\$REQUESTED_RUNNER resolved outside Depot/ { saw_error = 1 }
+    in_reject && /^[[:space:]]*exit 1$/ { saw_exit = 1 }
+    in_reject && /^[[:space:]]*;;$/ {
+      if (saw_error && saw_exit) {
+        found = 1
+      }
+      in_reject = 0
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must fail fast and explain runner label misrouting clearly"
+    exit 1
+  fi
+
   if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes Depot runner choices and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
 }
 
 check_xcode_selection() {
