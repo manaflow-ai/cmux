@@ -13910,6 +13910,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    func debugCommandPaletteMarkedTextInputBlocksEscape(window: NSWindow) -> Bool {
+        isCommandPaletteEffectivelyVisible(in: window) && commandPaletteMarkedTextInput(in: window) != nil
+    }
+
     func debugMainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
         mainWindowForFocusedCloseShortcut(event: event)
     }

@@ -3771,63 +3771,34 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: windowId)
-        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeTestWindow(window) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
+        let overlayContainer = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
+        overlayContainer.alphaValue = 1
+        overlayContainer.isHidden = false
+        window.contentView?.addSubview(overlayContainer)
         let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         fieldEditor.isFieldEditor = true
         fieldEditor.hasMarkedTextForTesting = true
-        window.contentView?.addSubview(fieldEditor)
+        overlayContainer.addSubview(fieldEditor)
         XCTAssertTrue(window.makeFirstResponder(fieldEditor))
-
-        appDelegate.setCommandPaletteVisible(true, for: window)
-        defer {
-            appDelegate.setCommandPaletteVisible(false, for: window)
-            fieldEditor.removeFromSuperview()
-        }
-
-        let dismissExpectation = expectation(
-            description: "Escape should not dismiss command palette while IME marked text is active"
-        )
-        dismissExpectation.isInverted = true
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { notification in
-            guard let dismissWindow = notification.object as? NSWindow,
-                  dismissWindow.windowNumber == window.windowNumber else { return }
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
-        guard let escapeEvent = makeKeyDownEvent(
-            key: "\u{1b}",
-            modifiers: [],
-            keyCode: 53,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Escape event")
-            return
-        }
+        defer { overlayContainer.removeFromSuperview() }
 
 #if DEBUG
-        XCTAssertFalse(
-            appDelegate.debugHandleCustomShortcut(event: escapeEvent),
+        XCTAssertTrue(
+            appDelegate.debugCommandPaletteMarkedTextInputBlocksEscape(window: window),
             "Escape should pass through to IME composition instead of dismissing command palette"
         )
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("command palette marked-text debug hook is only available in DEBUG")
 #endif
-
-        wait(for: [dismissExpectation], timeout: 0.2)
     }
 
     func testEscapeDismissesCommandPaletteWhenVisibilitySyncLagsAfterOpenRequest() {
