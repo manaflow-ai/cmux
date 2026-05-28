@@ -38,7 +38,6 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
                 "-p",
                 "--output-format", "stream-json",
                 "--input-format", "stream-json",
-                "--permission-prompt-tool", "stdio",
                 "--include-partial-messages",
                 "--verbose"
             ]

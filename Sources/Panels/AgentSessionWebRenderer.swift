@@ -2195,7 +2195,37 @@ private final class AgentSessionProcessStore {
 #if DEBUG
             cmuxDebugLog("agentSession.opencode.eventStream.failed error=\(error.localizedDescription)")
 #endif
+            failOpenCodeEventStream(
+                sessionId: sessionId,
+                openCodeSessionID: openCodeSessionID,
+                details: error.localizedDescription
+            )
         }
+    }
+
+    private func failOpenCodeEventStream(sessionId: String, openCodeSessionID: String, details: String?) {
+        guard let session = sessions[sessionId],
+              session.openCodeSessionID == openCodeSessionID else {
+            return
+        }
+        let message = String(
+            localized: "agentSession.opencode.error.eventStreamFailed",
+            defaultValue: "OpenCode event stream disconnected."
+        )
+        let suffix = details?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outputText: String
+        if let suffix = suffix, !suffix.isEmpty {
+            outputText = "\(message) \(suffix)\n"
+        } else {
+            outputText = "\(message)\n"
+        }
+        emitOutput(
+            sessionId: session.sessionId,
+            providerID: session.providerID,
+            stream: "stderr",
+            text: outputText
+        )
+        failSession(sessionId: sessionId, status: 1)
     }
 
     private func handleOpenCodeEvent(_ event: [String: Any], sessionId: String, openCodeSessionID: String) {

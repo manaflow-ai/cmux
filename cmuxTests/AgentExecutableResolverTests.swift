@@ -185,6 +185,33 @@ final class AgentExecutableResolverTests: XCTestCase {
         }
     }
 
+    func testClaudeLaunchPlanDoesNotRequestUnhandledPermissionPromptTool() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executable = bin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
+        )
+
+        let plan = try resolver.resolve(.claude)
+        XCTAssertFalse(plan.arguments.contains("--permission-prompt-tool"))
+        XCTAssertEqual(plan.arguments, [
+            "-p",
+            "--output-format", "stream-json",
+            "--input-format", "stream-json",
+            "--include-partial-messages",
+            "--verbose"
+        ])
+    }
+
     func testOpenCodeLaunchPlanAssignsConcreteRuntimePort() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
