@@ -39,6 +39,33 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testWorkspaceWorkingDirectoryCommandUsesGhosttyFallbackWhenUnset() throws {
+        let ghosttyHome = try makeTemporaryGhosttyConfigHome(
+            "window-inherit-working-directory = false\n"
+        )
+        defer { try? FileManager.default.removeItem(at: ghosttyHome) }
+
+        try withTemporaryGhosttyHome(ghosttyHome) {
+            try withTemporaryDefaults { defaults in
+                let descriptor = try XCTUnwrap(
+                    CommandPaletteSettingsToggleCommands.descriptor(
+                        commandId: "palette.toggleSetting.workspaceInheritWorkingDirectory"
+                    )
+                )
+
+                XCTAssertFalse(descriptor.isOn(defaults))
+
+                descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+                XCTAssertEqual(
+                    defaults.object(forKey: WorkspaceWorkingDirectoryInheritanceSettings.key) as? Bool,
+                    true
+                )
+                XCTAssertTrue(descriptor.isOn(defaults))
+            }
+        }
+    }
+
     func testTerminalScrollBarTogglePostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -306,6 +333,45 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testSettingsToggleCommandIdsAreUnique() {
         let commandIds = CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId)
         XCTAssertEqual(Set(commandIds).count, commandIds.count)
+    }
+
+    private func makeTemporaryGhosttyConfigHome(_ configContents: String) throws -> URL {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-command-palette-ghostty-\(UUID().uuidString)", isDirectory: true)
+        let ghosttyDirectory = home.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDirectory, withIntermediateDirectories: true)
+        try configContents.write(
+            to: ghosttyDirectory.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        return home
+    }
+
+    private func withTemporaryGhosttyHome(
+        _ home: URL,
+        _ body: () throws -> Void
+    ) rethrows {
+        let previousHome = getenv("HOME").map { String(cString: $0) }
+        let previousFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("HOME", home.path, 1)
+        setenv("CFFIXED_USER_HOME", home.path, 1)
+        GhosttyConfig.invalidateLoadCache()
+        defer {
+            if let previousHome {
+                setenv("HOME", previousHome, 1)
+            } else {
+                unsetenv("HOME")
+            }
+            if let previousFixedHome {
+                setenv("CFFIXED_USER_HOME", previousFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        try body()
     }
 
     private func withTemporaryDefaults(_ body: (UserDefaults) throws -> Void) throws {

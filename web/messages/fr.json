@@ -495,7 +495,8 @@
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
-          "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet."
+          "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
+          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
