@@ -311,6 +311,21 @@ function SessionSurface({
     setMenuIndex(0);
     setAddContextMenuOpen(false);
   };
+  const openSkillMenu = (query = "") => {
+    setMenuKind("skill");
+    setMenuQuery(query);
+    setMenuIndex(0);
+    setProviderMenuOpen(false);
+    setAddContextMenuOpen(false);
+    editorRef.current?.focus();
+  };
+  const insertSkillMenuItem = (id: string) => {
+    const item = composerMenuItems("skill", state, "").find((item) => item.id === id);
+    if (item) {
+      insertComposerMenuItem(item);
+    }
+    editorRef.current?.focus();
+  };
   const pickLocalFiles = async () => {
     if (isPickingFiles) {
       return;
@@ -507,6 +522,21 @@ function SessionSurface({
       onChoose: insertComposerMenuItem,
       onPickFiles: () => void pickLocalFiles(),
       state,
+    }),
+    h(ComposerFooterButton, {
+      ariaLabel: state.context?.copy.browseWeb ?? "Browse web",
+      icon: globeIcon(),
+      onClick: () => insertSkillMenuItem("research"),
+    }),
+    h(ComposerFooterButton, {
+      ariaLabel: state.context?.copy.skillPlan ?? "Plan",
+      icon: sparkleIcon(),
+      onClick: () => insertSkillMenuItem("plan"),
+    }),
+    h(ComposerFooterButton, {
+      ariaLabel: state.context?.copy.tools ?? "Tools",
+      icon: toolsIcon(),
+      onClick: () => openSkillMenu(),
     }),
   );
   const secondaryControls = h(
@@ -997,6 +1027,28 @@ function ComposerTopTray({
   );
 }
 
+function ComposerFooterButton({
+  ariaLabel,
+  icon,
+  onClick,
+}: {
+  ariaLabel: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return h(
+    "button",
+    {
+      className:
+        `codex-tool ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+      type: "button",
+      "aria-label": ariaLabel,
+      onClick,
+    },
+    icon,
+  );
+}
+
 function AddContextDropdown({
   isOpen,
   isPickingFiles,
@@ -1035,7 +1087,7 @@ function AddContextDropdown({
       "button",
       {
         className:
-          `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+          `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         "aria-label": addPhotosAndFilesLabel,
         "aria-haspopup": "menu",
@@ -1351,6 +1403,45 @@ function paperclipIcon(className = "icon-sm") {
     h("path", {
       d: "M4.43945 12.8041V7.68261C4.43945 7.30642 4.74446 7.00141 5.12066 7.00141C5.49685 7.00141 5.80186 7.30642 5.80186 7.68261V12.8041C5.80186 15.2565 7.78984 17.2445 10.2422 17.2445C12.6945 17.2445 14.6825 15.2565 14.6825 12.8041V5.9751C14.6823 4.46587 13.4589 3.24247 11.9497 3.24229C10.4403 3.24229 9.21606 4.46576 9.21588 5.9751V12.8041C9.21588 13.3708 9.67553 13.8304 10.2422 13.8304C10.8088 13.8304 11.2685 13.3708 11.2685 12.8041V7.68261C11.2685 7.30642 11.5735 7.00141 11.9497 7.00141C12.3257 7.00159 12.6309 7.30653 12.6309 7.68261V12.8041C12.6309 14.1232 11.5612 15.1929 10.2422 15.1929C8.92314 15.1929 7.85347 14.1232 7.85347 12.8041V5.9751C7.85365 3.71337 9.68791 1.87988 11.9497 1.87988C14.2113 1.88006 16.0447 3.71348 16.0449 5.9751V12.8041C16.0449 16.0089 13.4469 18.6069 10.2422 18.6069C7.03745 18.6069 4.43945 16.0089 4.43945 12.8041Z",
       fill: "currentColor",
+    }),
+  );
+}
+
+function globeIcon() {
+  return h(
+    "svg",
+    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M10 2.75a7.25 7.25 0 1 0 0 14.5a7.25 7.25 0 0 0 0-14.5ZM2.75 10h14.5M10 2.75c1.78 1.75 2.67 4.17 2.67 7.25S11.78 15.5 10 17.25C8.22 15.5 7.33 13.08 7.33 10S8.22 4.5 10 2.75Z",
+      stroke: "currentColor",
+      strokeWidth: "1.35",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+    }),
+  );
+}
+
+function sparkleIcon() {
+  return h(
+    "svg",
+    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M9.18 2.83c.16-.44.78-.44.94 0l.94 2.58c.05.14.16.25.3.3l2.58.94c.44.16.44.78 0 .94l-2.58.94a.5.5 0 0 0-.3.3l-.94 2.58c-.16.44-.78.44-.94 0l-.94-2.58a.5.5 0 0 0-.3-.3l-2.58-.94c-.44-.16-.44-.78 0-.94l2.58-.94a.5.5 0 0 0 .3-.3l.94-2.58ZM14.7 11.62c.12-.31.56-.31.68 0l.45 1.23c.04.1.11.18.21.21l1.23.45c.31.12.31.56 0 .68l-1.23.45a.36.36 0 0 0-.21.21l-.45 1.23c-.12.31-.56.31-.68 0l-.45-1.23a.36.36 0 0 0-.21-.21l-1.23-.45c-.31-.12-.31-.56 0-.68l1.23-.45a.36.36 0 0 0 .21-.21l.45-1.23Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function toolsIcon() {
+  return h(
+    "svg",
+    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M12.42 3.58l1.25 1.25M4.75 15.25l5.82-5.82M10.57 9.43l4.18 4.18c.43.43.43 1.13 0 1.56l-.58.58c-.43.43-1.13.43-1.56 0L8.43 11.57M11.08 4.92l4-2l2 2l-2 4L6.33 17.67H2.5v-3.84l8.58-8.91Z",
+      stroke: "currentColor",
+      strokeWidth: "1.35",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
     }),
   );
 }
