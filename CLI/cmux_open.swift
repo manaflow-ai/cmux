@@ -5369,6 +5369,10 @@ extension CMUXCLI {
                   model.itemById.delete(oldId);
                   model.itemById.set(newId, state.currentItem);
                 }
+                if (model.treePathByItemId.has(oldId)) {
+                  model.treePathByItemId.delete(oldId);
+                  model.treePathByItemId.set(newId, treePath);
+                }
                 if (model.pendingItemById.has(oldId)) {
                   const pendingItem = model.pendingItemById.get(oldId);
                   model.pendingItemById.delete(oldId);
@@ -5804,6 +5808,7 @@ extension CMUXCLI {
                 pathToItemId: model.pathToItemId,
                 previousSource,
                 statsByPath: model.statsByPath,
+                treePathByItemId: model.treePathByItemId,
               };
               model.lastTreeSource = source;
               return source;
@@ -6265,9 +6270,9 @@ extension CMUXCLI {
             }
 
             function setupFileExplorerSource(source, treesModule) {
-              const itemCount = source.pathCount ?? source.entries.length;
-              const entries = sourceEntries(source);
-              syncFileTreeSelectionMaps(source, entries);
+              const itemCount = sourcePathCount(source);
+              const canUsePierreTree = canUsePierreFileTree(treesModule);
+              syncFileTreeSelectionMaps(source, []);
               if (fileTree) {
                 fileTree.cleanUp?.();
                 fileTree = null;
@@ -6277,7 +6282,7 @@ extension CMUXCLI {
               fileList.textContent = "";
               filesCount.textContent = `${itemCount}`;
               updateDiffStatsFromSource(source);
-              if (treesModule?.FileTree && treesModule?.preparePresortedFileTreeInput) {
+              if (canUsePierreTree) {
                 try {
                   setupPierreFileTree(source, treesModule);
                   updateToolbarState();
@@ -6286,6 +6291,8 @@ extension CMUXCLI {
                   console.warn("cmux diff file tree setup failed", error);
                 }
               }
+              const entries = sourceEntries(source);
+              syncFileTreeSelectionMaps(source, entries);
               setupFlatFileExplorer(entries);
               updateToolbarState();
             }
@@ -6295,9 +6302,8 @@ extension CMUXCLI {
             }
 
             function refreshFileExplorerSource(source, treesModule) {
-              const itemCount = source.pathCount ?? source.entries.length;
-              const entries = sourceEntries(source);
-              syncFileTreeSelectionMaps(source, entries);
+              const itemCount = sourcePathCount(source);
+              syncFileTreeSelectionMaps(source, []);
               filesCount.textContent = `${itemCount}`;
               updateDiffStatsFromSource(source);
               if (fileTree && fileList.dataset.treeMode === "pierre" && treesModule?.preparePresortedFileTreeInput) {
@@ -6308,17 +6314,18 @@ extension CMUXCLI {
                 setupFileExplorerSource(source, treesModule);
                 return;
               }
+              const entries = sourceEntries(source);
+              syncFileTreeSelectionMaps(source, entries);
               fileList.textContent = "";
               setupFlatFileExplorer(entries);
             }
 
             function setupPierreFileTree(source, treesModule) {
               const { FileTree, preparePresortedFileTreeInput } = treesModule;
-              const entries = sourceEntries(source);
               const paths = sourcePaths(source);
               fileTreeSource = source;
-              const initialSelectedPath = entries[0]?.path;
-              replaceFileTreeStatsFromSource(source, entries);
+              const initialSelectedPath = paths[0];
+              useFileTreeStatsFromSource(source);
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
@@ -6365,10 +6372,9 @@ extension CMUXCLI {
 
             function refreshPierreFileTree(source, treesModule) {
               const previousSource = fileTreeSource;
-              const entries = sourceEntries(source);
               const paths = sourcePaths(source);
               fileTreeSource = source;
-              replaceFileTreeStatsFromSource(source, entries);
+              useFileTreeStatsFromSource(source);
               if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
                 const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
                 if (addedPaths.length > 0) {
@@ -6398,6 +6404,7 @@ extension CMUXCLI {
               const paths = entries.map((entry) => entry.path);
               const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
               const statsByPath = new Map(entries.map((entry) => [entry.path, entry.stats]));
+              const treePathByItemId = new Map(entries.map((entry) => [entry.item.id, entry.path]));
               return {
                 entries,
                 gitStatus: entries
@@ -6407,7 +6414,16 @@ extension CMUXCLI {
                 paths,
                 pathToItemId,
                 statsByPath,
+                treePathByItemId,
               };
+            }
+
+            function canUsePierreFileTree(treesModule) {
+              return Boolean(treesModule?.FileTree && treesModule?.preparePresortedFileTreeInput);
+            }
+
+            function sourcePathCount(source) {
+              return source?.pathCount ?? source?.entries?.length ?? 0;
             }
 
             function sourceEntries(source) {
@@ -6454,28 +6470,31 @@ extension CMUXCLI {
               return true;
             }
 
-            function replaceFileTreeStatsFromSource(source, treeEntries) {
-              fileTreeStatsByPath.clear();
+            function useFileTreeStatsFromSource(source) {
               if (source?.statsByPath instanceof Map) {
-                for (const [path, stats] of source.statsByPath) {
-                  fileTreeStatsByPath.set(path, stats);
-                }
+                fileTreeStatsByPath = source.statsByPath;
                 return;
               }
+              fileTreeStatsByPath = new Map();
+              const treeEntries = sourceEntries(source);
               for (const entry of treeEntries) {
                 fileTreeStatsByPath.set(entry.path, entry.stats);
               }
             }
 
             function syncFileTreeSelectionMaps(source, entries) {
-              itemIdByTreePath.clear();
-              treePathByItemId.clear();
-              if (source?.pathToItemId instanceof Map) {
-                for (const [path, itemId] of source.pathToItemId) {
-                  itemIdByTreePath.set(path, itemId);
+              if (source?.pathToItemId instanceof Map && source?.treePathByItemId instanceof Map) {
+                itemIdByTreePath = source.pathToItemId;
+                treePathByItemId = source.treePathByItemId;
+              } else if (source?.pathToItemId instanceof Map) {
+                itemIdByTreePath = source.pathToItemId;
+                treePathByItemId = new Map();
+                for (const [path, itemId] of itemIdByTreePath) {
                   treePathByItemId.set(itemId, path);
                 }
               } else {
+                itemIdByTreePath = new Map();
+                treePathByItemId = new Map();
                 for (const entry of entries) {
                   const itemId = entry.item?.id;
                   if (!itemId) {
@@ -6517,8 +6536,8 @@ extension CMUXCLI {
 
             function resetTreePathMaps() {
               activeTreePath = "";
-              itemIdByTreePath.clear();
-              treePathByItemId.clear();
+              itemIdByTreePath = new Map();
+              treePathByItemId = new Map();
             }
 
             function buildTreeEntries(items) {
