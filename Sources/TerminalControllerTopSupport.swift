@@ -49,6 +49,139 @@ extension TerminalController {
         )
     }
 
+    nonisolated func v2TopSkippedSamplePayload() -> [String: Any] {
+        [
+            "sampled_at": ISO8601DateFormatter().string(from: Date()),
+            "source": "skipped",
+            "cpu_source": "skipped",
+            "memory_source": "skipped",
+            "memory_fallback_source": "skipped",
+            "resident_memory_source": "skipped",
+            "resident_memory_sources": [] as [String],
+            "resident_memory_fallback_source": "skipped",
+            "process_details": false,
+            "resources": false
+        ]
+    }
+
+    nonisolated func v2AnnotateTopWindowsWithoutResources(_ windows: inout [[String: Any]]) {
+        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windows)
+        for index in windows.indices {
+            var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
+            for workspaceIndex in workspaces.indices {
+                v2AnnotateTopWorkspaceWithoutResources(
+                    &workspaces[workspaceIndex],
+                    browserPIDOccurrences: browserPIDOccurrences
+                )
+            }
+            windows[index]["workspaces"] = workspaces
+            windows[index]["top_level_pids"] = []
+            windows[index]["foreground_pgids"] = []
+            windows[index]["resources"] = CmuxTopResourceSummary().payload()
+            windows[index]["processes"] = []
+        }
+    }
+
+    private nonisolated func v2AnnotateTopWorkspaceWithoutResources(
+        _ workspace: inout [String: Any],
+        browserPIDOccurrences: [Int: Int]
+    ) {
+        var panes = workspace["panes"] as? [[String: Any]] ?? []
+        for paneIndex in panes.indices {
+            v2AnnotateTopPaneWithoutResources(
+                &panes[paneIndex],
+                browserPIDOccurrences: browserPIDOccurrences
+            )
+        }
+        workspace["panes"] = panes
+
+        var tags = workspace["tags"] as? [[String: Any]] ?? []
+        for tagIndex in tags.indices {
+            v2AnnotateTopTagWithoutResources(&tags[tagIndex])
+        }
+        workspace["tags"] = tags
+
+        workspace["top_level_pids"] = []
+        workspace["foreground_pgids"] = []
+        workspace["resources"] = CmuxTopResourceSummary().payload()
+    }
+
+    private nonisolated func v2AnnotateTopPaneWithoutResources(
+        _ pane: inout [String: Any],
+        browserPIDOccurrences: [Int: Int]
+    ) {
+        var surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+        for surfaceIndex in surfaces.indices {
+            v2AnnotateTopSurfaceWithoutResources(
+                &surfaces[surfaceIndex],
+                browserPIDOccurrences: browserPIDOccurrences
+            )
+        }
+        pane["surfaces"] = surfaces
+        pane["top_level_pids"] = []
+        pane["foreground_pgids"] = []
+        pane["resources"] = CmuxTopResourceSummary().payload()
+    }
+
+    private nonisolated func v2AnnotateTopSurfaceWithoutResources(
+        _ surface: inout [String: Any],
+        browserPIDOccurrences: [Int: Int]
+    ) {
+        var rootPIDs: Set<Int> = []
+        var webviews = surface["webviews"] as? [[String: Any]] ?? []
+        for webviewIndex in webviews.indices {
+            if let pid = v2AnnotateTopWebViewWithoutResources(
+                &webviews[webviewIndex],
+                browserPIDOccurrences: browserPIDOccurrences
+            ) {
+                rootPIDs.insert(pid)
+            }
+        }
+        surface["webviews"] = webviews
+        surface["cmux_process_pids"] = []
+        surface["tty_process_pids"] = []
+        surface["root_pids"] = rootPIDs.sorted()
+        surface["top_level_pids"] = []
+        surface["foreground_pgids"] = []
+        surface["resources"] = CmuxTopResourceSummary().payload()
+        surface["processes"] = []
+    }
+
+    private nonisolated func v2AnnotateTopWebViewWithoutResources(
+        _ webview: inout [String: Any],
+        browserPIDOccurrences: [Int: Int]
+    ) -> Int? {
+        guard let pid = v2TopInt(webview["pid"]) else {
+            webview["shared_process_count"] = NSNull()
+            webview["root_pids"] = []
+            webview["top_level_pids"] = []
+            webview["foreground_pgids"] = []
+            webview["resources"] = CmuxTopResourceSummary().payload()
+            webview["processes"] = []
+            return nil
+        }
+
+        webview["shared_process_count"] = max(1, browserPIDOccurrences[pid] ?? 1)
+        webview["root_pids"] = [pid]
+        webview["top_level_pids"] = []
+        webview["foreground_pgids"] = []
+        webview["resources"] = CmuxTopResourceSummary().payload()
+        webview["processes"] = []
+        return pid
+    }
+
+    private nonisolated func v2AnnotateTopTagWithoutResources(_ tag: inout [String: Any]) {
+        if let pid = v2TopInt(tag["pid"]) {
+            tag["root_pids"] = [pid]
+        } else {
+            tag["root_pids"] = []
+        }
+        tag["top_level_pids"] = []
+        tag["foreground_pgids"] = []
+        tag["resources"] = CmuxTopResourceSummary().payload()
+        tag["processes"] = []
+    }
+
     nonisolated func v2AnnotateTopWindows(
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,

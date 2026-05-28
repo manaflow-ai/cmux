@@ -4443,10 +4443,24 @@ class TerminalController {
         guard case .ok(let value) = base else { return base }
         guard var payload = value as? [String: Any],
               let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
+              let includeResources = payload.removeValue(forKey: "include_resources") as? Bool,
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
         }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+        guard includeResources else {
+            v2AnnotateTopWindowsWithoutResources(&windowNodes)
+            payload["sample"] = v2TopSkippedSamplePayload()
+            payload["totals"] = CmuxTopResourceSummary().payload()
+            payload["memory_diagnostic"] = NSNull()
+            payload["program_totals"] = [] as [[String: Any]]
+            payload["coding_agents"] = [] as [[String: Any]]
+            payload["windows"] = windowNodes
+            return .ok(payload)
+        }
+        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+            includeProcessDetails: includeProcesses,
+            maximumAge: 2
+        )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         let totalPIDs = v2AnnotateTopWindows(
             &windowNodes,
@@ -4549,6 +4563,11 @@ class TerminalController {
         }
         if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
         let includeProcesses = v2Bool(params, "include_processes") ?? false
+        if params["include_resources"] != nil, v2Bool(params, "include_resources") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_resources", data: nil) }
+        let includeResources = v2Bool(params, "include_resources") ?? true
+        if includeProcesses && !includeResources {
+            return .err(code: "invalid_params", message: "include_processes requires include_resources", data: nil)
+        }
         let routingResult = parseV2WindowRouting(params: params)
         if let error = routingResult.error { return error }
         guard let routing = routingResult.routing else {
@@ -4633,6 +4652,7 @@ class TerminalController {
             "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
             "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
             "include_processes": includeProcesses,
+            "include_resources": includeResources,
             "windows": windowNodes
         ])
     }
