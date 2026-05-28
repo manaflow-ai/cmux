@@ -930,6 +930,75 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(finalRecordedIDs, [connectionID])
     }
 
+    func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        observer.start()
+        defer {
+            observer.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        drainMobileHostMainQueue()
+        XCTAssertFalse(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
+        XCTAssertFalse(observer.debugIsRetainingNotificationDemandForTesting)
+
+        let session = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+
+        await session.subscribe(streamID: "events", topics: ["terminal.updated"])
+        drainMobileHostMainQueue()
+
+        XCTAssertTrue(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
+        XCTAssertTrue(observer.debugIsRetainingNotificationDemandForTesting)
+
+        _ = await session.unsubscribe(streamID: "events")
+        drainMobileHostMainQueue()
+
+        XCTAssertFalse(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
+        XCTAssertFalse(observer.debugIsRetainingNotificationDemandForTesting)
+    }
+
+    func testMobileWorkspaceListHashIncludesDisplayedDirectories() {
+        let workspace = Workspace(
+            title: "Mobile",
+            workingDirectory: "/tmp/mobile-a",
+            portOrdinal: 0
+        )
+        let initial = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        workspace.currentDirectory = "/tmp/mobile-b"
+        let afterWorkspaceDirectory = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        XCTAssertNotEqual(initial, afterWorkspaceDirectory)
+
+        workspace.panelDirectories[UUID()] = "/tmp/mobile-terminal"
+        let afterTerminalDirectory = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        XCTAssertNotEqual(afterWorkspaceDirectory, afterTerminalDirectory)
+    }
+
     func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
@@ -1035,6 +1104,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
             expiresAt: Date().addingTimeInterval(3600),
             authToken: "ticket-secret"
         )
+    }
+
+    private func drainMobileHostMainQueue() {
+        let expectation = XCTestExpectation(description: "drain mobile host main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        XCTWaiter().wait(for: [expectation], timeout: 1)
     }
 }
 

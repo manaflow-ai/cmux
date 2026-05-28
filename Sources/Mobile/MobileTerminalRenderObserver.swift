@@ -1,13 +1,8 @@
 import Foundation
 
-/// Pushes a `terminal.updated` event to subscribed mobile clients on every
-/// Ghostty frame draw. The metal layer already calls
-/// `enqueueRenderedFrameUpdate()` when it acquires a drawable and the
-/// `GhosttyRenderedFrameNotificationDemand` gate is active, which posts
-/// `.ghosttyDidRenderFrame` once per coalesced frame. By retaining the demand
-/// from this observer for the lifetime of the process, every grid mutation
-/// (PTY echo, autosuggest ghost text, alt-screen redraws, mac-typed input)
-/// becomes a push event the iPhone can act on without waiting for the poller.
+/// Pushes `terminal.updated` only while a mobile client is actively subscribed.
+/// The Ghostty notification demand is deliberately tied to subscriptions so the
+/// desktop terminal path is untouched when no iPhone/iPad is attached.
 @MainActor
 final class MobileTerminalRenderObserver {
     static let shared = MobileTerminalRenderObserver()
@@ -15,29 +10,31 @@ final class MobileTerminalRenderObserver {
     private var releaseFrameDemand: (() -> Void)?
     private var releaseTickDemand: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
+    private var pendingSurfaceIDs = Set<UUID>()
+    private var hasPendingGlobalUpdate = false
+    private var isEmitFlushScheduled = false
 
     private init() {}
 
     func start() {
         guard observers.isEmpty else { return }
-        releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
-        releaseTickDemand = GhosttyApp.retainTickNotifications()
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshNotificationDemand()
+        })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
             object: nil,
             queue: .main
-        ) { notification in
-            // Cap the work per frame at a notification dispatch. The metal
-            // layer coalesces frames before posting, so this fires at most
-            // once per drawable.
+        ) { [weak self] notification in
             guard let view = notification.object as? GhosttyNSView,
                   let surfaceID = view.terminalSurface?.id else {
                 return
             }
-            MobileHostService.emitEvent(
-                topic: "terminal.updated",
-                payload: ["surface_id": surfaceID.uuidString]
-            )
+            self?.enqueueTerminalUpdate(surfaceID: surfaceID)
         })
         // Frame notifications only fire when Ghostty's Metal layer pulls a
         // drawable, which it skips for surfaces whose Mac window isn't on
@@ -50,12 +47,10 @@ final class MobileTerminalRenderObserver {
             forName: .ghosttyDidTick,
             object: nil,
             queue: .main
-        ) { _ in
-            MobileHostService.emitEvent(
-                topic: "terminal.updated",
-                payload: [:]
-            )
+        ) { [weak self] _ in
+            self?.enqueueTerminalUpdate(surfaceID: nil)
         })
+        refreshNotificationDemand()
     }
 
     func stop() {
@@ -67,6 +62,9 @@ final class MobileTerminalRenderObserver {
         releaseFrameDemand = nil
         releaseTickDemand?()
         releaseTickDemand = nil
+        pendingSurfaceIDs.removeAll()
+        hasPendingGlobalUpdate = false
+        isEmitFlushScheduled = false
     }
 
     deinit {
@@ -76,4 +74,70 @@ final class MobileTerminalRenderObserver {
         releaseFrameDemand?()
         releaseTickDemand?()
     }
+
+    private func refreshNotificationDemand() {
+        let shouldRetainDemand = MobileHostService.hasEventSubscribers(topic: "terminal.updated")
+        if shouldRetainDemand {
+            if releaseFrameDemand == nil {
+                releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
+            }
+            if releaseTickDemand == nil {
+                releaseTickDemand = GhosttyApp.retainTickNotifications()
+            }
+        } else {
+            releaseFrameDemand?()
+            releaseFrameDemand = nil
+            releaseTickDemand?()
+            releaseTickDemand = nil
+            pendingSurfaceIDs.removeAll()
+            hasPendingGlobalUpdate = false
+            isEmitFlushScheduled = false
+        }
+    }
+
+    private func enqueueTerminalUpdate(surfaceID: UUID?) {
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.updated") else {
+            refreshNotificationDemand()
+            return
+        }
+        if let surfaceID {
+            pendingSurfaceIDs.insert(surfaceID)
+        } else {
+            hasPendingGlobalUpdate = true
+        }
+        guard !isEmitFlushScheduled else { return }
+        isEmitFlushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.flushTerminalUpdates()
+        }
+    }
+
+    private func flushTerminalUpdates() {
+        isEmitFlushScheduled = false
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.updated") else {
+            refreshNotificationDemand()
+            return
+        }
+        let surfaceIDs = pendingSurfaceIDs
+        let shouldEmitGlobal = hasPendingGlobalUpdate
+        pendingSurfaceIDs.removeAll()
+        hasPendingGlobalUpdate = false
+
+        if shouldEmitGlobal {
+            MobileHostService.emitEvent(topic: "terminal.updated", payload: [:])
+            return
+        }
+        for surfaceID in surfaceIDs {
+            MobileHostService.emitEvent(
+                topic: "terminal.updated",
+                payload: ["surface_id": surfaceID.uuidString]
+            )
+        }
+    }
+
+    #if DEBUG
+    var debugIsRetainingNotificationDemandForTesting: Bool {
+        releaseFrameDemand != nil && releaseTickDemand != nil
+    }
+    #endif
 }

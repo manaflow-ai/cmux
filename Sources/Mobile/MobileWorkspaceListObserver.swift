@@ -68,14 +68,19 @@ final class MobileWorkspaceListObserver {
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
         }
-        // Merge the per-workspace publishers we care about (terminal
-        // open/close, terminal rename, workspace rename) into one stream so
-        // any of them fires a single coalesced emit.
+        // Merge the per-workspace publishers behind the mobile workspace
+        // list: terminal set, terminal titles, workspace title, and displayed
+        // directory fields. Directory changes can arrive from shell prompt
+        // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
-            let panels = workspace.$panels.map { _ in () }
-            let titles = workspace.$panelTitles.map { _ in () }
-            let title = workspace.$title.map { _ in () }
-            let merged = Publishers.Merge3(panels, titles, title)
+            let publishers: [AnyPublisher<Void, Never>] = [
+                workspace.$panels.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+            ]
+            let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -117,8 +122,20 @@ final class MobileWorkspaceListObserver {
             hasher.combine(panelIDs)
             for id in panelIDs {
                 hasher.combine(workspace.panelTitles[id])
+                hasher.combine(workspace.panelDirectories[id])
+            }
+            hasher.combine(workspace.currentDirectory)
+            for id in workspace.panelDirectories.keys.sorted() {
+                hasher.combine(id)
+                hasher.combine(workspace.panelDirectories[id])
             }
         }
         return hasher.finalize()
     }
+
+    #if DEBUG
+    static func summaryHashForTesting(tabs: [Workspace], selectedTabID: UUID?) -> Int {
+        summaryHash(for: tabs, selectedTabID: selectedTabID)
+    }
+    #endif
 }
