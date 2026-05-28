@@ -5758,6 +5758,11 @@ class TabManager: ObservableObject {
         // section + anchor-first invariants hold for socket
         // workspace.reorder_many / `cmux reorder-workspaces`.
         if !workspaceGroups.isEmpty {
+            // Resync workspaceGroups order to wherever the anchors landed
+            // in the rebuilt tabs[]; otherwise normalize walks the stale
+            // workspaceGroups order and snaps the group sections back to
+            // their previous positions even though the batch moved them.
+            syncWorkspaceGroupsOrderToAnchorOrder()
             normalizeWorkspaceGroupContiguity()
         }
         postWorkspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
