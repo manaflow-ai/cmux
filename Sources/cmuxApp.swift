@@ -115,7 +115,8 @@ struct cmuxApp: App {
             setenv("GHOSTTY_RESOURCES_DIR", resolvedResourcesDir, 1)
         }
 
-        if let terminfoURL = Bundle.main.resourceURL?.appendingPathComponent("terminfo"),
+        if getenv("TERMINFO") == nil,
+           let terminfoURL = Bundle.main.resourceURL?.appendingPathComponent("terminfo"),
            fileManager.fileExists(atPath: terminfoURL.path) {
             setenv("TERMINFO", terminfoURL.path, 1)
         }
