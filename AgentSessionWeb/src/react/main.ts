@@ -9,6 +9,7 @@ import {
   type FooterCollapseState,
 } from "../shared/footerCollapse";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
+import { promptTextWithAttachments } from "../shared/promptAttachments";
 import { promptTextWithPlanMode } from "../shared/promptModes";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
@@ -22,6 +23,7 @@ import {
   autoStartProvider,
   canSelectProvider,
   canStartProvider,
+  canStopProvider,
   loadInitialData,
   messageForError,
   reduceSession,
@@ -29,6 +31,7 @@ import {
   selectProvider,
   startProvider,
   statusLabel,
+  stopProvider,
   type Action,
   type SessionState,
   type TranscriptEntry,
@@ -265,6 +268,7 @@ function SessionSurface({
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
   const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
+  const canStop = canStopProvider(state);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
@@ -555,6 +559,7 @@ function SessionSurface({
     }),
     h(PermissionsDropdown, {
       copy: state.context?.copy,
+      isEnabled: false,
       isOpen: permissionsMenuOpen,
       mode: permissionMode,
       onModeChange: setPermissionMode,
@@ -599,6 +604,19 @@ function SessionSurface({
             onClick: () => void startProvider(state, dispatch),
           },
           state.context?.copy.start ?? "Start",
+        )
+      : null,
+    canStop
+      ? h(
+          "button",
+          {
+            className:
+              `codex-action codex-stop ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+            type: "button",
+            "aria-label": state.context?.copy.stop ?? "Stop",
+            onClick: () => void stopProvider(state, dispatch),
+          },
+          stopIcon(),
         )
       : null,
     h(
@@ -1125,12 +1143,14 @@ function ComposerModeIndicator({
 
 function PermissionsDropdown({
   copy,
+  isEnabled,
   isOpen,
   mode,
   onModeChange,
   onOpenChange,
 }: {
   copy?: AgentSessionCopy;
+  isEnabled: boolean;
   isOpen: boolean;
   mode: ComposerPermissionMode;
   onModeChange: (mode: ComposerPermissionMode) => void;
@@ -1138,17 +1158,18 @@ function PermissionsDropdown({
 }) {
   const triggerLabel = copy?.changePermissions ?? "Change permissions";
   const selectedLabel = permissionModeLabel(copy, mode);
-  const options: ComposerPermissionMode[] = ["default", "auto-review", "full-access", "custom"];
+  const options: ComposerPermissionMode[] = isEnabled ? ["default", "auto-review", "full-access", "custom"] : [];
   const selectMode = (nextMode: ComposerPermissionMode) => {
     onModeChange(nextMode);
     onOpenChange(false);
   };
+  const effectiveIsOpen = isEnabled && isOpen;
   return h(
     "div",
     {
       className: "permissions-root relative inline-flex",
       onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        if (isEnabled && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
           onOpenChange(false);
         }
       },
@@ -1160,12 +1181,21 @@ function PermissionsDropdown({
           `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} min-w-0 rounded-full`,
         type: "button",
         "aria-label": triggerLabel,
-        "aria-haspopup": "menu",
-        "aria-expanded": isOpen,
+        "aria-haspopup": isEnabled ? "menu" : undefined,
+        "aria-expanded": isEnabled ? effectiveIsOpen : undefined,
+        "aria-disabled": isEnabled ? undefined : true,
         "data-permission-mode": mode,
-        "data-state": isOpen ? "open" : "closed",
-        onClick: () => onOpenChange(!isOpen),
+        "data-state": effectiveIsOpen ? "open" : "closed",
+        disabled: !isEnabled,
+        onClick: () => {
+          if (isEnabled) {
+            onOpenChange(!effectiveIsOpen);
+          }
+        },
         onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+          if (!isEnabled) {
+            return;
+          }
           if (event.key === "ArrowDown") {
             event.preventDefault();
             onOpenChange(true);
@@ -1178,9 +1208,9 @@ function PermissionsDropdown({
       },
       permissionModeIcon(mode, "icon-xs shrink-0"),
       h("span", { className: "permissions-trigger-label composer-footer__label--xs max-w-40 truncate whitespace-nowrap text-left" }, selectedLabel),
-      h("span", { className: "permissions-trigger-chevron icon-2xs shrink-0", "aria-hidden": true }, chevronIcon()),
+      isEnabled ? h("span", { className: "permissions-trigger-chevron icon-2xs shrink-0", "aria-hidden": true }, chevronIcon()) : null,
     ),
-    isOpen
+    effectiveIsOpen
       ? h(
           "div",
           {
@@ -1535,30 +1565,27 @@ function dedupeAttachments(attachments: ComposerAttachment[]): ComposerAttachmen
   });
 }
 
-function promptTextWithAttachments(input: string, attachments: ComposerAttachment[]): string {
-  const attachmentText = attachments
-    .map((attachment) => `[${escapeMarkdownLabel(attachment.label)}](${escapeMarkdownDestination(attachment.path)})`)
-    .join(" ");
-  if (!attachmentText) {
-    return input;
-  }
-  return input.trim().length > 0 ? `${attachmentText}\n\n${input}` : attachmentText;
-}
-
-function escapeMarkdownLabel(label: string): string {
-  return label.replace(/([\\\]])/g, "\\$1");
-}
-
-function escapeMarkdownDestination(destination: string): string {
-  return destination.replace(/([\\()])/g, "\\$1");
-}
-
 function sendIcon(className = "icon-sm") {
   return h(
     "svg",
     { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M9.33467 16.6663V4.93978L4.6374 9.63704L4.1667 9.16634L3.69599 8.69661L9.52998 2.86263L9.63447 2.77767C9.8925 2.60753 10.2433 2.63564 10.4704 2.86263L16.3034 8.69661L16.3884 8.80111C16.5588 9.05922 16.5306 9.40982 16.3034 9.63704C16.0762 9.86414 15.7255 9.89242 15.4675 9.722L15.363 9.63704L10.6647 4.9388V16.6663C10.6647 17.0336 10.367 17.3314 9.99971 17.3314C9.63259 17.3312 9.33467 17.0335 9.33467 16.6663ZM4.6374 9.63704C4.3777 9.89674 3.95569 9.89674 3.69599 9.63704C3.43657 9.37744 3.43668 8.95628 3.69599 8.69661L4.6374 9.63704Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function stopIcon() {
+  return h(
+    "svg",
+    { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    h("rect", {
+      x: "4.75",
+      y: "4.75",
+      width: "6.5",
+      height: "6.5",
+      rx: "1",
       fill: "currentColor",
     }),
   );
