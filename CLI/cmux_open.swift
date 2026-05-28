@@ -5290,7 +5290,6 @@ extension CMUXCLI {
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
-              let renderedInitialCodeBatch = false;
               const batchConfig = {
                 initialBatchSize: getInitialFileTreeRowCount(),
                 incrementalBatchSize: 25,
@@ -5315,7 +5314,6 @@ extension CMUXCLI {
                 const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
                 const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
                 const stats = fileStats(fileDiff);
-                const status = gitStatus(fileDiff);
                 const itemId = model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
                 const item = {
                   id: itemId,
@@ -5328,7 +5326,7 @@ extension CMUXCLI {
                 model.items.push(item);
                 model.pendingItems.push(item);
                 model.pendingItemById.set(item.id, item);
-                model.itemIdToFile.set(item.id, fileDiff);
+                model.itemIdToFile.set(item.id, { fileOrder, path });
                 model.itemIdByTreePath.set(treePath, item.id);
                 model.treePathByItemId.set(item.id, treePath);
                 model.diffStats.addedLines += stats.added;
@@ -5364,9 +5362,9 @@ extension CMUXCLI {
                 state.currentItem.id = newId;
                 state.currentItemId = newId;
                 if (model.itemIdToFile.has(oldId)) {
-                  const fileDiff = model.itemIdToFile.get(oldId);
+                  const itemMetadata = model.itemIdToFile.get(oldId);
                   model.itemIdToFile.delete(oldId);
-                  model.itemIdToFile.set(newId, fileDiff);
+                  model.itemIdToFile.set(newId, itemMetadata);
                 }
                 if (model.treePathByItemId.has(oldId)) {
                   model.treePathByItemId.delete(oldId);
@@ -5478,7 +5476,7 @@ extension CMUXCLI {
                 }
                 const batch = diffModel.pendingItems.splice(0, diffModel.pendingItems.length);
                 diffModel.pendingItemById.clear();
-                const codeBatch = batch.filter(isRenderableDiffItem);
+                const codeBatch = batch;
                 const hadCodeItems = codeViewItems.length > 0;
                 diffItems.push(...batch);
                 for (const item of batch) {
@@ -5495,7 +5493,6 @@ extension CMUXCLI {
                     codeView.setItems(codeViewItems);
                     codeView.render(true);
                     window.__cmuxDiffViewer.codeView = codeView;
-                    renderedInitialCodeBatch = true;
                   } else {
                     codeView.addItems(codeBatch);
                   }
@@ -6798,10 +6795,6 @@ extension CMUXCLI {
 
             function gitStatus(fileDiff) {
               return gitStatusType(fileDiff.type);
-            }
-
-            function isRenderableDiffItem(item) {
-              return (item?.fileDiff?.hunks?.length ?? 0) > 0;
             }
 
             function gitStatusType(changeType) {
