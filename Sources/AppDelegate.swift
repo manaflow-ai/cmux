@@ -6889,9 +6889,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
-            ?? targetTabManager.tabs.first?.id
-            ?? targetTabManager.addWorkspace(select: true).id
+        let targetWorkspace = targetTabManager.selectedWorkspace
+            ?? targetTabManager.tabs.first
+            ?? targetTabManager.addWorkspace(select: true)
+        let targetWorkspaceId = targetWorkspace.id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
@@ -6904,7 +6905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
+            guard targetTabManager.openCodeEditor(
                 inWorkspace: targetWorkspaceId,
                 url: openFolderURL,
                 preferSplitRight: true
@@ -6915,6 +6916,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    @discardableResult
+    func openCodeEditor(
+        tabManager preferredTabManager: TabManager? = nil,
+        url requestedURL: URL? = nil,
+        preferSplitRight: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        let targetTabManager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "codeEditor.open.target")?.tabManager
+        guard let targetTabManager else {
+            NSSound.beep()
+            return nil
+        }
+
+        let targetWorkspace = targetTabManager.selectedWorkspace
+            ?? targetTabManager.tabs.first
+            ?? targetTabManager.addWorkspace(select: true)
+        let targetWorkspaceId = targetWorkspace.id
+
+        if let requestedURL {
+            return targetTabManager.openCodeEditor(
+                inWorkspace: targetWorkspaceId,
+                url: requestedURL,
+                preferSplitRight: preferSplitRight,
+                insertAtEnd: insertAtEnd
+            )
+        }
+
+        func openDefaultCodeEditor() -> UUID? {
+            targetTabManager.openCodeEditor(
+                inWorkspace: targetWorkspaceId,
+                url: BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
+                preferSplitRight: preferSplitRight,
+                insertAtEnd: insertAtEnd
+            )
+        }
+
+        let directoryPath = targetWorkspace.currentDirectory
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !directoryPath.isEmpty,
+              let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+            return openDefaultCodeEditor()
+        }
+
+        guard let panelId = openDefaultCodeEditor() else {
+            NSSound.beep()
+            return nil
+        }
+
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: directoryPath
+                  ) else {
+                return
+            }
+
+            targetTabManager.browserPanel(tabId: targetWorkspaceId, panelId: panelId)?
+                .navigate(to: openFolderURL)
+        }
+
+        return panelId
     }
 
     func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
@@ -14107,6 +14173,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager = context.tabManager
                 defer { tabManager = previousTabManager }
                 guard openBrowserAndFocusAddressBar(insertAtEnd: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
+            case .newCodeEditor:
+                guard context.tabManager.openCodeEditor(insertAtEnd: true) != nil else {
                     return false
                 }
                 onExecuted?()

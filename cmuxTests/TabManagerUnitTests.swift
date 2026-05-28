@@ -2252,6 +2252,36 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
 
+    func testOpenCodeEditorCreatesFirstClassEditorSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused workspace and pane")
+            return
+        }
+
+        _ = workspace.newTerminalSurface(inPane: paneId, focus: false)
+
+        guard let editorPanelId = manager.openCodeEditor(insertAtEnd: true),
+              let editorPanel = workspace.browserPanel(for: editorPanelId) else {
+            XCTFail("Expected code editor panel to be created")
+            return
+        }
+
+        XCTAssertEqual(editorPanel.panelType, .codeEditor)
+        XCTAssertEqual(editorPanel.surfaceRole, .codeEditor)
+        XCTAssertEqual(editorPanel.currentURL?.absoluteString, "https://vscode.dev/")
+        XCTAssertNil(manager.focusedBrowserPanel, "Code editor surfaces should not be treated as browser shortcut targets")
+
+        let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+        guard let lastSurface = tabs.last else {
+            XCTFail("Expected at least one surface in pane")
+            return
+        }
+        XCTAssertEqual(workspace.panelIdFromSurfaceId(lastSurface.id), editorPanelId)
+        XCTAssertEqual(lastSurface.kind, Workspace.SurfaceKind.codeEditor)
+    }
+
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
         let manager = TabManager()
         guard let initialWorkspace = manager.selectedWorkspace else {

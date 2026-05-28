@@ -2639,8 +2639,66 @@ final class BrowserPanel: Panel, ObservableObject {
         return NSColor.windowBackgroundColor
     }
 
+    enum SurfaceRole: String, Codable, Sendable {
+        case browser
+        case codeEditor
+
+        var panelType: PanelType {
+            switch self {
+            case .browser:
+                return .browser
+            case .codeEditor:
+                return .codeEditor
+            }
+        }
+
+        var displayIcon: String {
+            switch self {
+            case .browser:
+                return "globe"
+            case .codeEditor:
+                return "curlybraces.square"
+            }
+        }
+
+        var defaultDisplayTitle: String {
+            switch self {
+            case .browser:
+                return String(localized: "browser.newTab", defaultValue: "New tab")
+            case .codeEditor:
+                return String(localized: "codeEditor.newTab", defaultValue: "Code Editor")
+            }
+        }
+
+        var defaultInitialURL: URL? {
+            switch self {
+            case .browser:
+                return nil
+            case .codeEditor:
+                return URL(string: "https://vscode.dev/")
+            }
+        }
+
+        var showsBrowserChrome: Bool {
+            self == .browser
+        }
+
+        var recordsBrowserHistory: Bool {
+            self == .browser
+        }
+
+        var contributesToBrowserOpenTabSuggestions: Bool {
+            self == .browser
+        }
+
+        var contributesToGlobalBrowserSearch: Bool {
+            self == .browser
+        }
+    }
+
     let id: UUID
-    let panelType: PanelType = .browser
+    let surfaceRole: SurfaceRole
+    let panelType: PanelType
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -3099,9 +3157,14 @@ final class BrowserPanel: Panel, ObservableObject {
             return pageTitle
         }
         if let url = currentURL {
+            if surfaceRole == .codeEditor,
+               let defaultURL = SurfaceRole.codeEditor.defaultInitialURL,
+               url.absoluteString == defaultURL.absoluteString {
+                return surfaceRole.defaultDisplayTitle
+            }
             return url.host ?? url.absoluteString
         }
-        return String(localized: "browser.newTab", defaultValue: "New tab")
+        return surfaceRole.defaultDisplayTitle
     }
 
     var profileDisplayName: String {
@@ -3517,7 +3580,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "globe"
+        surfaceRole.displayIcon
     }
 
     var isDirty: Bool {
@@ -3653,7 +3716,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                if self.surfaceRole.recordsBrowserHistory {
+                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                }
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
@@ -3685,7 +3750,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func publishCommittedURL(from webView: WKWebView) {
         currentURL = Self.remoteProxyDisplayURL(for: webView.url)
-        GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+        if surfaceRole.contributesToGlobalBrowserSearch {
+            GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+        }
     }
 
     private func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
@@ -3696,6 +3763,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     init(
         workspaceId: UUID,
+        surfaceRole: SurfaceRole = .browser,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
@@ -3707,6 +3775,8 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
         self.id = UUID()
+        self.surfaceRole = surfaceRole
+        self.panelType = surfaceRole.panelType
         self.workspaceId = workspaceId
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
@@ -4381,7 +4451,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
-                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                if self.surfaceRole.contributesToGlobalBrowserSearch {
+                    GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                }
             }
         }
         webViewObservers.append(urlObserver)
@@ -4396,7 +4468,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
-                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                if self.surfaceRole.contributesToGlobalBrowserSearch {
+                    GlobalSearchCoordinator.shared.captureBrowserPanel(self)
+                }
             }
         }
         webViewObservers.append(titleObserver)
@@ -5679,7 +5753,8 @@ extension BrowserPanel {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            surfaceRole: surfaceRole
         ) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")

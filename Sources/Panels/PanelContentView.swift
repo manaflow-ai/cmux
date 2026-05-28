@@ -50,7 +50,7 @@ struct PanelContentView: View {
                     onTriggerFlash: onTriggerFlash
                 )
             }
-        case .browser:
+        case .browser, .codeEditor:
             if let browserPanel = panel as? BrowserPanel {
                 BrowserPanelView(
                     panel: browserPanel,
@@ -112,7 +112,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview, .rightSidebarTool:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .codeEditor:
             return false
         }
     }
