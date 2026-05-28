@@ -693,6 +693,7 @@ final class SessionIndexStore: ObservableObject {
         var pr: PullRequestLink?
         var model: String?
         var permissionMode: String?
+        var resumeCwd: String?
     }
 
     private struct ClaudeSessionRoot: Hashable {
@@ -768,13 +769,18 @@ final class SessionIndexStore: ObservableObject {
 
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
         var out = ClaudeParsed()
-        out.cwd = decodeClaudeProjectDir(projectDir)
+        let folderDecodedCwd = decodeClaudeProjectDir(projectDir)
+        out.cwd = folderDecodedCwd
+        var firstCwd: String?
 
         for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let data = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let isMeta = (obj["isMeta"] as? Bool) ?? false
             if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
+                if firstCwd == nil {
+                    firstCwd = cwdField
+                }
                 out.cwd = cwdField
             }
             if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
@@ -836,6 +842,7 @@ final class SessionIndexStore: ObservableObject {
         if let m = out.model, let bracket = m.firstIndex(of: "[") {
             out.model = String(m[..<bracket])
         }
+        out.resumeCwd = folderDecodedCwd ?? firstCwd ?? out.cwd
         return out
     }
 
@@ -1568,7 +1575,8 @@ final class SessionIndexStore: ObservableObject {
                         specifics: .claude(
                             model: parsed.model,
                             permissionMode: parsed.permissionMode,
-                            configDirectoryForResume: candidate.resumeConfigDirectory
+                            configDirectoryForResume: candidate.resumeConfigDirectory,
+                            resumeWorkingDirectory: parsed.resumeCwd
                         )
                     )
                     if needle.isEmpty {
