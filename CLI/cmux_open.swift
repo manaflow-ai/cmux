@@ -3356,17 +3356,24 @@ extension CMUXCLI {
         let pendingAttribute = pollForReplacement ? " data-cmux-diff-pending=\"true\"" : ""
         let pollScript = pollForReplacement ? """
           <script>
-            async function applyReplacementFrom(response) {
-              if (!response.ok) {
-                return false;
-              }
-              const text = await response.text();
-              if (text.includes("data-cmux-diff-pending=\\"true\\"")) {
-                return false;
-              }
+            function replaceDocumentWith(text) {
               document.open();
               document.write(text);
               document.close();
+            }
+
+            async function applyReplacementFrom(response) {
+              const text = await response.text();
+              if (!response.ok) {
+                if (text.trim() !== "") {
+                  replaceDocumentWith(text);
+                }
+                return false;
+              }
+              if (text.includes("data-cmux-diff-pending=\\"true\\"")) {
+                return false;
+              }
+              replaceDocumentWith(text);
               return true;
             }
 
@@ -3945,7 +3952,10 @@ extension CMUXCLI {
             return
         }
 
-        waitForDiffViewerHTTPReplacement(file)
+        guard waitForDiffViewerHTTPReplacement(file) else {
+            try sendDiffViewerHTTPWaitTimedOut(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
         try sendDiffViewerHTTPFile(
             file,
             fileDescriptor: fd,
@@ -4022,12 +4032,12 @@ extension CMUXCLI {
         return canonicalURL.absoluteString == url.absoluteString
     }
 
-    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) {
+    private func waitForDiffViewerHTTPReplacement(_ file: DiffViewerAllowedFile) -> Bool {
         let fileURL = URL(fileURLWithPath: file.filePath, isDirectory: false)
-        guard diffViewerHTTPFileIsPending(fileURL) else { return }
+        guard diffViewerHTTPFileIsPending(fileURL) else { return true }
 
         let fd = open(fileURL.path, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else { return false }
 
         let event = DispatchSemaphore(value: 0)
         let cleanup = DispatchSemaphore(value: 0)
@@ -4044,11 +4054,96 @@ extension CMUXCLI {
             cleanup.signal()
         }
         source.resume()
-        while diffViewerHTTPFileIsPending(fileURL) {
-            event.wait()
+        defer {
+            source.cancel()
+            _ = cleanup.wait(timeout: .now() + 1)
         }
-        source.cancel()
-        _ = cleanup.wait(timeout: .now() + 1)
+        let deadline = Date().addingTimeInterval(diffViewerHTTPReplacementWaitTimeout())
+        while diffViewerHTTPFileIsPending(fileURL) {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            let waitMilliseconds = max(1, Int((min(remaining, 1.0) * 1000).rounded(.up)))
+            _ = event.wait(timeout: .now() + .milliseconds(waitMilliseconds))
+        }
+        return true
+    }
+
+    private func diffViewerHTTPReplacementWaitTimeout() -> TimeInterval {
+        let defaultTimeout: TimeInterval = 120
+        let key = "CMUX_DIFF_VIEWER_WAIT_TIMEOUT_SECONDS"
+        guard let raw = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let value = TimeInterval(raw),
+              value.isFinite else {
+            return defaultTimeout
+        }
+        return min(max(value, 0.05), 600)
+    }
+
+    private func sendDiffViewerHTTPWaitTimedOut(fileDescriptor fd: Int32, omitBody: Bool) throws {
+        let title = CMUXDiffViewerLocalization.string(
+            "diffViewer.loadingDiff",
+            defaultValue: "Loading diff..."
+        )
+        let message = CMUXDiffViewerLocalization.string(
+            "diffViewer.renderFailed",
+            defaultValue: "Could not render this diff. Check the patch input and try again."
+        )
+        let body = Data(diffViewerHTTPStatusHTML(title: title, message: message).utf8)
+        try sendDiffViewerHTTPResponse(
+            fileDescriptor: fd,
+            status: 504,
+            reason: "Gateway Timeout",
+            headers: ["Content-Type": "text/html; charset=utf-8"],
+            body: body,
+            omitBody: omitBody
+        )
+    }
+
+    private func diffViewerHTTPStatusHTML(title: String, message: String) -> String {
+        """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>\(htmlEscaped(title))</title>
+          <style>
+            :root { color-scheme: light dark; }
+            body {
+              margin: 0;
+              min-height: 100vh;
+              display: grid;
+              place-items: center;
+              background: Canvas;
+              color: CanvasText;
+              font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+            }
+            main {
+              display: grid;
+              gap: 10px;
+              padding: 24px;
+              max-width: 520px;
+            }
+            h1 {
+              margin: 0;
+              font-size: 14px;
+              font-weight: 600;
+            }
+            p {
+              margin: 0;
+              opacity: 0.72;
+              line-height: 1.45;
+            }
+          </style>
+        </head>
+        <body>
+          <main>
+            <h1>\(htmlEscaped(title))</h1>
+            <p>\(htmlEscaped(message))</p>
+          </main>
+        </body>
+        </html>
+        """
     }
 
     private func diffViewerHTTPFileIsPending(_ fileURL: URL) -> Bool {

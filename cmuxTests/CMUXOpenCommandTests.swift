@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import XCTest
 
 final class CMUXOpenCommandTests: XCTestCase {
@@ -17,6 +18,28 @@ final class CMUXOpenCommandTests: XCTestCase {
             lock.lock()
             commands.append(command)
             lock.unlock()
+        }
+    }
+
+    private final class AsyncValueBox<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Value
+
+        init(_ value: Value) {
+            self.value = value
+        }
+
+        func set(_ value: Value) {
+            lock.lock()
+            self.value = value
+            lock.unlock()
+        }
+
+        func get() -> Value {
+            lock.lock()
+            let value = self.value
+            lock.unlock()
+            return value
         }
     }
 
@@ -419,6 +442,63 @@ final class CMUXOpenCommandTests: XCTestCase {
         let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
         XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+    }
+
+    func testDiffViewerServerBoundsDeferredWaitRequests() throws {
+        let cliPath = try bundledCLIPath()
+        let token = "test-\(UUID().uuidString.lowercased())"
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-wait-\(UUID().uuidString)", isDirectory: true)
+        let pendingURL = rootURL.appendingPathComponent("pending.html", isDirectory: false)
+        let manifestURL = rootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        chmod(rootURL.path, 0o700)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try """
+        <!doctype html>
+        <html data-cmux-diff-pending="true">
+        <body>Loading diff...</body>
+        </html>
+        """.write(to: pendingURL, atomically: true, encoding: .utf8)
+        let manifest: [String: Any] = [
+            "token": token,
+            "files": [
+                [
+                    "request_path": "/pending.html",
+                    "file_path": pendingURL.path,
+                    "mime_type": "text/html",
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_DIFF_VIEWER_WAIT_TIMEOUT_SECONDS"] = "0.05"
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["diff-viewer-server", "--root", rootURL.path]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        defer { terminateProcess(process) }
+
+        let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
+        let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/__cmux_diff_viewer_wait/\(token)/pending.html"))
+        let startedAt = Date()
+        let response = try fetchData(from: url, timeout: 3)
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
+        XCTAssertEqual(response.statusCode, 504)
+        let body = String(data: response.data, encoding: .utf8) ?? ""
+        XCTAssertFalse(body.contains("data-cmux-diff-pending=\"true\""), body)
+        XCTAssertTrue(body.contains("Could not render this diff"), body)
     }
 
     func testDiffCommandTakesPrecedenceOverLocalPathNamedDiff() throws {
@@ -2061,6 +2141,74 @@ final class CMUXOpenCommandTests: XCTestCase {
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(status: timedOut ? 124 : process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: timedOut)
+    }
+
+    private func readLine(from handle: FileHandle, timeout: TimeInterval) throws -> String {
+        let finished = DispatchSemaphore(value: 0)
+        let dataBox = AsyncValueBox(Data())
+        DispatchQueue.global(qos: .userInitiated).async {
+            var line = Data()
+            while line.count < 1024 {
+                let byte = handle.readData(ofLength: 1)
+                if byte.isEmpty || byte == Data([0x0a]) {
+                    break
+                }
+                line.append(byte)
+            }
+            dataBox.set(line)
+            finished.signal()
+        }
+
+        guard finished.wait(timeout: .now() + timeout) == .success else {
+            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "timed out reading process line",
+            ])
+        }
+        return String(data: dataBox.get(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func fetchData(from url: URL, timeout: TimeInterval) throws -> (data: Data, statusCode: Int) {
+        let finished = DispatchSemaphore(value: 0)
+        let resultBox = AsyncValueBox<(Data?, Int?, Error?)>((nil, nil, nil))
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        let session = URLSession(configuration: configuration)
+        let task = session.dataTask(with: url) { data, response, error in
+            resultBox.set((data, (response as? HTTPURLResponse)?.statusCode, error))
+            finished.signal()
+        }
+        task.resume()
+
+        guard finished.wait(timeout: .now() + timeout) == .success else {
+            task.cancel()
+            session.invalidateAndCancel()
+            throw NSError(domain: "cmux.tests", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "timed out fetching \(url.absoluteString)",
+            ])
+        }
+        session.invalidateAndCancel()
+
+        let (data, statusCode, error) = resultBox.get()
+        if let error {
+            throw error
+        }
+        return (data ?? Data(), statusCode ?? 0)
+    }
+
+    private func terminateProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            finished.signal()
+        }
+        if finished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+            _ = finished.wait(timeout: .now() + 1)
+        }
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {
