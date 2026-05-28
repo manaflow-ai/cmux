@@ -190,7 +190,12 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     private var subscription: AnyCancellable?
     private var timeoutTask: Task<Void, Never>?
 
-    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 600) {
+    /// Default 180s: long enough for typical Cloud VM provisioning but
+    /// short enough that an unrelated workspace created later that session
+    /// usually doesn't land in the watcher's grace window. Best-effort
+    /// correlation; for a tighter guarantee the launcher would need to
+    /// signal back its created workspace id, which is a separate refactor.
+    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 180) {
         let key = ObjectIdentifier(tabManager)
         pending[key]?.dispose()
         let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
