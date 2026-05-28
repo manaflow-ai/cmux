@@ -10410,15 +10410,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let subscription = Publishers.CombineLatest4(
+        let browserChromeState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
+        let subscription = Publishers.CombineLatest(
+            browserChromeState,
+            browserPanel.$isMuted.removeDuplicates()
+        )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
+        .sink { [weak self, weak browserPanel] browserChromeState, isMuted in
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+            let (_, _, isLoading, favicon) = browserChromeState
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
@@ -10429,13 +10434,15 @@ final class Workspace: Identifiable, ObservableObject {
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
             let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
-            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil else { return }
+            let muteUpdate: Bool? = existing.isAudioMuted == isMuted ? nil : isMuted
+            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || muteUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
                 iconImageData: faviconUpdate,
                 hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
-                isLoading: loadingUpdate
+                isLoading: loadingUpdate,
+                isAudioMuted: muteUpdate
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
@@ -15799,6 +15806,7 @@ final class Workspace: Identifiable, ObservableObject {
             focus: focus,
             preferredProfileID: browser.profileID
         ) else { return nil }
+        newPanel.setMuted(browser.isMuted)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
         return newPanel
     }
@@ -17501,6 +17509,16 @@ extension Workspace: BonsplitDelegate {
         case .duplicate:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = duplicateBrowserToRight(panelId: panelId)
+        case .toggleAudioMute:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let browser = browserPanel(for: panelId) else { return }
+#if DEBUG
+            cmuxDebugLog(
+                "browser.audioMute.toggle.contextMenu panel=\(panelId.uuidString.prefix(5)) " +
+                "targetMuted=\(!browser.isMuted ? 1 : 0)"
+            )
+#endif
+            browser.toggleMute()
         case .togglePin:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)

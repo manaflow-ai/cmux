@@ -610,12 +610,6 @@ struct BrowserPanelView: View {
         return "\(base) (\(KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools).displayString))"
     }
 
-    private var audioMuteButtonHelp: String {
-        panel.isMuted
-            ? String(localized: "browser.audio.unmute", defaultValue: "Unmute Tab")
-            : String(localized: "browser.audio.mute", defaultValue: "Mute Tab")
-    }
-
     private var browserImportHintSummary: String {
         InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
@@ -1105,29 +1099,6 @@ struct BrowserPanelView: View {
             }
             .buttonStyle(OmnibarAddressButtonStyle())
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
-
-            Button(action: {
-                #if DEBUG
-                cmuxDebugLog(
-                    "browser.audioMute.toggle panel=\(panel.id.uuidString.prefix(5)) " +
-                    "targetMuted=\(!panel.isMuted ? 1 : 0)"
-                )
-                #endif
-                panel.toggleMute()
-            }) {
-                Image(systemName: panel.isMuted ? "speaker.slash" : "speaker.wave.2")
-                    .symbolRenderingMode(.monochrome)
-                    .cmuxFlatSymbolColorRendering()
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(OmnibarAddressButtonStyle())
-            .disabled(!panel.canSetPageAudioMuted)
-            .opacity(panel.canSetPageAudioMuted ? 1.0 : 0.4)
-            .safeHelp(audioMuteButtonHelp)
-            .accessibilityLabel(audioMuteButtonHelp)
-            .accessibilityIdentifier("BrowserAudioMuteButton")
 
             if panel.isDownloading {
                 HStack(spacing: 4) {
