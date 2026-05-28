@@ -63,6 +63,71 @@ public struct PaneLayoutSnapshot: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Public Split Tree
+
+/// Public snapshot of a pane and its selected surfaces.
+public struct PaneState: Identifiable, Codable, Sendable, Equatable {
+    public let id: PaneID
+    public let frame: PixelRect
+    public let surfaces: [SurfaceTab]
+    public let selectedSurfaceID: SurfaceID?
+
+    public init(
+        id: PaneID,
+        frame: PixelRect,
+        surfaces: [SurfaceTab],
+        selectedSurfaceID: SurfaceID?
+    ) {
+        self.id = id
+        self.frame = frame
+        self.surfaces = surfaces
+        self.selectedSurfaceID = selectedSurfaceID
+    }
+}
+
+/// Public immutable split tree snapshot owned by CMUXLayout.
+public indirect enum SplitNode: Identifiable, Codable, Sendable, Equatable {
+    case pane(PaneState)
+    case split(Branch)
+
+    public struct Branch: Identifiable, Codable, Sendable, Equatable {
+        public let id: UUID
+        public let orientation: LayoutOrientation
+        public let dividerPosition: Double
+        public let first: SplitNode
+        public let second: SplitNode
+
+        public init(
+            id: UUID,
+            orientation: LayoutOrientation,
+            dividerPosition: Double,
+            first: SplitNode,
+            second: SplitNode
+        ) {
+            self.id = id
+            self.orientation = orientation
+            self.dividerPosition = Self.normalizedDividerPosition(dividerPosition)
+            self.first = first
+            self.second = second
+        }
+
+        private static func normalizedDividerPosition(_ dividerPosition: Double) -> Double {
+            let minimumDividerInset = 0.05
+            guard dividerPosition.isFinite else { return 0.5 }
+            return min(max(dividerPosition, minimumDividerInset), 1 - minimumDividerInset)
+        }
+    }
+
+    public var id: UUID {
+        switch self {
+        case .pane(let pane):
+            return pane.id.id
+        case .split(let branch):
+            return branch.id
+        }
+    }
+}
+
 // MARK: - External Tree Representation
 
 /// External representation of a tab

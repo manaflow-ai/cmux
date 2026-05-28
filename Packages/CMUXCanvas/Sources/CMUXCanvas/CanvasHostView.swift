@@ -754,7 +754,8 @@ private struct CanvasMetalBitmapTexture {
 enum CanvasMetalShaderLibrary {
     static func packageLibraryURL() -> URL? {
 #if SWIFT_PACKAGE
-        Bundle.module.url(forResource: "default", withExtension: "metallib")
+        Bundle.module.url(forResource: "CMUXCanvasPackage", withExtension: "metallib")
+            ?? Bundle.module.url(forResource: "default", withExtension: "metallib")
 #else
         nil
 #endif

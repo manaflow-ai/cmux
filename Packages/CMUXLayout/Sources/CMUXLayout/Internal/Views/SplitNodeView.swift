@@ -5,7 +5,7 @@ import AppKit
 struct SplitNodeView<Content: View, EmptyContent: View>: View {
     @Environment(SplitViewController.self) private var controller
 
-    let node: SplitNode
+    let node: MutableSplitNode
     let contentBuilder: (SurfaceItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
     let appearance: WorkspaceLayoutConfiguration.Appearance
@@ -90,7 +90,7 @@ final class SplitArrangedContainerView: NSView {
 struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable {
     @Environment(SplitViewController.self) private var controller
 
-    let pane: PaneState
+    let pane: MutablePaneState
     let contentBuilder: (SurfaceItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
     var showSplitButtons: Bool = true

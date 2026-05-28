@@ -9,9 +9,9 @@ struct PaneBounds {
 /// Recursive structure representing the split tree
 /// - pane: A leaf node containing a single pane with tabs
 /// - split: A branch node containing two children with a divider
-indirect enum SplitNode: Identifiable, Equatable {
-    case pane(PaneState)
-    case split(SplitState)
+indirect enum MutableSplitNode: Identifiable, Equatable {
+    case pane(MutablePaneState)
+    case split(MutableSplitState)
 
     var id: UUID {
         switch self {
@@ -23,7 +23,7 @@ indirect enum SplitNode: Identifiable, Equatable {
     }
 
     /// Find a pane by its ID
-    func findPane(_ paneId: PaneID) -> PaneState? {
+    func findPane(_ paneId: PaneID) -> MutablePaneState? {
         switch self {
         case .pane(let state):
             return state.id == paneId ? state : nil
@@ -33,7 +33,7 @@ indirect enum SplitNode: Identifiable, Equatable {
     }
 
     /// Find the leaf node for a pane by ID.
-    func findNode(containing paneId: PaneID) -> SplitNode? {
+    func findNode(containing paneId: PaneID) -> MutableSplitNode? {
         switch self {
         case .pane(let state):
             return state.id == paneId ? self : nil
@@ -53,7 +53,7 @@ indirect enum SplitNode: Identifiable, Equatable {
     }
 
     /// Get all panes in the tree
-    var allPanes: [PaneState] {
+    var allPanes: [MutablePaneState] {
         switch self {
         case .pane(let state):
             return [state]
@@ -75,7 +75,7 @@ indirect enum SplitNode: Identifiable, Equatable {
         }
     }
 
-    static func == (lhs: SplitNode, rhs: SplitNode) -> Bool {
+    static func == (lhs: MutableSplitNode, rhs: MutableSplitNode) -> Bool {
         lhs.id == rhs.id
     }
 

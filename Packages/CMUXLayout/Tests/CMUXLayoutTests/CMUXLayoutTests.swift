@@ -235,6 +235,69 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(split.dividerPosition, 0.05)
     }
 
+    @MainActor
+    func testPublicSplitTreeSnapshotUsesPaneAndSurfaceTypes() throws {
+        let controller = WorkspaceLayoutController()
+        let initialPane = try XCTUnwrap(controller.focusedPaneId)
+        let firstSurface = try XCTUnwrap(controller.createTab(title: "Terminal", kind: "terminal", inPane: initialPane))
+        let secondPane = try XCTUnwrap(controller.splitPane(orientation: .horizontal))
+        let browserSurface = try XCTUnwrap(controller.createTab(title: "Browser", kind: "browser", inPane: secondPane))
+
+        guard case .split(let root) = controller.splitTreeSnapshot() else {
+            XCTFail("Expected public SplitNode root after splitting")
+            return
+        }
+
+        XCTAssertEqual(root.orientation, .horizontal)
+        XCTAssertEqual(root.dividerPosition, 0.5, accuracy: 0.0001)
+
+        let panes = publicPanes(in: .split(root))
+        XCTAssertEqual(Set(panes.map(\.id)), Set([initialPane, secondPane]))
+        XCTAssertTrue(panes.flatMap(\.surfaces).contains { $0.id == firstSurface && $0.kind == "terminal" })
+        XCTAssertTrue(panes.flatMap(\.surfaces).contains { $0.id == browserSurface && $0.kind == "browser" })
+        XCTAssertTrue(panes.allSatisfy { pane in
+            pane.selectedSurfaceID == nil || pane.surfaces.contains(where: { $0.id == pane.selectedSurfaceID })
+        })
+    }
+
+    func testPublicSplitNodeNormalizesInvalidDividerPosition() throws {
+        let firstPane = PaneState(
+            id: PaneID(),
+            frame: PixelRect(x: 0, y: 0, width: 100, height: 100),
+            surfaces: [],
+            selectedSurfaceID: nil
+        )
+        let secondPane = PaneState(
+            id: PaneID(),
+            frame: PixelRect(x: 100, y: 0, width: 100, height: 100),
+            surfaces: [],
+            selectedSurfaceID: nil
+        )
+
+        let branch = SplitNode.Branch(
+            id: UUID(),
+            orientation: .vertical,
+            dividerPosition: .infinity,
+            first: .pane(firstPane),
+            second: .pane(secondPane)
+        )
+
+        XCTAssertEqual(branch.orientation, .vertical)
+        XCTAssertEqual(branch.dividerPosition, 0.5)
+        let data = try JSONEncoder().encode(SplitNode.split(branch))
+        let decoded = try JSONDecoder().decode(SplitNode.self, from: data)
+        XCTAssertEqual(decoded, .split(branch))
+    }
+
+    private func publicPanes(in node: SplitNode) -> [PaneState] {
+        switch node {
+        case .pane(let pane):
+            return [pane]
+        case .split(let branch):
+            return publicPanes(in: branch.first) + publicPanes(in: branch.second)
+        }
+    }
+
     private func externalPaneNode(id: String) -> ExternalTreeNode {
         .pane(
             ExternalPaneNode(
@@ -1300,7 +1363,7 @@ final class CMUXLayoutTests: XCTestCase {
     func testMoveTabNoopAfterItself() {
         let t0 = SurfaceItem(title: "0")
         let t1 = SurfaceItem(title: "1")
-        let pane = PaneState(tabs: [t0, t1], selectedTabId: t1.id)
+        let pane = MutablePaneState(tabs: [t0, t1], selectedTabId: t1.id)
 
         // Dragging the last tab to the right corresponds to moving it to `tabs.count`,
         // which should be treated as a no-op.
@@ -1350,7 +1413,7 @@ final class CMUXLayoutTests: XCTestCase {
         let unpinnedA = SurfaceItem(title: "A", isPinned: false)
         let unpinnedB = SurfaceItem(title: "B", isPinned: false)
         let pinned = SurfaceItem(title: "Pinned", isPinned: true)
-        let pane = PaneState(tabs: [unpinnedA, unpinnedB], selectedTabId: unpinnedA.id)
+        let pane = MutablePaneState(tabs: [unpinnedA, unpinnedB], selectedTabId: unpinnedA.id)
 
         pane.insertTab(pinned, at: 2)
 
@@ -1364,7 +1427,7 @@ final class CMUXLayoutTests: XCTestCase {
         let pinnedB = SurfaceItem(title: "Pinned B", isPinned: true)
         let unpinnedA = SurfaceItem(title: "A", isPinned: false)
         let unpinnedB = SurfaceItem(title: "B", isPinned: false)
-        let pane = PaneState(
+        let pane = MutablePaneState(
             tabs: [pinnedA, pinnedB, unpinnedA, unpinnedB],
             selectedTabId: unpinnedB.id
         )
@@ -3758,7 +3821,7 @@ final class CMUXLayoutTests: XCTestCase {
         appearance: WorkspaceLayoutConfiguration.Appearance = .default,
         showSplitButtons: Bool = false,
         size: NSSize? = nil,
-        configurePane: ((PaneState) -> Void)? = nil,
+        configurePane: ((MutablePaneState) -> Void)? = nil,
         extract: (NSView) -> T?
     ) -> T? {
         let controller = WorkspaceLayoutController(configuration: WorkspaceLayoutConfiguration(appearance: appearance))

@@ -796,7 +796,7 @@ struct TabBarView: View {
     @Environment(WorkspaceLayoutController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
 
-    @Bindable var pane: PaneState
+    @Bindable var pane: MutablePaneState
     let isFocused: Bool
     var showSplitButtons: Bool = true
 
@@ -2039,7 +2039,7 @@ private struct TabBarHoverTrackingView: NSViewRepresentable {
 }
 
 private struct TabBarManualReorderTrackingView: NSViewRepresentable {
-    let pane: PaneState
+    let pane: MutablePaneState
     let layoutController: WorkspaceLayoutController
     let splitViewController: SplitViewController
     let tabFrames: [UUID: CGRect]
@@ -2068,7 +2068,7 @@ private struct TabBarManualReorderTrackingView: NSViewRepresentable {
     }
 
     final class ManualReorderNSView: NSView {
-        weak var pane: PaneState?
+        weak var pane: MutablePaneState?
         weak var layoutController: WorkspaceLayoutController?
         weak var splitViewController: SplitViewController?
         var tabFrames: [UUID: CGRect] = [:]
@@ -2246,7 +2246,7 @@ private struct TabBarManualReorderTrackingView: NSViewRepresentable {
             }
         }
 
-        private func tab(at point: NSPoint, in pane: PaneState) -> SurfaceItem? {
+        private func tab(at point: NSPoint, in pane: MutablePaneState) -> SurfaceItem? {
             for tab in pane.tabs {
                 guard let frame = tabFrames[tab.id] else { continue }
                 if point.x >= frame.minX, point.x <= frame.maxX {
@@ -3122,7 +3122,7 @@ enum TabDropLifecycle {
 
 struct TabDropDelegate: DropDelegate {
     let targetIndex: Int
-    let pane: PaneState
+    let pane: MutablePaneState
     let layoutController: WorkspaceLayoutController
     let controller: SplitViewController
     @Binding var dropTargetIndex: Int?

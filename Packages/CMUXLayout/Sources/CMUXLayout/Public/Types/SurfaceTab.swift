@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a tab's metadata (read-only snapshot for library consumers)
-public struct SurfaceTab: Identifiable, Hashable, Sendable {
+public struct SurfaceTab: Identifiable, Hashable, Codable, Sendable {
     public let id: SurfaceID
     public let title: String
     public let hasCustomTitle: Bool

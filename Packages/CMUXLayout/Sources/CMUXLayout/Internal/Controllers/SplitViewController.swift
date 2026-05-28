@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class SplitViewController {
     /// The root node of the split tree
-    var rootNode: SplitNode
+    var rootNode: MutableSplitNode
 
     /// Currently zoomed pane. When set, rendering should only show this pane.
     var zoomedPaneId: PaneID?
@@ -66,13 +66,13 @@ final class SplitViewController {
     /// Callback for geometry changes
     var onGeometryChange: (() -> Void)?
 
-    init(rootNode: SplitNode? = nil) {
+    init(rootNode: MutableSplitNode? = nil) {
         if let rootNode {
             self.rootNode = rootNode
         } else {
             // Initialize with a single pane containing a welcome tab
             let welcomeTab = SurfaceItem(title: "Welcome", icon: "star")
-            let initialPane = PaneState(tabs: [welcomeTab])
+            let initialPane = MutablePaneState(tabs: [welcomeTab])
             self.rootNode = .pane(initialPane)
             self.focusedPaneId = initialPane.id
         }
@@ -96,12 +96,12 @@ final class SplitViewController {
     }
 
     /// Get the currently focused pane state
-    var focusedPane: PaneState? {
+    var focusedPane: MutablePaneState? {
         guard let focusedPaneId else { return nil }
         return rootNode.findPane(focusedPaneId)
     }
 
-    var zoomedNode: SplitNode? {
+    var zoomedNode: MutableSplitNode? {
         guard let zoomedPaneId else { return nil }
         return rootNode.findNode(containing: zoomedPaneId)
     }
@@ -149,25 +149,25 @@ final class SplitViewController {
     }
 
     private func splitNodeRecursively(
-        node: SplitNode,
+        node: MutableSplitNode,
         targetPaneId: PaneID,
         orientation: LayoutOrientation,
         newTab: SurfaceItem?,
         initialDividerPosition: CGFloat?
-    ) -> SplitNode {
+    ) -> MutableSplitNode {
         switch node {
         case .pane(let paneState):
             if paneState.id == targetPaneId {
                 // Create new pane - empty if no tab provided (gives developer full control)
-                let newPane: PaneState
+                let newPane: MutablePaneState
                 if let tab = newTab {
-                    newPane = PaneState(tabs: [tab])
+                    newPane = MutablePaneState(tabs: [tab])
                 } else {
-                    newPane = PaneState(tabs: [])
+                    newPane = MutablePaneState(tabs: [])
                 }
 
                 // Start with divider at the edge so there's no flash before animation
-                let splitState = SplitState(
+                let splitState = MutableSplitState(
                     orientation: orientation,
                     first: .pane(paneState),
                     second: .pane(newPane),
@@ -224,24 +224,24 @@ final class SplitViewController {
     }
 
     private func splitNodeWithTabRecursively(
-        node: SplitNode,
+        node: MutableSplitNode,
         targetPaneId: PaneID,
         orientation: LayoutOrientation,
         tab: SurfaceItem,
         insertFirst: Bool,
         initialDividerPosition: CGFloat?
-    ) -> SplitNode {
+    ) -> MutableSplitNode {
         switch node {
         case .pane(let paneState):
             if paneState.id == targetPaneId {
                 // Create new pane with the tab
-                let newPane = PaneState(tabs: [tab])
+                let newPane = MutablePaneState(tabs: [tab])
 
                 // Start with divider at the edge so there's no flash before animation
-                let splitState: SplitState
+                let splitState: MutableSplitState
                 if insertFirst {
                     // New pane goes first (left or top).
-                    splitState = SplitState(
+                    splitState = MutableSplitState(
                         orientation: orientation,
                         first: .pane(newPane),
                         second: .pane(paneState),
@@ -250,7 +250,7 @@ final class SplitViewController {
                     )
                 } else {
                     // New pane goes second (right or bottom).
-                    splitState = SplitState(
+                    splitState = MutableSplitState(
                         orientation: orientation,
                         first: .pane(paneState),
                         second: .pane(newPane),
@@ -316,9 +316,9 @@ final class SplitViewController {
     }
 
     private func closePaneRecursively(
-        node: SplitNode,
+        node: MutableSplitNode,
         targetPaneId: PaneID
-    ) -> (SplitNode?, PaneID?) {
+    ) -> (MutableSplitNode?, PaneID?) {
         switch node {
         case .pane(let paneState):
             if paneState.id == targetPaneId {
@@ -499,11 +499,11 @@ final class SplitViewController {
     // MARK: - Split State Access
 
     /// Find a split state by its UUID
-    func findSplit(_ splitId: UUID) -> SplitState? {
+    func findSplit(_ splitId: UUID) -> MutableSplitState? {
         return findSplitRecursively(in: rootNode, id: splitId)
     }
 
-    private func findSplitRecursively(in node: SplitNode, id: UUID) -> SplitState? {
+    private func findSplitRecursively(in node: MutableSplitNode, id: UUID) -> MutableSplitState? {
         switch node {
         case .pane:
             return nil
@@ -519,11 +519,11 @@ final class SplitViewController {
     }
 
     /// Get all split states in the tree
-    var allSplits: [SplitState] {
+    var allSplits: [MutableSplitState] {
         return collectSplits(from: rootNode)
     }
 
-    private func collectSplits(from node: SplitNode) -> [SplitState] {
+    private func collectSplits(from node: MutableSplitNode) -> [MutableSplitState] {
         switch node {
         case .pane:
             return []

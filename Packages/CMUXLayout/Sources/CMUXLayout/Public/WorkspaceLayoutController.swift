@@ -336,7 +336,7 @@ public final class WorkspaceLayoutController {
     /// - Parameter tabId: The tab to close
     /// - Parameter tabIndex: The position of the tab within the pane
     /// - Parameter pane: The pane in which to close the tab
-    private func closeTab(_ tabId: SurfaceID, with tabIndex: Int, in pane: PaneState) -> Bool {
+    private func closeTab(_ tabId: SurfaceID, with tabIndex: Int, in pane: MutablePaneState) -> Bool {
         guard configuration.allowCloseTabs else { return false }
 
         let tabItem = pane.tabs[tabIndex]
@@ -1170,12 +1170,65 @@ public final class WorkspaceLayoutController {
     }
 
     /// Get full tree structure for external consumption
+    public func splitTreeSnapshot() -> SplitNode {
+        let containerFrame = internalController.containerFrame
+        return buildSplitTree(from: internalController.rootNode, containerFrame: containerFrame)
+    }
+
+    /// Get full tree structure for compatibility with existing callers.
     public func treeSnapshot() -> ExternalTreeNode {
         let containerFrame = internalController.containerFrame
         return buildExternalTree(from: internalController.rootNode, containerFrame: containerFrame)
     }
 
-    private func buildExternalTree(from node: SplitNode, containerFrame: CGRect, bounds: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> ExternalTreeNode {
+    private func buildSplitTree(from node: MutableSplitNode, containerFrame: CGRect, bounds: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> SplitNode {
+        switch node {
+        case .pane(let paneState):
+            let pixelFrame = PixelRect(
+                x: Double(bounds.minX * containerFrame.width + containerFrame.origin.x),
+                y: Double(bounds.minY * containerFrame.height + containerFrame.origin.y),
+                width: Double(bounds.width * containerFrame.width),
+                height: Double(bounds.height * containerFrame.height)
+            )
+            let paneNode = PaneState(
+                id: paneState.id,
+                frame: pixelFrame,
+                surfaces: paneState.tabs.map { SurfaceTab(from: $0) },
+                selectedSurfaceID: paneState.selectedTabId.map { SurfaceID(id: $0) }
+            )
+            return .pane(paneNode)
+
+        case .split(let splitState):
+            let dividerPos = splitState.dividerPosition
+            let firstBounds: CGRect
+            let secondBounds: CGRect
+
+            switch splitState.orientation {
+            case .horizontal:
+                firstBounds = CGRect(x: bounds.minX, y: bounds.minY,
+                                     width: bounds.width * dividerPos, height: bounds.height)
+                secondBounds = CGRect(x: bounds.minX + bounds.width * dividerPos, y: bounds.minY,
+                                      width: bounds.width * (1 - dividerPos), height: bounds.height)
+            case .vertical:
+                firstBounds = CGRect(x: bounds.minX, y: bounds.minY,
+                                     width: bounds.width, height: bounds.height * dividerPos)
+                secondBounds = CGRect(x: bounds.minX, y: bounds.minY + bounds.height * dividerPos,
+                                      width: bounds.width, height: bounds.height * (1 - dividerPos))
+            }
+
+            return .split(
+                SplitNode.Branch(
+                    id: splitState.id,
+                    orientation: splitState.orientation,
+                    dividerPosition: Double(splitState.dividerPosition),
+                    first: buildSplitTree(from: splitState.first, containerFrame: containerFrame, bounds: firstBounds),
+                    second: buildSplitTree(from: splitState.second, containerFrame: containerFrame, bounds: secondBounds)
+                )
+            )
+        }
+    }
+
+    private func buildExternalTree(from node: MutableSplitNode, containerFrame: CGRect, bounds: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> ExternalTreeNode {
         switch node {
         case .pane(let paneState):
             let pixelFrame = PixelRect(
@@ -1504,7 +1557,7 @@ public final class WorkspaceLayoutController {
             .item
     }
 
-    private func findTabInternal(_ tabId: SurfaceID) -> (PaneState, Int)? {
+    private func findTabInternal(_ tabId: SurfaceID) -> (MutablePaneState, Int)? {
         for pane in internalController.rootNode.allPanes {
             if let index = pane.tabs.firstIndex(where: { $0.id == tabId.id }) {
                 return (pane, index)

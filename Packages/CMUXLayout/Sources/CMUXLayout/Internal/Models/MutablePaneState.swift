@@ -3,7 +3,7 @@ import SwiftUI
 
 /// State for a single pane (leaf node in the split tree)
 @Observable
-final class PaneState: Identifiable {
+final class MutablePaneState: Identifiable {
     let id: PaneID
     var tabs: [SurfaceItem]
     var selectedTabId: UUID?
@@ -101,8 +101,8 @@ final class PaneState: Identifiable {
     }
 }
 
-extension PaneState: Equatable {
-    static func == (lhs: PaneState, rhs: PaneState) -> Bool {
+extension MutablePaneState: Equatable {
+    static func == (lhs: MutablePaneState, rhs: MutablePaneState) -> Bool {
         lhs.id == rhs.id
     }
 }

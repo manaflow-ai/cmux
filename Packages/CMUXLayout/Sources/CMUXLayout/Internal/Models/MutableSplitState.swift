@@ -9,11 +9,11 @@ enum SplitAnimationOrigin {
 
 /// State for a split node (branch in the split tree)
 @Observable
-final class SplitState: Identifiable {
+final class MutableSplitState: Identifiable {
     let id: UUID
     var orientation: LayoutOrientation
-    var first: SplitNode
-    var second: SplitNode
+    var first: MutableSplitNode
+    var second: MutableSplitNode
     var dividerPosition: CGFloat  // 0.0 to 1.0
 
     /// Animation origin for entry animation (nil = no animation needed)
@@ -22,8 +22,8 @@ final class SplitState: Identifiable {
     init(
         id: UUID = UUID(),
         orientation: LayoutOrientation,
-        first: SplitNode,
-        second: SplitNode,
+        first: MutableSplitNode,
+        second: MutableSplitNode,
         dividerPosition: CGFloat = 0.5,
         animationOrigin: SplitAnimationOrigin? = nil
     ) {
@@ -36,8 +36,8 @@ final class SplitState: Identifiable {
     }
 }
 
-extension SplitState: Equatable {
-    static func == (lhs: SplitState, rhs: SplitState) -> Bool {
+extension MutableSplitState: Equatable {
+    static func == (lhs: MutableSplitState, rhs: MutableSplitState) -> Bool {
         lhs.id == rhs.id
     }
 }

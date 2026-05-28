@@ -149,7 +149,7 @@ struct PaneDropInteractionContainer<Content: View, DropLayer: View>: View {
 struct PaneContainerView<Content: View, EmptyContent: View>: View {
     @Environment(WorkspaceLayoutController.self) private var layoutController
 
-    @Bindable var pane: PaneState
+    @Bindable var pane: MutablePaneState
     @Bindable var controller: SplitViewController
     let contentBuilder: (SurfaceItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
@@ -323,7 +323,7 @@ struct PaneContainerView<Content: View, EmptyContent: View>: View {
 
 struct UnifiedPaneDropDelegate: DropDelegate {
     let size: CGSize
-    let pane: PaneState
+    let pane: MutablePaneState
     let controller: SplitViewController
     let layoutController: WorkspaceLayoutController
     @Binding var activeDropZone: DropZone?

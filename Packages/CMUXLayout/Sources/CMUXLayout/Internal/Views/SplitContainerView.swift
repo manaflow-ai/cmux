@@ -88,7 +88,7 @@ private final class DebugSplitView: ThemedSplitView {
 
 /// SwiftUI wrapper around NSSplitView for native split behavior
 struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentable {
-    @Bindable var splitState: SplitState
+    @Bindable var splitState: MutableSplitState
     let controller: SplitViewController
     let appearance: WorkspaceLayoutConfiguration.Appearance
     let contentBuilder: (SurfaceItem, PaneID) -> Content
@@ -305,7 +305,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
     }
 
     func updateNSView(_ splitView: NSSplitView, context: Context) {
-        // SwiftUI may reuse the same NSSplitView/Coordinator instance while the underlying SplitState
+        // SwiftUI may reuse the same NSSplitView/Coordinator instance while the underlying MutableSplitState
         // object changes (e.g., during split tree restructuring). Keep the coordinator pointed at
         // the latest state to avoid syncing geometry against a stale model.
         context.coordinator.update(
@@ -371,7 +371,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
 
     // MARK: - Helpers
 
-    private func makeHostingController(for node: SplitNode) -> NonDraggableHostingController<AnyView> {
+    private func makeHostingController(for node: MutableSplitNode) -> NonDraggableHostingController<AnyView> {
         let hostingController = NonDraggableHostingController(rootView: AnyView(makeView(for: node)))
         if #available(macOS 13.0, *) {
             // NSSplitView owns pane geometry. Keep NSHostingController from publishing
@@ -405,7 +405,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
 
     private func updateHostedContent(
         in container: NSView,
-        node: SplitNode,
+        node: MutableSplitNode,
         nodeTypeChanged: Bool,
         controller: inout NonDraggableHostingController<AnyView>?
     ) {
@@ -433,7 +433,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
     }
 
     @ViewBuilder
-    private func makeView(for node: SplitNode) -> some View {
+    private func makeView(for node: MutableSplitNode) -> some View {
         switch node {
         case .pane(let paneState):
             PaneContainerView(
@@ -463,7 +463,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
     // MARK: - Coordinator
 
     class Coordinator: NSObject, NSSplitViewDelegate {
-        var splitState: SplitState
+        var splitState: MutableSplitState
         private var splitStateId: UUID
         private var minimumPaneWidth: CGFloat
         private var minimumPaneHeight: CGFloat
@@ -481,14 +481,14 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
         /// Track if user is actively dragging the divider
         var isDragging = false
         /// Track child node types to detect structural changes
-        var firstNodeType: SplitNode.NodeType
-        var secondNodeType: SplitNode.NodeType
+        var firstNodeType: MutableSplitNode.NodeType
+        var secondNodeType: MutableSplitNode.NodeType
         /// Retain hosting controllers so SwiftUI content stays alive
         var firstHostingController: NonDraggableHostingController<AnyView>?
         var secondHostingController: NonDraggableHostingController<AnyView>?
 
         init(
-            splitState: SplitState,
+            splitState: MutableSplitState,
             minimumPaneWidth: CGFloat,
             minimumPaneHeight: CGFloat,
             onGeometryChange: ((_ isDragging: Bool) -> Void)?
@@ -504,7 +504,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
         }
 
         func update(
-            splitState newState: SplitState,
+            splitState newState: MutableSplitState,
             minimumPaneWidth: CGFloat,
             minimumPaneHeight: CGFloat,
             onGeometryChange: ((_ isDragging: Bool) -> Void)?
