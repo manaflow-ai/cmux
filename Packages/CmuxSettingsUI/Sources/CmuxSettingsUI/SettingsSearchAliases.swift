@@ -1,6 +1,4 @@
 public enum SettingsSearchAliasIndex {
-    public nonisolated(unsafe) static var keyboardShortcutActionAliasesProvider: () -> String = { "" }
-
     public static func sectionAliases(for target: SettingsNavigationTarget) -> String {
         switch target {
         case .account:
@@ -32,7 +30,11 @@ public enum SettingsSearchAliasIndex {
         }
     }
 
-    public static func aliases(target: SettingsNavigationTarget, idSuffix: String) -> String {
+    public static func aliases(
+        target: SettingsNavigationTarget,
+        idSuffix: String,
+        keyboardShortcutActionAliases: String = ""
+    ) -> String {
         let aliases = settingAliases["\(target.rawValue):\(idSuffix)"] ?? ""
         if target == .keyboardShortcuts, idSuffix == "shortcuts" {
             return "\(aliases) \(keyboardShortcutActionAliases)"
@@ -138,10 +140,6 @@ public enum SettingsSearchAliasIndex {
         "settingsJSON:documentation": localized("settings.search.alias.setting.settingsJSON.documentation", defaultValue: "docs documentation schema reference cmux json keys configuration"),
         "reset:reset-all": localized("settings.search.alias.setting.reset.reset-all", defaultValue: "factory reset restore defaults clear preferences")
     ]
-
-    private static var keyboardShortcutActionAliases: String {
-        keyboardShortcutActionAliasesProvider()
-    }
 
     private static func localized(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: defaultValue)

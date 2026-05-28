@@ -33,8 +33,10 @@ public struct CmuxSettingsRootView<Detail: View>: View {
     }
 
     private var sidebarEntries: [SettingsSearchEntry] {
-        SettingsSearchAliasIndex.keyboardShortcutActionAliasesProvider = keyboardShortcutActionAliases
-        return SettingsSearchIndex.entries(matching: searchText)
+        SettingsSearchIndex.entries(
+            matching: searchText,
+            keyboardShortcutActionAliases: keyboardShortcutActionAliases()
+        )
     }
 
     private var isSearching: Bool {
@@ -85,11 +87,12 @@ public struct CmuxSettingsRootView<Detail: View>: View {
                 navigate(to: selectedSection, postRequest: true)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
-            guard let target = SettingsNavigationRequest.target(from: notification) else { return }
-            let selectedEntry = SettingsSearchIndex.entry(withID: selectedSidebarEntryID)
-            let shouldPreserveSearchSelection = isSearching && selectedEntry?.target == target
-            navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection, postRequest: false)
+        .task {
+            for await notification in NotificationCenter.default.notifications(
+                named: SettingsNavigationRequest.notificationName
+            ) {
+                handleNavigationNotification(notification)
+            }
         }
     }
 
@@ -112,6 +115,13 @@ public struct CmuxSettingsRootView<Detail: View>: View {
         if postRequest {
             SettingsNavigationRequest.post(target)
         }
+    }
+
+    private func handleNavigationNotification(_ notification: Notification) {
+        guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+        let selectedEntry = SettingsSearchIndex.entry(withID: selectedSidebarEntryID)
+        let shouldPreserveSearchSelection = isSearching && selectedEntry?.target == target
+        navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection, postRequest: false)
     }
 }
 

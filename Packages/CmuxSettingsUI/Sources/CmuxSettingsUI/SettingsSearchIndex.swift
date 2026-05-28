@@ -1,289 +1,4 @@
 import SwiftUI
-
-public enum SettingsNavigationTarget: String, CaseIterable, Identifiable, Sendable {
-    case account
-    case app
-    case terminal
-    case sidebarAppearance
-    case betaFeatures
-    case automation
-    case browser
-    case browserImport
-    case globalHotkey
-    case keyboardShortcuts
-    case workspaceColors
-    case settingsJSON
-    case reset
-
-    public var id: Self { self }
-
-    public var title: String {
-        switch self {
-        case .account:
-            return String(localized: "settings.section.account", defaultValue: "Account")
-        case .app:
-            return String(localized: "settings.section.app", defaultValue: "App")
-        case .terminal:
-            return String(localized: "settings.section.terminal", defaultValue: "Terminal")
-        case .workspaceColors:
-            return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
-        case .sidebarAppearance:
-            return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
-        case .betaFeatures:
-            return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
-        case .automation:
-            return String(localized: "settings.section.automation", defaultValue: "Automation")
-        case .browser:
-            return String(localized: "settings.section.browser", defaultValue: "Browser")
-        case .browserImport:
-            return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
-        case .globalHotkey:
-            return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
-        case .keyboardShortcuts:
-            return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
-        case .settingsJSON:
-            return String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json")
-        case .reset:
-            return String(localized: "settings.section.reset", defaultValue: "Reset")
-        }
-    }
-
-    public var symbolName: String {
-        switch self {
-        case .account:
-            return "person.crop.circle"
-        case .app:
-            return "gearshape"
-        case .terminal:
-            return "terminal"
-        case .workspaceColors:
-            return "paintpalette"
-        case .sidebarAppearance:
-            return "sidebar.left"
-        case .betaFeatures:
-            return "exclamationmark.triangle"
-        case .automation:
-            return "wand.and.sparkles"
-        case .browser:
-            return "globe"
-        case .browserImport:
-            return "square.and.arrow.down"
-        case .globalHotkey:
-            return "keyboard.badge.ellipsis"
-        case .keyboardShortcuts:
-            return "keyboard"
-        case .settingsJSON:
-            return "doc.text"
-        case .reset:
-            return "arrow.counterclockwise"
-        }
-    }
-
-    public var searchText: String {
-        switch self {
-        case .account:
-            return "\(title) sign in team sync"
-        case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry"
-        case .terminal:
-            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
-        case .workspaceColors:
-            return "\(title) palette tabs"
-        case .sidebarAppearance:
-            return "\(title) sidebar details branches badges material terminal background"
-        case .betaFeatures:
-            return "\(title) beta experimental unstable feed dock right sidebar"
-        case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini"
-        case .browser:
-            return "\(title) search engine links history theme"
-        case .browserImport:
-            return "\(title) browser import data bookmarks history cookies"
-        case .globalHotkey:
-            return "\(title) system wide shortcut"
-        case .keyboardShortcuts:
-            return "\(title) keybindings commands chords"
-        case .settingsJSON:
-            return "\(title) config file preferences editor documentation schema jsonc reload"
-        case .reset:
-            return "\(title) defaults"
-        }
-    }
-}
-
-public enum SettingsNavigationRequest {
-    public static let notificationName = Notification.Name("cmux.settings.navigate")
-    private static let targetKey = "target"
-    private static let anchorKey = "anchor"
-    private static let highlightKey = "highlight"
-
-    public static func post(_ target: SettingsNavigationTarget, anchorID: String? = nil, highlight: Bool = false) {
-        NotificationCenter.default.post(
-            name: notificationName,
-            object: nil,
-            userInfo: [
-                targetKey: target.rawValue,
-                anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target),
-                highlightKey: highlight
-            ]
-        )
-    }
-
-    public static func target(from notification: Notification) -> SettingsNavigationTarget? {
-        destination(from: notification)?.target
-    }
-
-    public static func destination(from notification: Notification) -> SettingsNavigationDestination? {
-        guard
-            let rawValue = notification.userInfo?[targetKey] as? String,
-            let target = SettingsNavigationTarget(rawValue: rawValue)
-        else {
-            return nil
-        }
-        let anchorID = notification.userInfo?[anchorKey] as? String
-        let shouldHighlight = notification.userInfo?[highlightKey] as? Bool ?? false
-        return SettingsNavigationDestination(
-            target: target,
-            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target),
-            shouldHighlight: shouldHighlight
-        )
-    }
-}
-
-public struct SettingsNavigationDestination: Sendable {
-    public let target: SettingsNavigationTarget
-    public let anchorID: String
-    public let shouldHighlight: Bool
-
-    public init(target: SettingsNavigationTarget, anchorID: String, shouldHighlight: Bool) {
-        self.target = target
-        self.anchorID = anchorID
-        self.shouldHighlight = shouldHighlight
-    }
-}
-
-public struct SettingsSearchHighlightState: Equatable, Sendable {
-    public let anchorID: String?
-    public let token: Int
-    public let startedAt: Date?
-
-    public init(anchorID: String?, token: Int, startedAt: Date?) {
-        self.anchorID = anchorID
-        self.token = token
-        self.startedAt = startedAt
-    }
-}
-
-private struct SettingsSearchHighlightStateKey: EnvironmentKey {
-    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
-}
-
-public extension EnvironmentValues {
-    var settingsSearchHighlightState: SettingsSearchHighlightState {
-        get { self[SettingsSearchHighlightStateKey.self] }
-        set { self[SettingsSearchHighlightStateKey.self] = newValue }
-    }
-}
-
-public extension View {
-    @ViewBuilder
-    func settingsSearchAnchor(_ anchorID: String?) -> some View {
-        if let anchorID {
-            settingsSearchAnchors([anchorID])
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder
-    func settingsSearchAnchors(_ anchorIDs: [String]) -> some View {
-        let filteredAnchorIDs = anchorIDs.filter { !$0.isEmpty }
-        if let primaryAnchorID = filteredAnchorIDs.first {
-            self
-                .id(primaryAnchorID)
-                .modifier(SettingsSearchHighlightModifier(anchorIDs: filteredAnchorIDs))
-        } else {
-            self
-        }
-    }
-}
-
-private struct SettingsSearchHighlightModifier: ViewModifier {
-    @Environment(\.settingsSearchHighlightState) private var highlightState
-    let anchorIDs: [String]
-
-    private func matches(_ state: SettingsSearchHighlightState) -> Bool {
-        guard let anchorID = state.anchorID else { return false }
-        return anchorIDs.contains(anchorID)
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .background {
-                if matches(highlightState) {
-                    TimelineView(.animation) { context in
-                        let opacity = highlightOpacity(at: context.date, for: highlightState)
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.accentColor.opacity(opacity * 0.24))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.accentColor.opacity(opacity), lineWidth: 2.5)
-                            )
-                            .shadow(color: Color.accentColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
-                    }
-                }
-            }
-    }
-
-    private func highlightOpacity(at date: Date, for state: SettingsSearchHighlightState) -> Double {
-        guard matches(state), let startedAt = state.startedAt else { return 0 }
-        let elapsed = date.timeIntervalSince(startedAt)
-        if elapsed < 0.14 {
-            return max(0, min(1, elapsed / 0.14))
-        }
-        if elapsed < 5 {
-            return 1
-        }
-        if elapsed < 5.9 {
-            return max(0, 1 - ((elapsed - 5) / 0.9))
-        }
-        return 0
-    }
-}
-
-public enum SettingsSearchEntryKind: Sendable {
-    case section
-    case setting
-}
-
-public struct SettingsSearchEntry: Identifiable, Sendable {
-    public let id: String
-    public let kind: SettingsSearchEntryKind
-    public let target: SettingsNavigationTarget
-    public let title: String
-    public let subtitle: String?
-    public let symbolName: String
-    public let normalizedSearchText: String
-
-    public init(
-        id: String,
-        kind: SettingsSearchEntryKind,
-        target: SettingsNavigationTarget,
-        title: String,
-        subtitle: String?,
-        symbolName: String,
-        searchText: String
-    ) {
-        self.id = id
-        self.kind = kind
-        self.target = target
-        self.title = title
-        self.subtitle = subtitle
-        self.symbolName = symbolName
-        normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
-    }
-}
-
 public enum SettingsSearchIndex {
     public static let defaultSelectionID = sectionID(for: .account)
 
@@ -299,7 +14,8 @@ public enum SettingsSearchIndex {
         )
     }
 
-    private static let settingEntries: [SettingsSearchEntry] = [
+    private static func settingEntries(keyboardShortcutActionAliases: String = "") -> [SettingsSearchEntry] {
+        [
         setting(.account, "account", String(localized: "settings.section.account", defaultValue: "Account"), "sign in login team sync user profile"),
         setting(.app, "language", String(localized: "settings.app.language", defaultValue: "Language"), "locale translation japanese english restart"),
         setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
@@ -396,7 +112,13 @@ public enum SettingsSearchIndex {
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),
-        setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
+        setting(
+            .keyboardShortcuts,
+            "shortcuts",
+            String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
+            "keybindings commands",
+            keyboardShortcutActionAliases: keyboardShortcutActionAliases
+        ),
         setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
@@ -404,12 +126,15 @@ public enum SettingsSearchIndex {
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
-    ]
+        ]
+    }
 
-    private static let allEntries = sectionEntries + settingEntries
+    private static func allEntries(keyboardShortcutActionAliases: String = "") -> [SettingsSearchEntry] {
+        sectionEntries + settingEntries(keyboardShortcutActionAliases: keyboardShortcutActionAliases)
+    }
 
     private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
-        uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
+        uniqueKeysWithValues: allEntries().map { ($0.id, $0) }
     )
 
     private static let settingsPathAnchorIDs: [String: String] = [
@@ -502,10 +227,13 @@ public enum SettingsSearchIndex {
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
     ]
 
-    public static func entries(matching query: String) -> [SettingsSearchEntry] {
+    public static func entries(
+        matching query: String,
+        keyboardShortcutActionAliases: String = ""
+    ) -> [SettingsSearchEntry] {
         let tokens = normalizedTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
-        return allEntries.filter { entry in
+        return allEntries(keyboardShortcutActionAliases: keyboardShortcutActionAliases).filter { entry in
             tokens.allSatisfy { token in entry.normalizedSearchText.contains(token) }
         }
     }
@@ -533,7 +261,8 @@ public enum SettingsSearchIndex {
         _ target: SettingsNavigationTarget,
         _ idSuffix: String,
         _ title: String,
-        _ searchText: String
+        _ searchText: String,
+        keyboardShortcutActionAliases: String = ""
     ) -> SettingsSearchEntry {
         SettingsSearchEntry(
             id: settingID(for: target, idSuffix: idSuffix),
@@ -542,7 +271,7 @@ public enum SettingsSearchIndex {
             title: title,
             subtitle: target.title,
             symbolName: target.symbolName,
-            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
+            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix, keyboardShortcutActionAliases: keyboardShortcutActionAliases))"
         )
     }
 

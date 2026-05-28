@@ -13,4 +13,36 @@ final class CmuxSettingsJSONPathModelTests: XCTestCase {
             "terminal"
         )
     }
+
+    func testKeyboardShortcutAliasesAreInjectedPerSearch() {
+        let query = "agent-specific-action"
+
+        XCTAssertFalse(
+            searchResultIDs(query: query).contains(
+                SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
+            )
+        )
+
+        XCTAssertTrue(
+            searchResultIDs(
+                query: query,
+                keyboardShortcutActionAliases: "agent-specific-action"
+            )
+            .contains(SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
+        )
+    }
+
+    private func searchResultIDs(
+        query: String,
+        keyboardShortcutActionAliases: String = ""
+    ) -> Set<String> {
+        Set(
+            SettingsSearchIndex
+                .entries(
+                    matching: query,
+                    keyboardShortcutActionAliases: keyboardShortcutActionAliases
+                )
+                .map(\.id)
+        )
+    }
 }
