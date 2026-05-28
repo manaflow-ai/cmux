@@ -85,11 +85,18 @@ class InteractiveBash:
     def __enter__(self) -> "InteractiveBash":
         pid, fd = pty.fork()
         if pid == 0:
-            os.execvpe(
-                self.bash_path,
-                [self.bash_path, "--noprofile", "--norc", "-i"],
-                self.env,
-            )
+            # If execvpe raises (e.g. resolved bash becomes non-executable
+            # between probe and fork), the exception would unwind back into
+            # the test harness inside the forked child and run framework
+            # code as a duplicate process. Hard-exit instead.
+            try:
+                os.execvpe(
+                    self.bash_path,
+                    [self.bash_path, "--noprofile", "--norc", "-i"],
+                    self.env,
+                )
+            except OSError:
+                os._exit(127)
         self.pid = pid
         self.fd = fd
         # Drain bash's startup banner before installing the sentinel PS1.
