@@ -11654,6 +11654,14 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let urlStr = v2String(params, "url")
+        if let urlStr {
+            let blockedSchemes = ["javascript:", "data:"]
+            for scheme in blockedSchemes {
+                guard !urlStr.lowercased().hasPrefix(scheme) else {
+                    return .err(code: "invalid_params", message: "URL scheme not allowed", data: nil)
+                }
+            }
+        }
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
         if BrowserAvailabilitySettings.isDisabled() {
