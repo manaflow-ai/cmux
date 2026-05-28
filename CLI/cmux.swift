@@ -13654,6 +13654,7 @@ struct CMUXCLI {
               uninstall-hooks   Remove cmux hooks from ~/.codex/hooks.json
             """
         case "browser":
+            let wkWebViewUnsupported = String(localized: "cli.help.browser.unsupportedWKWebView", defaultValue: "not supported on WKWebView")
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
 
@@ -13703,14 +13704,14 @@ struct CMUXCLI {
               state <save|load> <path>
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
-              viewport <width> <height>
+              viewport <width> <height> (\(wkWebViewUnsupported))
               geolocation|geo <latitude> <longitude>
               offline <true|false>
-              trace <start|stop> [path]
-              network <route|unroute|requests> ...
+              trace <start|stop> [path] (\(wkWebViewUnsupported))
+              network <route|unroute|requests> ... (\(wkWebViewUnsupported))
                 route <pattern> [--abort] [--body <text>]
                 unroute <pattern>
-              screencast <start|stop>
+              screencast <start|stop> (\(wkWebViewUnsupported))
               input <mouse|keyboard|touch> [args...]
               input_mouse | input_keyboard | input_touch
               identify [--surface <id|ref|index>]
