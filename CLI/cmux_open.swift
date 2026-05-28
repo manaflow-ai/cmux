@@ -5236,6 +5236,8 @@ extension CMUXCLI {
             setupSourceSelector(payload.sourceOptions ?? []);
             setupNavigationSelector(repoSelect, payload.repoOptions ?? [], payload.repoRoot ?? "", label("repoPath"));
             setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
+            const patchResponsePromise = fetch(payload.patchURL, { cache: "no-store" });
+            patchResponsePromise.catch(() => {});
             const scheduleRender = globalThis.queueMicrotask ?? ((callback) => setTimeout(callback, 0));
             scheduleRender(() => {
               renderDiff().catch((error) => {
@@ -5263,6 +5265,8 @@ extension CMUXCLI {
 
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
+              preloadCommonDiffHighlighter(payload.appearance, preloadHighlighter)
+                .catch((error) => console.warn("cmux diff highlighter warmup failed", error));
               status.textContent = label("parsingDiff");
               setWorkerPoolStatus("loading");
               workerPool = await createCodeViewWorkerPool();
@@ -5280,6 +5284,7 @@ extension CMUXCLI {
                 CodeView,
                 parsePatchFiles,
                 processFile,
+                patchResponsePromise,
                 treesModule,
               });
 
@@ -5367,7 +5372,7 @@ extension CMUXCLI {
               return `Commit ${index + 1}`;
             }
 
-            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, treesModule }) {
+            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, treesModule }) {
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5656,7 +5661,7 @@ extension CMUXCLI {
                 recordStreamMetrics(streamMetrics);
               }
 
-              const response = await fetch(payload.patchURL, { cache: "no-store" });
+              const response = await patchResponsePromise;
               if (!response.ok) {
                 throw new Error(`${label("loadingDiff")} (${response.status})`);
               }
@@ -6962,6 +6967,18 @@ extension CMUXCLI {
               return preloadHighlighter({
                 themes,
                 langs: langs.length > 0 ? langs : ["text"],
+              });
+            }
+
+            function preloadCommonDiffHighlighter(appearance, preloadHighlighter) {
+              const themes = Array.from(new Set([
+                appearance.theme?.light,
+                appearance.theme?.dark,
+              ].filter(Boolean)));
+              return preloadHighlighter({
+                themes,
+                langs: ["zig", "rust", "typescript", "tsx", "bash"],
+                preferredHighlighter: "shiki-wasm",
               });
             }
 
