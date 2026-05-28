@@ -467,7 +467,8 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
 
     private func cancelSend(operationID: UUID) {
         if let pending = sendContinuation, pending.id == operationID {
-            sendContinuation = (operationID, nil)
+            sendContinuation = nil
+            cancelledOperationIDs.insert(operationID)
             pending.continuation?.resume(throwing: CancellationError())
         } else {
             cancelledOperationIDs.insert(operationID)

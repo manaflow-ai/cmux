@@ -93,7 +93,6 @@ final class MobileAttachTicketStore {
         lock.lock()
         defer { lock.unlock() }
 
-        pruneExpired(now: now)
         guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !authToken.isEmpty,
               var record = recordsByAuthToken[authToken],
