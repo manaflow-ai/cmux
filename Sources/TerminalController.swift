@@ -809,6 +809,12 @@ class TerminalController {
         return directory.path.hasPrefix(temporary.path + "/")
     }
 
+    nonisolated static func normalizedMobileVTExportText(_ text: String) -> String {
+        // Ghostty's VT formatter writes row separators as CRLF. Swift treats
+        // CRLF as one Character, so split(separator: "\n") would miss rows.
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+    }
+
     nonisolated static func parseReportedShellActivityState(
         _ rawState: String
     ) -> Workspace.PanelShellActivityState? {
@@ -9590,17 +9596,10 @@ class TerminalController {
         }
 
         guard let data = try? Data(contentsOf: fileURL),
-              var output = String(data: data, encoding: .utf8) else {
+              let rawOutput = String(data: data, encoding: .utf8) else {
             return nil
         }
-        #if DEBUG
-        let rawLines = output.split(separator: "\n", omittingEmptySubsequences: false).count
-        let plain = Self.mobilePlainTerminalText(output)
-        let nonEmpty = plain.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
-        let hexHead = data.prefix(80).map { String(format: "%02x", $0) }.joined()
-        let hexTail = data.suffix(40).map { String(format: "%02x", $0) }.joined()
-        cmuxDebugLog("mobile.vtFile bytes=\(data.count) lines=\(rawLines) nonEmptyLines=\(nonEmpty) action=\(bindingAction) head=\(hexHead) tail=\(hexTail)")
-        #endif
+        var output = Self.normalizedMobileVTExportText(rawOutput)
         if let lineLimit {
             output = tailTerminalLines(output, maxLines: lineLimit)
         }
