@@ -87,6 +87,26 @@ private func waitForWorkspaceSplitView(
 }
 
 @MainActor
+private func waitUntil(
+    _ description: String,
+    timeout: TimeInterval = 2.0,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    predicate: () -> Bool
+) throws {
+    let deadline = Date.now.addingTimeInterval(timeout)
+    repeat {
+        if predicate() { return }
+        _ = RunLoop.current.run(
+            mode: .default,
+            before: min(Date.now.addingTimeInterval(0.01), deadline)
+        )
+    } while Date.now < deadline
+
+    XCTFail("Timed out waiting for \(description)", file: file, line: line)
+}
+
+@MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
     func testCustomLayoutSplitRatioSurvivesInitialBonsplitViewLayout() throws {
         let workspace = Workspace()
@@ -398,6 +418,40 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let panes = try XCTUnwrap(payload["panes"] as? [[String: Any]])
 
         XCTAssertEqual(panes.first?["text"] as? String, "A")
+    }
+
+    func testTmuxControlStreamKeepsEventsQueuedAfterHibernationResume() throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.applyTmuxControlEvent(.enter)
+        XCTAssertTrue(panel.surface.tmuxControlState.active)
+
+        panel.surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test")
+        XCTAssertFalse(panel.surface.tmuxControlState.active)
+
+        panel.surface.prepareAgentHibernationResume(initialInput: nil)
+        panel.surface.enqueueTmuxControlEvent(.enter)
+        panel.surface.enqueueTmuxControlEvent(.windowsChanged(Data("""
+        {
+          "session_id": 1,
+          "tmux_version": "3.4",
+          "pane_ids": [1],
+          "windows": [
+            {
+              "id": 1,
+              "width": 80,
+              "height": 24,
+              "layout": {"width": 80, "height": 24, "x": 0, "y": 0, "pane": 1}
+            }
+          ]
+        }
+        """.utf8)))
+
+        try waitUntil("tmux control state to resume after stream reset") {
+            panel.surface.tmuxControlState.active &&
+                panel.surface.tmuxControlState.paneIds == [1] &&
+                panel.surface.tmuxControlState.tmuxVersion == "3.4"
+        }
     }
 
     func testTmuxControlStateClearsOnRuntimeSurfaceTeardown() {

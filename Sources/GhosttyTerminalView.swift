@@ -5222,7 +5222,11 @@ private final class TmuxControlEventStream: @unchecked Sendable {
     let signals: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
     private let maxCoalescedPaneOutputBytes: Int
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let queue = DispatchQueue(
+        label: "com.cmux.tmux-control-event-stream.\(UUID().uuidString)",
+        qos: .userInitiated
+    )
+    private var state = State()
 
     init(maxCoalescedPaneOutputBytes: Int) {
         self.maxCoalescedPaneOutputBytes = maxCoalescedPaneOutputBytes
@@ -5234,20 +5238,21 @@ private final class TmuxControlEventStream: @unchecked Sendable {
     }
 
     func enqueue(_ event: TmuxControlEvent) {
-        enqueueItem(.event(event))
+        queue.async { [self] in
+            enqueueItem(.event(event))
+        }
     }
 
     func reset(generation: UInt64) {
-        let shouldSignal = state.withLock { state in
+        queue.async { [self] in
             state.items.removeAll(keepingCapacity: true)
             state.items.append(.reset(generation: generation))
-            return markSignalPending(&state)
+            signalIfNeeded(markSignalPending(&state))
         }
-        signalIfNeeded(shouldSignal)
     }
 
     func drain() -> [TmuxControlQueuedItem] {
-        state.withLock { state in
+        queue.sync { [self] in
             let items = state.items
             state.items.removeAll(keepingCapacity: true)
             state.signalPending = false
@@ -5256,15 +5261,14 @@ private final class TmuxControlEventStream: @unchecked Sendable {
     }
 
     func finish() {
-        continuation.finish()
+        queue.async { [continuation] in
+            continuation.finish()
+        }
     }
 
     private func enqueueItem(_ item: TmuxControlQueuedItem) {
-        let shouldSignal = state.withLock { state in
-            append(item, to: &state.items)
-            return markSignalPending(&state)
-        }
-        signalIfNeeded(shouldSignal)
+        append(item, to: &state.items)
+        signalIfNeeded(markSignalPending(&state))
     }
 
     private func append(_ item: TmuxControlQueuedItem, to items: inout [TmuxControlQueuedItem]) {
@@ -5545,9 +5549,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tmuxControlState = TmuxControlState()
         tmuxControlGeneration &+= 1
         let generation = tmuxControlGeneration
-        Task.detached(priority: .userInitiated) { [stream = tmuxControlEventStream] in
-            stream.reset(generation: generation)
-        }
+        tmuxControlEventStream.reset(generation: generation)
     }
 
     @MainActor
