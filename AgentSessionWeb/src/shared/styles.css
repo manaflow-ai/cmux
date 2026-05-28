@@ -526,37 +526,6 @@ select {
   line-height: 20px;
 }
 
-.composer-input-single-line {
-  min-width: 0;
-}
-
-.composer-input-single-line .ProseMirror {
-  min-height: 1.25rem;
-  max-height: 1.5rem;
-  overflow: hidden;
-}
-
-.composer-input-multiline .ProseMirror {
-  min-height: 2rem;
-  max-height: 180px;
-  overflow-y: auto;
-  line-height: 20px;
-}
-
-.composer-input-row {
-  min-width: 0;
-  scrollbar-width: none;
-}
-
-.composer-input-row::-webkit-scrollbar {
-  display: none;
-}
-
-.composer-editor {
-  min-width: 0;
-  word-break: break-word;
-}
-
 .h-token-button-composer {
   height: var(--spacing-token-button-composer);
   gap: var(--spacing-token-button-composer-gap);

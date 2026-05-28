@@ -302,9 +302,10 @@ function SessionSurface({
   const composerInput = h(PromptEditor, {
     ref: editorRef,
     className: isSingleLineComposer
-      ? "composer-editor text-base"
-      : "composer-editor text-base [&_.ProseMirror]:leading-5",
+      ? "text-base"
+      : "text-base [&_.ProseMirror]:leading-5",
     minHeight: isSingleLineComposer ? "1.25rem" : "2.75rem",
+    singleLine: isSingleLineComposer,
     value: state.input,
     ariaLabel: state.context?.copy.promptPlaceholder ?? "",
     placeholder: state.context?.copy.promptPlaceholder ?? "",
@@ -393,8 +394,8 @@ function SessionSurface({
       key: "composer-input",
       ref: isSingleLineComposer ? composerLayout.inputMeasureRef : undefined,
       className: isSingleLineComposer
-        ? "composer-input-single-line min-w-0"
-        : "composer-input-row composer-input-multiline mb-1 flex-grow overflow-y-auto px-3",
+        ? "min-w-0"
+        : "mb-1 flex-grow overflow-y-auto px-3",
     },
     composerInput,
   );

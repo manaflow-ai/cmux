@@ -158,6 +158,7 @@ type PromptEditorProps = {
   onTextChange: (text: string) => void;
   onTriggerToken?: (token: "@" | "$") => void;
   placeholder: string;
+  singleLine?: boolean;
   value: string;
 };
 
@@ -173,6 +174,7 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       onTextChange,
       onTriggerToken,
       placeholder,
+      singleLine = false,
       value,
     },
     ref,
@@ -224,9 +226,10 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
         attributes: {
           "aria-label": ariaLabel ?? placeholder,
           "data-codex-composer": "true",
+          "data-virtualkeyboard": "true",
           role: "textbox",
           class: "ProseMirror prompt-editor-view",
-          style: `min-height: ${minHeight};`,
+          style: `min-height: ${minHeight}; font-size: var(--codex-chat-font-size); height: auto; resize: none;`,
         },
         dispatchTransaction(transaction) {
           const nextState = view.state.apply(transaction);
@@ -319,7 +322,32 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       replaceEditorText(view, value);
     }, [value]);
 
-    return React.createElement("div", { className, ref: hostRef });
+    const promptEditorClassName = [
+      "text-size-chat",
+      "[&_.ProseMirror]:focus-visible:outline-none",
+      "text-token-foreground",
+      singleLine
+        ? "flex h-9 max-h-none items-center overflow-hidden [&_.ProseMirror]:!h-5 [&_.ProseMirror]:!min-h-5 [&_.ProseMirror]:min-w-0 [&_.ProseMirror]:flex-1 [&_.ProseMirror]:overflow-hidden [&_.ProseMirror]:whitespace-nowrap [&_.ProseMirror_p]:overflow-hidden [&_.ProseMirror_p]:text-ellipsis [&_.ProseMirror_p]:whitespace-nowrap"
+        : "h-auto max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:min-h-[2rem]",
+      "[&_.ProseMirror]:resize-none",
+      "[&_.ProseMirror_p]:m-0",
+      className,
+    ].filter(Boolean).join(" ");
+
+    return React.createElement("div", {
+      className: promptEditorClassName,
+      onMouseDown: (event: React.MouseEvent<HTMLDivElement>) => {
+        const view = viewRef.current;
+        if (!view) {
+          return;
+        }
+        if (event.target instanceof Node && !view.dom.contains(event.target)) {
+          event.preventDefault();
+          view.focus();
+        }
+      },
+      ref: hostRef,
+    });
   },
 );
 
