@@ -5296,20 +5296,73 @@ extension CMUXCLI {
 
             async function initializeCodeViewWorkerPool() {
               setWorkerPoolStatus("loading");
-              workerPool = await createCodeViewWorkerPool();
+              const pool = await createCodeViewWorkerPool();
+              workerPool = pool;
               if (window.__cmuxDiffViewer) {
                 window.__cmuxDiffViewer.workerPool = workerPool;
               }
-              observeWorkerPool(workerPool);
-              if (workerPool?.initialize) {
+              observeWorkerPool(pool);
+              if (pool?.initialize) {
                 try {
-                  await workerPool.initialize();
-                  recordWorkerPoolStats(workerPool.getStats?.());
+                  workerPool = await initializeWorkerPoolWithDeadline(pool);
+                  if (window.__cmuxDiffViewer) {
+                    window.__cmuxDiffViewer.workerPool = workerPool;
+                  }
+                  recordWorkerPoolStats(workerPool?.getStats?.());
                 } catch (error) {
                   console.warn("cmux diff worker pool initialization failed", error);
+                  safelyTerminateWorkerPool(pool);
+                  workerPool = null;
+                  if (window.__cmuxDiffViewer) {
+                    window.__cmuxDiffViewer.workerPool = null;
+                  }
                 }
               }
               return workerPool;
+            }
+
+            function initializeWorkerPoolWithDeadline(pool) {
+              const startupDeadlineMs = 3000;
+              let didSettle = false;
+              let timeoutID = 0;
+              return new Promise((resolve, reject) => {
+                timeoutID = window.setTimeout(() => {
+                  if (didSettle) {
+                    return;
+                  }
+                  didSettle = true;
+                  console.warn("cmux diff worker pool initialization timed out; rendering with main-thread highlighting");
+                  safelyTerminateWorkerPool(pool);
+                  resolve(null);
+                }, startupDeadlineMs);
+
+                pool.initialize().then(
+                  () => {
+                    if (didSettle) {
+                      return;
+                    }
+                    didSettle = true;
+                    window.clearTimeout(timeoutID);
+                    resolve(pool);
+                  },
+                  (error) => {
+                    if (didSettle) {
+                      return;
+                    }
+                    didSettle = true;
+                    window.clearTimeout(timeoutID);
+                    reject(error);
+                  }
+                );
+              });
+            }
+
+            function safelyTerminateWorkerPool(pool) {
+              try {
+                pool?.terminate?.();
+              } catch (error) {
+                console.warn("cmux diff worker pool termination failed", error);
+              }
             }
 
             async function createCodeViewWorkerPool() {
