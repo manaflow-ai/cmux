@@ -13,7 +13,7 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `8e38caaa1`, based on `176bd550f`, with the
+Current cmux pinned fork head: `3bc3ef04d`, based on `170879334`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, the URL/path
 regex bound for spaced file paths followed by prose, and the read-only tmux control-mode
@@ -28,9 +28,9 @@ It tears down defunct tmux viewers when they emit exit, avoiding duplicate exit
 notifications on error paths.
 It caps tmux pane-output payloads to the cmux observer retention limit before
 dispatching them to the embedder and logs debug metadata when truncation occurs.
-non-embedded runtime builds ignore those embedder-only tmux events.
+Non-embedded runtime builds ignore those embedder-only tmux events.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-536c0e560c6dd70e2b091a94590a6551df81b536-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3bc3ef04d7e130bf91615cf495798fc60ffc2f9c-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -231,6 +231,9 @@ tend to conflict together during rebases.
   - `51e85dcbb` (Redact tmux control action logging)
   - `4246f201e` (Redact tmux control notification logs)
   - `3981bce99` (Emit captured tmux pane text)
+  - `3df6ae1fd` (Cap tmux control pane output payloads)
+  - `8e38caaa1` (Log tmux pane output truncation)
+  - `3bc3ef04d` (Add embedded tmux control callback)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
@@ -257,9 +260,10 @@ tend to conflict together during rebases.
   - Leaves terminal rendering ownership unchanged while cmux observes topology and pane text.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through https://github.com/manaflow-ai/ghostty/pull/65
-and https://github.com/manaflow-ai/ghostty/pull/66.
-Published `xcframework-536c0e560c6dd70e2b091a94590a6551df81b536-crashsubdir-cmux-crash-v1`
+`manaflow-ai/ghostty` through https://github.com/manaflow-ai/ghostty/pull/65,
+https://github.com/manaflow-ai/ghostty/pull/66, and
+https://github.com/manaflow-ai/ghostty/pull/69.
+Published `xcframework-3bc3ef04d7e130bf91615cf495798fc60ffc2f9c-crashsubdir-cmux-crash-v1`
 and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
 release and checksum pin must be regenerated whenever this commit changes, even
 for comment-only amends, because the release tag is keyed by the Ghostty commit
