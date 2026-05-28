@@ -19,6 +19,16 @@ Authentication uses one of:
   ASC_API_ISSUER_ID
   ASC_API_KEY_PATH
 
+or a local plist at:
+
+  ios/Config/AppStoreConnect.local.plist
+
+with string keys:
+
+  ASC_API_KEY_ID
+  ASC_API_ISSUER_ID
+  ASC_API_KEY_PATH
+
 or:
 
   APPLE_ID
@@ -106,21 +116,11 @@ EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
 
 mkdir -p "$OUT_DIR"
 
-if [[ "$LANE" == "beta" \
-  && -z "${ASC_API_KEY_ID:-}" \
-  && -z "${ASC_API_ISSUER_ID:-}" \
-  && -z "${ASC_API_KEY_PATH:-}" \
-  && -z "${APPLE_ID:-}" \
-  && -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" \
-  && -z "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
-  DEFAULT_ASC_API_KEY_ID="4WN4S8ANN4"
-  DEFAULT_ASC_API_ISSUER_ID="94d76068-119d-45cd-8700-86eb7a1a6235"
-  DEFAULT_ASC_API_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_$DEFAULT_ASC_API_KEY_ID.p8"
-  if [[ -f "$DEFAULT_ASC_API_KEY_PATH" ]]; then
-    ASC_API_KEY_ID="$DEFAULT_ASC_API_KEY_ID"
-    ASC_API_ISSUER_ID="$DEFAULT_ASC_API_ISSUER_ID"
-    ASC_API_KEY_PATH="$DEFAULT_ASC_API_KEY_PATH"
-  fi
+LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
+if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
+  ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
 fi
 
 XCODE_AUTH_ARGS=()
@@ -229,7 +229,8 @@ else
 error: missing TestFlight upload credentials.
 
 Set ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH, or set
-APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID.
+APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID. You can
+also create ios/Config/AppStoreConnect.local.plist with the ASC_* keys.
 EOF
   exit 2
 fi

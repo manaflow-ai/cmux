@@ -1885,8 +1885,8 @@ public final class CMUXMobileShellStore {
         guard runtime?.supportsServerPushEvents ?? true else { return }
         startLegacyTerminalRefreshPolling()
         // Push events make user-driven changes show up immediately. The poller
-        // stays active until the host emits terminal output/readiness events for
-        // every non-mobile mutation path.
+        // stays active as a compatibility fallback for old hosts and unexpected
+        // event-subscription failures.
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()
         terminalEventListenerID = listenerID

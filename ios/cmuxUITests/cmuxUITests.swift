@@ -51,6 +51,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
             "CMUX_UITEST_ADD_DEVICE_PORT": "70000",
         ])
+        defer { invalidPortApp.terminate() }
         let invalidPortPairButton = invalidPortApp.buttons["MobilePairButton"]
         XCTAssertTrue(invalidPortPairButton.exists)
         XCTAssertTrue(invalidPortPairButton.isEnabled)
