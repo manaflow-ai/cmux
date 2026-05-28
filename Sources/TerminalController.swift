@@ -18376,6 +18376,20 @@ class TerminalController {
         let maxShellPresentationDrift: Double
     }
 
+    private struct LayoutDebugCanvasCameraInputRecord: Codable, Sendable {
+        let eventType: String
+        let action: String
+        let deltaX: Double
+        let deltaY: Double
+        let localX: Double
+        let localY: Double
+        let phase: String
+        let momentumPhase: String
+        let hasCommandModifier: Bool
+        let hasPreciseScrollingDeltas: Bool
+        let scrollPassthroughHit: Bool
+    }
+
     private struct LayoutDebugResponse: Codable, Sendable {
         let layout: PaneLayoutSnapshot
         let selectedPanels: [LayoutDebugSelectedPanel]
@@ -18391,6 +18405,7 @@ class TerminalController {
         let canvasRecentInteractionPhases: [String]
         let canvasRecentPresentationRecords: [LayoutDebugCanvasPresentationRecord]
         let canvasRecentUnifiedTexturePresentationCount: Int
+        let canvasRecentCameraInputRecords: [LayoutDebugCanvasCameraInputRecord]
         let canvasItems: [LayoutDebugCanvasItem]
         let mainWindowNumber: Int?
         let keyWindowNumber: Int?
@@ -18630,6 +18645,7 @@ class TerminalController {
 
             let canvas = tab.layoutController.canvasSnapshot()
             let canvasPresentationDebug = WorkspaceCanvasPresentationDebugRegistry.snapshot(workspaceID: tab.id)
+            let canvasCameraInputDebug = WorkspaceCanvasCameraInputDebugRegistry.snapshot(window: tabManager.window)
             let canvasItems = canvas.items.map { item -> LayoutDebugCanvasItem in
                 let contentKind: String
                 let paneId: String?
@@ -18684,6 +18700,21 @@ class TerminalController {
                     )
                 } ?? [],
                 canvasRecentUnifiedTexturePresentationCount: canvasPresentationDebug?.recentUnifiedTexturePresentationCount ?? 0,
+                canvasRecentCameraInputRecords: canvasCameraInputDebug.map {
+                    LayoutDebugCanvasCameraInputRecord(
+                        eventType: $0.eventType,
+                        action: $0.action,
+                        deltaX: $0.deltaX,
+                        deltaY: $0.deltaY,
+                        localX: $0.localX,
+                        localY: $0.localY,
+                        phase: $0.phase,
+                        momentumPhase: $0.momentumPhase,
+                        hasCommandModifier: $0.hasCommandModifier,
+                        hasPreciseScrollingDeltas: $0.hasPreciseScrollingDeltas,
+                        scrollPassthroughHit: $0.scrollPassthroughHit
+                    )
+                },
                 canvasItems: canvasItems,
                 mainWindowNumber: NSApp.mainWindow?.windowNumber,
                 keyWindowNumber: NSApp.keyWindow?.windowNumber

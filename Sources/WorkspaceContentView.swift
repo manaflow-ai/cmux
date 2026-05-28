@@ -42,6 +42,45 @@ struct WorkspaceCanvasPresentationDebugRecord {
     let maxShellPresentationDrift: Double
 }
 
+struct WorkspaceCanvasCameraInputDebugRecord {
+    let eventType: String
+    let action: String
+    let deltaX: Double
+    let deltaY: Double
+    let localX: Double
+    let localY: Double
+    let phase: String
+    let momentumPhase: String
+    let hasCommandModifier: Bool
+    let hasPreciseScrollingDeltas: Bool
+    let scrollPassthroughHit: Bool
+}
+
+@MainActor
+enum WorkspaceCanvasCameraInputDebugRegistry {
+    private static let maximumRecentEntryCount = 96
+    private static var recordsByWindowID: [ObjectIdentifier: [WorkspaceCanvasCameraInputDebugRecord]] = [:]
+
+    static func record(window: NSWindow, _ record: WorkspaceCanvasCameraInputDebugRecord) {
+        let windowID = ObjectIdentifier(window)
+        var records = recordsByWindowID[windowID] ?? []
+        records.append(record)
+        if records.count > maximumRecentEntryCount {
+            records.removeFirst(records.count - maximumRecentEntryCount)
+        }
+        recordsByWindowID[windowID] = records
+    }
+
+    static func snapshot(window: NSWindow?) -> [WorkspaceCanvasCameraInputDebugRecord] {
+        guard let window else { return [] }
+        return recordsByWindowID[ObjectIdentifier(window)] ?? []
+    }
+
+    static func remove(window: NSWindow) {
+        recordsByWindowID.removeValue(forKey: ObjectIdentifier(window))
+    }
+}
+
 @MainActor
 enum WorkspaceCanvasPresentationDebugRegistry {
     private struct Entry {
@@ -984,9 +1023,11 @@ private final class CanvasPanEventMonitorView: NSView {
             let isMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
             let didEndMomentum = event.momentumPhase == .ended || event.momentumPhase == .cancelled
             let isCommandWheel = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+            let passthroughHit = scrollPassthroughFrames.contains(where: { $0.contains(localPoint) })
             if !isCommandWheel,
                !wheelGestureState.isConsumingCommandWheelMomentum,
-               scrollPassthroughFrames.contains(where: { $0.contains(localPoint) }) {
+               passthroughHit {
+                recordScrollWheel(action: "passthrough", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: true)
                 return event
             }
 
@@ -996,6 +1037,7 @@ private final class CanvasPanEventMonitorView: NSView {
                 didEndMomentum: didEndMomentum
             ) {
             case .zoom:
+                recordScrollWheel(action: "zoom", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: passthroughHit)
                 onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .zooming))
                 onZoom?(Double(delta.height), localPoint)
                 if Self.isCameraGestureEnd(event) {
@@ -1003,11 +1045,13 @@ private final class CanvasPanEventMonitorView: NSView {
                 }
                 return nil
             case .consume:
+                recordScrollWheel(action: "consume", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: passthroughHit)
                 if Self.isCameraGestureEnd(event) {
                     onCameraInteraction?(.ended)
                 }
                 return nil
             case .pan:
+                recordScrollWheel(action: "pan", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: passthroughHit)
                 onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .panning))
                 onPan?(delta)
                 if Self.isCameraGestureEnd(event) {
@@ -1038,6 +1082,32 @@ private final class CanvasPanEventMonitorView: NSView {
         }
     }
 
+    private func recordScrollWheel(
+        action: String,
+        event: NSEvent,
+        localPoint: NSPoint,
+        delta: CGSize,
+        scrollPassthroughHit: Bool
+    ) {
+        guard let window else { return }
+        WorkspaceCanvasCameraInputDebugRegistry.record(
+            window: window,
+            WorkspaceCanvasCameraInputDebugRecord(
+                eventType: "scrollWheel",
+                action: action,
+                deltaX: Double(delta.width),
+                deltaY: Double(delta.height),
+                localX: Double(localPoint.x),
+                localY: Double(localPoint.y),
+                phase: Self.phaseDescription(event.phase),
+                momentumPhase: Self.phaseDescription(event.momentumPhase),
+                hasCommandModifier: event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+                scrollPassthroughHit: scrollPassthroughHit
+            )
+        )
+    }
+
     private static func cameraInteractionUpdateEvent(
         for event: NSEvent,
         phase: CanvasInteractionPhase
@@ -1062,6 +1132,17 @@ private final class CanvasPanEventMonitorView: NSView {
 
     private static func activeCameraEventPhase(for event: NSEvent) -> NSEvent.Phase {
         event.momentumPhase != [] ? event.momentumPhase : event.phase
+    }
+
+    private static func phaseDescription(_ phase: NSEvent.Phase) -> String {
+        var parts: [String] = []
+        if phase.contains(.began) { parts.append("began") }
+        if phase.contains(.mayBegin) { parts.append("mayBegin") }
+        if phase.contains(.changed) { parts.append("changed") }
+        if phase.contains(.stationary) { parts.append("stationary") }
+        if phase.contains(.ended) { parts.append("ended") }
+        if phase.contains(.cancelled) { parts.append("cancelled") }
+        return parts.isEmpty ? "none" : parts.joined(separator: "|")
     }
 
     deinit {

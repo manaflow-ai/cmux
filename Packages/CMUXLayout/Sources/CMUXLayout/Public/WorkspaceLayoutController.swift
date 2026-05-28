@@ -177,7 +177,7 @@ public final class WorkspaceLayoutController {
         let targetPane = pane ?? focusedPaneId ?? PaneID(id: internalController.rootNode.allPaneIds.first!.id)
 
         // Check with delegate
-        if delegate?.splitTabBar(self, shouldCreateTab: tab, inPane: targetPane) == false {
+        if delegate?.workspaceLayout(self, shouldCreateSurface: tab, inPane: targetPane) == false {
             return nil
         }
 
@@ -215,7 +215,7 @@ public final class WorkspaceLayoutController {
         syncCanvasDocumentWithCurrentLayout()
 
         // Notify delegate
-        delegate?.splitTabBar(self, didCreateTab: tab, inPane: targetPane)
+        delegate?.workspaceLayout(self, didCreateSurface: tab, inPane: targetPane)
 
         return tabId
     }
@@ -223,26 +223,26 @@ public final class WorkspaceLayoutController {
     /// Request the delegate to create a new tab of the given kind in a pane.
     /// The delegate is responsible for the actual creation logic.
     public func requestNewTab(kind: String, inPane pane: PaneID) {
-        delegate?.splitTabBar(self, didRequestNewTab: kind, inPane: pane)
+        delegate?.workspaceLayout(self, didRequestNewSurface: kind, inPane: pane)
     }
 
     /// Request the delegate to handle a host-defined tab bar action.
     public func requestCustomAction(_ identifier: String, inPane pane: PaneID) {
-        delegate?.splitTabBar(self, didRequestCustomAction: identifier, inPane: pane)
+        delegate?.workspaceLayout(self, didRequestCustomAction: identifier, inPane: pane)
     }
 
     /// Request the delegate to handle a tab context-menu action.
     public func requestSurfaceContextAction(_ action: SurfaceContextAction, for tabId: SurfaceID, inPane pane: PaneID) {
         guard isSurfaceContextActionAllowed(action) else { return }
         guard let tab = tab(tabId) else { return }
-        delegate?.splitTabBar(self, didRequestSurfaceContextAction: action, for: tab, inPane: pane)
+        delegate?.workspaceLayout(self, didRequestSurfaceContextAction: action, for: tab, inPane: pane)
     }
 
     /// Request the delegate to move a tab to a host-provided destination.
     public func requestTabMove(toDestination destinationId: String, for tabId: SurfaceID, inPane pane: PaneID) {
         guard configuration.allowCrossPaneTabMove else { return }
         guard let tab = tab(tabId) else { return }
-        delegate?.splitTabBar(self, didRequestTabMoveToDestination: destinationId, for: tab, inPane: pane)
+        delegate?.workspaceLayout(self, didRequestSurfaceMoveToDestination: destinationId, for: tab, inPane: pane)
     }
 
     private func isSurfaceContextActionAllowed(_ action: SurfaceContextAction) -> Bool {
@@ -344,7 +344,7 @@ public final class WorkspaceLayoutController {
         let paneId = pane.id
 
         // Check with delegate
-        if delegate?.splitTabBar(self, shouldCloseTab: tab, inPane: paneId) == false {
+        if delegate?.workspaceLayout(self, shouldCloseSurface: tab, inPane: paneId) == false {
             return false
         }
 
@@ -352,7 +352,7 @@ public final class WorkspaceLayoutController {
         syncCanvasDocumentWithCurrentLayout()
 
         // Notify delegate
-        delegate?.splitTabBar(self, didCloseTab: tabId, fromPane: paneId)
+        delegate?.workspaceLayout(self, didCloseSurface: tabId, fromPane: paneId)
         notifyGeometryChange()
 
         return true
@@ -368,7 +368,7 @@ public final class WorkspaceLayoutController {
 
         // Notify delegate
         let tab = SurfaceTab(from: pane.tabs[tabIndex])
-        delegate?.splitTabBar(self, didSelectTab: tab, inPane: pane.id)
+        delegate?.workspaceLayout(self, didSelectSurface: tab, inPane: pane.id)
     }
 
     /// Move a tab to a specific pane (and optional index) inside this controller.
@@ -397,7 +397,7 @@ public final class WorkspaceLayoutController {
             sourcePane.moveTab(from: sourceIndex, to: destinationIndex)
             sourcePane.selectTab(tabItem.id)
             internalController.focusPane(sourcePane.id)
-            delegate?.splitTabBar(self, didSelectTab: movedTab, inPane: sourcePane.id)
+            delegate?.workspaceLayout(self, didSelectSurface: movedTab, inPane: sourcePane.id)
             notifyGeometryChange()
             return true
         }
@@ -438,7 +438,7 @@ public final class WorkspaceLayoutController {
 
         internalController.focusPane(targetPane.id)
         syncCanvasDocumentWithCurrentLayout()
-        delegate?.splitTabBar(self, didMoveTab: movedTab, fromPane: sourcePaneId, toPane: targetPane.id)
+        delegate?.workspaceLayout(self, didMoveSurface: movedTab, fromPane: sourcePaneId, toPane: targetPane.id)
         notifyGeometryChange()
         return true
     }
@@ -458,7 +458,7 @@ public final class WorkspaceLayoutController {
         internalController.focusPane(pane.id)
         if let tabIndex = pane.tabs.firstIndex(where: { $0.id == tabId.id }) {
             let tab = SurfaceTab(from: pane.tabs[tabIndex])
-            delegate?.splitTabBar(self, didSelectTab: tab, inPane: pane.id)
+            delegate?.workspaceLayout(self, didSelectSurface: tab, inPane: pane.id)
         }
         notifyGeometryChange()
         return true
@@ -497,7 +497,7 @@ public final class WorkspaceLayoutController {
         guard let targetPaneId else { return nil }
 
         // Check with delegate
-        if delegate?.splitTabBar(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
+        if delegate?.workspaceLayout(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
             return nil
         }
 
@@ -536,7 +536,7 @@ public final class WorkspaceLayoutController {
         let newPaneId = focusedPaneId!
 
         // Notify delegate
-        delegate?.splitTabBar(self, didSplitPane: targetPaneId, newPane: newPaneId, orientation: orientation)
+        delegate?.workspaceLayout(self, didSplitPane: targetPaneId, newPane: newPaneId, orientation: orientation)
 
         notifyGeometryChange()
 
@@ -568,7 +568,7 @@ public final class WorkspaceLayoutController {
         guard let targetPaneId else { return nil }
 
         // Check with delegate
-        if delegate?.splitTabBar(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
+        if delegate?.workspaceLayout(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
             return nil
         }
 
@@ -602,7 +602,7 @@ public final class WorkspaceLayoutController {
         let newPaneId = focusedPaneId!
 
         // Notify delegate
-        delegate?.splitTabBar(self, didSplitPane: targetPaneId, newPane: newPaneId, orientation: orientation)
+        delegate?.workspaceLayout(self, didSplitPane: targetPaneId, newPane: newPaneId, orientation: orientation)
 
         notifyGeometryChange()
 
@@ -640,7 +640,7 @@ public final class WorkspaceLayoutController {
         guard internalController.rootNode.findPane(PaneID(id: targetPaneId.id)) != nil else { return nil }
 
         // Check with delegate
-        if delegate?.splitTabBar(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
+        if delegate?.workspaceLayout(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
             return nil
         }
 
@@ -679,7 +679,7 @@ public final class WorkspaceLayoutController {
         let newPaneId = focusedPaneId!
 
         // Notify delegate
-        delegate?.splitTabBar(self, didSplitPane: targetPaneId, newPane: newPaneId, orientation: orientation)
+        delegate?.workspaceLayout(self, didSplitPane: targetPaneId, newPane: newPaneId, orientation: orientation)
 
         notifyGeometryChange()
 
@@ -697,7 +697,7 @@ public final class WorkspaceLayoutController {
         }
 
         // Check with delegate
-        if delegate?.splitTabBar(self, shouldClosePane: paneId) == false {
+        if delegate?.workspaceLayout(self, shouldClosePane: paneId) == false {
             return false
         }
 
@@ -705,7 +705,7 @@ public final class WorkspaceLayoutController {
         syncCanvasDocumentWithCurrentLayout()
 
         // Notify delegate
-        delegate?.splitTabBar(self, didClosePane: paneId)
+        delegate?.workspaceLayout(self, didClosePane: paneId)
 
         notifyGeometryChange()
 
@@ -729,14 +729,14 @@ public final class WorkspaceLayoutController {
                 requestCanvasViewportAnimation()
             }
         }
-        delegate?.splitTabBar(self, didFocusPane: paneId)
+        delegate?.workspaceLayout(self, didFocusPane: paneId)
     }
 
     /// Navigate focus in a direction
     public func navigateFocus(direction: NavigationDirection) {
         internalController.navigateFocus(direction: direction)
         if let focusedPaneId {
-            delegate?.splitTabBar(self, didFocusPane: focusedPaneId)
+            delegate?.workspaceLayout(self, didFocusPane: focusedPaneId)
         }
     }
 
@@ -1322,7 +1322,7 @@ public final class WorkspaceLayoutController {
 
         // If dragging, check if delegate wants notifications during drag
         if isDragging {
-            let shouldNotify = delegate?.splitTabBar(self, shouldNotifyDuringDrag: true) ?? false
+            let shouldNotify = delegate?.workspaceLayout(self, shouldNotifyDuringDrag: true) ?? false
             guard shouldNotify else { return }
         }
 
@@ -1335,7 +1335,7 @@ public final class WorkspaceLayoutController {
         }
 
         let snapshot = layoutSnapshot()
-        delegate?.splitTabBar(self, didChangeGeometry: snapshot)
+        delegate?.workspaceLayout(self, didChangeGeometry: snapshot)
     }
 
     // MARK: - Private Helpers
@@ -1570,7 +1570,7 @@ public final class WorkspaceLayoutController {
         guard let pane = internalController.focusedPane,
               let tabItem = pane.selectedTab else { return }
         let tab = SurfaceTab(from: tabItem)
-        delegate?.splitTabBar(self, didSelectTab: tab, inPane: pane.id)
+        delegate?.workspaceLayout(self, didSelectSurface: tab, inPane: pane.id)
     }
 }
 

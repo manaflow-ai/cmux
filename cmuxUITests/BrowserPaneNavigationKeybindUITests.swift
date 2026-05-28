@@ -1289,6 +1289,95 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
     }
 
+    func testCanvasAlternatingTwoFingerPansStartingOnNativeContentStayInLockstep() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before alternating native-content canvas pans. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        guard let setup = loadData(),
+              let terminalPaneId = setup["terminalPaneId"],
+              let browserPaneId = setup["browserPaneId"],
+              let browserItemId = waitForCanvasItemId(paneId: browserPaneId, timeout: 8.0) else {
+            XCTFail("Missing canvas pane/item ids. data=\(loadData() ?? [:]) layout=\(String(describing: canvasLayout()))")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasOverviewActive"] as? Bool == true
+            },
+            "Expected canvas overview to be active before alternating native-content pans. layout=\(String(describing: canvasLayout()))"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "terminal")?["paneId"] as? String == terminalPaneId
+            },
+            "Expected terminal native portal before alternating native-content pans. layout=\(String(describing: canvasLayout()))"
+        )
+
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: terminalPaneId,
+            direction: .left,
+            panelType: "terminal"
+        )
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: terminalPaneId,
+            direction: .up,
+            panelType: "terminal"
+        )
+
+        let focusBrowser = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": browserItemId,
+                "dx": 0,
+                "dy": 0,
+            ]
+        )
+        guard focusBrowser?["ok"] as? Bool == true else {
+            XCTFail("Failed to focus browser canvas item. envelope=\(String(describing: focusBrowser))")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "browser")?["paneId"] as? String == browserPaneId
+            },
+            "Expected browser native portal before alternating native-content pans. layout=\(String(describing: canvasLayout()))"
+        )
+
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: browserPaneId,
+            direction: .right,
+            panelType: "browser"
+        )
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: browserPaneId,
+            direction: .down,
+            panelType: "browser"
+        )
+        assertCanvasRecordedWheelPanInput(minimumPanEventCount: 4)
+        assertCanvasRecordedUnifiedPresentationDuringPan(
+            minimumTextureSurfaceCount: 2,
+            minimumPanningRecordCount: 4
+        )
+    }
+
     func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -2464,6 +2553,32 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     sawAllTexturePanFrame
             },
             "Expected trackpad pan to hide native portals and keep Metal shell/presentation frames in lockstep before remounting. layout=\(String(describing: canvasLayout()))",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertCanvasRecordedWheelPanInput(
+        timeout: TimeInterval = 6.0,
+        minimumPanEventCount: Int = 1,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            waitForCondition(timeout: timeout) {
+                guard let layout = self.canvasLayout() else { return false }
+                let records = layout["canvasRecentCameraInputRecords"] as? [[String: Any]] ?? []
+                let scrollRecords = records.filter { $0["eventType"] as? String == "scrollWheel" }
+                let panRecords = scrollRecords.filter { $0["action"] as? String == "pan" }
+                let hasBadAction = scrollRecords.contains { record in
+                    guard let action = record["action"] as? String else { return true }
+                    let command = record["hasCommandModifier"] as? Bool ?? false
+                    let passthroughHit = record["scrollPassthroughHit"] as? Bool ?? false
+                    return command || passthroughHit || action == "zoom" || action == "passthrough"
+                }
+                return panRecords.count >= minimumPanEventCount && !hasBadAction
+            },
+            "Expected two-finger scroll input to be classified as canvas pan only, without zooming or passing into native terminal/browser scroll views. layout=\(String(describing: canvasLayout()))",
             file: file,
             line: line
         )

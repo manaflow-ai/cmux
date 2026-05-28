@@ -155,6 +155,91 @@ final class CMUXLayoutTests: XCTestCase {
         }
     }
 
+    private final class SurfaceVocabularyDelegateSpy: WorkspaceLayoutDelegate {
+        var shouldCreateSurfaces: [(SurfaceID, PaneID)] = []
+        var didCreateSurfaces: [(SurfaceID, PaneID)] = []
+        var didSelectSurfaces: [(SurfaceID, PaneID)] = []
+        var didMoveSurfaces: [(SurfaceID, PaneID, PaneID)] = []
+        var shouldCloseSurfaces: [(SurfaceID, PaneID)] = []
+        var didCloseSurfaces: [(SurfaceID, PaneID)] = []
+        var shouldSplitPanes: [(PaneID, LayoutOrientation)] = []
+        var didSplitPanes: [(PaneID, PaneID, LayoutOrientation)] = []
+        var requestedNewSurfaces: [(String, PaneID)] = []
+        var requestedSurfaceContextActions: [(SurfaceContextAction, SurfaceID, PaneID)] = []
+        var requestedSurfaceMoveDestinations: [(String, SurfaceID, PaneID)] = []
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, shouldCreateSurface surface: SurfaceTab, inPane pane: PaneID) -> Bool {
+            shouldCreateSurfaces.append((surface.id, pane))
+            return true
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didCreateSurface surface: SurfaceTab, inPane pane: PaneID) {
+            didCreateSurfaces.append((surface.id, pane))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didSelectSurface surface: SurfaceTab, inPane pane: PaneID) {
+            didSelectSurfaces.append((surface.id, pane))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didMoveSurface surface: SurfaceTab, fromPane source: PaneID, toPane destination: PaneID) {
+            didMoveSurfaces.append((surface.id, source, destination))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, shouldCloseSurface surface: SurfaceTab, inPane pane: PaneID) -> Bool {
+            shouldCloseSurfaces.append((surface.id, pane))
+            return true
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didCloseSurface surfaceId: SurfaceID, fromPane pane: PaneID) {
+            didCloseSurfaces.append((surfaceId, pane))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, shouldSplitPane pane: PaneID, orientation: LayoutOrientation) -> Bool {
+            shouldSplitPanes.append((pane, orientation))
+            return true
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: LayoutOrientation) {
+            didSplitPanes.append((originalPane, newPane, orientation))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didRequestNewSurface kind: String, inPane pane: PaneID) {
+            requestedNewSurfaces.append((kind, pane))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didRequestSurfaceContextAction action: SurfaceContextAction, for surface: SurfaceTab, inPane pane: PaneID) {
+            requestedSurfaceContextActions.append((action, surface.id, pane))
+        }
+
+        func workspaceLayout(_ controller: WorkspaceLayoutController, didRequestSurfaceMoveToDestination destinationId: String, for surface: SurfaceTab, inPane pane: PaneID) {
+            requestedSurfaceMoveDestinations.append((destinationId, surface.id, pane))
+        }
+    }
+
+    private final class LegacySurfaceLifecycleDelegateSpy: WorkspaceLayoutDelegate {
+        var shouldCreateTabs: [(SurfaceID, PaneID)] = []
+        var didCreateTabs: [(SurfaceID, PaneID)] = []
+        var didSelectTabs: [(SurfaceID, PaneID)] = []
+        var didCloseTabs: [(SurfaceID, PaneID)] = []
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldCreateTab tab: SurfaceTab, inPane pane: PaneID) -> Bool {
+            shouldCreateTabs.append((tab.id, pane))
+            return true
+        }
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, didCreateTab tab: SurfaceTab, inPane pane: PaneID) {
+            didCreateTabs.append((tab.id, pane))
+        }
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, didSelectTab tab: SurfaceTab, inPane pane: PaneID) {
+            didSelectTabs.append((tab.id, pane))
+        }
+
+        func splitTabBar(_ controller: WorkspaceLayoutController, didCloseTab tabId: SurfaceID, fromPane pane: PaneID) {
+            didCloseTabs.append((tabId, pane))
+        }
+    }
+
     @MainActor
     func testExternalDividerUpdateSuppressesOnlyMatchingFollowUpGeometryNotification() {
         let controller = WorkspaceLayoutController()
@@ -175,6 +260,79 @@ final class CMUXLayoutTests: XCTestCase {
 
         controller.notifyGeometryChange()
         XCTAssertEqual(delegate.snapshots.count, 1)
+    }
+
+    @MainActor
+    func testWorkspaceLayoutControllerUsesSurfaceDelegateVocabulary() {
+        let controller = WorkspaceLayoutController()
+        let rootPane = controller.focusedPaneId!
+        let delegate = SurfaceVocabularyDelegateSpy()
+        controller.delegate = delegate
+
+        let firstSurface = controller.createSurface(title: "Terminal", kind: "terminal", inPane: rootPane)!
+        let secondSurface = controller.createSurface(title: "Browser", kind: "browser", inPane: rootPane)!
+        controller.selectSurface(firstSurface)
+        let secondPane = controller.splitPane(rootPane, orientation: .horizontal)!
+        XCTAssertTrue(controller.moveSurface(secondSurface, toPane: secondPane))
+        XCTAssertTrue(controller.closeSurface(secondSurface))
+        controller.requestNewTab(kind: "terminal", inPane: rootPane)
+        controller.requestSurfaceContextAction(.reload, for: firstSurface, inPane: rootPane)
+        controller.requestTabMove(toDestination: "workspace:target", for: firstSurface, inPane: rootPane)
+
+        XCTAssertEqual(delegate.shouldCreateSurfaces.map(\.1), [rootPane, rootPane])
+        XCTAssertEqual(delegate.didCreateSurfaces.map(\.0), [firstSurface, secondSurface])
+        XCTAssertEqual(delegate.didSelectSurfaces.last?.0, firstSurface)
+        XCTAssertEqual(delegate.shouldSplitPanes.count, 1)
+        XCTAssertEqual(delegate.shouldSplitPanes.first?.0, rootPane)
+        XCTAssertEqual(delegate.shouldSplitPanes.first?.1, .horizontal)
+        XCTAssertEqual(delegate.didSplitPanes.count, 1)
+        XCTAssertEqual(delegate.didSplitPanes.first?.0, rootPane)
+        XCTAssertEqual(delegate.didSplitPanes.first?.1, secondPane)
+        XCTAssertEqual(delegate.didSplitPanes.first?.2, .horizontal)
+        XCTAssertEqual(delegate.didMoveSurfaces.count, 1)
+        XCTAssertEqual(delegate.didMoveSurfaces.first?.0, secondSurface)
+        XCTAssertEqual(delegate.didMoveSurfaces.first?.1, rootPane)
+        XCTAssertEqual(delegate.didMoveSurfaces.first?.2, secondPane)
+        XCTAssertEqual(delegate.shouldCloseSurfaces.count, 1)
+        XCTAssertEqual(delegate.shouldCloseSurfaces.first?.0, secondSurface)
+        XCTAssertEqual(delegate.shouldCloseSurfaces.first?.1, secondPane)
+        XCTAssertEqual(delegate.didCloseSurfaces.count, 1)
+        XCTAssertEqual(delegate.didCloseSurfaces.first?.0, secondSurface)
+        XCTAssertEqual(delegate.didCloseSurfaces.first?.1, secondPane)
+        XCTAssertEqual(delegate.requestedNewSurfaces.map(\.0), ["terminal"])
+        XCTAssertEqual(delegate.requestedSurfaceContextActions.count, 1)
+        XCTAssertEqual(delegate.requestedSurfaceContextActions.first?.0, .reload)
+        XCTAssertEqual(delegate.requestedSurfaceContextActions.first?.1, firstSurface)
+        XCTAssertEqual(delegate.requestedSurfaceContextActions.first?.2, rootPane)
+        XCTAssertEqual(delegate.requestedSurfaceMoveDestinations.count, 1)
+        XCTAssertEqual(delegate.requestedSurfaceMoveDestinations.first?.0, "workspace:target")
+        XCTAssertEqual(delegate.requestedSurfaceMoveDestinations.first?.1, firstSurface)
+        XCTAssertEqual(delegate.requestedSurfaceMoveDestinations.first?.2, rootPane)
+    }
+
+    @MainActor
+    func testLegacySplitTabDelegateStillReceivesSurfaceLifecycleCallbacks() {
+        let controller = WorkspaceLayoutController()
+        let pane = controller.focusedPaneId!
+        let delegate = LegacySurfaceLifecycleDelegateSpy()
+        controller.delegate = delegate
+
+        let surface = controller.createSurface(title: "Terminal", kind: "terminal", inPane: pane)!
+        controller.selectSurface(surface)
+        XCTAssertTrue(controller.closeSurface(surface))
+
+        XCTAssertEqual(delegate.shouldCreateTabs.count, 1)
+        XCTAssertEqual(delegate.shouldCreateTabs.first?.0, surface)
+        XCTAssertEqual(delegate.shouldCreateTabs.first?.1, pane)
+        XCTAssertEqual(delegate.didCreateTabs.count, 1)
+        XCTAssertEqual(delegate.didCreateTabs.first?.0, surface)
+        XCTAssertEqual(delegate.didCreateTabs.first?.1, pane)
+        XCTAssertEqual(delegate.didSelectTabs.count, 1)
+        XCTAssertEqual(delegate.didSelectTabs.first?.0, surface)
+        XCTAssertEqual(delegate.didSelectTabs.first?.1, pane)
+        XCTAssertEqual(delegate.didCloseTabs.count, 1)
+        XCTAssertEqual(delegate.didCloseTabs.first?.0, surface)
+        XCTAssertEqual(delegate.didCloseTabs.first?.1, pane)
     }
 
     func testExternalSplitNodeNormalizesInvalidInitializerState() {
