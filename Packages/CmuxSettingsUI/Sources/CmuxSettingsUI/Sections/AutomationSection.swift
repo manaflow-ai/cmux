@@ -1,16 +1,14 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Automation** section.
-///
-/// Currently exposes the socket control mode (UserDefaults-backed) and
-/// the optional socket password (JSON-config-backed, so MDM can
-/// preconfigure).
+/// **Automation** section.
 @MainActor
 public struct AutomationSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
+
+    @State private var socketPasswordModel: JSONValueModel<String>?
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -23,43 +21,70 @@ public struct AutomationSection: View {
     }
 
     public var body: some View {
-        Form {
-            Section("Socket Control") {
-                SettingsPickerRow(
-                    model: DefaultsValueModel(
-                        store: defaultsStore,
-                        key: catalog.automation.socketControlMode
-                    ),
-                    title: "Socket Control Mode",
-                    label: { mode in
-                        switch mode {
-                        case .off: return "Off"
-                        case .cmuxOnly: return "Only the bundled cmux CLI"
-                        case .automation: return "Automation tools"
-                        case .password: return "Password required"
-                        case .allowAll: return "Allow all local clients"
-                        }
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Socket Control")
+            SettingsCard {
+                let socketModeModel = DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode)
+                SettingsCardRow(
+                    configurationReview: .json("automation.socketControlMode"),
+                    "Socket Control Mode",
+                    controlWidth: 240
+                ) {
+                    Picker("", selection: Binding(get: { socketModeModel.current }, set: { socketModeModel.set($0) })) {
+                        Text("Off").tag(SocketControlMode.off)
+                        Text("Only the bundled cmux CLI").tag(SocketControlMode.cmuxOnly)
+                        Text("Automation tools").tag(SocketControlMode.automation)
+                        Text("Password required").tag(SocketControlMode.password)
+                        Text("Allow all local clients").tag(SocketControlMode.allowAll)
                     }
-                )
-                SettingsTextFieldRow(
-                    model: JSONValueModel(store: jsonStore, key: catalog.automation.socketPassword),
-                    title: "Socket Password",
-                    placeholder: "Set when 'Password required' is selected"
-                )
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .json("automation.socketPassword"),
+                    "Socket Password",
+                    subtitle: "Set when 'Password required' is selected.",
+                    controlWidth: 240
+                ) {
+                    if let model = socketPasswordModel {
+                        SecureField("", text: Binding(get: { model.current }, set: { model.set($0) }))
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.small)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
             }
-            Section("CMUX Port Range") {
-                SettingsStepperRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase),
-                    title: "Port Base",
-                    range: 1_024...65_000
-                )
-                SettingsStepperRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange),
-                    title: "Port Range",
-                    range: 1...500
-                )
+
+            SettingsSectionHeader("CMUX Port Range")
+            SettingsCard {
+                intStepperRow("Port Base", subtitle: nil,
+                    json: "automation.portBase",
+                    key: catalog.automation.portBase,
+                    range: 1_024...65_000)
+                SettingsCardDivider()
+                intStepperRow("Port Range Size", subtitle: nil,
+                    json: "automation.portRange",
+                    key: catalog.automation.portRange,
+                    range: 1...500)
             }
         }
-        .formStyle(.grouped)
+        .task {
+            if socketPasswordModel == nil {
+                socketPasswordModel = JSONValueModel(store: jsonStore, key: catalog.automation.socketPassword)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func intStepperRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Int>, range: ClosedRange<Int>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 140) {
+            Stepper(value: Binding(get: { model.current }, set: { model.set($0) }), in: range) {
+                Text("\(model.current)").monospacedDigit()
+            }
+            .controlSize(.small)
+        }
     }
 }

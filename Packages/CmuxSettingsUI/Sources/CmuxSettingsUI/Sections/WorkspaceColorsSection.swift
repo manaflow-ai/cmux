@@ -1,15 +1,8 @@
+import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Workspace Colors** section.
-///
-/// Hosts the active-workspace indicator style, selection / badge
-/// color overrides, and a named-palette editor that lets users add,
-/// edit, or remove custom workspace colors. Palette mutations are
-/// persisted to the JSON-config-backed
-/// ``WorkspaceColorsCatalogSection/customColors`` and
-/// ``WorkspaceColorsCatalogSection/paletteOverrides`` so they sync
-/// across devices through cmux.json.
+/// **Workspace Colors** section.
 @MainActor
 public struct WorkspaceColorsSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -22,6 +15,8 @@ public struct WorkspaceColorsSection: View {
     @State private var streamTask: Task<Void, Never>?
     @State private var overridesTask: Task<Void, Never>?
     @State private var newColorDraft: String = "#"
+    @State private var newOverrideName: String = ""
+    @State private var newOverrideValue: String = "#"
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -36,57 +31,73 @@ public struct WorkspaceColorsSection: View {
     }
 
     public var body: some View {
-        Form {
-            Section("Indicator") {
-                SettingsPickerRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle),
-                    title: "Active-workspace indicator",
-                    label: { style in
-                        switch style {
-                        case .leftRail: return "Left rail"
-                        case .solidFill: return "Solid fill"
-                        }
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Workspace Colors")
+            SettingsCard {
+                let model = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle)
+                SettingsCardRow(
+                    configurationReview: .json("workspaceColors.indicatorStyle"),
+                    "Active-workspace Indicator",
+                    controlWidth: 200
+                ) {
+                    Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
+                        Text("Left rail").tag(WorkspaceIndicatorStyle.leftRail)
+                        Text("Solid fill").tag(WorkspaceIndicatorStyle.solidFill)
                     }
-                )
-            }
-            Section("Colors") {
-                hexRowWithReset(title: "Selection color (#RRGGBB)", key: catalog.workspaceColors.selectionColorHex)
-                hexRowWithReset(title: "Notification badge color (#RRGGBB)", key: catalog.workspaceColors.notificationBadgeColorHex)
-            }
-            Section("Custom Palette") {
-                Text("Add custom workspace colors as hex strings. They appear alongside the built-in palette in the workspace settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(Array(customColors.enumerated()), id: \.offset) { index, hex in
-                    customColorRow(hex: hex, index: index)
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
-                HStack {
-                    TextField("#RRGGBB", text: $newColorDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 140)
-                    Button("Add") {
-                        addCustomColor()
+                SettingsCardDivider()
+                hexRowWithReset("Selection Color (#RRGGBB)",
+                    json: "workspaceColors.selectionColor",
+                    key: catalog.workspaceColors.selectionColorHex)
+                SettingsCardDivider()
+                hexRowWithReset("Notification Badge Color (#RRGGBB)",
+                    json: "workspaceColors.notificationBadgeColor",
+                    key: catalog.workspaceColors.notificationBadgeColorHex)
+            }
+
+            SettingsSectionHeader("Custom Palette")
+            SettingsCard {
+                SettingsCardRow(
+                    configurationReview: .json("workspaceColors.customColors"),
+                    "Custom Colors",
+                    subtitle: "Add custom workspace colors as hex strings. They appear alongside the built-in palette."
+                ) {
+                    EmptyView()
+                }
+                if !customColors.isEmpty {
+                    SettingsCardDivider()
+                    ForEach(Array(customColors.enumerated()), id: \.offset) { idx, hex in
+                        if idx > 0 { SettingsCardDivider() }
+                        customColorRow(hex: hex, index: idx)
                     }
-                    .disabled(!isValidHex(newColorDraft))
                 }
+                SettingsCardDivider()
+                addCustomRow
             }
-            Section("Palette Overrides") {
-                Text("Override the hex value cmux uses for a named built-in color. Format: enter the palette name and the new hex value.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(Array(paletteOverrides.keys.sorted()), id: \.self) { name in
-                    overrideRow(name: name)
+
+            SettingsSectionHeader("Palette Overrides")
+            SettingsCard {
+                SettingsCardRow(
+                    configurationReview: .json("workspaceColors.paletteOverrides"),
+                    "Palette Overrides",
+                    subtitle: "Override the hex value cmux uses for a named built-in color."
+                ) {
+                    EmptyView()
+                }
+                if !paletteOverrides.isEmpty {
+                    SettingsCardDivider()
+                    ForEach(paletteOverrides.keys.sorted(), id: \.self) { name in
+                        overrideRow(name: name)
+                        SettingsCardDivider()
+                    }
                 }
                 addOverrideRow
             }
         }
-        .formStyle(.grouped)
-        .task {
-            await observeCustomColors()
-        }
-        .task {
-            await observeOverrides()
-        }
+        .task { await observeCustomColors() }
+        .task { await observeOverrides() }
         .onDisappear {
             streamTask?.cancel()
             overridesTask?.cancel()
@@ -94,28 +105,17 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func hexRow(title: String, key: DefaultsKey<String>) -> some View {
+    private func hexRowWithReset(_ title: String, json: String, key: DefaultsKey<String>) -> some View {
         let model = DefaultsValueModel(store: defaultsStore, key: key)
-        TextField(title, text: Binding(
-            get: { model.current },
-            set: { model.set($0) }
-        ))
-        .textFieldStyle(.roundedBorder)
-    }
-
-    @ViewBuilder
-    private func hexRowWithReset(title: String, key: DefaultsKey<String>) -> some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: key)
-        HStack {
-            TextField(title, text: Binding(
-                get: { model.current },
-                set: { model.set($0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            Button("Reset") {
-                model.reset()
+        SettingsCardRow(configurationReview: .json(json), title, controlWidth: 260) {
+            HStack(spacing: 6) {
+                TextField("(default)", text: Binding(get: { model.current }, set: { model.set($0) }))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                Button("Reset") { model.reset() }
+                    .controlSize(.small)
+                    .disabled(model.current == key.defaultValue)
             }
-            .disabled(model.current == key.defaultValue)
         }
     }
 
@@ -125,8 +125,7 @@ public struct WorkspaceColorsSection: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(colorFromHex(hex) ?? Color.gray)
                 .frame(width: 22, height: 22)
-            Text(hex)
-                .font(.system(.body, design: .monospaced))
+            Text(hex).font(.system(.body, design: .monospaced))
             Spacer()
             Button(role: .destructive) {
                 removeCustomColor(at: index)
@@ -135,32 +134,30 @@ public struct WorkspaceColorsSection: View {
             }
             .buttonStyle(.borderless)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
     }
 
-    @State private var newOverrideName: String = ""
-    @State private var newOverrideValue: String = "#"
-
     @ViewBuilder
-    private var addOverrideRow: some View {
+    private var addCustomRow: some View {
         HStack {
-            TextField("Name", text: $newOverrideName)
+            TextField("#RRGGBB", text: $newColorDraft)
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 120)
-            TextField("#RRGGBB", text: $newOverrideValue)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 120)
-            Button("Add Override") {
-                addOverride()
-            }
-            .disabled(newOverrideName.isEmpty || !isValidHex(newOverrideValue))
+                .frame(maxWidth: 140)
+                .controlSize(.small)
+            Button("Add") { addCustomColor() }
+                .disabled(!isValidHex(newColorDraft))
+                .controlSize(.small)
+            Spacer()
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
     private func overrideRow(name: String) -> some View {
         HStack {
-            Text(name)
-                .frame(maxWidth: 120, alignment: .leading)
+            Text(name).frame(maxWidth: 120, alignment: .leading)
             TextField("#RRGGBB", text: Binding(
                 get: { paletteOverrides[name] ?? "" },
                 set: { newValue in
@@ -170,23 +167,42 @@ public struct WorkspaceColorsSection: View {
             ))
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: 120)
+            .controlSize(.small)
             Spacer()
             Button(role: .destructive) {
                 paletteOverrides.removeValue(forKey: name)
                 persistOverrides()
-            } label: {
-                Image(systemName: "trash")
-            }
+            } label: { Image(systemName: "trash") }
             .buttonStyle(.borderless)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var addOverrideRow: some View {
+        HStack {
+            TextField("Name", text: $newOverrideName)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 120)
+                .controlSize(.small)
+            TextField("#RRGGBB", text: $newOverrideValue)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 120)
+                .controlSize(.small)
+            Button("Add Override") { addOverride() }
+                .disabled(newOverrideName.isEmpty || !isValidHex(newOverrideValue))
+                .controlSize(.small)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     private func addCustomColor() {
         guard isValidHex(newColorDraft) else { return }
         var updated = customColors
-        if !updated.contains(newColorDraft) {
-            updated.append(newColorDraft)
-        }
+        if !updated.contains(newColorDraft) { updated.append(newColorDraft) }
         customColors = updated
         persistCustomColors()
         newColorDraft = "#"
@@ -233,22 +249,16 @@ public struct WorkspaceColorsSection: View {
     private func persistCustomColors() {
         let snapshot = customColors
         Task {
-            do {
-                try await jsonStore.set(snapshot, for: catalog.workspaceColors.customColors)
-            } catch {
-                errorLog?.record(error, keyID: catalog.workspaceColors.customColors.id)
-            }
+            do { try await jsonStore.set(snapshot, for: catalog.workspaceColors.customColors) }
+            catch { errorLog?.record(error, keyID: catalog.workspaceColors.customColors.id) }
         }
     }
 
     private func persistOverrides() {
         let snapshot = paletteOverrides
         Task {
-            do {
-                try await jsonStore.set(snapshot, for: catalog.workspaceColors.paletteOverrides)
-            } catch {
-                errorLog?.record(error, keyID: catalog.workspaceColors.paletteOverrides.id)
-            }
+            do { try await jsonStore.set(snapshot, for: catalog.workspaceColors.paletteOverrides) }
+            catch { errorLog?.record(error, keyID: catalog.workspaceColors.paletteOverrides.id) }
         }
     }
 

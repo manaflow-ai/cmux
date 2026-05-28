@@ -1,11 +1,7 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Terminal** section.
-///
-/// Hosts scrollbar visibility, copy-on-select, agent session resume /
-/// hibernation, the multi-line text-box maximum height, and the JSON
-/// resume-command list. Mirrors the legacy in-app section.
+/// **Terminal** section rendered as a stack of `SettingsCard`s.
 @MainActor
 public struct TerminalSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -13,8 +9,8 @@ public struct TerminalSection: View {
     private let catalog: SettingCatalog
 
     @State private var resumeCommands: [String] = []
-    @State private var resumeStreamTask: Task<Void, Never>?
     @State private var resumeDraft: String = ""
+    @State private var resumeStreamTask: Task<Void, Never>?
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -27,67 +23,100 @@ public struct TerminalSection: View {
     }
 
     public var body: some View {
-        Form {
-            Section("Display") {
-                SettingsToggleRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar),
-                    title: "Show terminal scroll bar"
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Terminal")
+            SettingsCard {
+                toggleRow(
+                    title: "Show Terminal Scroll Bar",
+                    subtitle: nil,
+                    json: "terminal.showScrollBar",
+                    key: catalog.terminal.showScrollBar
                 )
-                SettingsToggleRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect),
-                    title: "Copy on selection",
-                    subtitle: "Selecting text in a terminal copies it to the clipboard automatically."
+                SettingsCardDivider()
+                toggleRow(
+                    title: "Copy on Selection",
+                    subtitle: "Selecting text in a terminal copies it to the clipboard automatically.",
+                    json: "terminal.copyOnSelect",
+                    key: catalog.terminal.copyOnSelect
                 )
-                SettingsStepperRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines),
-                    title: "Text box max lines",
+                SettingsCardDivider()
+                intStepperRow(
+                    title: "Text Box Max Lines",
+                    subtitle: "Limits how tall the rich terminal input can grow before it scrolls.",
+                    json: "terminal.textBoxMaxLines",
+                    key: catalog.terminal.textBoxMaxLines,
                     range: 1...20
                 )
             }
-            Section("Agents") {
-                SettingsToggleRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions),
-                    title: "Resume agent sessions on reopen",
-                    subtitle: "When cmux relaunches, restore Claude / Codex / opencode sessions automatically."
+
+            SettingsSectionHeader("Agents")
+            SettingsCard {
+                toggleRow(
+                    title: "Resume Agent Sessions on Reopen",
+                    subtitle: "When cmux relaunches, restore Claude / Codex / opencode sessions automatically.",
+                    json: "terminal.autoResumeAgentSessions",
+                    key: catalog.terminal.autoResumeAgentSessions
                 )
-                SettingsToggleRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled),
-                    title: "Hibernate idle agents",
-                    subtitle: "Suspend background agent terminals after a period of inactivity."
+                SettingsCardDivider()
+                toggleRow(
+                    title: "Hibernate Idle Agents",
+                    subtitle: "Suspend background agent terminals after a period of inactivity.",
+                    json: "terminal.agentHibernation.enabled",
+                    key: catalog.terminal.agentHibernationEnabled
                 )
-                SettingsDoubleStepperRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds),
-                    title: "Hibernation idle threshold",
+                SettingsCardDivider()
+                doubleStepperRow(
+                    title: "Hibernation Idle Threshold",
+                    subtitle: "Seconds of inactivity before hibernation kicks in.",
+                    json: "terminal.agentHibernation.idleSeconds",
+                    key: catalog.terminal.agentHibernationIdleSeconds,
                     range: 30...3_600,
                     step: 30,
-                    format: { value in "\(Int(value))s" }
+                    format: { "\(Int($0))s" }
                 )
-                SettingsStepperRow(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals),
-                    title: "Max live agent terminals",
+                SettingsCardDivider()
+                intStepperRow(
+                    title: "Max Live Agent Terminals",
+                    subtitle: nil,
+                    json: "terminal.agentHibernation.maxLiveTerminals",
+                    key: catalog.terminal.agentHibernationMaxLiveTerminals,
                     range: 1...256
                 )
             }
-            Section("Resume Commands") {
-                Text("Newline-delimited list of commands cmux will run when a terminal is resumed. Persisted in cmux.json so the same list applies to every workspace.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $resumeDraft)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 90, maxHeight: 160)
-                    .border(Color(nsColor: .separatorColor))
-                HStack {
-                    Spacer()
-                    Button("Apply") {
-                        commitResumeDraft()
-                    }
-                    .disabled(resumeDraft == resumeJoined(resumeCommands))
-                }
+
+            SettingsSectionHeader("Resume Commands")
+            SettingsCard {
+                resumeCommandsRow
             }
         }
-        .formStyle(.grouped)
         .task { await observeResumeCommands() }
         .onDisappear { resumeStreamTask?.cancel() }
+    }
+
+    @ViewBuilder
+    private var resumeCommandsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("terminal.resumeCommands"),
+            "Resume Commands",
+            subtitle: "Newline-delimited list of commands cmux runs when a terminal is resumed."
+        ) {
+            EmptyView()
+        }
+        SettingsCardDivider()
+        VStack(alignment: .leading, spacing: 6) {
+            TextEditor(text: $resumeDraft)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 90, maxHeight: 160)
+                .border(Color(nsColor: .separatorColor))
+            HStack {
+                Spacer()
+                Button("Apply") { commitResumeDraft() }
+                    .disabled(resumeDraft == resumeCommands.joined(separator: "\n"))
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
     }
 
     private func observeResumeCommands() async {
@@ -97,10 +126,8 @@ public struct TerminalSection: View {
                 if Task.isCancelled { break }
                 if commands != resumeCommands {
                     resumeCommands = commands
-                    let joined = resumeJoined(commands)
-                    if resumeDraft != joined {
-                        resumeDraft = joined
-                    }
+                    let joined = commands.joined(separator: "\n")
+                    if resumeDraft != joined { resumeDraft = joined }
                 }
             }
         }
@@ -114,16 +141,39 @@ public struct TerminalSection: View {
             .map { String($0).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         Task {
-            do {
-                try await jsonStore.set(updated, for: catalog.terminal.resumeCommands)
-            } catch {
-                // Surfaced through SettingsErrorLog if one is injected
-                // higher in the view tree via the standard alert path.
-            }
+            try? await jsonStore.set(updated, for: catalog.terminal.resumeCommands)
         }
     }
 
-    private func resumeJoined(_ commands: [String]) -> String {
-        commands.joined(separator: "\n")
+    @ViewBuilder
+    private func toggleRow(title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
+            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private func intStepperRow(title: String, subtitle: String?, json: String, key: DefaultsKey<Int>, range: ClosedRange<Int>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 120) {
+            Stepper(value: Binding(get: { model.current }, set: { model.set($0) }), in: range) {
+                Text("\(model.current)").monospacedDigit()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private func doubleStepperRow(title: String, subtitle: String?, json: String, key: DefaultsKey<Double>, range: ClosedRange<Double>, step: Double, format: @escaping (Double) -> String) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 140) {
+            Stepper(value: Binding(get: { model.current }, set: { model.set($0) }), in: range, step: step) {
+                Text(format(model.current)).monospacedDigit()
+            }
+            .controlSize(.small)
+        }
     }
 }

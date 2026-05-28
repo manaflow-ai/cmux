@@ -1,17 +1,9 @@
+import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **cmux.json** section.
-///
-/// A live editor against the cmux JSON config file. Reads through
-/// ``JSONConfigStore``'s underlying file URL, writes back via
-/// `Data.write(to:options:)`. The cmux file watcher picks up the saved
-/// change and propagates it through every observer in the app.
-///
-/// This is intentionally a small editor — the goal is to let advanced
-/// users hand-edit JSONC, not to replicate Xcode's editor. JSONC
-/// comments and trailing commas are tolerated on save because the
-/// store's ``JSONCSanitizer`` strips them on read.
+/// **cmux.json** section — live editor + reload + save.
+@MainActor
 public struct SettingsJSONSection: View {
     private let jsonStore: JSONConfigStore
     private let hostActions: SettingsHostActions?
@@ -27,36 +19,46 @@ public struct SettingsJSONSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(jsonStore.fileURL.path)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                Spacer()
-                if let hostActions {
-                    Button("Open in External Editor") {
-                        hostActions.openConfigInExternalEditor()
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("cmux.json")
+            SettingsCard {
+                SettingsCardRow(configurationReview: .action, "Config File",
+                    subtitle: jsonStore.fileURL.path) {
+                    HStack(spacing: 6) {
+                        if let hostActions {
+                            Button("Open in External Editor") {
+                                hostActions.openConfigInExternalEditor()
+                            }
+                            .controlSize(.small)
+                        }
+                        Button("Reload") { reloadFromDisk() }
+                            .controlSize(.small)
+                        Button("Save") { saveToDisk() }
+                            .keyboardShortcut("s", modifiers: .command)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                     }
                 }
-                Button("Reload from disk") { reloadFromDisk() }
-                Button("Save") { saveToDisk() }
-                    .keyboardShortcut("s", modifiers: .command)
-                    .buttonStyle(.borderedProminent)
+                if let statusMessage {
+                    SettingsCardDivider()
+                    HStack {
+                        Label(statusMessage, systemImage: statusIsError ? "exclamationmark.triangle" : "checkmark.circle")
+                            .foregroundStyle(statusIsError ? Color.red : Color.green)
+                            .font(.caption)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                }
+                SettingsCardDivider()
+                TextEditor(text: $draft)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 320)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color(NSColor.textBackgroundColor))
             }
-            if let statusMessage {
-                Label(statusMessage, systemImage: statusIsError ? "exclamationmark.triangle" : "checkmark.circle")
-                    .foregroundStyle(statusIsError ? Color.red : Color.green)
-                    .font(.caption)
-            }
-            TextEditor(text: $draft)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 320)
-                .padding(4)
-                .background(Color(NSColor.textBackgroundColor))
-                .border(Color(NSColor.separatorColor))
         }
-        .padding()
         .task {
             if !loaded {
                 reloadFromDisk()
@@ -66,16 +68,14 @@ public struct SettingsJSONSection: View {
     }
 
     private func reloadFromDisk() {
-        do {
-            if let data = try? Data(contentsOf: jsonStore.fileURL) {
-                draft = String(decoding: data, as: UTF8.self)
-                statusMessage = "Loaded \(data.count) bytes"
-                statusIsError = false
-            } else {
-                draft = ""
-                statusMessage = "File is empty or missing — writes will create it."
-                statusIsError = false
-            }
+        if let data = try? Data(contentsOf: jsonStore.fileURL) {
+            draft = String(decoding: data, as: UTF8.self)
+            statusMessage = "Loaded \(data.count) bytes"
+            statusIsError = false
+        } else {
+            draft = ""
+            statusMessage = "File is empty or missing — writes will create it."
+            statusIsError = false
         }
     }
 

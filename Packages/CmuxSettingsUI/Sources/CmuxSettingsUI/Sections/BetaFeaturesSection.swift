@@ -1,12 +1,8 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Beta Features** section.
-///
-/// Each beta feature is one labeled `SettingsToggleRow` backed by a
-/// catalog key under `BetaFeaturesCatalogSection`. The opening note is
-/// the user-facing reminder that these flags are unstable and may
-/// change or break.
+/// **Beta Features** section.
+@MainActor
 public struct BetaFeaturesSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
@@ -17,23 +13,31 @@ public struct BetaFeaturesSection: View {
     }
 
     public var body: some View {
-        Form {
-            Section {
-                Text("Beta features are unstable, may change without notice, and are subject to break. Enable at your own risk.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Beta Features")
+
+            SettingsCard {
+                SettingsCardRow(configurationReview: .action, "About Beta Features",
+                    subtitle: "These flags gate unstable, experimental cmux features. They may change or break without notice — enable at your own risk.") {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.title3)
+                }
             }
-            Section("Right Sidebar") {
-                SettingsToggleRow(
-                    model: DefaultsValueModel(
-                        store: defaultsStore,
-                        key: catalog.betaFeatures.rightSidebarDock
-                    ),
-                    title: "Dock",
-                    subtitle: "Show the experimental right-sidebar Dock with terminal controls. Replaces the per-pane chrome with a unified rail."
-                )
+
+            SettingsSectionHeader("Right Sidebar")
+            SettingsCard {
+                let model = DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock)
+                SettingsCardRow(
+                    configurationReview: .json("rightSidebar.beta.dock.enabled"),
+                    "Right-Sidebar Dock",
+                    subtitle: "Replaces the per-pane action chrome with a unified right-side rail with terminal controls."
+                ) {
+                    Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
             }
         }
-        .formStyle(.grouped)
     }
 }

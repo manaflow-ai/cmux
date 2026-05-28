@@ -1,14 +1,11 @@
 import CmuxSettings
 import SwiftUI
 
-/// Compact rows for the notification-related settings, hosted inside
-/// the larger **App** section (where cmux's existing UI places them).
-///
-/// Covers the dock badge, menu-bar extra, unread-pane-ring, pane-flash
-/// toggles plus the notification sound picker (with custom file path
-/// + custom command escape hatches), a Send Test button so the user
-/// can preview the configured sound, and an "Open System Notification
-/// Settings" link.
+/// Legacy seam — kept so existing imports compile. The notification
+/// rows are now embedded directly in ``AppSection`` so the new
+/// `SettingsCard`-based chrome can wrap them in a single section
+/// header. This type just renders a `SettingsCard` of the same rows
+/// when callers want to embed them elsewhere.
 @MainActor
 public struct NotificationsRows: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -26,59 +23,33 @@ public struct NotificationsRows: View {
     }
 
     public var body: some View {
-        Section("Notifications") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge),
-                title: "Dock Badge",
-                subtitle: "Show the unread notification count on the cmux app icon in the Dock."
-            )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar),
-                title: "Show Menu Bar Extra"
-            )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing),
-                title: "Unread Pane Ring",
-                subtitle: "Outline panes with unread notifications in the workspace's color."
-            )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash),
-                title: "Pane Flash"
-            )
-            if let hostActions {
-                HStack {
-                    Button("Request Permission") {
-                        hostActions.requestNotificationAuthorization()
-                    }
-                    Button("Open System Notification Settings…") {
-                        hostActions.openSystemNotificationSettings()
-                    }
-                    Spacer()
-                    Button("Send Test") {
-                        hostActions.sendTestNotification()
-                    }
-                }
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Notifications")
+            SettingsCard {
+                toggleRow("Dock Badge",
+                    subtitle: "Show the unread notification count on the cmux app icon.",
+                    json: "notifications.dockBadge", key: catalog.notifications.dockBadge)
+                SettingsCardDivider()
+                toggleRow("Show Menu Bar Extra", subtitle: nil,
+                    json: "notifications.showInMenuBar", key: catalog.notifications.showInMenuBar)
+                SettingsCardDivider()
+                toggleRow("Unread Pane Ring",
+                    subtitle: "Outline panes with unread notifications in the workspace's color.",
+                    json: "notifications.unreadPaneRing", key: catalog.notifications.unreadPaneRing)
+                SettingsCardDivider()
+                toggleRow("Pane Flash", subtitle: nil,
+                    json: "notifications.paneFlash", key: catalog.notifications.paneFlash)
             }
         }
-        Section("Notification Sound") {
-            SettingsDefaultsTextFieldRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound),
-                title: "Sound",
-                placeholder: "default | none | Frog | Glass | …",
-                subtitle: "Name of an NSSound, the literal \"default\", \"none\", or \"custom\" to use the file path below."
-            )
-            SettingsDefaultsTextFieldRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath),
-                title: "Custom Sound File",
-                placeholder: "/path/to/sound.aiff",
-                subtitle: "Used when Sound is set to \"custom\"."
-            )
-            SettingsDefaultsTextFieldRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command),
-                title: "Custom Notification Command",
-                placeholder: "afplay /path/to/sound.wav",
-                subtitle: "Optional shell command run on every notification. Leave empty to skip."
-            )
+    }
+
+    @ViewBuilder
+    private func toggleRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
+            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
         }
     }
 }

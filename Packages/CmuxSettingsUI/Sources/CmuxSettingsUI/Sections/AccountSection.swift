@@ -1,19 +1,7 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Account** section.
-///
-/// Renders the signed-in identity (avatar, display name, email,
-/// optional team), sign-in / sign-out buttons, team selection picker,
-/// PII display mode, and the integration toggles. The sign-in /
-/// sign-out / current-user / teams pieces are driven by a host-
-/// supplied ``AccountFlow`` injected through ``SettingsRuntime``.
-///
-/// When no flow is injected (previews, tests, or hosts that don't
-/// expose sign-in), the section degrades gracefully: the identity
-/// card renders an "Not signed in" placeholder, and the sign-in /
-/// sign-out controls are hidden. Integration toggles and PII display
-/// mode still work because they are catalog-backed.
+/// **Account** section.
 @MainActor
 public struct AccountSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -31,111 +19,118 @@ public struct AccountSection: View {
     }
 
     public var body: some View {
-        Form {
-            identitySection
-            teamSection
-            privacySection
-            claudeCodeSection
-            cursorSection
-            geminiSection
-            toolsSection
-            notificationsSection
-        }
-        .formStyle(.grouped)
-    }
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Account")
 
-    @ViewBuilder
-    private var identitySection: some View {
-        Section("Identity") {
-            AccountIdentityCard(
-                flow: accountFlow,
-                piiModel: DefaultsValueModel(store: defaultsStore, key: catalog.account.piiDisplayMode)
-            )
-        }
-    }
+            SettingsCard {
+                AccountIdentityCard(
+                    flow: accountFlow,
+                    piiModel: DefaultsValueModel(store: defaultsStore, key: catalog.account.piiDisplayMode)
+                )
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
 
-    @ViewBuilder
-    private var teamSection: some View {
-        if let flow = accountFlow, !flow.availableTeams.isEmpty {
-            Section("Team") {
-                AccountTeamPicker(flow: flow)
+            if let flow = accountFlow, !flow.availableTeams.isEmpty {
+                SettingsSectionHeader("Team")
+                SettingsCard {
+                    SettingsCardRow(configurationReview: .action, "Active Team") {
+                        AccountTeamPicker(flow: flow)
+                            .labelsHidden()
+                    }
+                }
+            }
+
+            SettingsSectionHeader("Privacy")
+            SettingsCard {
+                pickerRow("Display Personal Info",
+                    json: "account.piiDisplayMode",
+                    model: DefaultsValueModel(store: defaultsStore, key: catalog.account.piiDisplayMode),
+                    cases: PIIDisplayMode.allCases,
+                    label: { $0 == .visible ? "Show in Settings" : "Hide in Settings" })
+            }
+
+            SettingsSectionHeader("Claude Code")
+            SettingsCard {
+                toggleRow("Enable Claude Code Hooks",
+                    subtitle: "cmux can call out to claude-code hooks when agent sessions emit events.",
+                    json: "integrations.claudeCode.hooksEnabled",
+                    key: catalog.integrations.claudeCodeHooksEnabled)
+                SettingsCardDivider()
+                textRow("Custom claude Binary Path",
+                    subtitle: "Optional. Use this path instead of the one resolved from PATH.",
+                    placeholder: "/usr/local/bin/claude",
+                    json: "integrations.claudeCode.customClaudePath",
+                    key: catalog.integrations.claudeCodeCustomClaudePath)
+            }
+
+            SettingsSectionHeader("Cursor")
+            SettingsCard {
+                toggleRow("Enable Cursor Hooks", subtitle: nil,
+                    json: "integrations.cursor.hooksEnabled",
+                    key: catalog.integrations.cursorHooksEnabled)
+            }
+
+            SettingsSectionHeader("Gemini")
+            SettingsCard {
+                toggleRow("Enable Gemini Hooks", subtitle: nil,
+                    json: "integrations.gemini.hooksEnabled",
+                    key: catalog.integrations.geminiHooksEnabled)
+            }
+
+            SettingsSectionHeader("Tools")
+            SettingsCard {
+                textRow("Custom ripgrep Binary Path",
+                    subtitle: "Optional override for the file explorer's search backend.",
+                    placeholder: "/opt/homebrew/bin/rg",
+                    json: "integrations.ripgrep.customBinaryPath",
+                    key: catalog.integrations.ripgrepCustomBinaryPath)
+            }
+
+            SettingsSectionHeader("Agent Notifications")
+            SettingsCard {
+                toggleRow("Suppress Subagent Notifications",
+                    subtitle: "When enabled, notifications generated by nested agent sessions are hidden.",
+                    json: "integrations.suppressSubagentNotifications",
+                    key: catalog.integrations.suppressSubagentNotifications)
             }
         }
     }
 
     @ViewBuilder
-    private var privacySection: some View {
-        Section("Privacy") {
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.account.piiDisplayMode),
-                title: "Display Personal Info",
-                label: { mode in
-                    switch mode {
-                    case .visible: return "Show in Settings"
-                    case .hidden: return "Hide in Settings"
-                    }
-                }
-            )
+    private func toggleRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
+            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
         }
     }
 
     @ViewBuilder
-    private var claudeCodeSection: some View {
-        Section("Claude Code") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled),
-                title: "Enable Claude Code Hooks",
-                subtitle: "cmux can call out to claude-code hooks when agent sessions emit events."
-            )
-            SettingsDefaultsTextFieldRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath),
-                title: "Custom claude Binary Path",
-                placeholder: "/usr/local/bin/claude",
-                subtitle: "Optional. Use this path instead of the one resolved from PATH."
-            )
+    private func textRow(_ title: String, subtitle: String?, placeholder: String, json: String, key: DefaultsKey<String>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 240) {
+            TextField(placeholder, text: Binding(get: { model.current }, set: { model.set($0) }))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
         }
     }
 
     @ViewBuilder
-    private var cursorSection: some View {
-        Section("Cursor") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled),
-                title: "Enable Cursor Hooks"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var geminiSection: some View {
-        Section("Gemini") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled),
-                title: "Enable Gemini Hooks"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var toolsSection: some View {
-        Section("Tools") {
-            SettingsDefaultsTextFieldRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath),
-                title: "Custom ripgrep Binary Path",
-                placeholder: "/opt/homebrew/bin/rg",
-                subtitle: "Optional override for the file explorer's search backend."
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var notificationsSection: some View {
-        Section("Agent Notifications") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications),
-                title: "Suppress Subagent Notifications",
-                subtitle: "When enabled, notifications generated by nested agent sessions are hidden."
-            )
+    private func pickerRow<Value: SettingCodable & Hashable & CaseIterable>(
+        _ title: String,
+        json: String,
+        model: DefaultsValueModel<Value>,
+        cases: [Value],
+        label: @escaping (Value) -> String
+    ) -> some View {
+        SettingsCardRow(configurationReview: .json(json), title, controlWidth: 200) {
+            Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
+                ForEach(cases, id: \.self) { value in Text(label(value)).tag(value) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
         }
     }
 }

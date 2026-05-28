@@ -1,24 +1,21 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **App** section of the settings window.
+/// **App** section rendered in the settings ScrollView.
 ///
-/// Mirrors the legacy in-app settings layout: a single scrolling form
-/// with subsections for Appearance, Window/Workspace behavior, Command
-/// palette, Quit/Close warnings, Editor, File handling, Workspace
-/// presentation, Notifications, and Telemetry. Every row is wired to a
-/// catalog ``DefaultsKey`` via the matching value-model + row primitive
-/// so writes flow through ``UserDefaultsSettingsStore`` and observation
-/// flows through its `AsyncStream`.
+/// Emits a stacked sequence of ``SettingsSectionHeader`` +
+/// ``SettingsCard`` groups mirroring the legacy in-app layout:
+/// Appearance, Workspace Behavior, Command Palette, Quit/Close,
+/// Editor, File Handling, Workspace Presentation, Notifications,
+/// Telemetry, Onboarding, Feedback.
 @MainActor
 public struct AppSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions?
 
-    @State private var languageModel: DefaultsValueModel<AppLanguage>?
-    @State private var pendingRestart: Bool = false
     @State private var initialLanguage: AppLanguage?
+    @State private var pendingRestart: Bool = false
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -31,30 +28,20 @@ public struct AppSection: View {
     }
 
     public var body: some View {
-        Form {
-            appearanceSection
-            workspaceBehaviorSection
-            commandPaletteSection
-            quitAndCloseSection
-            editorSection
-            fileHandlingSection
-            workspacePresentationSection
-            notificationsSection
-            telemetrySection
-            onboardingSection
-            feedbackSection
-        }
-        .formStyle(.grouped)
-        .task {
-            if languageModel == nil {
-                let model = DefaultsValueModel(store: defaultsStore, key: catalog.app.language)
-                languageModel = model
-                initialLanguage = model.current
-            }
-        }
-        .onChange(of: languageModel?.current) { _, newValue in
-            guard let newValue, let initial = initialLanguage, newValue != initial else { return }
-            pendingRestart = true
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("App")
+
+            appearanceCard
+            workspaceBehaviorCard
+            commandPaletteCard
+            quitAndCloseCard
+            editorCard
+            fileHandlingCard
+            workspacePresentationCard
+            notificationsCard
+            telemetryCard
+            onboardingCard
+            feedbackCard
         }
         .confirmationDialog(
             "Restart cmux to apply the new language?",
@@ -62,24 +49,26 @@ public struct AppSection: View {
             titleVisibility: .visible
         ) {
             if let hostActions {
-                Button("Restart Now") {
-                    hostActions.restartApp()
-                }
+                Button("Restart Now") { hostActions.restartApp() }
             }
             Button("Later", role: .cancel) {
-                initialLanguage = languageModel?.current
+                initialLanguage = currentLanguage()
             }
         } message: {
             Text("Language changes apply on the next launch.")
         }
     }
 
+    // MARK: - Appearance
+
     @ViewBuilder
-    private var appearanceSection: some View {
-        Section("Appearance") {
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance),
+    private var appearanceCard: some View {
+        SettingsCard {
+            row(
                 title: "Appearance",
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance),
+                json: "app.appearance",
+                cases: AppearanceMode.allCases,
                 label: { mode in
                     switch mode {
                     case .system: return "Follow System"
@@ -88,46 +77,97 @@ public struct AppSection: View {
                     }
                 }
             )
-            VStack(alignment: .leading, spacing: 4) {
-                Text("App Icon")
-                AppIconGridPicker(
-                    model: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon)
-                )
-            }
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.language),
-                title: "Language",
-                label: { lang in displayName(for: lang) }
+            SettingsCardDivider()
+            appIconRow
+            SettingsCardDivider()
+            languageRow
+        }
+    }
+
+    @ViewBuilder
+    private var appIconRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("app.appIcon"),
+            "App Icon"
+        ) {
+            AppIconGridPicker(
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon)
             )
         }
     }
 
     @ViewBuilder
-    private var workspaceBehaviorSection: some View {
-        Section("Workspace Behavior") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory),
+    private var languageRow: some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: catalog.app.language)
+        SettingsCardRow(
+            configurationReview: .json("app.language"),
+            "Language",
+            controlWidth: 200
+        ) {
+            Picker("", selection: Binding(
+                get: { model.current },
+                set: { newValue in
+                    if let initial = initialLanguage ?? Optional(model.current), newValue != initial {
+                        if initialLanguage == nil { initialLanguage = initial }
+                        model.set(newValue)
+                        if newValue != initial { pendingRestart = true }
+                    } else {
+                        model.set(newValue)
+                    }
+                }
+            )) {
+                ForEach(AppLanguage.allCases, id: \.self) { lang in
+                    Text(languageDisplayName(lang)).tag(lang)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+    }
+
+    private func currentLanguage() -> AppLanguage {
+        DefaultsValueModel(store: defaultsStore, key: catalog.app.language).current
+    }
+
+    // MARK: - Workspace Behavior
+
+    @ViewBuilder
+    private var workspaceBehaviorCard: some View {
+        SettingsSectionHeader("Workspace")
+        SettingsCard {
+            toggleRow(
                 title: "Inherit Working Directory",
-                subtitle: "New panes in a workspace start in the same working directory as the previous pane."
+                subtitle: "New panes in a workspace start in the same working directory as the previous pane.",
+                json: "app.workspaceInheritWorkingDirectory",
+                key: catalog.app.workspaceInheritWorkingDirectory
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Keep Workspace Open After Last Pane Closes",
-                subtitle: "When the last pane in a workspace closes, keep the workspace itself open."
+                subtitle: "When the last pane in a workspace closes, keep the workspace itself open.",
+                json: "app.keepWorkspaceOpenWhenClosingLastSurface",
+                key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Focus Pane on First Click",
-                subtitle: "Clicking an unfocused pane focuses it on the very first click rather than swallowing the click."
+                subtitle: "Clicking an unfocused pane focuses it on the very first click.",
+                json: "app.focusPaneOnFirstClick",
+                key: catalog.app.focusPaneOnFirstClick
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Reorder Workspaces on Notification",
-                subtitle: "Bubble a workspace to the top of the sidebar when a pane in it posts a notification."
+                subtitle: "Bubble a workspace to the top of the sidebar when a pane in it posts a notification.",
+                json: "app.reorderOnNotification",
+                key: catalog.app.reorderOnNotification
             )
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement),
+            SettingsCardDivider()
+            row(
                 title: "New Workspace Placement",
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement),
+                json: "app.newWorkspacePlacement",
+                cases: WorkspacePlacement.allCases,
                 label: { placement in
                     switch placement {
                     case .top: return "Top of Sidebar"
@@ -139,28 +179,39 @@ public struct AppSection: View {
         }
     }
 
+    // MARK: - Command Palette
+
     @ViewBuilder
-    private var commandPaletteSection: some View {
-        Section("Command Palette") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName),
+    private var commandPaletteCard: some View {
+        SettingsSectionHeader("Command Palette")
+        SettingsCard {
+            toggleRow(
                 title: "Select Existing Name When Renaming",
-                subtitle: "Pre-select the workspace name when the rename palette opens, so typing replaces it immediately."
+                subtitle: "Pre-select the workspace name when the rename palette opens, so typing replaces it immediately.",
+                json: "app.renameSelectsExistingName",
+                key: catalog.app.renameSelectsExistingName
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Search All Surfaces",
-                subtitle: "The command palette includes panes from every workspace, not just the current one."
+                subtitle: "The command palette includes panes from every workspace, not just the current one.",
+                json: "app.commandPaletteSearchesAllSurfaces",
+                key: catalog.app.commandPaletteSearchesAllSurfaces
             )
         }
     }
 
+    // MARK: - Quit and Close
+
     @ViewBuilder
-    private var quitAndCloseSection: some View {
-        Section("Quit and Close") {
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode),
+    private var quitAndCloseCard: some View {
+        SettingsSectionHeader("Quit and Close")
+        SettingsCard {
+            row(
                 title: "Confirm Quit",
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode),
+                json: "app.confirmQuit",
+                cases: ConfirmQuitMode.allCases,
                 label: { mode in
                     switch mode {
                     case .always: return "Always"
@@ -169,57 +220,78 @@ public struct AppSection: View {
                     }
                 }
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeQuit),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Warn Before Quitting (⌘Q)",
-                subtitle: "Show a confirmation when ⌘Q is pressed."
+                subtitle: "Show a confirmation when ⌘Q is pressed.",
+                json: "app.warnBeforeQuit",
+                key: catalog.app.warnBeforeQuit
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Warn Before Closing Tab",
-                subtitle: "Show a confirmation when a tab is closed via shortcut."
+                subtitle: "Show a confirmation when a tab is closed via shortcut.",
+                json: "app.warnBeforeClosingTab",
+                key: catalog.app.warnBeforeClosingTab
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Warn When Closing Tab via X Button",
-                subtitle: "Also show the confirmation when the tab's close button is clicked."
+                subtitle: "Also show the confirmation when the tab's close button is clicked.",
+                json: "app.warnBeforeClosingTabXButton",
+                key: catalog.app.warnBeforeClosingTabXButton
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Hide Tab Close Button",
-                subtitle: "Removes the X on each tab so tabs can only be closed via shortcut or menu."
+                subtitle: "Removes the X on each tab so tabs can only be closed via shortcut or menu.",
+                json: "app.hideTabCloseButton",
+                key: catalog.app.hideTabCloseButton
             )
         }
     }
 
+    // MARK: - Editor
+
     @ViewBuilder
-    private var editorSection: some View {
-        Section("Editor") {
-            SettingsDefaultsTextFieldRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor),
+    private var editorCard: some View {
+        SettingsSectionHeader("Editor")
+        SettingsCard {
+            textRow(
                 title: "Preferred Editor Command",
+                subtitle: "Command run when cmd-clicking a file path. Leave empty to use the system default.",
                 placeholder: "code, cursor, zed, nvim …",
-                subtitle: "Command run when cmd-clicking a file path. Leave empty to use the system default."
+                json: "app.preferredEditor",
+                key: catalog.app.preferredEditor
             )
         }
     }
 
+    // MARK: - File Handling
+
     @ViewBuilder
-    private var fileHandlingSection: some View {
-        Section("File Handling") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux),
+    private var fileHandlingCard: some View {
+        SettingsSectionHeader("File Handling")
+        SettingsCard {
+            toggleRow(
                 title: "Open Supported Files in cmux",
-                subtitle: "PDF, images, audio, video, and other Quick Look-able files open in a cmux preview surface."
+                subtitle: "PDF, images, audio, video, and other Quick Look-able files open in a cmux preview surface.",
+                json: "app.openSupportedFilesInCmux",
+                key: catalog.app.openSupportedFilesInCmux
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Open Markdown in cmux Viewer",
-                subtitle: "Markdown files open in a cmux preview pane instead of the system default editor."
+                subtitle: "Markdown files open in a cmux preview pane instead of the system default editor.",
+                json: "app.openMarkdownInCmuxViewer",
+                key: catalog.app.openMarkdownInCmuxViewer
             )
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior),
+            SettingsCardDivider()
+            row(
                 title: "Default Drag-and-Drop Behavior",
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior),
+                json: "app.fileDropDefaultBehavior",
+                cases: FileDropDefaultBehavior.allCases,
                 label: { behavior in
                     switch behavior {
                     case .path: return "Insert File Path"
@@ -231,12 +303,17 @@ public struct AppSection: View {
         }
     }
 
+    // MARK: - Workspace Presentation
+
     @ViewBuilder
-    private var workspacePresentationSection: some View {
-        Section("Workspace Presentation") {
-            SettingsPickerRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode),
+    private var workspacePresentationCard: some View {
+        SettingsSectionHeader("Workspace Presentation")
+        SettingsCard {
+            row(
                 title: "Workspace Presentation Mode",
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode),
+                json: "app.minimalMode",
+                cases: WorkspacePresentationMode.allCases,
                 label: { mode in
                     switch mode {
                     case .standard: return "Standard"
@@ -244,64 +321,180 @@ public struct AppSection: View {
                     }
                 }
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode),
+            SettingsCardDivider()
+            toggleRow(
                 title: "iMessage Mode",
-                subtitle: "Hides the dock badge and shows a compact, chat-like workspace presentation."
+                subtitle: "Hides the dock badge and shows a compact, chat-like workspace presentation.",
+                json: "app.iMessageMode",
+                key: catalog.app.iMessageMode
             )
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.menuBarOnly),
+            SettingsCardDivider()
+            toggleRow(
                 title: "Menu Bar Only",
-                subtitle: "Hide the dock icon. cmux is reachable only from the menu bar."
+                subtitle: "Hide the dock icon. cmux is reachable only from the menu bar.",
+                json: "app.menuBarOnly",
+                key: catalog.app.menuBarOnly
             )
         }
     }
 
-    @ViewBuilder
-    private var notificationsSection: some View {
-        NotificationsRows(
-            defaultsStore: defaultsStore,
-            catalog: catalog,
-            hostActions: hostActions
-        )
-    }
+    // MARK: - Notifications
 
     @ViewBuilder
-    private var telemetrySection: some View {
-        Section("Telemetry") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry),
+    private var notificationsCard: some View {
+        SettingsSectionHeader("Notifications")
+        SettingsCard {
+            toggleRow(
+                title: "Dock Badge",
+                subtitle: "Show the unread notification count on the cmux app icon.",
+                json: "notifications.dockBadge",
+                key: catalog.notifications.dockBadge
+            )
+            SettingsCardDivider()
+            toggleRow(
+                title: "Show Menu Bar Extra",
+                subtitle: nil,
+                json: "notifications.showInMenuBar",
+                key: catalog.notifications.showInMenuBar
+            )
+            SettingsCardDivider()
+            toggleRow(
+                title: "Unread Pane Ring",
+                subtitle: "Outline panes with unread notifications in the workspace's color.",
+                json: "notifications.unreadPaneRing",
+                key: catalog.notifications.unreadPaneRing
+            )
+            SettingsCardDivider()
+            toggleRow(
+                title: "Pane Flash",
+                subtitle: nil,
+                json: "notifications.paneFlash",
+                key: catalog.notifications.paneFlash
+            )
+            if let hostActions {
+                SettingsCardDivider()
+                SettingsCardRow(configurationReview: .action, "Permission") {
+                    HStack(spacing: 8) {
+                        Button("Request Permission") { hostActions.requestNotificationAuthorization() }
+                        Button("System Settings…") { hostActions.openSystemNotificationSettings() }
+                        Button("Send Test") { hostActions.sendTestNotification() }
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+
+        SettingsSectionHeader("Notification Sound")
+        SettingsCard {
+            textRow(
+                title: "Sound",
+                subtitle: "NSSound name, the literal \"default\", \"none\", or \"custom\" to use the file path below.",
+                placeholder: "default | none | Frog | Glass | …",
+                json: "notifications.sound",
+                key: catalog.notifications.sound
+            )
+            SettingsCardDivider()
+            textRow(
+                title: "Custom Sound File",
+                subtitle: "Used when Sound is set to \"custom\".",
+                placeholder: "/path/to/sound.aiff",
+                json: "notifications.customSoundFilePath",
+                key: catalog.notifications.customSoundFilePath
+            )
+            SettingsCardDivider()
+            textRow(
+                title: "Custom Notification Command",
+                subtitle: "Optional shell command run on every notification. Leave empty to skip.",
+                placeholder: "afplay /path/to/sound.wav",
+                json: "notifications.command",
+                key: catalog.notifications.command
+            )
+        }
+    }
+
+    // MARK: - Telemetry
+
+    @ViewBuilder
+    private var telemetryCard: some View {
+        SettingsSectionHeader("Telemetry")
+        SettingsCard {
+            toggleRow(
                 title: "Send Anonymous Telemetry",
-                subtitle: "cmux sends anonymized usage events to help fix bugs and improve the product. No file contents, secrets, or workspace metadata are sent."
+                subtitle: "cmux sends anonymized usage events to help fix bugs and improve the product. No file contents, secrets, or workspace metadata are sent.",
+                json: "app.sendAnonymousTelemetry",
+                key: catalog.app.sendAnonymousTelemetry
             )
         }
     }
 
     @ViewBuilder
-    private var onboardingSection: some View {
-        Section("Onboarding") {
-            SettingsToggleRow(
-                model: DefaultsValueModel(store: defaultsStore, key: catalog.account.welcomeShown),
+    private var onboardingCard: some View {
+        SettingsSectionHeader("Onboarding")
+        SettingsCard {
+            toggleRow(
                 title: "Welcome Shown",
-                subtitle: "Toggle off to surface the welcome flow again on next launch."
+                subtitle: "Toggle off to surface the welcome flow again on next launch.",
+                json: "account.welcomeShown",
+                key: catalog.account.welcomeShown
             )
         }
     }
 
     @ViewBuilder
-    private var feedbackSection: some View {
+    private var feedbackCard: some View {
         if let hostActions {
-            Section("Feedback") {
-                Button {
-                    hostActions.sendFeedback()
-                } label: {
-                    Label("Send Feedback…", systemImage: "envelope")
+            SettingsSectionHeader("Feedback")
+            SettingsCard {
+                SettingsCardRow(configurationReview: .action, "Send Feedback") {
+                    Button("Send Feedback…") { hostActions.sendFeedback() }
+                        .controlSize(.small)
                 }
             }
         }
     }
 
-    private func displayName(for language: AppLanguage) -> String {
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func toggleRow(title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
+            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private func textRow(title: String, subtitle: String?, placeholder: String, json: String, key: DefaultsKey<String>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 240) {
+            TextField(placeholder, text: Binding(get: { model.current }, set: { model.set($0) }))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private func row<Value: SettingCodable & Hashable & CaseIterable>(
+        title: String,
+        model: DefaultsValueModel<Value>,
+        json: String,
+        cases: [Value],
+        label: @escaping (Value) -> String
+    ) -> some View {
+        SettingsCardRow(configurationReview: .json(json), title, controlWidth: 200) {
+            Picker("", selection: Binding(get: { model.current }, set: { model.set($0) })) {
+                ForEach(cases, id: \.self) { value in
+                    Text(label(value)).tag(value)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
+    }
+
+    private func languageDisplayName(_ language: AppLanguage) -> String {
         switch language {
         case .system: return "Follow System"
         case .en: return "English"

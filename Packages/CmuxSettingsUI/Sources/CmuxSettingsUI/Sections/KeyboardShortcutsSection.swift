@@ -1,21 +1,10 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Keyboard Shortcuts** section.
-///
-/// Lists every ``ShortcutAction`` grouped by ``ShortcutAction/Group``.
-/// Each row exposes:
-///
-/// 1. The action's display name + dotted id.
-/// 2. A ``ShortcutRecorderView`` showing the user's override or the
-///    factory default (sourced from
-///    ``ShortcutAction/defaultStroke``). Recording a new chord saves
-///    it through the JSON-backed
-///    ``KeyboardShortcutsCatalogSection/bindings`` dictionary.
-/// 3. A `Reset to Default` button when the row has an override.
-/// 4. A `Clear` button that explicitly unbinds the action.
-/// 5. A red conflict warning when two different actions resolve to
-///    the same effective stroke.
+/// **Keyboard Shortcuts** section. Mirrors the legacy chrome: header
+/// per group, one `SettingsCard` per group containing all action
+/// rows. Each row exposes the recorder, conflict text, reset / clear
+/// buttons, and a per-row chord-mode toggle.
 @MainActor
 public struct KeyboardShortcutsSection: View {
     private let jsonStore: JSONConfigStore
@@ -26,43 +15,38 @@ public struct KeyboardShortcutsSection: View {
     @State private var streamTask: Task<Void, Never>?
     @State private var chordModeActions: Set<String> = []
 
-    public init(
-        jsonStore: JSONConfigStore,
-        catalog: SettingCatalog,
-        errorLog: SettingsErrorLog? = nil
-    ) {
+    public init(jsonStore: JSONConfigStore, catalog: SettingCatalog, errorLog: SettingsErrorLog? = nil) {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
     }
 
     public var body: some View {
-        Form {
-            Section {
-                Text("Override any keyboard shortcut. Recordings persist to cmux.json and apply across all surfaces immediately. Conflicts (two actions on the same chord) are flagged in red.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Keyboard Shortcuts")
+            SettingsCard {
+                SettingsCardRow(configurationReview: .action, "Customize Shortcuts",
+                    subtitle: "Override any keyboard shortcut. Recordings persist to cmux.json and apply across all surfaces immediately. Conflicts are flagged in red.") {
+                    Button(role: .destructive) {
+                        Task { await resetAll() }
+                    } label: {
+                        Label("Reset All", systemImage: "arrow.counterclockwise")
+                    }
+                    .controlSize(.small)
+                }
             }
+
             ForEach(ShortcutAction.Group.allCases, id: \.self) { group in
-                Section(group.title) {
-                    ForEach(actionsInGroup(group), id: \.self) { action in
+                SettingsSectionHeader(group.title)
+                SettingsCard {
+                    let actions = ShortcutAction.allCases.filter { $0.group == group }
+                    ForEach(Array(actions.enumerated()), id: \.element) { idx, action in
+                        if idx > 0 { SettingsCardDivider() }
                         actionRow(action)
                     }
                 }
             }
-            Section {
-                Button(role: .destructive) {
-                    Task { await resetAll() }
-                } label: {
-                    Label("Reset All Shortcuts to Default", systemImage: "arrow.counterclockwise")
-                }
-            } footer: {
-                Text("Removes every user override so all rows fall back to their factory defaults.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
-        .formStyle(.grouped)
         .task { await streamBindings() }
         .onDisappear { streamTask?.cancel() }
     }
@@ -74,58 +58,39 @@ public struct KeyboardShortcutsSection: View {
         let hasOverride = override != nil
         let conflict = effective.flatMap { detectConflict(for: action, stroke: $0) }
 
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(action.displayName)
-                Text(action.rawValue)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                if let conflict {
-                    Text("Conflicts with \(conflict.displayName)")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-            Spacer()
-            ShortcutRecorderView(
-                placeholder: formatPlaceholder(effective: effective, hasOverride: hasOverride),
-                chordsEnabled: chordModeActions.contains(action.rawValue),
-                onStroke: { stroke in
-                    Task { await assign(stroke: stroke, to: action) }
-                },
-                onChord: { chord in
-                    Task { await assignChord(chord, to: action) }
-                }
-            )
-            .frame(width: 220, height: 28)
-            Toggle(isOn: Binding(
-                get: { chordModeActions.contains(action.rawValue) },
-                set: { isOn in
-                    if isOn {
-                        chordModeActions.insert(action.rawValue)
-                    } else {
-                        chordModeActions.remove(action.rawValue)
+        SettingsCardRow(configurationReview: .json("shortcuts.bindings"), action.displayName,
+            subtitle: conflict.map { "Conflicts with \($0.displayName)" } ?? action.rawValue
+        ) {
+            HStack(spacing: 6) {
+                ShortcutRecorderView(
+                    placeholder: formatPlaceholder(effective: effective, hasOverride: hasOverride),
+                    chordsEnabled: chordModeActions.contains(action.rawValue),
+                    onStroke: { stroke in Task { await assign(stroke: stroke, to: action) } },
+                    onChord: { chord in Task { await assignChord(chord, to: action) } }
+                )
+                .frame(width: 200, height: 26)
+                Toggle(isOn: Binding(
+                    get: { chordModeActions.contains(action.rawValue) },
+                    set: { isOn in
+                        if isOn { chordModeActions.insert(action.rawValue) }
+                        else { chordModeActions.remove(action.rawValue) }
                     }
+                )) {
+                    Image(systemName: "circle.grid.cross.fill")
                 }
-            )) {
-                Image(systemName: "circle.grid.cross.fill")
-            }
-            .toggleStyle(.button)
-            .help("Record two-stroke chord (e.g. ⌃B then P)")
-            if hasOverride {
-                Button("Reset") {
-                    Task { await resetToDefault(action: action) }
+                .toggleStyle(.button)
+                .controlSize(.small)
+                .help("Record two-stroke chord")
+                if hasOverride {
+                    Button("Reset") { Task { await resetToDefault(action: action) } }
+                        .controlSize(.small)
+                } else {
+                    Button("Clear") { Task { await clearBinding(for: action) } }
+                        .controlSize(.small)
+                        .disabled(action.defaultStroke == nil && bindings[action.rawValue] == nil)
                 }
-                .buttonStyle(.borderless)
-            } else {
-                Button("Clear") {
-                    Task { await clearBinding(for: action) }
-                }
-                .buttonStyle(.borderless)
-                .disabled(bindings[action.rawValue] == nil && action.defaultStroke != nil)
             }
         }
-        .padding(.vertical, 2)
     }
 
     private func formatPlaceholder(effective: StoredShortcut?, hasOverride: Bool) -> String {
@@ -136,24 +101,13 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
-        // Walk every other action with a resolved effective stroke
-        // and flag the first one whose first chord matches. Two
-        // actions intentionally sharing a chord is rare; surfacing it
-        // is cheap and helps users understand why one of two
-        // overlapping shortcuts isn't firing.
         for other in ShortcutAction.allCases where other != action {
-            let otherOverride = bindings[other.rawValue]
-            let otherEffective = otherOverride ?? other.defaultStroke.map { StoredShortcut(first: $0) }
-            guard let otherEffective, !otherEffective.isUnbound else { continue }
-            if stroke.first == otherEffective.first {
-                return other
-            }
+            let override = bindings[other.rawValue]
+            let effective = override ?? other.defaultStroke.map { StoredShortcut(first: $0) }
+            guard let effective, !effective.isUnbound else { continue }
+            if stroke.first == effective.first { return other }
         }
         return nil
-    }
-
-    private func actionsInGroup(_ group: ShortcutAction.Group) -> [ShortcutAction] {
-        ShortcutAction.allCases.filter { $0.group == group }
     }
 
     private func format(_ shortcut: StoredShortcut) -> String {

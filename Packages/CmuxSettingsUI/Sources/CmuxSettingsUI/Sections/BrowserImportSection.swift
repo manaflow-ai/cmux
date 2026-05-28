@@ -1,13 +1,7 @@
 import CmuxSettings
 import SwiftUI
 
-/// SwiftUI view for the **Import Browser Data** section.
-///
-/// The actual browser-import workflow (Safari / Chrome / Firefox source
-/// pickers, profile selection, the cookie-prompt UI) is a multi-step
-/// flow in the host app driven by `Sources/Browser/` controllers; it is
-/// not a settings-storage concern. This section exposes the persistent
-/// toggles that *are* settings and explains where the flow lives.
+/// **Import Browser Data** section.
 @MainActor
 public struct BrowserImportSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -25,49 +19,60 @@ public struct BrowserImportSection: View {
     }
 
     public var body: some View {
-        Form {
-            Section("Import Hint") {
-                SettingsToggleRow(
-                    model: DefaultsValueModel(
-                        store: defaultsStore,
-                        key: catalog.browser.showImportHintOnBlankTabs
-                    ),
-                    title: "Show Import Hint on Blank Tabs",
-                    subtitle: "When a new tab opens, suggest importing bookmarks and history from your previous browser."
-                )
-                SettingsToggleRow(
-                    model: DefaultsValueModel(
-                        store: defaultsStore,
-                        key: catalog.browser.importHintDismissed
-                    ),
-                    title: "Import Hint Dismissed",
-                    subtitle: "Tracks whether the user has dismissed the hint. Toggle off to surface the hint again."
-                )
-                SettingsDefaultsTextFieldRow(
-                    model: DefaultsValueModel(
-                        store: defaultsStore,
-                        key: catalog.browser.importHintVariant
-                    ),
-                    title: "Import Hint Variant",
-                    placeholder: "compact | expanded | banner",
-                    subtitle: "Visual variant of the blank-tab hint."
-                )
-            }
-            Section {
-                if let hostActions {
-                    Button {
-                        hostActions.openBrowserImportFlow()
-                    } label: {
-                        Label("Import Browser Data…", systemImage: "square.and.arrow.down")
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsSectionHeader("Import Browser Data")
+
+            if let hostActions {
+                SettingsCard {
+                    SettingsCardRow(
+                        configurationReview: .action,
+                        "Import from Another Browser",
+                        subtitle: "Launches the source picker (Safari, Chrome, Firefox, Brave, Edge, Arc) and the profile + cookie prompts."
+                    ) {
+                        Button("Import…") { hostActions.openBrowserImportFlow() }
+                            .controlSize(.small)
                     }
                 }
-                Text("Launches the source picker (Safari, Chrome, Firefox, Brave, Edge, Arc) and the profile + cookie prompts. Already-imported entries are deduped automatically.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Running the import")
+            }
+
+            SettingsSectionHeader("Import Hint")
+            SettingsCard {
+                toggleRow("Show Import Hint on Blank Tabs",
+                    subtitle: "When a new tab opens, suggest importing bookmarks from your previous browser.",
+                    json: "browser.showImportHintOnBlankTabs",
+                    key: catalog.browser.showImportHintOnBlankTabs)
+                SettingsCardDivider()
+                toggleRow("Import Hint Dismissed",
+                    subtitle: "Tracks whether the user has dismissed the hint. Toggle off to surface it again.",
+                    json: "browser.importHintDismissed",
+                    key: catalog.browser.importHintDismissed)
+                SettingsCardDivider()
+                textRow("Import Hint Variant",
+                    subtitle: "Visual variant of the blank-tab hint.",
+                    placeholder: "compact | expanded | banner",
+                    json: "browser.importHintVariant",
+                    key: catalog.browser.importHintVariant)
             }
         }
-        .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func toggleRow(_ title: String, subtitle: String?, json: String, key: DefaultsKey<Bool>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle) {
+            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private func textRow(_ title: String, subtitle: String?, placeholder: String, json: String, key: DefaultsKey<String>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        SettingsCardRow(configurationReview: .json(json), title, subtitle: subtitle, controlWidth: 200) {
+            TextField(placeholder, text: Binding(get: { model.current }, set: { model.set($0) }))
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+        }
     }
 }
