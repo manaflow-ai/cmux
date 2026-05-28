@@ -4,9 +4,15 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 OUT_REACT="$ROOT/Resources/agent-session-react"
 OUT_SOLID="$ROOT/Resources/agent-session-solid"
+MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
 if ! command -v bun >/dev/null 2>&1; then
   echo "error: bun is required to build AgentSessionWeb" >&2
+  exit 1
+fi
+
+if [ ! -f "$MARKED_JS" ]; then
+  echo "error: missing markdown parser asset at $MARKED_JS" >&2
   exit 1
 fi
 
@@ -66,7 +72,9 @@ write_index() {
     printf '  </head>\n'
     printf '  <body>\n'
     printf '    <main id="root"></main>\n'
-    printf '    <script src="../markdown-viewer/marked.min.js"></script>\n'
+    printf '    <script>\n'
+    /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
+    printf '\n    </script>\n'
     printf '    <script>\n'
     /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$out_dir/assets/app.js"
     printf '\n    </script>\n'
