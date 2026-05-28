@@ -1065,6 +1065,95 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(try posixPermissions(at: snapshotFile), 0o600)
     }
 
+    func testAgentTurnDiffBaselineUsesEmptyTreeForUnbornGitRepo() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let stateURL = rootURL.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        let emptyTree = try runGitStdout(["hash-object", "-t", "tree", "/dev/null"], in: repoURL)
+
+        let workspaceId = UUID().uuidString.lowercased()
+        let surfaceId = UUID().uuidString.lowercased()
+        let socketPath = makeSocketPath("hook-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true
+                            ] as [String: Any]
+                        ]
+                    ]
+                )
+            }
+            return Self.v2Response(id: id, ok: true, result: [:])
+        }
+
+        let hook = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["hooks", "codex", "prompt-submit", "--workspace", workspaceId, "--surface", surfaceId],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "PWD": repoURL.path
+            ],
+            currentDirectoryURL: repoURL
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(hook.timedOut, hook.stderr)
+        XCTAssertEqual(hook.status, 0, hook.stderr)
+
+        let storeURL = stateURL.appendingPathComponent("agent-turn-diff-baselines.json")
+        let storeData = try Data(contentsOf: storeURL)
+        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: storeData) as? [String: Any])
+        let records = try XCTUnwrap(store["records"] as? [[String: Any]])
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(record["baseCommit"] as? String, emptyTree)
+
+        try "created before first commit\n".write(
+            to: repoURL.appendingPathComponent("new-file.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let lastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId
+            ],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(lastTurn.patch.contains("new-file.txt"), lastTurn.patch)
+        XCTAssertTrue(lastTurn.patch.contains("+created before first commit"), lastTurn.patch)
+    }
+
     func testAgentTurnDiffBaselineKeepsFirstSnapshotForDuplicateTurnHook() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
