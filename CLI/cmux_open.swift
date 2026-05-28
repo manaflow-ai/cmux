@@ -7076,7 +7076,6 @@ extension CMUXCLI {
               return preloadHighlighter({
                 themes,
                 langs: ["zig", "rust", "typescript", "tsx", "bash"],
-                preferredHighlighter: "shiki-wasm",
               });
             }
 
