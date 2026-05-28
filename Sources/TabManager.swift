@@ -6043,21 +6043,15 @@ class TabManager: ObservableObject {
         workspaceGroups[index].name = trimmed
     }
 
-    /// Toggle the collapse state of a group's section header.
+    /// UI-only collapse toggle: also moves focus to the anchor if the
+    /// currently-selected workspace is a non-anchor child that would be
+    /// hidden by the collapse. The pure-data variant
+    /// `setWorkspaceGroupCollapsed` is the right call for socket/CLI paths
+    /// that must preserve focus (the socket focus policy in CLAUDE.md).
     func toggleWorkspaceGroupCollapsed(groupId: UUID) {
         guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: !workspaceGroups[index].isCollapsed)
-    }
-
-    func setWorkspaceGroupCollapsed(groupId: UUID, isCollapsed: Bool) {
-        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].isCollapsed != isCollapsed else { return }
-        // When collapsing a group that contains the currently-selected
-        // non-anchor child, move focus to the anchor first. Otherwise the
-        // child's row disappears and the sidebar shows no active workspace
-        // (only the anchor's row is the header, and the header only renders
-        // active for the anchor).
-        if isCollapsed,
+        let nextCollapsed = !workspaceGroups[index].isCollapsed
+        if nextCollapsed,
            let selectedTabId,
            selectedTabId != workspaceGroups[index].anchorWorkspaceId,
            let selectedTab = tabs.first(where: { $0.id == selectedTabId }),
@@ -6065,6 +6059,15 @@ class TabManager: ObservableObject {
            let anchor = tabs.first(where: { $0.id == workspaceGroups[index].anchorWorkspaceId }) {
             selectWorkspace(anchor)
         }
+        setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: nextCollapsed)
+    }
+
+    /// Pure data mutation — flips the collapse flag without touching
+    /// selection. Use this from socket/CLI handlers so a non-focus-intent
+    /// command never steals the user's active workspace.
+    func setWorkspaceGroupCollapsed(groupId: UUID, isCollapsed: Bool) {
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard workspaceGroups[index].isCollapsed != isCollapsed else { return }
         workspaceGroups[index].isCollapsed = isCollapsed
     }
 

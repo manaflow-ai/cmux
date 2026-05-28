@@ -11583,14 +11583,24 @@ struct VerticalTabsSidebar: View {
         .onDrag { [groupId = group.id] in
             SidebarWorkspaceGroupDragPayload.provider(for: groupId)
         }
+        // Header accepts BOTH payloads:
+        //  - group drag → reorder this group's section
+        //  - workspace drag → add the dragged workspace to this group (vital
+        //    for collapsed groups, where no member rows are rendered so the
+        //    only droppable target IS the header)
         .onDrop(
-            of: SidebarWorkspaceGroupDragPayload.dropContentTypes,
+            of: SidebarWorkspaceGroupDragPayload.dropContentTypes
+                + SidebarTabDragPayload.dropContentTypes,
             isTargeted: nil
         ) { providers in
             SidebarWorkspaceGroupDragPayload.loadGroupId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedId in
                 guard let draggedId, draggedId != targetGroupId, let tabManager else { return }
                 guard let targetIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == targetGroupId }) else { return }
                 tabManager.moveWorkspaceGroup(groupId: draggedId, toIndex: targetIndex)
+            }
+            SidebarTabDragPayload.loadTabId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedTabId in
+                guard let draggedTabId, let tabManager else { return }
+                tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
             }
             return true
         }
@@ -16787,6 +16797,30 @@ enum SidebarTabDragPayload {
             return nil
         }
         return provider
+    }
+
+    /// Async decode helper that mirrors SidebarWorkspaceGroupDragPayload.loadGroupId.
+    /// Used by drop targets that accept both payload kinds (group header
+    /// accepts workspace drops, which is the only path for adding to a
+    /// collapsed group).
+    static func loadTabId(
+        from providers: [NSItemProvider],
+        completion: @escaping (UUID?) -> Void
+    ) {
+        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeIdentifier) }) else {
+            completion(nil)
+            return
+        }
+        _ = provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+            guard let data,
+                  let raw = String(data: data, encoding: .utf8),
+                  raw.hasPrefix(prefix),
+                  let uuid = UUID(uuidString: String(raw.dropFirst(prefix.count))) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            DispatchQueue.main.async { completion(uuid) }
+        }
     }
 }
 
