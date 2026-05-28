@@ -1,6 +1,7 @@
-import React, { useEffect, useReducer, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { subscribeToAgentEvents } from "../shared/bridge";
+import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   initialState,
@@ -24,6 +25,52 @@ import { PromptEditor, type PromptEditorHandle } from "./proseMirrorPromptEditor
 const h = React.createElement;
 
 type ComposerMenuKind = "mention" | "skill" | null;
+
+function useMeasuredComposerLayout(input: string) {
+  const [inputWidth, setInputWidth] = useState<number | null>(null);
+  const [textWidth, setTextWidth] = useState(0);
+  const [inputElement, setInputElement] = useState<HTMLDivElement | null>(null);
+  const textMeasureRef = useRef<HTMLSpanElement | null>(null);
+  const inputMeasureRef = useCallback((node: HTMLDivElement | null) => {
+    setInputElement(node);
+  }, []);
+
+  useLayoutEffect(() => {
+    const element = inputElement;
+    if (!element) {
+      return;
+    }
+    const updateWidth = () => setInputWidth(element.getBoundingClientRect().width);
+    updateWidth();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [inputElement]);
+
+  useLayoutEffect(() => {
+    const measure = textMeasureRef.current;
+    if (!measure) {
+      return;
+    }
+    setTextWidth(measure.getBoundingClientRect().width);
+  }, [input]);
+
+  return {
+    inputMeasureRef,
+    isSingleLine: shouldUseSingleLineComposer({
+      composerLayoutMode: "auto-single-line",
+      hasVisibleAttachments: false,
+      isEditorMultiline: input.includes("\n"),
+      isVoiceLayoutActive: false,
+      singleLineInputWidth: inputWidth,
+      singleLineTextWidth: textWidth,
+    }),
+    textMeasureRef,
+  };
+}
 
 function useInitialData(dispatch: React.Dispatch<Action>) {
   useEffect(() => {
@@ -77,6 +124,8 @@ function SessionSurface({
   const visibleLogEntries = state.log.filter((entry) => entry.level !== "info");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
+  const composerLayout = useMeasuredComposerLayout(state.input);
+  const isSingleLineComposer = composerLayout.isSingleLine;
   const submit = () => {
     setMenuKind(null);
     void sendInput(state, dispatch);
@@ -107,8 +156,10 @@ function SessionSurface({
   );
   const composerInput = h(PromptEditor, {
     ref: editorRef,
-    className: "composer-editor text-base [&_.ProseMirror]:leading-5",
-    minHeight: "2.75rem",
+    className: isSingleLineComposer
+      ? "composer-editor text-base"
+      : "composer-editor text-base [&_.ProseMirror]:leading-5",
+    minHeight: isSingleLineComposer ? "1.25rem" : "2.75rem",
     value: state.input,
     ariaLabel: state.context?.copy.promptPlaceholder ?? "",
     placeholder: state.context?.copy.promptPlaceholder ?? "",
@@ -127,7 +178,7 @@ function SessionSurface({
   );
   const rightActions = h(
     "div",
-    { className: "codex-right-rail flex shrink-0 items-center gap-2" },
+    { className: "codex-right-rail flex min-w-0 shrink-0 items-center justify-end gap-2" },
     showStart
       ? h(
           "button",
@@ -170,8 +221,50 @@ function SessionSurface({
         "aria-label": state.context?.copy.send ?? "Send",
       },
       sendIcon(),
-    ),
+      ),
   );
+  const composerInputWrapper = h(
+    "div",
+    {
+      key: "composer-input",
+      ref: isSingleLineComposer ? composerLayout.inputMeasureRef : undefined,
+      className: isSingleLineComposer
+        ? "composer-input-single-line min-w-0"
+        : "composer-input-row composer-input-multiline mb-1 flex-grow overflow-y-auto px-3",
+    },
+    composerInput,
+  );
+  const composerControls = isSingleLineComposer
+    ? h(
+        "div",
+        {
+          className:
+            "composer-footer composer-footer-single-line grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1",
+        },
+        leftControls,
+        composerInputWrapper,
+        rightActions,
+      )
+    : h(
+        "div",
+        { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
+        composerInputWrapper,
+        h(
+          "div",
+          {
+            className:
+              "composer-footer composer-footer-codex grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] mb-2 px-2",
+          },
+          leftControls,
+          h("div", { className: "flex items-center" }),
+          h(
+            "div",
+            { className: "flex w-full min-w-0 items-center justify-end gap-2" },
+            h("div", { className: "flex min-w-0 flex-1 justify-end" }),
+            rightActions,
+          ),
+        ),
+      );
 
   return h(
     "section",
@@ -194,6 +287,11 @@ function SessionSurface({
       h(
         "div",
         { className: "relative flex w-full flex-col gap-2" },
+        h("span", {
+          ref: composerLayout.textMeasureRef,
+          className: "composer-single-line-measure",
+          "aria-hidden": true,
+        }, state.input),
         h(
           "form",
           {
@@ -217,32 +315,10 @@ function SessionSurface({
               "div",
               {
                 className:
-                  "codex-composer-surface relative flex flex-col overflow-visible rounded-3xl bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)]",
+                  "codex-composer-surface relative flex flex-col bg-token-input-background/90 text-token-foreground ring ring-black/10 backdrop-blur-lg shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] " +
+                  (isSingleLineComposer ? "overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"),
               },
-              h(
-                "div",
-                { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
-                h(
-                  "div",
-                  { className: "composer-input-row mb-1 flex-grow overflow-y-auto px-3" },
-                  composerInput,
-                ),
-                h(
-                  "div",
-                  {
-                    className:
-                      "composer-footer composer-footer-codex grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] mb-2 px-2",
-                  },
-                  leftControls,
-                  h("div", { className: "flex items-center" }),
-                  h(
-                    "div",
-                    { className: "flex w-full min-w-0 items-center justify-end gap-2" },
-                    h("div", { className: "flex min-w-0 flex-1 justify-end" }),
-                    rightActions,
-                  ),
-                ),
-              ),
+              composerControls,
             ),
           ),
         ),
