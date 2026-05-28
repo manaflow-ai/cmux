@@ -1336,7 +1336,11 @@ extension Workspace {
             ) else {
                 return nil
             }
-            if restoredRemotePTYSessionID != nil {
+            if let restoredRemotePTYSessionID {
+                registerRemoteRelayIDAliases(
+                    remotePTYSessionID: restoredRemotePTYSessionID,
+                    restoredPanelId: terminalPanel.id
+                )
                 registerRemoteRelayIDAliases(
                     snapshotWorkspaceId: snapshotWorkspaceId,
                     snapshotPanelId: snapshot.id,
