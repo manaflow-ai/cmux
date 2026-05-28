@@ -6790,7 +6790,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace")
+            throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
         var params: [String: Any] = [:]
@@ -6919,6 +6919,43 @@ struct CMUXCLI {
             } else {
                 print("OK")
             }
+
+        case "set-color":
+            let (hexOpt, rem0) = parseOption(rest, name: "--hex")
+            params["group_id"] = try resolveGroupId(in: rem0)
+            // Treat --hex with no value (or `--hex ""`) as a clear.
+            params["hex"] = hexOpt ?? ""
+            let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "set-icon":
+            let (symbolOpt, rem0) = parseOption(rest, name: "--symbol")
+            params["group_id"] = try resolveGroupId(in: rem0)
+            params["symbol"] = symbolOpt ?? ""
+            let resp = try client.sendV2(method: "workspace.group.set_icon", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "move":
+            let (toIndexOpt, rem0) = parseOption(rest, name: "--to-index")
+            let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
+            let (afterOpt, _) = parseOption(rem1, name: "--after")
+            params["group_id"] = try resolveGroupId(in: rest)
+            if let toIndexOpt, let n = Int(toIndexOpt) {
+                params["to_index"] = n
+            } else if let beforeOpt {
+                params["before_group_id"] = beforeOpt
+            } else if let afterOpt {
+                params["after_group_id"] = afterOpt
+            } else {
+                throw CLIError(message: "move requires --to-index <n>, --before <group>, or --after <group>")
+            }
+            let resp = try client.sendV2(method: "workspace.group.move", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "focus":
+            params["group_id"] = try resolveGroupId(in: rest)
+            let resp = try client.sendV2(method: "workspace.group.focus", params: params)
+            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
             throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")

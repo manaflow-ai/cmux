@@ -3430,6 +3430,14 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceGroupSetAnchor(params: params))
         case "workspace.group.new_workspace":
             return v2Result(id: id, self.v2WorkspaceGroupNewWorkspace(params: params))
+        case "workspace.group.set_color":
+            return v2Result(id: id, self.v2WorkspaceGroupSetColor(params: params))
+        case "workspace.group.set_icon":
+            return v2Result(id: id, self.v2WorkspaceGroupSetIcon(params: params))
+        case "workspace.group.move":
+            return v2Result(id: id, self.v2WorkspaceGroupMove(params: params))
+        case "workspace.group.focus":
+            return v2Result(id: id, self.v2WorkspaceGroupFocus(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
         case "extension.sidebar.snapshot":
@@ -3886,6 +3894,10 @@ class TerminalController {
             "workspace.group.remove",
             "workspace.group.set_anchor",
             "workspace.group.new_workspace",
+            "workspace.group.set_color",
+            "workspace.group.set_icon",
+            "workspace.group.move",
+            "workspace.group.focus",
             "workspace.action",
             "extension.sidebar.snapshot",
             "workspace.next",
@@ -6343,6 +6355,109 @@ class TerminalController {
             "group_id": gid.uuidString,
             "workspace_id": createdId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: createdId)
+        ])
+    }
+
+    private func v2WorkspaceGroupSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // Accept "hex": null to clear the override, or omit it entirely.
+        let hex: String? = (params["hex"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (hex?.isEmpty == false) ? hex : nil
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupColor(groupId: gid, hex: normalized) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "custom_color": v2OrNull(normalized)])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetIcon(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(normalized)])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupMove(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // Resolve target via explicit absolute index OR relative position to
+        // another group via `before_group_id` / `after_group_id`.
+        var ok = false
+        v2MainSync {
+            guard let current = tabManager.workspaceGroups.firstIndex(where: { $0.id == gid }) else { return }
+            let target: Int? = {
+                if let toIndex = v2Int(params, "to_index") {
+                    return toIndex
+                }
+                if let beforeId = v2UUID(params, "before_group_id"),
+                   let beforeIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == beforeId }) {
+                    return beforeIndex
+                }
+                if let afterId = v2UUID(params, "after_group_id"),
+                   let afterIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == afterId }) {
+                    return afterIndex + 1
+                }
+                return nil
+            }()
+            guard let target else { return }
+            tabManager.moveWorkspaceGroup(groupId: gid, toIndex: target)
+            _ = current
+            ok = true
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString])
+            : .err(code: "invalid_params", message: "Missing or unresolvable target position", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupFocus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var anchorId: UUID?
+        v2MainSync {
+            guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }),
+                  tabManager.tabs.contains(where: { $0.id == group.anchorWorkspaceId }) else { return }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            tabManager.selectedTabId = group.anchorWorkspaceId
+            anchorId = group.anchorWorkspaceId
+        }
+        guard let anchorId else {
+            return .err(code: "not_found", message: "Group or anchor not found", data: ["group_id": gid.uuidString])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "anchor_workspace_id": anchorId.uuidString,
+            "anchor_workspace_ref": v2Ref(kind: .workspace, uuid: anchorId)
         ])
     }
 
