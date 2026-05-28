@@ -1728,7 +1728,24 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
+enum NamedSessionPersistenceError: Error, Equatable, Sendable {
+    case invalidName
+    case notFound
+    case saveFailed
+    case deleteFailed
+    case restoreFailed
+}
+
+struct NamedSessionSummary: Equatable, Sendable {
+    var name: String
+    var createdAt: TimeInterval
+    var windowCount: Int
+    var workspaceCount: Int
+}
+
 enum SessionPersistenceStore {
+    static let namedSessionNameMaximumLength = 128
+
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
@@ -1765,6 +1782,108 @@ enum SessionPersistenceStore {
     static func removeSnapshot(fileURL: URL? = nil) {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return }
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    static func saveNamedSession(
+        _ snapshot: AppSessionSnapshot,
+        name rawName: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) throws -> NamedSessionSummary {
+        let name = try normalizedNamedSessionName(rawName)
+        guard let fileURL = namedSessionFileURL(
+            name: name,
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else {
+            throw NamedSessionPersistenceError.saveFailed
+        }
+        guard save(snapshot, fileURL: fileURL) else {
+            throw NamedSessionPersistenceError.saveFailed
+        }
+        return summary(name: name, snapshot: snapshot)
+    }
+
+    static func loadNamedSession(
+        name rawName: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) throws -> AppSessionSnapshot {
+        let name = try normalizedNamedSessionName(rawName)
+        guard let fileURL = namedSessionFileURL(
+            name: name,
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ),
+              let snapshot = load(fileURL: fileURL) else {
+            throw NamedSessionPersistenceError.notFound
+        }
+        return snapshot
+    }
+
+    static func listNamedSessions(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> [NamedSessionSummary] {
+        guard let directoryURL = namedSessionDirectoryURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else {
+            return []
+        }
+        guard let fileURLs = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return fileURLs
+            .filter { $0.pathExtension == "json" }
+            .compactMap { fileURL -> NamedSessionSummary? in
+                let rawName = fileURL.deletingPathExtension().lastPathComponent
+                guard let name = try? normalizedNamedSessionName(rawName),
+                      let snapshot = load(fileURL: fileURL) else {
+                    return nil
+                }
+                return summary(name: name, snapshot: snapshot)
+            }
+            .sorted { lhs, rhs in
+                if lhs.name.localizedStandardCompare(rhs.name) == .orderedSame {
+                    return lhs.createdAt < rhs.createdAt
+                }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    static func deleteNamedSession(
+        name rawName: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) throws -> NamedSessionSummary {
+        let name = try normalizedNamedSessionName(rawName)
+        guard let fileURL = namedSessionFileURL(
+            name: name,
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else {
+            throw NamedSessionPersistenceError.deleteFailed
+        }
+
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw NamedSessionPersistenceError.notFound
+        }
+        let snapshot = load(fileURL: fileURL)
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            throw NamedSessionPersistenceError.deleteFailed
+        }
+        guard let snapshot else {
+            return NamedSessionSummary(name: name, createdAt: 0, windowCount: 0, workspaceCount: 0)
+        }
+        return summary(name: name, snapshot: snapshot)
     }
 
     static func loadReopenSessionSnapshot(
@@ -1836,6 +1955,90 @@ enum SessionPersistenceStore {
         return resolvedAppSupport
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
+    }
+
+    static func namedSessionDirectoryURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? bundleIdentifier!
+            : "com.cmuxterm.app"
+        let safeBundleId = bundleId.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        return resolvedAppSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("named-sessions", isDirectory: true)
+            .appendingPathComponent(safeBundleId, isDirectory: true)
+    }
+
+    static func namedSessionFileURL(
+        name rawName: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        guard let name = try? normalizedNamedSessionName(rawName),
+              let directoryURL = namedSessionDirectoryURL(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: appSupportDirectory
+              ) else {
+            return nil
+        }
+        return directoryURL.appendingPathComponent("\(name).json", isDirectory: false)
+    }
+
+    static func normalizedNamedSessionName(_ rawName: String) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              name.count <= namedSessionNameMaximumLength,
+              name != ".",
+              name != "..",
+              name.unicodeScalars.allSatisfy(isAllowedNamedSessionNameScalar(_:)),
+              let first = name.unicodeScalars.first,
+              isASCIILetterOrNumber(first) else {
+            throw NamedSessionPersistenceError.invalidName
+        }
+        return name
+    }
+
+    private static func isAllowedNamedSessionNameScalar(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 45, 46, 95:
+            return true
+        default:
+            return isASCIILetterOrNumber(scalar)
+        }
+    }
+
+    private static func isASCIILetterOrNumber(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 48...57, 65...90, 97...122:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func summary(name: String, snapshot: AppSessionSnapshot) -> NamedSessionSummary {
+        NamedSessionSummary(
+            name: name,
+            createdAt: snapshot.createdAt,
+            windowCount: snapshot.windows.count,
+            workspaceCount: snapshot.windows.reduce(0) { partial, window in
+                partial + window.tabManager.workspaces.count
+            }
+        )
     }
 }
 

@@ -152,6 +152,128 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
+    func testNamedSessionRoundTripListAndDelete() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-named-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.named.\(UUID().uuidString)"
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].customTitle = "Named Project"
+
+        let saved = try SessionPersistenceStore.saveNamedSession(
+            snapshot,
+            name: "my-project",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertEqual(saved.name, "my-project")
+        XCTAssertEqual(saved.windowCount, 1)
+        XCTAssertEqual(saved.workspaceCount, 1)
+
+        let loaded = try SessionPersistenceStore.loadNamedSession(
+            name: "my-project",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+        XCTAssertEqual(loaded.windows.first?.tabManager.workspaces.first?.customTitle, "Named Project")
+
+        let listed = SessionPersistenceStore.listNamedSessions(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+        XCTAssertEqual(listed.map(\.name), ["my-project"])
+        XCTAssertEqual(listed.first?.workspaceCount, 1)
+
+        let deleted = try SessionPersistenceStore.deleteNamedSession(
+            name: "my-project",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+        XCTAssertEqual(deleted.name, "my-project")
+        XCTAssertTrue(
+            SessionPersistenceStore.listNamedSessions(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            ).isEmpty
+        )
+        XCTAssertThrowsError(
+            try SessionPersistenceStore.loadNamedSession(
+                name: "my-project",
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        ) { error in
+            XCTAssertEqual(error as? NamedSessionPersistenceError, .notFound)
+        }
+    }
+
+    func testNamedSessionNameValidationRejectsUnsafeNames() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-named-session-validation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        let invalidNames = ["", " ", "../x", ".hidden", "bad/name", "bad name", "-dash"]
+
+        for name in invalidNames {
+            XCTAssertThrowsError(
+                try SessionPersistenceStore.saveNamedSession(
+                    snapshot,
+                    name: name,
+                    bundleIdentifier: "dev.cmux.tests.named.validation",
+                    appSupportDirectory: tempDir
+                ),
+                name
+            ) { error in
+                XCTAssertEqual(error as? NamedSessionPersistenceError, .invalidName, name)
+            }
+        }
+
+        XCTAssertNoThrow(
+            try SessionPersistenceStore.saveNamedSession(
+                snapshot,
+                name: "project_1.2",
+                bundleIdentifier: "dev.cmux.tests.named.validation",
+                appSupportDirectory: tempDir
+            )
+        )
+    }
+
+    func testDeleteNamedSessionRemovesCorruptedSnapshotFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-named-session-corrupt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleIdentifier = "dev.cmux.tests.named.corrupt"
+        let fileURL = try XCTUnwrap(
+            SessionPersistenceStore.namedSessionFileURL(
+                name: "broken-project",
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: tempDir
+            )
+        )
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("not-json".utf8).write(to: fileURL)
+
+        let deleted = try SessionPersistenceStore.deleteNamedSession(
+            name: "broken-project",
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertEqual(deleted.name, "broken-project")
+        XCTAssertEqual(deleted.windowCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

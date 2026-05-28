@@ -556,6 +556,114 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testSessionSaveCLIUsesNamedSessionSocketMethod() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-session-\(UUID().uuidString.prefix(8)).sock"
+        let response = #"{"ok":true,"result":{"saved":true,"name":"my-project","windows":1,"workspaces":2,"created_at":1700000000}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["session", "save", "my-project"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK saved my-project",
+            result.stdout
+        )
+        XCTAssertTrue(
+            responder.receivedRequests.contains { request in
+                request.contains(#""method":"session.save_named""#)
+                    && request.contains(#""name":"my-project""#)
+            },
+            responder.receivedRequests.joined(separator: "\n")
+        )
+    }
+
+    func testSessionListCLIPrintsNamedSessions() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-session-\(UUID().uuidString.prefix(8)).sock"
+        let response = #"{"ok":true,"result":{"sessions":[{"name":"my-project","windows":1,"workspaces":2,"created_at":1700000000}]}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["session", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("my-project"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("windows=1"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("workspaces=2"), result.stdout)
+        XCTAssertTrue(
+            responder.receivedRequests.contains { request in
+                request.contains(#""method":"session.list_named""#)
+            },
+            responder.receivedRequests.joined(separator: "\n")
+        )
+    }
+
+    func testSessionRestoreCLIUsesNamedSessionSocketMethod() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-session-\(UUID().uuidString.prefix(8)).sock"
+        let response = #"{"ok":true,"result":{"restored":true,"name":"my-project","windows":1,"workspaces":2,"created_at":1700000000}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["session", "restore", "my-project"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK restored my-project",
+            result.stdout
+        )
+        XCTAssertTrue(
+            responder.receivedRequests.contains { request in
+                request.contains(#""method":"session.restore_named""#)
+                    && request.contains(#""name":"my-project""#)
+            },
+            responder.receivedRequests.joined(separator: "\n")
+        )
+    }
+
     func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default

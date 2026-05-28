@@ -2912,6 +2912,16 @@ struct CMUXCLI {
             return
         }
 
+        if command == "session" {
+            try runSessionCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if command == "feedback" {
             try runFeedback(
                 commandArgs: commandArgs,
@@ -5137,6 +5147,190 @@ struct CMUXCLI {
             print(jsonString(payload))
         } else {
             print("OK")
+        }
+    }
+
+    private func runSessionCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let remaining = commandArgs.filter { $0 != "--" }
+        guard let subcommand = remaining.first?.lowercased() else {
+            throw CLIError(message: sessionHelpMessage())
+        }
+        let args = Array(remaining.dropFirst())
+
+        switch subcommand {
+        case "help", "--help", "-h":
+            print(sessionHelpMessage())
+
+        case "save":
+            let name = try namedSessionCLIArgument(args, usage: sessionSaveUsageMessage())
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.save_named", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                let savedName = response["name"] as? String ?? name
+                print(String(format: sessionSavedMessageFormat(), savedName))
+            }
+
+        case "restore":
+            let name = try namedSessionCLIArgument(args, usage: sessionRestoreUsageMessage())
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: true
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.restore_named", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                let restoredName = response["name"] as? String ?? name
+                print(String(format: sessionRestoredMessageFormat(), restoredName))
+            }
+
+        case "list":
+            guard args.isEmpty else {
+                throw CLIError(message: sessionListUsageMessage())
+            }
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.list_named")
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                printNamedSessions(response)
+            }
+
+        case "delete":
+            let name = try namedSessionCLIArgument(args, usage: sessionDeleteUsageMessage())
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.sendV2(method: "session.delete_named", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                let deletedName = response["name"] as? String ?? name
+                print(String(format: sessionDeletedMessageFormat(), deletedName))
+            }
+
+        default:
+            throw CLIError(message: String(format: sessionUnsupportedSubcommandMessageFormat(), subcommand))
+        }
+    }
+
+    private func sessionSaveUsageMessage() -> String {
+        String(localized: "cli.session.save.usage", defaultValue: "Usage: cmux session save <name>")
+    }
+
+    private func sessionRestoreUsageMessage() -> String {
+        String(localized: "cli.session.restore.usage", defaultValue: "Usage: cmux session restore <name>")
+    }
+
+    private func sessionListUsageMessage() -> String {
+        String(localized: "cli.session.list.usage", defaultValue: "Usage: cmux session list")
+    }
+
+    private func sessionDeleteUsageMessage() -> String {
+        String(localized: "cli.session.delete.usage", defaultValue: "Usage: cmux session delete <name>")
+    }
+
+    private func sessionSavedMessageFormat() -> String {
+        String(localized: "cli.session.saved", defaultValue: "OK saved %@")
+    }
+
+    private func sessionRestoredMessageFormat() -> String {
+        String(localized: "cli.session.restored", defaultValue: "OK restored %@")
+    }
+
+    private func sessionDeletedMessageFormat() -> String {
+        String(localized: "cli.session.deleted", defaultValue: "OK deleted %@")
+    }
+
+    private func sessionUnsupportedSubcommandMessageFormat() -> String {
+        String(
+            localized: "cli.session.error.unsupportedSubcommand",
+            defaultValue: "Unsupported session subcommand: %@"
+        )
+    }
+
+    private func sessionEmptyListMessage() -> String {
+        String(localized: "cli.session.list.empty", defaultValue: "No named sessions")
+    }
+
+    private func sessionListRowMessageFormat() -> String {
+        String(localized: "cli.session.list.row", defaultValue: "%@  windows=%d  workspaces=%d")
+    }
+
+    private func sessionCommandSummaryMessage() -> String {
+        String(
+            localized: "cli.session.commandSummary",
+            defaultValue: "session <save|restore|list|delete> [name]"
+        )
+    }
+
+    private func sessionHelpMessage() -> String {
+        String(
+            localized: "cli.session.help",
+            defaultValue: """
+            Usage: cmux session <save|restore|list|delete> [name]
+
+            Save and restore named workspace sessions.
+
+            Subcommands:
+              save <name>      Save the current windows and workspaces as a named session
+              restore <name>   Restore a named session
+              list             List saved named sessions
+              delete <name>    Delete a named session
+
+            Session names may use letters, numbers, dashes, underscores, and periods.
+            Names must start with a letter or number.
+
+            Examples:
+              cmux session save my-project
+              cmux session restore my-project
+              cmux session list
+              cmux session delete my-project
+            """
+        )
+    }
+
+    private func namedSessionCLIArgument(_ args: [String], usage: String) throws -> String {
+        guard args.count == 1 else {
+            throw CLIError(message: usage)
+        }
+        return args[0]
+    }
+
+    private func printNamedSessions(_ response: [String: Any]) {
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        guard !sessions.isEmpty else {
+            print(sessionEmptyListMessage())
+            return
+        }
+
+        for session in sessions {
+            let name = session["name"] as? String ?? "?"
+            let windows = intFromAny(session["windows"]) ?? 0
+            let workspaces = intFromAny(session["workspaces"]) ?? 0
+            print(String(format: sessionListRowMessageFormat(), name, windows, workspaces))
         }
     }
 
@@ -11996,6 +12190,8 @@ struct CMUXCLI {
 
             Alias for `cmux auth logout`.
             """
+        case "session":
+            return sessionHelpMessage()
         case "vm", "cloud":
             return """
             Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
@@ -30148,6 +30344,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
           restore-session
+          \(sessionCommandSummaryMessage())
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
