@@ -2715,6 +2715,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         CanvasPresentationInteractionResolver.phase(
             cameraPhase: canvasCameraInteraction.phase,
             isViewportAnimating: canvasViewportPresentation.isAnimating,
+            hasParkedNativeSurfacesForCamera: canvasCameraNativeSurfacesParked,
             hasActiveDrag: activeCanvasDragItemID != nil,
             hasActiveResize: !resizeStates.isEmpty
         )

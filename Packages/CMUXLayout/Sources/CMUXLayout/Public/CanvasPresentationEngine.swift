@@ -200,6 +200,7 @@ public enum CanvasPresentationInteractionResolver {
     public static func phase(
         cameraPhase: CanvasInteractionPhase,
         isViewportAnimating: Bool,
+        hasParkedNativeSurfacesForCamera: Bool = false,
         hasActiveDrag: Bool = false,
         hasActiveResize: Bool = false
     ) -> CanvasInteractionPhase {
@@ -208,6 +209,9 @@ public enum CanvasPresentationInteractionResolver {
         }
         if hasActiveDrag {
             return .draggingSurface
+        }
+        if hasParkedNativeSurfacesForCamera {
+            return cameraPhase == .zooming ? .zooming : .panning
         }
         if isViewportAnimating {
             return cameraPhase == .idle ? .panning : cameraPhase

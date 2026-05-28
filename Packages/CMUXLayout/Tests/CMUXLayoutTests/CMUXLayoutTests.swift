@@ -5547,6 +5547,43 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertTrue(presentation.surfaces.allSatisfy { $0.renderMode == .snapshotTexture })
     }
 
+    func testCanvasPresentationResolverKeepsUnifiedTextureWhileNativeSurfacesAreParked() {
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .idle,
+                isViewportAnimating: false,
+                hasParkedNativeSurfacesForCamera: true
+            ),
+            .panning
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .zooming,
+                isViewportAnimating: false,
+                hasParkedNativeSurfacesForCamera: true
+            ),
+            .zooming
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .idle,
+                isViewportAnimating: false,
+                hasParkedNativeSurfacesForCamera: true,
+                hasActiveDrag: true
+            ),
+            .draggingSurface
+        )
+        XCTAssertEqual(
+            CanvasPresentationInteractionResolver.phase(
+                cameraPhase: .idle,
+                isViewportAnimating: false,
+                hasParkedNativeSurfacesForCamera: true,
+                hasActiveResize: true
+            ),
+            .resizingSurface
+        )
+    }
+
     func testCanvasPresentationFramesTranslateRigidlyDuringHorizontalAndDiagonalPans() throws {
         let terminalID = LayoutItemID()
         let browserID = LayoutItemID()
