@@ -39,6 +39,7 @@ struct WorkspaceCanvasPresentationDebugRecord {
     let nativeOverlayCount: Int
     let textureSurfaceCount: Int
     let visibleNativePortalCount: Int
+    let maxShellPresentationDrift: Double
 }
 
 @MainActor
@@ -72,7 +73,8 @@ enum WorkspaceCanvasPresentationDebugRegistry {
                 usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
                 nativeOverlayCount: presentation.nativeOverlays.count,
                 textureSurfaceCount: presentation.textureSurfaces.count,
-                visibleNativePortalCount: visibleNativePortalCount
+                visibleNativePortalCount: visibleNativePortalCount,
+                maxShellPresentationDrift: maxShellPresentationDrift(in: presentation)
             )
         )
         if entry.recentRecords.count > maximumRecentEntryCount {
@@ -96,6 +98,35 @@ enum WorkspaceCanvasPresentationDebugRegistry {
 
     static func remove(workspaceID: UUID) {
         entriesByWorkspaceID.removeValue(forKey: workspaceID)
+    }
+
+    private static func maxShellPresentationDrift(in presentation: CanvasPresentationState) -> Double {
+        let scene = CanvasScene(presentation: presentation)
+        let shellByID = Dictionary(
+            uniqueKeysWithValues: CanvasShellRenderPlan(scene: scene).surfaces.map { ($0.id, $0) }
+        )
+        var maxDrift: CGFloat = 0
+        for surface in presentation.presentationSurfaces {
+            guard let shell = shellByID[surface.id] else {
+                maxDrift = 1_000_000
+                continue
+            }
+            maxDrift = max(
+                maxDrift,
+                maxRectDrift(shell.frame, surface.frameInCanvas),
+                maxRectDrift(shell.contentFrame, surface.contentFrameInCanvas)
+            )
+        }
+        return Double(maxDrift)
+    }
+
+    private static func maxRectDrift(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        max(
+            abs(lhs.minX - rhs.minX),
+            abs(lhs.minY - rhs.minY),
+            abs(lhs.width - rhs.width),
+            abs(lhs.height - rhs.height)
+        )
     }
 }
 

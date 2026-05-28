@@ -1,6 +1,9 @@
 @testable import CMUXCanvas
 import CMUXLayout
 import CoreGraphics
+#if canImport(IOSurface)
+import IOSurface
+#endif
 #if canImport(Metal)
 import Metal
 #endif
@@ -179,6 +182,26 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(mode.enableSetNeedsDisplay, true)
         XCTAssertEqual(mode.requestsImmediateDisplay, true)
     }
+
+#if canImport(IOSurface)
+    func testIOSurfaceTexturesUseContinuousMetalDisplayMode() throws {
+        let properties = [
+            kIOSurfaceWidth: 4,
+            kIOSurfaceHeight: 4,
+            kIOSurfaceBytesPerElement: 4,
+        ] as CFDictionary
+        let surface = try XCTUnwrap(IOSurfaceCreate(properties))
+        let source = CanvasSurfaceTextureSource(id: LayoutItemID(), surface: surface)
+
+        XCTAssertTrue(source.requiresContinuousRendering)
+
+        let mode = CanvasMetalRenderLoopMode.resolve(surfaceTextures: [source])
+
+        XCTAssertEqual(mode.isPaused, false)
+        XCTAssertEqual(mode.enableSetNeedsDisplay, false)
+        XCTAssertEqual(mode.requestsImmediateDisplay, false)
+    }
+#endif
 
     func testSurfaceTextureSourceIndexAllowsDuplicateIDs() throws {
         let image = try XCTUnwrap(Self.makeTestImage())

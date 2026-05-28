@@ -18373,6 +18373,7 @@ class TerminalController {
         let nativeOverlayCount: Int
         let textureSurfaceCount: Int
         let visibleNativePortalCount: Int
+        let maxShellPresentationDrift: Double
     }
 
     private struct LayoutDebugResponse: Codable, Sendable {
@@ -18678,7 +18679,8 @@ class TerminalController {
                         usesUnifiedTexturePresentation: $0.usesUnifiedTexturePresentation,
                         nativeOverlayCount: $0.nativeOverlayCount,
                         textureSurfaceCount: $0.textureSurfaceCount,
-                        visibleNativePortalCount: $0.visibleNativePortalCount
+                        visibleNativePortalCount: $0.visibleNativePortalCount,
+                        maxShellPresentationDrift: $0.maxShellPresentationDrift
                     )
                 } ?? [],
                 canvasRecentUnifiedTexturePresentationCount: canvasPresentationDebug?.recentUnifiedTexturePresentationCount ?? 0,

@@ -1214,6 +1214,81 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
     }
 
+    func testCanvasHorizontalTrackpadSwipesStartingOnNativeContentStayInLockstep() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
+            "Expected split setup data before testing horizontal native-content canvas pans. data=\(loadData() ?? [:])"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        guard let setup = loadData(),
+              let terminalPaneId = setup["terminalPaneId"],
+              let browserPaneId = setup["browserPaneId"],
+              let browserItemId = waitForCanvasItemId(paneId: browserPaneId, timeout: 8.0) else {
+            XCTFail("Missing canvas pane/item ids. data=\(loadData() ?? [:]) layout=\(String(describing: canvasLayout()))")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasOverviewActive"] as? Bool == true
+            },
+            "Expected canvas overview to be active before horizontal native-content swipe. layout=\(String(describing: canvasLayout()))"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "terminal")?["paneId"] as? String == terminalPaneId
+            },
+            "Expected terminal native portal before horizontal swipe inside terminal content. layout=\(String(describing: canvasLayout()))"
+        )
+
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: terminalPaneId,
+            direction: .left,
+            panelType: "terminal"
+        )
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
+        assertTerminalAcceptsInputAfterCanvasPan(panelType: "terminal")
+
+        let focusBrowser = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": browserItemId,
+                "dx": 0,
+                "dy": 0,
+            ]
+        )
+        guard focusBrowser?["ok"] as? Bool == true else {
+            XCTFail("Failed to focus browser canvas item. envelope=\(String(describing: focusBrowser))")
+            return
+        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.canvasLayout()?["canvasActiveRenderMode"] as? String == "liveNative1x" &&
+                    self.selectedCanvasPanel(panelType: "browser")?["paneId"] as? String == browserPaneId
+            },
+            "Expected browser native portal before horizontal swipe inside browser content. layout=\(String(describing: canvasLayout()))"
+        )
+
+        assertTrackpadSwipeStartingOnCanvasCardContentPansViewportAndKeepsPanelAligned(
+            app,
+            paneId: browserPaneId,
+            direction: .right,
+            panelType: "browser"
+        )
+        assertCanvasRecordedUnifiedPresentationDuringPan(minimumTextureSurfaceCount: 2)
+    }
+
     func testCanvasProgrammaticPanKeepsTerminalPortalAlignedWithCanvasFrame() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -2350,6 +2425,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         timeout: TimeInterval = 6.0,
         minimumTextureSurfaceCount: Int = 1,
         minimumPanningRecordCount: Int = 1,
+        maximumShellPresentationDrift: CGFloat = 0.5,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -2362,9 +2438,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 let allPanningFramesParkedNativeSurfaces = panningRecords.allSatisfy { record in
                     let nativeOverlayCount = (record["nativeOverlayCount"] as? NSNumber)?.intValue ?? -1
                     let visibleNativePortalCount = (record["visibleNativePortalCount"] as? NSNumber)?.intValue ?? -1
+                    let shellDrift = CGFloat((record["maxShellPresentationDrift"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude)
                     return record["usesUnifiedTexturePresentation"] as? Bool == true &&
                         nativeOverlayCount == 0 &&
-                        visibleNativePortalCount == 0
+                        visibleNativePortalCount == 0 &&
+                        shellDrift <= maximumShellPresentationDrift
                 }
                 let sawAllTexturePanFrame = records.contains { record in
                     guard record["interactionPhase"] as? String == "panning",
@@ -2374,16 +2452,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     let nativeOverlayCount = (record["nativeOverlayCount"] as? NSNumber)?.intValue ?? -1
                     let textureSurfaceCount = (record["textureSurfaceCount"] as? NSNumber)?.intValue ?? 0
                     let visibleNativePortalCount = (record["visibleNativePortalCount"] as? NSNumber)?.intValue ?? -1
+                    let shellDrift = CGFloat((record["maxShellPresentationDrift"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude)
                     return nativeOverlayCount == 0 &&
                         visibleNativePortalCount == 0 &&
-                        textureSurfaceCount >= minimumTextureSurfaceCount
+                        textureSurfaceCount >= minimumTextureSurfaceCount &&
+                        shellDrift <= maximumShellPresentationDrift
                 }
                 return panningRecords.count >= minimumPanningRecordCount &&
                     count > 0 &&
                     allPanningFramesParkedNativeSurfaces &&
                     sawAllTexturePanFrame
             },
-            "Expected trackpad pan to hide native portals and use all-texture presentation before remounting. layout=\(String(describing: canvasLayout()))",
+            "Expected trackpad pan to hide native portals and keep Metal shell/presentation frames in lockstep before remounting. layout=\(String(describing: canvasLayout()))",
             file: file,
             line: line
         )
