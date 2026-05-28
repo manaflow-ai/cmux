@@ -118,30 +118,20 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
     }
 
     private func launchAndActivate(_ app: XCUIApplication) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-        }
+        app.launch()
 
         if app.state == .runningForeground { return }
 
-        var reachedForeground = false
-        let activateOptions = XCTExpectedFailure.Options()
-        activateOptions.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: activateOptions) {
-            reachedForeground = pollUntil(timeout: 4.0) {
-                if app.state != .runningForeground {
-                    app.activate()
-                }
-                return app.state == .runningForeground
+        let reachedForeground = pollUntil(timeout: 4.0) {
+            if app.state != .runningForeground {
+                app.activate()
             }
-            XCTAssertTrue(reachedForeground, "App did not reach runningForeground before UI interactions")
+            return app.state == .runningForeground
         }
-        if reachedForeground || app.state == .runningBackground {
+        guard reachedForeground else {
+            XCTFail("App did not reach runningForeground before UI interactions. state=\(app.state.rawValue)")
             return
         }
-        XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
     private func resetMenuBarOnlyDefault() {
