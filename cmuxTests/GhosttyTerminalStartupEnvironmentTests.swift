@@ -99,6 +99,81 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["CMUX_NO_GIT_WATCH"], "")
     }
 
+    func testPathByPrependingUniqueDirectoryMovesDirectoryToFront() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
+        let first = root.appendingPathComponent("first", isDirectory: true).standardizedFileURL.path
+        let shim = root.appendingPathComponent("shim", isDirectory: true).standardizedFileURL.path
+        let last = root.appendingPathComponent("last", isDirectory: true).standardizedFileURL.path
+
+        let path = TerminalSurface.pathByPrependingUniqueDirectory(
+            shim,
+            to: [first, shim, last].joined(separator: ":")
+        )
+
+        XCTAssertEqual(path.split(separator: ":").map(String.init), [shim, first, last])
+    }
+
+    func testInstallClaudeCommandShimCreatesExecutableOutsideBundleBin() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
+        let bundleBin = root
+            .appendingPathComponent("cmux.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let tempRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        let logURL = root.appendingPathComponent("shim.log", isDirectory: false)
+        try FileManager.default.createDirectory(at: bundleBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let wrapperURL = bundleBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        {
+          printf 'shim=%s\\n' "${CMUX_CLAUDE_WRAPPER_SHIM:-}"
+          printf 'root=%s\\n' "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+          printf 'args=%s\\n' "$*"
+        } > "$CMUX_TEST_LOG"
+        """.write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapperURL.path)
+
+        let surfaceId = UUID()
+        let shim = try XCTUnwrap(TerminalSurface.installClaudeCommandShimIfPossible(
+            wrapperURL: wrapperURL,
+            surfaceId: surfaceId,
+            temporaryDirectory: tempRoot
+        ))
+
+        XCTAssertEqual(
+            shim.directoryPath,
+            tempRoot
+                .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+                .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
+                .standardizedFileURL
+                .path
+        )
+        XCTAssertEqual(URL(fileURLWithPath: shim.executablePath).lastPathComponent, "claude")
+        XCTAssertFalse(shim.executablePath.contains("/Contents/Resources/bin/claude"))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: shim.executablePath))
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shim.executablePath)
+        process.arguments = ["hello", "two words"]
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "CMUX_TEST_LOG": logURL.path
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        let output = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(output.contains("shim=\(shim.executablePath)\n"), output)
+        XCTAssertTrue(output.contains("root=\(shim.directoryPath)\n"), output)
+        XCTAssertTrue(output.contains("args=hello two words\n"), output)
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(

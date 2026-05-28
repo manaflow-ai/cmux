@@ -6224,9 +6224,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                let separator = currentPath.isEmpty ? "" : ":"
-                setManagedEnvironmentValue("PATH", "\(cliBinPath)\(separator)\(currentPath)")
+                setManagedEnvironmentValue(
+                    "PATH",
+                    Self.pathByPrependingUniqueDirectory(cliBinPath, to: currentPath)
+                )
             }
+        }
+
+        if claudeHooksEnabled,
+           let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper"),
+           let claudeShim = Self.installClaudeCommandShimIfPossible(
+                wrapperURL: wrapperURL,
+                surfaceId: id
+           ) {
+            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
+            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
+            let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            setManagedEnvironmentValue(
+                "PATH",
+                Self.pathByPrependingUniqueDirectory(claudeShim.directoryPath, to: currentPath)
+            )
         }
 
         // Shell integration: inject ZDOTDIR wrapper for zsh shells.
