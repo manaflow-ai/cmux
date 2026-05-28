@@ -5227,6 +5227,8 @@ extension CMUXCLI {
             let patchTextPromise = { value: null };
             let terminateWorkerPool = null;
             let pageHiddenForCleanup = false;
+            let codeViewUsesWorkerPool = false;
+            let rebuildCodeViewWithoutWorkerPool = null;
             let activeFileId = "";
             let activeTreePath = "";
             let suppressTreeSelectionChange = false;
@@ -5303,8 +5305,10 @@ extension CMUXCLI {
 
             async function initializeCodeViewWorkerPool() {
               setWorkerPoolStatus("loading");
-              const pool = await createCodeViewWorkerPool();
+              const startupMonitor = createWorkerStartupMonitor();
+              const pool = await createCodeViewWorkerPool(startupMonitor);
               if (pageHiddenForCleanup) {
+                startupMonitor.dispose();
                 terminateWorkerPoolInstance(pool);
                 workerPool = null;
                 if (window.__cmuxDiffViewer) {
@@ -5318,26 +5322,91 @@ extension CMUXCLI {
               }
               observeWorkerPool(pool);
               if (pool?.initialize) {
-                try {
-                  await pool.initialize();
-                  recordWorkerPoolStats(pool.getStats?.());
-                } catch (error) {
-                  console.warn("cmux diff worker pool initialization failed", error);
-                  recordWorkerPoolStats(pool.getStats?.());
-                }
-              }
-              if (pageHiddenForCleanup) {
-                terminateWorkerPoolInstance(pool);
-                workerPool = null;
-                if (window.__cmuxDiffViewer) {
-                  window.__cmuxDiffViewer.workerPool = null;
-                }
-                return null;
+                startupMonitor.waitFor(pool.initialize())
+                  .then(() => {
+                    startupMonitor.dispose();
+                    if (workerPool === pool) {
+                      recordWorkerPoolStats(pool.getStats?.());
+                    }
+                  })
+                  .catch((error) => {
+                    startupMonitor.dispose();
+                    handleWorkerPoolStartupFailure(pool, error);
+                  });
+              } else {
+                startupMonitor.dispose();
               }
               return pool;
             }
 
-            async function createCodeViewWorkerPool() {
+            function handleWorkerPoolStartupFailure(pool, error) {
+              console.warn("cmux diff worker pool initialization failed", error);
+              recordWorkerPoolStats(pool?.getStats?.());
+              const isActivePool = workerPool === pool;
+              terminateWorkerPoolInstance(pool);
+              if (!isActivePool) {
+                return;
+              }
+              workerPool = null;
+              if (window.__cmuxDiffViewer) {
+                window.__cmuxDiffViewer.workerPool = null;
+              }
+              setWorkerPoolStatus("fallback");
+              if (!pageHiddenForCleanup) {
+                rebuildCodeViewWithoutWorkerPool?.();
+              }
+            }
+
+            function createWorkerStartupMonitor() {
+              let settled = false;
+              let rejectStartup = null;
+              const cleanups = [];
+              const failed = new Promise((_, reject) => {
+                rejectStartup = reject;
+              });
+              failed.catch(() => {});
+              function workerStartupError(event) {
+                if (settled) {
+                  return;
+                }
+                const message = typeof event?.message === "string" && event.message.length > 0
+                  ? event.message
+                  : `worker ${event?.type ?? "error"}`;
+                rejectStartup(new Error(message));
+              }
+              function cleanup() {
+                while (cleanups.length > 0) {
+                  cleanups.pop()?.();
+                }
+              }
+              return {
+                observe(worker) {
+                  if (settled || !worker?.addEventListener) {
+                    return;
+                  }
+                  worker.addEventListener("error", workerStartupError, { once: true });
+                  worker.addEventListener("messageerror", workerStartupError, { once: true });
+                  cleanups.push(() => {
+                    worker.removeEventListener("error", workerStartupError);
+                    worker.removeEventListener("messageerror", workerStartupError);
+                  });
+                },
+                async waitFor(promise) {
+                  try {
+                    return await Promise.race([promise, failed]);
+                  } finally {
+                    settled = true;
+                    cleanup();
+                  }
+                },
+                dispose() {
+                  settled = true;
+                  cleanup();
+                },
+              };
+            }
+
+            async function createCodeViewWorkerPool(startupMonitor) {
               if (typeof Worker === "undefined") {
                 return null;
               }
@@ -5346,7 +5415,7 @@ extension CMUXCLI {
                 registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.light);
                 registerGhosttyTheme(workerPoolModule.registerCustomTheme, payload.appearance.themes.dark);
                 const workerURL = new URL(DIFF_WORKER_URL, window.location.href).href;
-                const poolOptions = codeViewWorkerPoolOptions(workerURL);
+                const poolOptions = codeViewWorkerPoolOptions(workerURL, startupMonitor);
                 const highlighterOptions = workerHighlighterOptions();
                 if (typeof workerPoolModule.getOrCreateWorkerPoolSingleton === "function") {
                   terminateWorkerPool = typeof workerPoolModule.terminateWorkerPoolSingleton === "function"
@@ -5368,7 +5437,7 @@ extension CMUXCLI {
               }
             }
 
-            function codeViewWorkerPoolOptions(workerURL) {
+            function codeViewWorkerPoolOptions(workerURL, startupMonitor) {
               const isSmallTouchSurface = globalThis.navigator?.maxTouchPoints > 0 &&
                 globalThis.matchMedia?.("(max-width: 767px), (pointer: coarse)").matches === true;
               const limits = isSmallTouchSurface
@@ -5377,7 +5446,11 @@ extension CMUXCLI {
               return {
                 poolSize: Math.min(Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) - 1), limits.poolSize),
                 totalASTLRUCacheSize: limits.totalASTLRUCacheSize,
-                workerFactory: () => new Worker(workerURL, { type: "module" }),
+                workerFactory: () => {
+                  const worker = new Worker(workerURL, { type: "module" });
+                  startupMonitor?.observe(worker);
+                  return worker;
+                },
               };
             }
 
@@ -5471,7 +5544,6 @@ extension CMUXCLI {
               let lastYieldAt = performance.now();
               let lastFlushAt = performance.now();
               let firstRender = true;
-              let codeViewUsesWorkerPool = false;
               let renderDependenciesReady = false;
               let statusVisible = true;
               const batchConfig = {
@@ -5480,6 +5552,7 @@ extension CMUXCLI {
                 initialMaxWait: 500,
                 incrementalMaxWait: 100,
               };
+              rebuildCodeViewWithoutWorkerPool = rebuildCodeViewWithoutWorker;
 
               workerPoolPromise?.then?.(
                 () => {
@@ -5728,6 +5801,23 @@ extension CMUXCLI {
                 window.__cmuxDiffViewer.codeView = codeView;
                 removeStatus();
                 return true;
+              }
+
+              function rebuildCodeViewWithoutWorker() {
+                if (!codeView || !codeViewUsesWorkerPool) {
+                  return;
+                }
+                const scrollTop = viewerElement.scrollTop;
+                codeView.cleanUp?.();
+                viewerElement.textContent = "";
+                codeViewUsesWorkerPool = false;
+                codeView = new CodeView(codeViewOptions(), undefined);
+                codeView.setup(viewerElement);
+                codeView.setItems(codeViewItems);
+                codeView.syncContainerHeight?.();
+                codeView.render(true);
+                viewerElement.scrollTop = scrollTop;
+                window.__cmuxDiffViewer.codeView = codeView;
               }
 
               function removeStatus() {
