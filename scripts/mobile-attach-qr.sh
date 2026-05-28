@@ -53,7 +53,12 @@ PARAMS="$(
 import json
 import os
 
-params = {"ttl_seconds": int(os.environ["TTL_SECONDS"])}
+params = {
+    "ttl_seconds": int(os.environ["TTL_SECONDS"]),
+    # General-pairing QR grants Mac-wide access. Per-workspace deep links
+    # use a different RPC path so they can stay scoped.
+    "scope": "mac",
+}
 route_id = os.environ.get("ROUTE_ID", "").strip()
 route_kind = os.environ.get("ROUTE_KIND", "").strip()
 if route_id:

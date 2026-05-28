@@ -1373,6 +1373,113 @@ import UIKit
 }
 
 @MainActor
+@Test func macScopedAttachTicketKeepsAttachTokenForWorkspaceSwitches() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let secondWorkspaceID = UUID().uuidString
+    let secondTerminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: "",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": workspaceID,
+                        "title": "Main",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": terminalID,
+                                "title": "Build",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": secondWorkspaceID,
+                        "title": "Second",
+                        "current_directory": "/Users/test/second",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": secondTerminalID,
+                                "title": "Shell",
+                                "current_directory": "/Users/test/second",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            visibleLines: ["ready"]
+        ),
+        try rpcSnapshotResultFrame(
+            workspaceID: secondWorkspaceID,
+            terminalID: secondTerminalID,
+            visibleLines: ["second ready"]
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcSnapshotResultFrame(
+            workspaceID: secondWorkspaceID,
+            terminalID: secondTerminalID,
+            visibleLines: ["second typed"]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "test-stack-token"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    _ = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
+
+    await store.openWorkspace(MobileWorkspacePreview.ID(rawValue: secondWorkspaceID))
+    await store.submitTerminalRawInput("x")
+    let terminal = try await waitForSelectedTerminal(in: store) {
+        $0.snapshot.renderedVisibleLines.first == "second typed"
+    }
+    #expect(terminal.id.rawValue == secondTerminalID)
+
+    let requests = try await responses.sentRequests()
+    let secondWorkspaceSnapshots = requests.filter {
+        $0.method == "terminal.snapshot" &&
+            $0.workspaceID == secondWorkspaceID &&
+            $0.terminalID == secondTerminalID
+    }
+    let secondWorkspaceInput = try #require(requests.first {
+        $0.method == "terminal.input" &&
+            $0.workspaceID == secondWorkspaceID &&
+            $0.terminalID == secondTerminalID
+    })
+
+    #expect(!secondWorkspaceSnapshots.isEmpty)
+    #expect(secondWorkspaceSnapshots.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(secondWorkspaceSnapshots.allSatisfy { $0.stackAccessToken == nil })
+    #expect(secondWorkspaceInput.attachToken == "ticket-secret")
+    #expect(secondWorkspaceInput.stackAccessToken == nil)
+}
+
+@MainActor
 @Test func signedInAttachTicketFallsBackToScopedWorkspaceWhenFullListFails() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString

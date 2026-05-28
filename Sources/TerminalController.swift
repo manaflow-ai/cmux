@@ -21175,33 +21175,51 @@ class TerminalController {
             ?? v2OptionalTrimmedRawString(params, "routeID")
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
             ?? v2OptionalTrimmedRawString(params, "routeKind")
+        let scope = v2OptionalTrimmedRawString(params, "scope")
+        // scope=mac mints a Mac-wide ticket that grants access to every
+        // workspace on the host. Without this, the ticket gets pinned to
+        // the workspace selected at QR-generation time, and tapping any
+        // other workspace from the paired iPhone falls back to Stack
+        // Auth verification, which is brittle on real-world networks.
+        let isMacScope = scope?.lowercased() == "mac"
+
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
-        let terminalPanel: TerminalPanel?
-        if let surfaceId = resolved.surfaceId {
-            guard let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
-                return .err(
-                    code: "invalid_request",
-                    message: "terminal_id does not reference a terminal",
-                    data: nil
-                )
-            }
-            terminalPanel = panel
+
+        let resolvedWorkspaceID: String
+        let resolvedTerminalID: String?
+        if isMacScope {
+            resolvedWorkspaceID = ""
+            resolvedTerminalID = nil
         } else {
-            terminalPanel = nil
+            guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+            let terminalPanel: TerminalPanel?
+            if let surfaceId = resolved.surfaceId {
+                guard let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
+                    return .err(
+                        code: "invalid_request",
+                        message: "terminal_id does not reference a terminal",
+                        data: nil
+                    )
+                }
+                terminalPanel = panel
+            } else {
+                terminalPanel = nil
+            }
+            resolvedWorkspaceID = resolved.workspace.id.uuidString
+            resolvedTerminalID = terminalPanel?.id.uuidString
         }
 
         do {
             let payload = try await MobileHostService.shared.createAttachTicket(
-                workspaceID: resolved.workspace.id.uuidString,
-                terminalID: terminalPanel?.id.uuidString,
+                workspaceID: resolvedWorkspaceID,
+                terminalID: resolvedTerminalID,
                 ttl: ttl,
                 routeID: routeID,
                 routeKind: routeKind

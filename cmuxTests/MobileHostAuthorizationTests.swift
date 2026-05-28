@@ -669,6 +669,26 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
+    func testMacScopedAttachTicketAcceptsTerminalSnapshotInAnyWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "terminal-snapshot",
+            method: "terminal.snapshot",
+            params: [
+                "workspace_id": "other-workspace",
+                "terminal_id": "other-terminal",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        XCTAssertNil(error)
+    }
+
     func testStackUserAuthorizationRequiresSignedInMacUser() throws {
         XCTAssertThrowsError(
             try MobileHostAuthorizationPolicy.authorizeStackUser(

@@ -2730,7 +2730,13 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         workspaceSelection: String?,
         terminalSelection: String?
     ) -> Bool {
-        if let workspaceSelection, workspaceSelection != ticket.workspaceID {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // It covers any workspace/terminal on the paired Mac.
+        if ticketWorkspaceID.isEmpty {
+            return true
+        }
+        if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
             return false
         }
 
@@ -2739,7 +2745,7 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             return terminalSelection == ticketTerminalID
         }
 
-        return workspaceSelection == ticket.workspaceID
+        return workspaceSelection == ticketWorkspaceID
     }
 
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {

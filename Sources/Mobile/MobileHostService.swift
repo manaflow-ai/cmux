@@ -628,7 +628,13 @@ final class MobileHostService {
         }
 
         let ticket = authorization.ticket
-        if let workspaceSelection, workspaceSelection != ticket.workspaceID {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // Allow any workspace/terminal under it.
+        if ticketWorkspaceID.isEmpty {
+            return nil
+        }
+        if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
             return scopedTicketError
         }
 
@@ -640,7 +646,7 @@ final class MobileHostService {
             return nil
         }
 
-        guard workspaceSelection == ticket.workspaceID else {
+        guard workspaceSelection == ticketWorkspaceID else {
             return scopedTicketError
         }
         return nil
