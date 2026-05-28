@@ -12538,6 +12538,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
+            return handleToggleFocusedWorkspaceGroupCollapsedShortcut(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
+
         if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {
 #if DEBUG
             cmuxDebugLog(
@@ -13767,6 +13773,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredWindow: targetWindow,
             source: "shortcut.renameWorkspace"
         )
+        return true
+    }
+
+    @discardableResult
+    func handleToggleFocusedWorkspaceGroupCollapsedShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabManager = resolvedTabManager else { return false }
+        guard let focusedId = tabManager.selectedTabId,
+              let groupId = tabManager.tabs.first(where: { $0.id == focusedId })?.groupId else {
+            // Don't consume the event when the focused workspace isn't in a
+            // group — let the matched chord propagate (no React Grab
+            // collision here, but stay consistent with the group-create
+            // shortcut's fall-through policy).
+            return false
+        }
+        tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         return true
     }
 

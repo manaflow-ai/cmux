@@ -106,6 +106,7 @@ enum KeyboardShortcutSettings {
         case closeOtherTabsInPane
         case closeWorkspace
         case groupSelectedWorkspaces
+        case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -194,6 +195,7 @@ enum KeyboardShortcutSettings {
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
+            case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -336,6 +338,12 @@ enum KeyboardShortcutSettings {
                 // fires in browser/terminal contexts where this shortcut
                 // wouldn't have done anything anyway.
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .toggleFocusedWorkspaceGroupCollapsed:
+                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
+                // used by other group ops, with "." as the collapse
+                // mnemonic. No-ops gracefully when the focused workspace
+                // isn't in a group.
+                return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:

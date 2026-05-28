@@ -8009,6 +8009,11 @@ class TabManager: ObservableObject {
             tabs[nextIndex].id,
             notificationDismissalContext: .explicitWorkspaceResume
         )
+        // Keyboard nav is an explicit "focus one workspace" gesture, so drop
+        // any stale sidebar multi-selection (Shift-click range) so subsequent
+        // batch actions don't operate on workspaces the user thought they
+        // had unselected by moving on.
+        clearSidebarMultiSelection(except: tabs[nextIndex].id)
     }
 
     func selectPreviousTab() {
@@ -8023,6 +8028,25 @@ class TabManager: ObservableObject {
         selectWorkspaceId(
             tabs[prevIndex].id,
             notificationDismissalContext: .explicitWorkspaceResume
+        )
+        clearSidebarMultiSelection(except: tabs[prevIndex].id)
+    }
+
+    /// Reduce sidebar multi-selection to a single workspace (or clear if
+    /// `except` isn't a known tab). Called from keyboard-nav paths so a
+    /// stale Shift-click range doesn't survive after the user moves focus.
+    /// Posts `.sidebarMultiSelectionShouldCollapse` so the SwiftUI binding
+    /// in ContentView (a @State Set<UUID> separate from this tab manager)
+    /// can collapse to the focused workspace too.
+    private func clearSidebarMultiSelection(except workspaceId: UUID) {
+        let next: Set<UUID> = tabs.contains(where: { $0.id == workspaceId }) ? [workspaceId] : []
+        if sidebarSelectedWorkspaceIds != next {
+            sidebarSelectedWorkspaceIds = next
+        }
+        NotificationCenter.default.post(
+            name: .sidebarMultiSelectionShouldCollapse,
+            object: self,
+            userInfo: [SidebarMultiSelectionCollapseKey.focusedWorkspaceId: workspaceId]
         )
     }
 
@@ -11002,7 +11026,16 @@ extension TabManager {
     }
 }
 
+enum SidebarMultiSelectionCollapseKey {
+    static let focusedWorkspaceId = "focusedWorkspaceId"
+}
+
 extension Notification.Name {
+    /// Posted when keyboard-nav focuses a single workspace and the sidebar's
+    /// multi-selection state (SwiftUI @State Set<UUID> in VerticalTabsSidebar)
+    /// should collapse to that workspace. Subscribers read
+    /// `SidebarMultiSelectionCollapseKey.focusedWorkspaceId` from userInfo.
+    static let sidebarMultiSelectionShouldCollapse = Notification.Name("cmux.sidebarMultiSelectionShouldCollapse")
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
