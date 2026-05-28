@@ -3288,6 +3288,8 @@ final class BrowserPanel: Panel, ObservableObject {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
             oldCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
         uninstallElementPickerMessageHandler(from: oldWebView)
 
         let replacement = Self.makeWebView(
@@ -4176,6 +4178,8 @@ final class BrowserPanel: Panel, ObservableObject {
             previousCmuxWebView.onContextMenuDownloadStateChanged = nil
             previousCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
         uninstallElementPickerMessageHandler(from: previousWebView)
 
         profileID = resolvedProfileID
@@ -4547,6 +4551,8 @@ final class BrowserPanel: Panel, ObservableObject {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
             oldCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
         uninstallElementPickerMessageHandler(from: oldWebView)
 
         let replacement = Self.makeWebView(
@@ -5509,6 +5515,8 @@ extension BrowserPanel {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
             oldCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
         uninstallElementPickerMessageHandler(from: oldWebView)
 
         let replacement = Self.makeWebView(

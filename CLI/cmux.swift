@@ -10470,6 +10470,7 @@ struct CMUXCLI {
 
         if subcommand == "picked" || subcommand == "pick" || subcommand == "element" {
             let sid = try requireSurface()
+            let maxPickedWaitTimeoutMs = 120_000
             let firstToken = subArgs.first?.lowercased()
             let hasExplicitVerb = firstToken.map { !$0.hasPrefix("-") } ?? false
             let pickVerb = hasExplicitVerb ? (firstToken ?? "get") : "get"
@@ -10477,6 +10478,9 @@ struct CMUXCLI {
 
             switch pickVerb {
             case "get", "read", "current", "last":
+                guard pickArgs.isEmpty else {
+                    throw CLIError(message: "browser picked \(pickVerb) does not accept extra arguments")
+                }
                 let payload = try client.sendV2(method: "browser.picked.get", params: ["surface_id": sid])
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
@@ -10487,6 +10491,9 @@ struct CMUXCLI {
                 }
                 return
             case "clear", "reset":
+                guard pickArgs.isEmpty else {
+                    throw CLIError(message: "browser picked \(pickVerb) does not accept extra arguments")
+                }
                 let payload = try client.sendV2(method: "browser.picked.clear", params: ["surface_id": sid])
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
@@ -10499,15 +10506,21 @@ struct CMUXCLI {
                 let (timeoutOptSec, _) = parseOption(rem1, name: "--timeout")
                 var timeoutMs = 30_000
                 if let timeoutOptMs {
-                    guard let parsed = Int(timeoutOptMs), parsed > 0 else {
-                        throw CLIError(message: "--timeout-ms must be a positive integer")
+                    guard let parsed = Int(timeoutOptMs),
+                          parsed > 0,
+                          parsed <= maxPickedWaitTimeoutMs else {
+                        throw CLIError(message: "--timeout-ms must be a positive integer up to \(maxPickedWaitTimeoutMs)")
                     }
                     timeoutMs = parsed
                 } else if let timeoutOptSec {
-                    guard let seconds = Double(timeoutOptSec), seconds > 0 else {
-                        throw CLIError(message: "--timeout must be a positive number")
+                    let maxSeconds = Double(maxPickedWaitTimeoutMs) / 1000.0
+                    guard let seconds = Double(timeoutOptSec),
+                          seconds.isFinite,
+                          seconds > 0,
+                          seconds <= maxSeconds else {
+                        throw CLIError(message: "--timeout must be a positive number up to \(maxSeconds) seconds")
                     }
-                    timeoutMs = max(1, Int(seconds * 1000.0))
+                    timeoutMs = max(1, Int((seconds * 1000.0).rounded(.up)))
                 }
                 var params: [String: Any] = [
                     "surface_id": sid,
@@ -13783,7 +13796,9 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
-              picked [get|wait|clear] [--timeout-ms <ms>|--timeout <seconds>] [--include-current]
+              picked get
+              picked wait [--timeout-ms <ms>|--timeout <seconds>] [--include-current]
+              picked clear
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
