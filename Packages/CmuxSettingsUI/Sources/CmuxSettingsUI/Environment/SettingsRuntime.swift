@@ -17,19 +17,22 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let jsonStore: JSONConfigStore
     public let errorLog: SettingsErrorLog
     public let accountFlow: AccountFlow?
+    public let hostActions: SettingsHostActions?
 
     public init(
         catalog: SettingCatalog,
         userDefaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         errorLog: SettingsErrorLog,
-        accountFlow: AccountFlow? = nil
+        accountFlow: AccountFlow? = nil,
+        hostActions: SettingsHostActions? = nil
     ) {
         self.catalog = catalog
         self.userDefaultsStore = userDefaultsStore
         self.jsonStore = jsonStore
         self.errorLog = errorLog
         self.accountFlow = accountFlow
+        self.hostActions = hostActions
     }
 }
 

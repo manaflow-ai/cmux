@@ -14,10 +14,20 @@ import SwiftUI
 public struct AppSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions?
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    @State private var languageModel: DefaultsValueModel<AppLanguage>?
+    @State private var pendingRestart: Bool = false
+    @State private var initialLanguage: AppLanguage?
+
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions? = nil
+    ) {
         self.defaultsStore = defaultsStore
         self.catalog = catalog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -31,8 +41,37 @@ public struct AppSection: View {
             workspacePresentationSection
             notificationsSection
             telemetrySection
+            onboardingSection
+            feedbackSection
         }
         .formStyle(.grouped)
+        .task {
+            if languageModel == nil {
+                let model = DefaultsValueModel(store: defaultsStore, key: catalog.app.language)
+                languageModel = model
+                initialLanguage = model.current
+            }
+        }
+        .onChange(of: languageModel?.current) { _, newValue in
+            guard let newValue, let initial = initialLanguage, newValue != initial else { return }
+            pendingRestart = true
+        }
+        .confirmationDialog(
+            "Restart cmux to apply the new language?",
+            isPresented: $pendingRestart,
+            titleVisibility: .visible
+        ) {
+            if let hostActions {
+                Button("Restart Now") {
+                    hostActions.restartApp()
+                }
+            }
+            Button("Later", role: .cancel) {
+                initialLanguage = languageModel?.current
+            }
+        } message: {
+            Text("Language changes apply on the next launch.")
+        }
     }
 
     @ViewBuilder
@@ -220,7 +259,11 @@ public struct AppSection: View {
 
     @ViewBuilder
     private var notificationsSection: some View {
-        NotificationsRows(defaultsStore: defaultsStore, catalog: catalog)
+        NotificationsRows(
+            defaultsStore: defaultsStore,
+            catalog: catalog,
+            hostActions: hostActions
+        )
     }
 
     @ViewBuilder
@@ -231,6 +274,30 @@ public struct AppSection: View {
                 title: "Send Anonymous Telemetry",
                 subtitle: "cmux sends anonymized usage events to help fix bugs and improve the product. No file contents, secrets, or workspace metadata are sent."
             )
+        }
+    }
+
+    @ViewBuilder
+    private var onboardingSection: some View {
+        Section("Onboarding") {
+            SettingsToggleRow(
+                model: DefaultsValueModel(store: defaultsStore, key: catalog.account.welcomeShown),
+                title: "Welcome Shown",
+                subtitle: "Toggle off to surface the welcome flow again on next launch."
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var feedbackSection: some View {
+        if let hostActions {
+            Section("Feedback") {
+                Button {
+                    hostActions.sendFeedback()
+                } label: {
+                    Label("Send Feedback…", systemImage: "envelope")
+                }
+            }
         }
     }
 

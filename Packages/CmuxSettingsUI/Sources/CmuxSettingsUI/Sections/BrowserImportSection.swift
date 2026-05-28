@@ -12,10 +12,16 @@ import SwiftUI
 public struct BrowserImportSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions?
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions? = nil
+    ) {
         self.defaultsStore = defaultsStore
         self.catalog = catalog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -48,7 +54,14 @@ public struct BrowserImportSection: View {
                 )
             }
             Section {
-                Text("The actual import flow (Safari, Chrome, Firefox for bookmarks, history, and cookies) is launched from the blank-tab hint or from the Browser menu. Open a blank tab to see the import shortcut, or use Browser → Import…")
+                if let hostActions {
+                    Button {
+                        hostActions.openBrowserImportFlow()
+                    } label: {
+                        Label("Import Browser Data…", systemImage: "square.and.arrow.down")
+                    }
+                }
+                Text("Launches the source picker (Safari, Chrome, Firefox, Brave, Edge, Arc) and the profile + cookie prompts. Already-imported entries are deduped automatically.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {

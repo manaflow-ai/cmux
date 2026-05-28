@@ -11,10 +11,18 @@ import SwiftUI
 public struct BrowserSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions?
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    @State private var confirmClearHistory: Bool = false
+
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions? = nil
+    ) {
         self.defaultsStore = defaultsStore
         self.catalog = catalog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -99,6 +107,27 @@ public struct BrowserSection: View {
                     model: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs),
                     title: "Show import hint on blank tabs"
                 )
+            }
+            if let hostActions {
+                Section("History") {
+                    Button(role: .destructive) {
+                        confirmClearHistory = true
+                    } label: {
+                        Label("Clear Browser History", systemImage: "trash")
+                    }
+                }
+                .confirmationDialog(
+                    "Clear browser history?",
+                    isPresented: $confirmClearHistory,
+                    titleVisibility: .visible
+                ) {
+                    Button("Clear History", role: .destructive) {
+                        hostActions.clearBrowserHistory()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This removes visited-page suggestions from the browser omnibar.")
+                }
             }
             Section("Hostname Patterns") {
                 multilineRow(

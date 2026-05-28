@@ -50,8 +50,8 @@ public struct WorkspaceColorsSection: View {
                 )
             }
             Section("Colors") {
-                hexRow(title: "Selection color (#RRGGBB)", key: catalog.workspaceColors.selectionColorHex)
-                hexRow(title: "Notification badge color (#RRGGBB)", key: catalog.workspaceColors.notificationBadgeColorHex)
+                hexRowWithReset(title: "Selection color (#RRGGBB)", key: catalog.workspaceColors.selectionColorHex)
+                hexRowWithReset(title: "Notification badge color (#RRGGBB)", key: catalog.workspaceColors.notificationBadgeColorHex)
             }
             Section("Custom Palette") {
                 Text("Add custom workspace colors as hex strings. They appear alongside the built-in palette in the workspace settings.")
@@ -101,6 +101,22 @@ public struct WorkspaceColorsSection: View {
             set: { model.set($0) }
         ))
         .textFieldStyle(.roundedBorder)
+    }
+
+    @ViewBuilder
+    private func hexRowWithReset(title: String, key: DefaultsKey<String>) -> some View {
+        let model = DefaultsValueModel(store: defaultsStore, key: key)
+        HStack {
+            TextField(title, text: Binding(
+                get: { model.current },
+                set: { model.set($0) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            Button("Reset") {
+                model.reset()
+            }
+            .disabled(model.current == key.defaultValue)
+        }
     }
 
     @ViewBuilder

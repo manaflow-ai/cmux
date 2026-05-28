@@ -1,0 +1,46 @@
+import Foundation
+
+/// Host-supplied callbacks the package's section views invoke for
+/// actions that live outside the catalog — clearing browser history,
+/// opening the user's editor on cmux.json, sending feedback, posting
+/// test notifications, restarting the app after a language change,
+/// and launching the browser import workflow.
+///
+/// The package doesn't carry these implementations because they
+/// depend on host-app services that have no place in a
+/// Foundation-only settings package. The host implements this
+/// protocol once and injects it via ``SettingsRuntime``; sections
+/// check for `nil` callbacks and hide the corresponding buttons
+/// when no host action is available.
+@MainActor
+public protocol SettingsHostActions: AnyObject {
+    /// Deletes the user's browser history (visited-page suggestions,
+    /// omnibar autocomplete cache). Idempotent.
+    func clearBrowserHistory()
+
+    /// Opens the cmux JSON config file in the user's preferred
+    /// external editor. The package's inline editor still works;
+    /// this is the escape hatch for users who prefer their own
+    /// editor.
+    func openConfigInExternalEditor()
+
+    /// Launches the host's feedback flow (typically a "Send Feedback"
+    /// URL or in-app form).
+    func sendFeedback()
+
+    /// Posts a synthetic test notification so the user can confirm
+    /// the configured sound + behavior.
+    func sendTestNotification()
+
+    /// Opens System Settings to the cmux notifications pane so the
+    /// user can grant / revoke OS-level notification permission.
+    func openSystemNotificationSettings()
+
+    /// Restarts the cmux app. Used after the user changes the
+    /// language picker, which requires a full process restart.
+    func restartApp()
+
+    /// Launches the host's browser-import flow (Safari / Chrome /
+    /// Firefox source picker + profile selection + cookie prompt).
+    func openBrowserImportFlow()
+}

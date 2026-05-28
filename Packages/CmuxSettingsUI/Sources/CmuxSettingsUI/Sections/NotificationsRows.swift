@@ -6,15 +6,23 @@ import SwiftUI
 ///
 /// Covers the dock badge, menu-bar extra, unread-pane-ring, pane-flash
 /// toggles plus the notification sound picker (with custom file path
-/// + custom command escape hatches).
+/// + custom command escape hatches), a Send Test button so the user
+/// can preview the configured sound, and an "Open System Notification
+/// Settings" link.
 @MainActor
 public struct NotificationsRows: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions?
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions? = nil
+    ) {
         self.defaultsStore = defaultsStore
         self.catalog = catalog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -37,6 +45,17 @@ public struct NotificationsRows: View {
                 model: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash),
                 title: "Pane Flash"
             )
+            if let hostActions {
+                HStack {
+                    Button("Open System Notification Settings…") {
+                        hostActions.openSystemNotificationSettings()
+                    }
+                    Spacer()
+                    Button("Send Test") {
+                        hostActions.sendTestNotification()
+                    }
+                }
+            }
         }
         Section("Notification Sound") {
             SettingsDefaultsTextFieldRow(

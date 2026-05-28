@@ -135,7 +135,11 @@ public struct SettingsWindowRoot: View {
     private var detailView: some View {
         switch selection {
         case .app:
-            AppSection(defaultsStore: defaultsStore, catalog: catalog)
+            AppSection(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: runtime.hostActions
+            )
         case .automation:
             AutomationSection(
                 defaultsStore: defaultsStore,
@@ -159,9 +163,17 @@ public struct SettingsWindowRoot: View {
         case .betaFeatures:
             BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
         case .browser:
-            BrowserSection(defaultsStore: defaultsStore, catalog: catalog)
+            BrowserSection(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: runtime.hostActions
+            )
         case .browserImport:
-            BrowserImportSection(defaultsStore: defaultsStore, catalog: catalog)
+            BrowserImportSection(
+                defaultsStore: defaultsStore,
+                catalog: catalog,
+                hostActions: runtime.hostActions
+            )
         case .globalHotkey:
             GlobalHotkeySection(defaultsStore: defaultsStore, catalog: catalog)
         case .keyboardShortcuts:
@@ -178,7 +190,7 @@ public struct SettingsWindowRoot: View {
                 errorLog: runtime.errorLog
             )
         case .settingsJSON:
-            SettingsJSONSection(jsonStore: jsonStore)
+            SettingsJSONSection(jsonStore: jsonStore, hostActions: runtime.hostActions)
         case .reset:
             ResetSection(defaultsStore: defaultsStore, jsonStore: jsonStore, catalog: catalog)
         }

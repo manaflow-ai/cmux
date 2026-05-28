@@ -14,14 +14,16 @@ import SwiftUI
 /// store's ``JSONCSanitizer`` strips them on read.
 public struct SettingsJSONSection: View {
     private let jsonStore: JSONConfigStore
+    private let hostActions: SettingsHostActions?
 
     @State private var draft: String = ""
     @State private var loaded: Bool = false
     @State private var statusMessage: String?
     @State private var statusIsError: Bool = false
 
-    public init(jsonStore: JSONConfigStore) {
+    public init(jsonStore: JSONConfigStore, hostActions: SettingsHostActions? = nil) {
         self.jsonStore = jsonStore
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -32,6 +34,11 @@ public struct SettingsJSONSection: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 Spacer()
+                if let hostActions {
+                    Button("Open in External Editor") {
+                        hostActions.openConfigInExternalEditor()
+                    }
+                }
                 Button("Reload from disk") { reloadFromDisk() }
                 Button("Save") { saveToDisk() }
                     .keyboardShortcut("s", modifiers: .command)

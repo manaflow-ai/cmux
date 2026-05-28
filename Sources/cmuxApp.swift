@@ -39,15 +39,17 @@ struct cmuxApp: App {
         // single struct; nothing in the package or app references a
         // shared static.
         let settingsCatalog = SettingCatalog()
+        let configFileURL = CmuxConfigLocation().userConfigFile
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
                 defaults: .standard,
                 migrating: settingsCatalog.all
             ),
-            jsonStore: JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile),
+            jsonStore: JSONConfigStore(fileURL: configFileURL),
             errorLog: SettingsErrorLog(),
-            accountFlow: HostAccountFlow()
+            accountFlow: HostAccountFlow(),
+            hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
