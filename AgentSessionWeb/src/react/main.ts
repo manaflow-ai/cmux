@@ -383,7 +383,7 @@ function SessionSurface({
     },
     composerInput,
   );
-  const composerControls = isSingleLineComposer
+  const composerControlsContent = isSingleLineComposer
     ? h(
         "div",
         {
@@ -396,7 +396,8 @@ function SessionSurface({
       )
     : h(
         "div",
-        { className: "relative z-10 flex min-h-0 flex-1 flex-col" },
+        { className: "contents" },
+        h("div", { className: "codex-attachment-tray px-2 py-1.5", "aria-hidden": true }),
         composerInputWrapper,
         h(
           "div",
@@ -414,6 +415,11 @@ function SessionSurface({
           ),
         ),
       );
+  const composerControls = h(
+    "div",
+    { className: "codex-composer-inner relative z-10 flex min-h-0 flex-1 flex-col" },
+    composerControlsContent,
+  );
 
   return h(
     "section",
@@ -950,7 +956,39 @@ function codexIconButton(kind: string, ariaLabel: string, child: React.ReactNode
   return h("button", props, child);
 }
 
+function applyCodexDocumentMetadata() {
+  const root = document.documentElement;
+  root.dataset.codexWindowType = "electron";
+  root.dataset.windowType = "electron";
+  root.dataset.codexOs = codexOs();
+  if (document.body) {
+    document.body.dataset.codexWindowType = "electron";
+  }
+}
+
+function codexOs(): string {
+  const maybeNavigator = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
+  const platform = (
+    maybeNavigator.userAgentData?.platform ??
+    maybeNavigator.platform ??
+    maybeNavigator.userAgent
+  ).toLowerCase();
+  if (platform.includes("win")) {
+    return "win32";
+  }
+  if (platform.includes("mac") || platform.includes("darwin")) {
+    return "darwin";
+  }
+  if (platform.includes("linux")) {
+    return "linux";
+  }
+  return "unknown";
+}
+
 const root = document.getElementById("root");
 if (root) {
+  applyCodexDocumentMetadata();
   createRoot(root).render(h(App));
 }

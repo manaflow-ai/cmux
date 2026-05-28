@@ -24,7 +24,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   const root = document.documentElement;
   root.dataset.theme = theme.isDark ? "dark" : "light";
   root.dataset.codexWindowType = "electron";
+  root.dataset.windowType = "electron";
   root.classList.toggle("dark", theme.isDark);
+  root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
   if (document.body) {

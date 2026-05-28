@@ -72,7 +72,7 @@
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   --agent-primary-text: #ffffff;
   --thread-content-max-width: none;
-  --markdown-wide-block-max-width: 64rem;
+  --markdown-wide-block-max-width: 56rem;
   --padding-toolbar: calc(var(--spacing) * 4);
   --vscode-foreground: var(--agent-text);
   --vscode-descriptionForeground: var(--agent-muted);
@@ -89,10 +89,25 @@
   --color-token-bg-secondary: var(--agent-card);
   --color-token-list-hover-background: var(--agent-control-hover);
   --padding-row-x: calc(var(--spacing) * 2);
-  --padding-row-y: calc(var(--spacing) * 1.5);
+  --padding-row-y: calc(var(--spacing) * 1.25);
   --height-token-nav-row: 32px;
   --codex-chat-font-size: 13px;
   --codex-chat-code-font-size: 12px;
+}
+
+:root[data-codex-window-type="electron"] {
+  background: transparent;
+  overflow: hidden;
+}
+
+:root[data-codex-window-type="electron"] body {
+  --cursor-interaction: default;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+:root[data-codex-window-type="electron"]:not([data-codex-os="win32"]) body {
+  background: transparent;
 }
 
 * {
@@ -452,6 +467,18 @@ select {
 .codex-composer-surface {
   color: var(--color-token-foreground);
   background: color-mix(in srgb, var(--color-token-input-background) 90%, transparent);
+}
+
+:root.dark .codex-composer-surface {
+  background: color-mix(in srgb, var(--color-token-dropdown-background) 90%, transparent);
+}
+
+.codex-composer-inner {
+  isolation: isolate;
+}
+
+.codex-attachment-tray {
+  min-height: 12px;
 }
 
 @supports (corner-shape: superellipse(1.5)) {
@@ -1238,6 +1265,37 @@ select {
   .model-picker {
     min-width: 36px;
     padding: 0 5px;
+  }
+}
+
+@container composer-footer (width <= 475px) {
+  :root[data-codex-window-type="electron"] .composer-footer__label--sm,
+  :root[data-codex-window-type="electron"] .composer-footer__label--xs {
+    display: none;
+  }
+}
+
+@container composer-footer (width >= 300px) {
+  :root[data-codex-window-type="electron"] .composer-footer__icon--collapsed {
+    display: inline-flex;
+  }
+}
+
+@container composer-footer (width >= 476px) {
+  :root[data-codex-window-type="electron"] .composer-footer__icon--collapsed {
+    display: none;
+  }
+}
+
+@container composer-footer (width <= 480px) {
+  :root[data-codex-window-type="electron"] .composer-footer__secondary-label {
+    display: none;
+  }
+}
+
+@container composer-footer (width <= 420px) {
+  :root[data-codex-window-type="electron"] .composer-footer__secondary-chevron {
+    display: none;
   }
 }
 
