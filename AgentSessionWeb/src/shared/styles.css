@@ -42,8 +42,9 @@
   --radius-2xl: 1rem;
   --radius-3xl: 1.25rem;
   --radius-4xl: 1.5rem;
-  --spacing-token-button-composer: 1.75rem;
-  --spacing-token-button-composer-sm: 1.75rem;
+  --spacing-token-button-composer: calc(var(--spacing) * 7);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
+  --spacing-token-button-composer-gap: var(--spacing);
 }
 
 :root {
@@ -170,8 +171,8 @@ select {
 }
 
 .text-size-chat-sm {
-  font-size: var(--codex-chat-code-font-size);
-  line-height: calc(var(--codex-chat-code-font-size) + 6px);
+  font-size: calc(var(--codex-chat-font-size) - 1px);
+  line-height: calc(var(--codex-chat-font-size) + 5px);
 }
 
 .codex-user-turn,
@@ -522,6 +523,7 @@ select {
 
 .h-token-button-composer {
   height: var(--spacing-token-button-composer);
+  gap: var(--spacing-token-button-composer-gap);
 }
 
 .size-token-button-composer {
@@ -660,6 +662,16 @@ select {
   position: absolute;
   inset: 0 0 auto;
   overflow: hidden;
+}
+
+.ProseMirror .placeholder::selection,
+.ProseMirror .placeholder ::selection {
+  color: inherit;
+  background: transparent;
+}
+
+.ProseMirror .ProseMirror-selectednode:has([skill-mention-name]) {
+  outline: none;
 }
 
 .codex-left-rail,
@@ -1116,6 +1128,7 @@ select {
 }
 
 .codex-top-tray-panel,
+.codex-top-tray-panel[cmdk-root],
 .codex-top-tray-panel[data-cmdk-root] {
   display: flex;
   flex-direction: column;
@@ -1144,6 +1157,7 @@ select {
 }
 
 .codex-top-tray-list,
+.codex-top-tray-panel [cmdk-list],
 .codex-top-tray-panel [data-cmdk-list] {
   display: flex;
   flex: 1;
@@ -1160,7 +1174,8 @@ select {
 }
 
 .codex-top-tray-item,
-.codex-top-tray-item[cmdk-item] {
+.codex-top-tray-item[cmdk-item],
+.codex-top-tray-item[data-list-navigation-item] {
   display: flex;
   width: calc(100% - var(--spacing) * 2);
   min-height: calc(var(--spacing) * 8);

@@ -650,13 +650,13 @@ function ComposerTopTray({
     { className: "codex-top-tray-shell absolute z-20" },
     h(
       "div",
-      { className: "codex-top-tray-panel", "data-cmdk-root": true },
+      { className: "codex-top-tray-panel", "cmdk-root": "", "data-cmdk-root": true },
       h("div", { className: "codex-top-tray-title" }, kind === "mention"
         ? copy?.mentionMenuTitle ?? "Mention"
         : copy?.skillMenuTitle ?? "Skills"),
       h(
         "div",
-        { className: "codex-top-tray-list", "data-cmdk-list": true },
+        { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
         items.map((item) =>
           h(
             "button",
@@ -664,7 +664,8 @@ function ComposerTopTray({
               key: item.id,
               className: "codex-top-tray-item",
               type: "button",
-              "cmdk-item": true,
+              "cmdk-item": "",
+              "data-list-navigation-item": true,
               onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
               onClick: () => onChoose(item.value),
             },
