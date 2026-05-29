@@ -937,10 +937,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
                 #if DEBUG
-                if let renderedText = self.accessibilityRenderedTextForTesting(),
-                   !renderedText.isEmpty {
-                    self.accessibilityLabel = renderedText
-                }
+                self.updateTestingAccessibilityState()
                 self.onOutputProcessedForTesting?()
                 #endif
             }
@@ -1143,6 +1140,9 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncRendererLayerFrameForCurrentGeometry()
             ghostty_surface_render_now(surface)
             updateCursorOverlay()
+            #if DEBUG
+            updateTestingAccessibilityState()
+            #endif
         }
     }
 
@@ -1425,6 +1425,42 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !lastRenderRect.isEmpty else { return }
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: lastRenderRect)
     }
+
+    #if DEBUG
+    private func updateTestingAccessibilityState() {
+        if let renderedText = accessibilityRenderedTextForTesting(),
+           !renderedText.isEmpty {
+            accessibilityLabel = renderedText
+        }
+        accessibilityValue = rendererLayerDiagnosticsForTesting()
+    }
+
+    private func rendererLayerDiagnosticsForTesting() -> String {
+        let renderers = (layer.sublayers ?? []).filter(isGhosttyRendererLayer)
+        let ready = renderers.contains { renderer in
+            !renderer.isHidden &&
+                renderer.contents != nil &&
+                renderer.frame.width > 0 &&
+                renderer.frame.height > 0 &&
+                renderer.bounds.width > 0 &&
+                renderer.bounds.height > 0
+        }
+        let zero = renderers.contains { renderer in
+            !renderer.isHidden &&
+                (renderer.frame.width <= 0 ||
+                    renderer.frame.height <= 0 ||
+                    renderer.bounds.width <= 0 ||
+                    renderer.bounds.height <= 0)
+        }
+        let rendererSummary = renderers.enumerated().map { index, renderer in
+            let frame = renderer.frame.integral
+            let bounds = renderer.bounds.integral
+            return "\(index):frame=\(Int(frame.width))x\(Int(frame.height));bounds=\(Int(bounds.width))x\(Int(bounds.height));contents=\(renderer.contents == nil ? 0 : 1);hidden=\(renderer.isHidden ? 1 : 0)"
+        }.joined(separator: "|")
+        let renderRect = lastRenderRect.integral
+        return "rendererReady=\(ready ? 1 : 0);rendererZero=\(zero ? 1 : 0);renderRect=\(Int(renderRect.width))x\(Int(renderRect.height));layers=\(rendererSummary)"
+    }
+    #endif
 
     /// Add / update a 1-pixel separator border around the pinned surface
     /// rect when the container is larger (this device is not the smallest

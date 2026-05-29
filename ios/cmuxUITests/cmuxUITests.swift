@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Network
+import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
@@ -169,6 +170,41 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
+    }
+
+    @MainActor
+    func testGhosttyColorPixelsSurviveIOSInput() async throws {
+        let server = try MobileSyncMockHostServer(selectedTerminalID: "terminal-colors")
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+        ])
+        waitForWorkspaceShell(in: app)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6))
+        assertTerminalRow(0, label: "RED GREEN BLUE", in: app)
+        assertRendererLayerReady(surface, in: app)
+
+        let beforeInputColors = try terminalColorPixelCounts(surface: surface, in: app)
+        assertHasTerminalRGBPixels(beforeInputColors)
+
+        surface.tap()
+        app.typeText("x")
+        try await server.waitForTerminalInput(containing: "x", timeout: 4)
+        runMainLoop(for: 0.35)
+        assertRendererLayerReady(surface, in: app)
+
+        let afterInputColors = try terminalColorPixelCounts(surface: surface, in: app)
+        assertHasTerminalRGBPixels(afterInputColors)
+        XCTAssertGreaterThanOrEqual(afterInputColors.red, max(8, beforeInputColors.red / 3))
+        XCTAssertGreaterThanOrEqual(afterInputColors.green, max(8, beforeInputColors.green / 3))
+        XCTAssertGreaterThanOrEqual(afterInputColors.blue, max(8, beforeInputColors.blue / 3))
+        assertTerminalRow(0, label: "RED GREEN BLUE", in: app)
     }
 
     /// Tapping a text field opens the system keyboard; the floating Pair
@@ -501,6 +537,118 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertRendererLayerReady(
+        _ surface: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String else {
+                    return false
+                }
+                return value.contains("rendererReady=1") && value.contains("rendererZero=0")
+            },
+            object: surface
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: 6)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Expected non-zero Ghostty renderer layer. value=\(surface.value as? String ?? "<nil>") rows=\(terminalRowLabels(in: app))",
+            file: file,
+            line: line
+        )
+    }
+
+    private struct TerminalColorPixelCounts {
+        var red = 0
+        var green = 0
+        var blue = 0
+    }
+
+    @MainActor
+    private func terminalColorPixelCounts(
+        surface: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> TerminalColorPixelCounts {
+        let screenshot = XCUIScreen.main.screenshot()
+        guard let image = screenshot.image.cgImage else {
+            XCTFail("Unable to read UI screenshot image", file: file, line: line)
+            return TerminalColorPixelCounts()
+        }
+
+        let appFrame = app.windows.firstMatch.exists ? app.windows.firstMatch.frame : app.frame
+        let scaleX = CGFloat(image.width) / max(appFrame.width, 1)
+        let scaleY = CGFloat(image.height) / max(appFrame.height, 1)
+        let insetFrame = surface.frame.insetBy(dx: 4, dy: 4)
+        let cropRect = CGRect(
+            x: max(0, floor(insetFrame.minX * scaleX)),
+            y: max(0, floor(insetFrame.minY * scaleY)),
+            width: min(CGFloat(image.width), ceil(insetFrame.width * scaleX)),
+            height: min(CGFloat(image.height), ceil(insetFrame.height * scaleY))
+        )
+        let boundedCropRect = cropRect.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard !boundedCropRect.isEmpty,
+              let cropped = image.cropping(to: boundedCropRect.integral) else {
+            XCTFail("Unable to crop terminal surface screenshot. surface=\(surface.frame) crop=\(boundedCropRect)", file: file, line: line)
+            return TerminalColorPixelCounts()
+        }
+
+        let width = cropped.width
+        let height = cropped.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        ) else {
+            XCTFail("Unable to create screenshot pixel context", file: file, line: line)
+            return TerminalColorPixelCounts()
+        }
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var counts = TerminalColorPixelCounts()
+        for index in stride(from: 0, to: pixels.count - 3, by: 4) {
+            let red = Int(pixels[index])
+            let green = Int(pixels[index + 1])
+            let blue = Int(pixels[index + 2])
+            let alpha = Int(pixels[index + 3])
+            guard alpha > 180 else { continue }
+            if red > 180, green < 130, blue < 130 {
+                counts.red += 1
+            } else if green > 170, red < 150, blue < 150 {
+                counts.green += 1
+            } else if blue > 180, red < 150, green < 190 {
+                counts.blue += 1
+            }
+        }
+        return counts
+    }
+
+    private func assertHasTerminalRGBPixels(
+        _ counts: TerminalColorPixelCounts,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThan(counts.red, 8, "Expected rendered red terminal pixels. counts=\(counts)", file: file, line: line)
+        XCTAssertGreaterThan(counts.green, 8, "Expected rendered green terminal pixels. counts=\(counts)", file: file, line: line)
+        XCTAssertGreaterThan(counts.blue, 8, "Expected rendered blue terminal pixels. counts=\(counts)", file: file, line: line)
+    }
+
+    private func runMainLoop(for duration: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(duration))
+    }
+
+    @MainActor
     private func terminalRows(in app: XCUIApplication) -> [String] {
         let surface = app.otherElements["MobileTerminalSurface"]
         guard surface.exists else { return [] }
@@ -666,6 +814,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         var activeScreen: String = "primary"
     }
 
+    private struct TerminalInputWaiter {
+        var id: UUID
+        var expectedText: String
+        var continuation: CheckedContinuation<Void, Error>
+    }
+
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
@@ -673,6 +827,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var streamOffset: UInt64 = 1
+    private var terminalInputs: [String] = []
+    private var terminalInputWaiters: [TerminalInputWaiter] = []
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -688,6 +844,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                         "Mobile Core: connected",
                         "host: UI Test Mac",
                         "route: debugLoopback",
+                    ]
+                ),
+                Terminal(
+                    id: "terminal-colors",
+                    title: "Colors",
+                    currentDirectory: "~/cmux",
+                    lines: [
+                        "\u{1B}[38;2;255;48;48mRED\u{1B}[0m \u{1B}[38;2;48;255;48mGREEN\u{1B}[0m \u{1B}[38;2;80;160;255mBLUE\u{1B}[0m",
+                        "type to verify colors stay visible",
                     ]
                 ),
                 Terminal(
@@ -722,7 +887,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ),
     ]
 
-    init() throws {
+    init(selectedWorkspaceID: String = "workspace-main", selectedTerminalID: String = "terminal-build") throws {
+        self.selectedWorkspaceID = selectedWorkspaceID
+        self.selectedTerminalID = selectedTerminalID
         listener = try NWListener(using: .tcp, on: .any)
     }
 
@@ -748,6 +915,32 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func waitForTerminalInput(containing expectedText: String, timeout: TimeInterval) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let id = UUID()
+            queue.async {
+                if self.terminalInputs.contains(where: { $0.contains(expectedText) }) {
+                    continuation.resume()
+                    return
+                }
+                self.terminalInputWaiters.append(TerminalInputWaiter(
+                    id: id,
+                    expectedText: expectedText,
+                    continuation: continuation
+                ))
+                self.queue.asyncAfter(deadline: .now() + timeout) {
+                    guard let index = self.terminalInputWaiters.firstIndex(where: { $0.id == id }) else {
+                        return
+                    }
+                    let waiter = self.terminalInputWaiters.remove(at: index)
+                    waiter.continuation.resume(
+                        throwing: self.serverError("Timed out waiting for terminal input containing '\(expectedText)'.")
+                    )
+                }
+            }
         }
     }
 
@@ -855,6 +1048,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
+        case "mobile.terminal.input", "terminal.input":
+            result = terminalInputResult(params: params)
         default:
             result = [:]
         }
@@ -896,6 +1091,21 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         var result = workspaceListResult()
         result["created_workspace_id"] = workspaceID
         return result
+    }
+
+    private func terminalInputResult(params: [String: Any]) -> [String: Any] {
+        let text = params["text"] as? String ?? ""
+        terminalInputs.append(text)
+        var stillWaiting: [TerminalInputWaiter] = []
+        for waiter in terminalInputWaiters {
+            if text.contains(waiter.expectedText) {
+                waiter.continuation.resume()
+            } else {
+                stillWaiting.append(waiter)
+            }
+        }
+        terminalInputWaiters = stillWaiting
+        return ["accepted": true]
     }
 
     private func createTerminalResult(params: [String: Any]) -> [String: Any] {
