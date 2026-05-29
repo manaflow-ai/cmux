@@ -10,6 +10,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var identity: AppExtensionIdentity?
     @State private var isLoading = true
     @State private var errorText: String?
+    @State private var disabledExtensionCount = 0
+    @State private var unapprovedExtensionCount = 0
+    @State private var browserAnchorView: NSView?
     @State private var xpcHost = CMUXSidebarExtensionHostXPC()
 
     var body: some View {
@@ -52,11 +55,35 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if disabledExtensionCount > 0 || unapprovedExtensionCount > 0 {
+                            Text(extensionAvailabilityDetail)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button {
+                            if let browserAnchorView {
+                                CMUXSidebarExtensionBrowserPresenter.present(
+                                    from: browserAnchorView,
+                                    title: String(
+                                        localized: "sidebar.extensions.browser.title",
+                                        defaultValue: "Sidebar Extensions"
+                                    )
+                                )
+                            }
+                        } label: {
+                            Label(
+                                String(localized: "sidebar.extensions.manage", defaultValue: "Manage Extensions"),
+                                systemImage: "puzzlepiece.extension"
+                            )
+                        }
+                        .controlSize(.small)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(TitlebarControlAnchorView { browserAnchorView = $0 })
                 .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
             }
         }
@@ -73,13 +100,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         isLoading = true
         errorText = nil
         do {
-            let update = try await Task.detached(priority: .userInitiated) {
-                var identities = try AppExtensionIdentity.matching(
-                    appExtensionPointIDs: CMUXSidebarExtensionPoint.identifier
-                )
-                .makeAsyncIterator()
-                return await identities.next() ?? []
-            }.value
+            let update = try await loadEnabledExtensionIdentities()
             identity = update.sorted { $0.localizedName < $1.localizedName }.first
             isLoading = false
         } catch {
@@ -90,6 +111,47 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 defaultValue: "CMUX could not load sidebar extensions."
             )
         }
+    }
+
+    private var extensionAvailabilityDetail: String {
+        if unapprovedExtensionCount > 0 {
+            return String(
+                localized: "sidebar.extensions.unapproved.detail",
+                defaultValue: "An installed sidebar extension needs approval before CMUX can use it."
+            )
+        }
+        return String(
+            localized: "sidebar.extensions.disabled.detail",
+            defaultValue: "A sidebar extension is installed but disabled."
+        )
+    }
+
+    private func loadEnabledExtensionIdentities() async throws -> [AppExtensionIdentity] {
+        if #available(macOS 26.0, *) {
+            let extensionPoint = try AppExtensionPoint(identifier: "com.manaflow.cmux.sidebar")
+            let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
+            let state = monitor.state
+            disabledExtensionCount = state.disabledCount
+            unapprovedExtensionCount = state.unapprovedCount
+            return state.identities
+        }
+
+        let availabilityTask = Task.detached(priority: .utility) {
+            var updates = AppExtensionIdentity.availabilityUpdates.makeAsyncIterator()
+            return await updates.next()
+        }
+        let update = try await Task.detached(priority: .userInitiated) {
+            var identities = try AppExtensionIdentity.matching(
+                appExtensionPointIDs: CMUXSidebarExtensionPoint.identifier
+            )
+            .makeAsyncIterator()
+            return await identities.next() ?? []
+        }.value
+        if let availability = await availabilityTask.value {
+            disabledExtensionCount = availability.disabledCount
+            unapprovedExtensionCount = availability.unapprovedCount
+        }
+        return update
     }
 }
 

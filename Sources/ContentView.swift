@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CMUXExtensionClient
 import CmuxExtensionKit
 import ImageIO
 import Observation
@@ -9919,6 +9920,15 @@ enum CmuxExtensionSidebarSelection {
             item.state = selectedProviderId == descriptor.id ? .on : .off
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        let manageItem = NSMenuItem(
+            title: String(localized: "sidebar.extensions.manage", defaultValue: "Manage Extensions"),
+            action: #selector(CmuxExtensionSidebarMenuTarget.manageExtensions(_:)),
+            keyEquivalent: ""
+        )
+        manageItem.representedObject = anchorView
+        manageItem.target = CmuxExtensionSidebarMenuTarget.shared
+        menu.addItem(manageItem)
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
@@ -9934,6 +9944,14 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+
+    @objc func manageExtensions(_ sender: NSMenuItem) {
+        guard let anchorView = sender.representedObject as? NSView else { return }
+        CMUXSidebarExtensionBrowserPresenter.present(
+            from: anchorView,
+            title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        )
     }
 }
 

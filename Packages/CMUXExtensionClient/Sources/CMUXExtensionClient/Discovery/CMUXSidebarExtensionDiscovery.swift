@@ -26,4 +26,22 @@ public struct CMUXSidebarExtensionDiscovery {
         }
         .sorted { $0.localizedName < $1.localizedName }
     }
+
+    /// Lists enabled sidebar extensions using the modern ExtensionFoundation monitor.
+    /// - Parameter appExtensionPoint: Extension point declared by the host app.
+    /// - Returns: Enabled extensions sorted by localized name.
+    @available(macOS 26.0, *)
+    public func enabledExtensions(
+        appExtensionPoint: AppExtensionPoint
+    ) async throws -> [CMUXInstalledSidebarExtension] {
+        let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: appExtensionPoint)
+        return monitor.state.identities.map {
+            CMUXInstalledSidebarExtension(
+                bundleIdentifier: $0.bundleIdentifier,
+                localizedName: $0.localizedName,
+                extensionPointIdentifier: $0.extensionPointIdentifier
+            )
+        }
+        .sorted { $0.localizedName < $1.localizedName }
+    }
 }
