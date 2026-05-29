@@ -228,8 +228,34 @@ final class AuthManager: ObservableObject {
     }
 
     #if DEBUG
+    struct DebugSignOutMutationSnapshot {
+        let generation: UInt64
+        let accessToken: String?
+        let refreshToken: String?
+    }
+
     func markBrowserSignInLoadingForTesting() {
         _ = startBrowserSignInAttempt()
+    }
+
+    func debugBeginSignOutMutationForTesting() async -> DebugSignOutMutationSnapshot {
+        let generation = beginAuthMutation(.signOut)
+        cancelBrowserSignInForSignOut()
+        return DebugSignOutMutationSnapshot(
+            generation: generation,
+            accessToken: await tokenStore.currentAccessToken(),
+            refreshToken: await tokenStore.currentRefreshToken()
+        )
+    }
+
+    func debugCompleteSignOutMutationAfterClientReturnForTesting(_ snapshot: DebugSignOutMutationSnapshot) async {
+        guard isCurrentAuthMutation(snapshot.generation) else { return }
+        await tokenStore.clearTokensIfCurrent(
+            accessToken: snapshot.accessToken,
+            refreshToken: snapshot.refreshToken
+        )
+        guard isCurrentAuthMutation(snapshot.generation) else { return }
+        clearSessionState(clearSelectedTeam: true)
     }
     #endif
 
