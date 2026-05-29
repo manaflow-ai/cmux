@@ -184,7 +184,7 @@ build_helper() {
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
   (
     cd "$GHOSTTY_DIR"
-    "${args[@]}"
+    env -u TOOLCHAINS -u TOOLCHAIN_DIR -u TOOLCHAIN_VERSION "${args[@]}"
   )
 }
 
