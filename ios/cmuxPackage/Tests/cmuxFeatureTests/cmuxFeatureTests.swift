@@ -786,6 +786,32 @@ import UIKit
 }
 
 @MainActor
+@Test func runtimeServerPushOptOutDoesNotSubscribeAfterConnect() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: false
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+}
+
+@MainActor
 @Test func manualHostPairingUsesNetworkRouteForPrivateLANIPWithStackAuth() async throws {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(code: "method_not_found", message: "unknown method"),

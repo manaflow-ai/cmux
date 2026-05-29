@@ -1565,6 +1565,7 @@ public final class CMUXMobileShellStore {
     }
 
     private func startTerminalRefreshPolling() {
+        guard runtime?.supportsServerPushEvents ?? true else { return }
         guard let client = remoteClient else { return }
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()

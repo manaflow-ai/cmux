@@ -1164,6 +1164,39 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
     }
 
+    func testBrowserOpenSplitRegistersDiffViewerAllowlist() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let fileURL = rootURL.appendingPathComponent("registered-\(token).html")
+        try "<html>diff</html>".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        let response = try handleV2Request(
+            method: "browser.open_split",
+            params: [
+                "url": "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html",
+                "diff_viewer_token": token,
+                "diff_viewer_files": [[
+                    "request_path": "/diff.html",
+                    "file_path": fileURL.path,
+                    "mime_type": "text/html",
+                ]],
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual((response["result"] as? [String: Any])?["bypass_remote_proxy"] as? Bool, true)
+        let registeredURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html"))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: registeredURL))
+    }
+
     func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer {

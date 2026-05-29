@@ -7595,6 +7595,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface
@@ -7614,6 +7617,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -7621,6 +7625,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 #endif
@@ -7641,6 +7646,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            teeContext?.release()
 #if DEBUG
             cmuxDebugLog(
                 "surface.lifecycle.deinit.end surface=\(surfaceToken) " +
