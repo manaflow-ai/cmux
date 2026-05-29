@@ -209,6 +209,73 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testIgnoresOtherAppBundleResourceBinEntriesFromPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let otherAppResourceBin =
+            root
+            .appendingPathComponent("Older cmux.app", isDirectory: true)
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherAppResourceBin, withIntermediateDirectories: true)
+        let bundledClaude = otherAppResourceBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: bundledClaude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledClaude.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": otherAppResourceBin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Current.app/Contents/Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        expectThrowsError(try resolver.resolve(.claude)) { error in
+            guard case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error else {
+                Issue.record("Expected missing executable error, got \(error)")
+                return
+            }
+            expectEqual(displayName, AgentSessionProviderID.claude.displayName)
+            expectEqual(executableName, "claude")
+        }
+    }
+
+    @Test
+    func testIgnoresConfiguredExecutableInsideAppBundleResourceBin() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let otherAppResourceBin =
+            root
+            .appendingPathComponent("Older cmux.app", isDirectory: true)
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: otherAppResourceBin, withIntermediateDirectories: true)
+        let bundledClaude = otherAppResourceBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nexit 0\n".write(to: bundledClaude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledClaude.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "", "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Current.app/Contents/Resources", isDirectory: true),
+            includeStandardSearchDirectories: false,
+            configuredExecutablePaths: [.claude: bundledClaude.path]
+        )
+
+        expectThrowsError(try resolver.resolve(.claude)) { error in
+            guard case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error else {
+                Issue.record("Expected missing executable error, got \(error)")
+                return
+            }
+            expectEqual(displayName, AgentSessionProviderID.claude.displayName)
+            expectEqual(executableName, "claude")
+        }
+    }
+
+    @Test
     func testSkipsCmuxClaudeCommandShim() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
