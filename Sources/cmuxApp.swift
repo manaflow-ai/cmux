@@ -8385,7 +8385,7 @@ private struct AuthSettingsRow: View {
                 .disabled(buttonIsDisabled)
             }
 
-            if let errorMessage = authManager.lastSignInError?.localizedDescription {
+            if let errorMessage = authManager.userFacingSignInErrorMessage {
                 Text(errorMessage)
                     .font(.system(size: 11))
                     .foregroundColor(.red)
@@ -8435,7 +8435,7 @@ private struct AuthSettingsRow: View {
     }
 
     private var buttonIsDisabled: Bool {
-        authManager.isRestoringSession || (authManager.isAuthenticated && authManager.isLoading)
+        authManager.isRestoringSession || authManager.isLoading
     }
 
     private func buttonAction() {

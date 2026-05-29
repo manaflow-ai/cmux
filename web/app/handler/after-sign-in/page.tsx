@@ -4,7 +4,6 @@ import { stackServerApp } from "../../lib/stack";
 import { env } from "../../env";
 import { OpenNativeClient } from "./OpenNativeClient";
 import {
-  isNativeReturnScheme,
   nativeAuthCallbackForReturnTo,
   shouldEmitNativeHandoff,
 } from "./native-handoff";
@@ -129,7 +128,6 @@ export default async function AfterSignInPage({
   const nativeCallbackHref = nativeAuthCallbackForReturnTo(nativeReturnTo);
   if (
     shouldEmitNativeHandoff({ refreshToken, accessToken }) &&
-    isNativeReturnScheme(nativeReturnTo) &&
     nativeCallbackHref
   ) {
     const href = buildNativeHref(nativeCallbackHref, refreshToken, accessCookie);
@@ -144,20 +142,6 @@ export default async function AfterSignInPage({
       : null;
   if (afterAuth && afterAuth.startsWith("/") && !afterAuth.startsWith("//")) {
     redirect(afterAuth);
-  }
-
-  // Fallback: try native app only when we can preserve the requested native scheme.
-  const fallbackReturnTo = nativeAuthCallbackForReturnTo(nativeReturnTo);
-  if (
-    shouldEmitNativeHandoff({ refreshToken, accessToken }) &&
-    fallbackReturnTo
-  ) {
-    const fallback = buildNativeHref(
-      fallbackReturnTo,
-      refreshToken,
-      accessCookie,
-    );
-    if (fallback) return <OpenNativeClient href={fallback} />;
   }
 
   redirect("/");

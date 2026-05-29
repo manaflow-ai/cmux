@@ -14,6 +14,10 @@ enum AuthManagerError: LocalizedError {
     case signInTimedOut
 
     var errorDescription: String? {
+        userFacingMessage
+    }
+
+    var userFacingMessage: String {
         switch self {
         case .invalidCallback:
             return String(
@@ -152,6 +156,10 @@ final class AuthManager: ObservableObject {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
 
+    var userFacingSignInErrorMessage: String? {
+        lastSignInError?.userFacingMessage
+    }
+
     let requiresAuthenticationGate = false
 
     private let client: any AuthClientProtocol
@@ -222,12 +230,9 @@ final class AuthManager: ObservableObject {
         let signInState = UUID().uuidString
         let callbackURL = AuthEnvironment.authCallbackURL(state: signInState)
         let signInURL = AuthEnvironment.signInURL(callbackURL: callbackURL)
-        let attemptID = startBrowserSignInAttempt(state: signInState)
+        _ = startBrowserSignInAttempt(state: signInState)
         authLog("auth.browserSignIn begin url=\(Self.redactedURLDescription(signInURL))")
         urlOpener(signInURL)
-        guard isCurrentBrowserSignInAttempt(attemptID) else {
-            return
-        }
     }
 
     func markBrowserSignInTimedOut() {
