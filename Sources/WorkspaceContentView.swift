@@ -2798,7 +2798,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let surfaceTextureSources = canvasSurfaceTextureSources(
                 for: presentation.visibleItems,
                 renderModes: renderModes,
-                preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation
+                preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation && !canvasCameraNativeSurfacesParked,
+                allowLiveTextureFallback: canvasCameraNativeSurfacesParked
             )
             let metalScene = CanvasScene(presentation: presentation)
             let visibleItems = presentation.presentationSurfaces.map(\.item)
@@ -3159,7 +3160,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private func canvasSurfaceTextureSources(
         for items: [CanvasItem],
         renderModes: [LayoutItemID: CanvasRenderMode],
-        preferFrozenPreviewTextures: Bool = false
+        preferFrozenPreviewTextures: Bool = false,
+        allowLiveTextureFallback: Bool = true
     ) -> [CanvasSurfaceTextureSource] {
         items.compactMap { item in
             guard renderModes[item.id] == .previewTexture,
@@ -3170,6 +3172,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let liveSurface = (workspace.panel(for: selected.id) as? TerminalPanel)?.hostedView.currentCanvasIOSurface()
             switch CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
                 preferSnapshot: preferFrozenPreviewTextures,
+                allowLiveTextureFallback: allowLiveTextureFallback,
                 hasLiveTexture: liveSurface != nil,
                 hasSnapshotTexture: snapshotImage != nil
             ) {

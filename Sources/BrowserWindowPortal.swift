@@ -612,7 +612,22 @@ final class WindowBrowserHostView: NSView {
             hitView: hitView === self ? nil : hitView
         )
 #endif
-        return hitView === self ? nil : hitView
+        return normalizedPortalHitView(hitView)
+    }
+
+    private func normalizedPortalHitView(_ hitView: NSView?) -> NSView? {
+        guard let hitView, hitView !== self else { return nil }
+        var current: NSView? = hitView
+        while let view = current {
+            if view.alphaValue <= 0.01 || view.isHidden {
+                return nil
+            }
+            if view === self {
+                break
+            }
+            current = view.superview
+        }
+        return hitView
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -3220,7 +3235,7 @@ final class WindowBrowserPortal: NSObject {
         canvasSurfacePresentationFrozenWebViewIds.insert(webViewId)
         interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
         entry.containerView?.alphaValue = 0
-        entry.containerView?.isHidden = true
+        entry.containerView?.isHidden = false
     }
 
     func resumeCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier) {
@@ -3854,9 +3869,7 @@ final class WindowBrowserPortal: NSObject {
             Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
         let outsideHostBounds = canvasPresentationClippedOut || !hasVisibleIntersection
-        let canvasPresentationFrozen = canvasSurfacePresentationFrozenWebViewIds.contains(webViewId)
         let shouldHide =
-            canvasPresentationFrozen ||
             !entry.visibleInUI ||
             anchorHidden ||
             tinyFrame ||

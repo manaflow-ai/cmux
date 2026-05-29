@@ -5149,11 +5149,11 @@ final class CMUXLayoutTests: XCTestCase {
     func testCanvasCameraInteractionDefaultHoldCoversSparseTrackpadWheelBursts() {
         var state = CanvasCameraInteractionState()
 
-        XCTAssertGreaterThanOrEqual(CanvasCameraInteractionState.defaultUnphasedHoldFrames, 24)
+        XCTAssertGreaterThanOrEqual(CanvasCameraInteractionState.defaultUnphasedHoldFrames, 96)
         XCTAssertFalse(state.apply(.unphasedUpdate(.panning)))
         XCTAssertEqual(state.phase, .panning)
 
-        for _ in 0..<20 {
+        for _ in 0..<80 {
             XCTAssertFalse(state.tickDisplayFrame())
             XCTAssertEqual(state.phase, .panning)
             XCTAssertTrue(state.needsFrameClock)

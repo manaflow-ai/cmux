@@ -3440,6 +3440,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(window.makeFirstResponder(field))
         XCTAssertNotNil(field.currentEditor())
+        browserPanel.noteAddressBarFocused()
         NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
         workspace.focusPanel(terminalPanel.id)
         XCTAssertNil(browserPanel.searchState)

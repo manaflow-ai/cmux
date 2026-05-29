@@ -219,12 +219,27 @@ final class WindowTerminalHostView: NSView {
                 hitView: hitView
             )
 #endif
-            return hitView === self ? nil : hitView
+            return normalizedPortalHitView(hitView)
         }
 
         // Non-pointer event: skip divider/drag routing, just do standard hit testing.
         let hitView = super.hitTest(point)
-        return hitView === self ? nil : hitView
+        return normalizedPortalHitView(hitView)
+    }
+
+    private func normalizedPortalHitView(_ hitView: NSView?) -> NSView? {
+        guard let hitView, hitView !== self else { return nil }
+        var current: NSView? = hitView
+        while let view = current {
+            if view.alphaValue <= 0.01 || view.isHidden {
+                return nil
+            }
+            if view === self {
+                break
+            }
+            current = view.superview
+        }
+        return hitView
     }
 
     private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
@@ -1330,8 +1345,8 @@ final class WindowTerminalPortal: NSObject {
         hostedView?.alphaValue = alpha
         canvasClipViewsByHostedId[hostedId]?.alphaValue = alpha
         if frozen {
-            hostedView?.isHidden = true
-            canvasClipViewsByHostedId[hostedId]?.isHidden = true
+            hostedView?.isHidden = false
+            canvasClipViewsByHostedId[hostedId]?.isHidden = false
         }
     }
 
@@ -1915,9 +1930,7 @@ final class WindowTerminalPortal: NSObject {
             targetVisibleFrame.width >= Self.minimumRevealWidth &&
             targetVisibleFrame.height >= Self.minimumRevealHeight
         let outsideHostBounds = canvasPresentationClippedOut || !hasVisibleIntersection
-        let canvasPresentationFrozen = canvasSurfacePresentationFrozenHostedIds.contains(hostedId)
         let shouldHide =
-            canvasPresentationFrozen ||
             !entry.visibleInUI ||
             anchorHidden ||
             tinyFrame ||
