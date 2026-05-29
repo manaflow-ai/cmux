@@ -114,48 +114,34 @@ public enum HermesAgentCodexEnvironment {
     }
 
     public static func codexBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+        guard var components = normalizedHTTPComponents(from: rawValue) else {
             return nil
         }
-        let withoutTrailingSlash = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        guard !withoutTrailingSlash.isEmpty else { return nil }
-        if withoutTrailingSlash.lowercased().hasSuffix("/codex") {
-            return withoutTrailingSlash
+        if components.path.lowercased().hasSuffix("/codex") {
+            return normalizedURLString(from: components)
         }
-        return withoutTrailingSlash + "/codex"
+        components.path = components.path.isEmpty ? "/codex" : components.path + "/codex"
+        return normalizedURLString(from: components)
     }
 
     public static func customBaseURL(fromOpenAIBaseURL rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+        guard let components = normalizedHTTPComponents(from: rawValue) else {
             return nil
         }
-        let withoutTrailingSlash = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        guard !withoutTrailingSlash.isEmpty else { return nil }
-        guard !hostMatches(withoutTrailingSlash, hostSuffix: "api.openai.com") else { return nil }
-        return withoutTrailingSlash
+        guard !hostMatches(components.host, hostSuffix: "api.openai.com") else { return nil }
+        return normalizedURLString(from: components)
     }
 
     public static func customBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else {
+        guard var components = normalizedHTTPComponents(from: rawValue) else {
             return nil
         }
-        let withoutTrailingSlash = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-        guard !withoutTrailingSlash.isEmpty else { return nil }
-        guard !hostMatches(withoutTrailingSlash, hostSuffix: "chatgpt.com"),
-              !hostMatches(withoutTrailingSlash, hostSuffix: "chat.openai.com") else { return nil }
+        guard !hostMatches(components.host, hostSuffix: "chatgpt.com"),
+              !hostMatches(components.host, hostSuffix: "chat.openai.com") else { return nil }
 
-        guard var components = URLComponents(string: withoutTrailingSlash) else {
-            return nil
-        }
-        let path = components.path
-        if path == "/backend-api" || path.hasPrefix("/backend-api/") {
+        if components.path == "/backend-api" || components.path.hasPrefix("/backend-api/") {
             components.path = "/v1"
-            components.query = nil
-            components.fragment = nil
-            return components.string?.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+            return normalizedURLString(from: components)
         }
         return nil
     }
@@ -273,8 +259,33 @@ public enum HermesAgentCodexEnvironment {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    private static func hostMatches(_ rawURL: String, hostSuffix: String) -> Bool {
-        guard let host = URLComponents(string: rawURL)?.host?.lowercased() else {
+    private static func normalizedHTTPComponents(from rawValue: String) -> URLComponents? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              var components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = normalized(components.host),
+              components.query == nil,
+              components.fragment == nil else {
+            return nil
+        }
+        components.scheme = scheme
+        components.host = host
+        components.path = components.path.replacingOccurrences(
+            of: "/+$",
+            with: "",
+            options: .regularExpression
+        )
+        return components
+    }
+
+    private static func normalizedURLString(from components: URLComponents) -> String? {
+        components.string?.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+    }
+
+    private static func hostMatches(_ rawHost: String?, hostSuffix: String) -> Bool {
+        guard let host = normalized(rawHost)?.lowercased() else {
             return false
         }
         let suffix = hostSuffix.lowercased()

@@ -976,11 +976,12 @@ extension Workspace {
         ) else {
             return binding
         }
+        environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey] = baseURL
 
         var result = binding
         result.environment = environment.isEmpty ? nil : environment
         result.command = hermesAgentCommandByReplacingOpenAICodexProvider(result.command)
-        guard !result.command.contains("model.api_mode") else {
+        guard !hermesAgentCommandSetsModelAPIMode(result.command) else {
             return result
         }
 
@@ -998,18 +999,115 @@ extension Workspace {
 
     nonisolated private static func hermesAgentCommandByReplacingOpenAICodexProvider(_ command: String) -> String {
         var result = command
-        let replacements = [
-            ("'--provider' 'openai-codex'", "'--provider' 'custom'"),
-            ("\"--provider\" \"openai-codex\"", "\"--provider\" \"custom\""),
-            ("--provider openai-codex", "--provider custom"),
-            ("'--provider=openai-codex'", "'--provider=custom'"),
-            ("\"--provider=openai-codex\"", "\"--provider=custom\""),
-            ("--provider=openai-codex", "--provider=custom")
-        ]
-        for (old, new) in replacements {
-            result = result.replacingOccurrences(of: old, with: new)
+        var replacements: [(Range<String.Index>, String)] = []
+        let words = surfaceResumeShellWords(in: command)
+        for index in words.indices {
+            let word = words[index]
+            if word.value == "--provider",
+               index + 1 < words.count,
+               words[index + 1].value == "openai-codex" {
+                replacements.append((
+                    words[index + 1].range,
+                    surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)
+                ))
+            } else if word.value == "--provider=openai-codex" {
+                replacements.append((
+                    word.range,
+                    surfaceResumeShellQuote("--provider=\(HermesAgentCodexEnvironment.defaultProvider)")
+                ))
+            }
+        }
+        for (range, replacement) in replacements.reversed() {
+            result.replaceSubrange(range, with: replacement)
         }
         return result
+    }
+
+    nonisolated private static func hermesAgentCommandSetsModelAPIMode(_ command: String) -> Bool {
+        surfaceResumeShellWords(in: command).contains { $0.value.contains("model.api_mode") }
+    }
+
+    private struct SurfaceResumeShellWord {
+        let value: String
+        let range: Range<String.Index>
+    }
+
+    nonisolated private static func surfaceResumeShellWords(in command: String) -> [SurfaceResumeShellWord] {
+        var words: [SurfaceResumeShellWord] = []
+        var index = command.startIndex
+        while index < command.endIndex {
+            while index < command.endIndex, command[index].isWhitespace {
+                index = command.index(after: index)
+            }
+            guard index < command.endIndex else { break }
+
+            let start = index
+            var value = ""
+            var isComplete = true
+            while index < command.endIndex, !command[index].isWhitespace {
+                let character = command[index]
+                if character == "'" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "'" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        value.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\"" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "\"" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        if quotedCharacter == "\\" {
+                            let next = command.index(after: index)
+                            guard next < command.endIndex else {
+                                isComplete = false
+                                break
+                            }
+                            value.append(command[next])
+                            index = command.index(after: next)
+                            continue
+                        }
+                        value.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote || !isComplete {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\\" {
+                    let next = command.index(after: index)
+                    guard next < command.endIndex else {
+                        isComplete = false
+                        break
+                    }
+                    value.append(command[next])
+                    index = command.index(after: next)
+                } else {
+                    value.append(character)
+                    index = command.index(after: index)
+                }
+            }
+            if isComplete, !value.isEmpty {
+                words.append(SurfaceResumeShellWord(value: value, range: start..<index))
+            }
+        }
+        return words
     }
 
     nonisolated private static func normalizedSurfaceResumeValue(_ value: String?) -> String? {

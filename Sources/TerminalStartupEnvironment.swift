@@ -65,7 +65,8 @@ extension TerminalSurface {
         protectedKeys: Set<String>,
         additionalEnvironment: [String: String],
         initialEnvironmentOverrides: [String: String],
-        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        applyHermesCodexDefaults: Bool = false
     ) -> [String: String] {
         var merged = base
         for key in inheritedClaudeAuthSelectionEnvironmentKeys where merged[key] != nil || ambientEnvironment[key] != nil {
@@ -80,10 +81,12 @@ extension TerminalSurface {
         if let claudeConfigDir = merged["CLAUDE_CONFIG_DIR"], !claudeConfigDir.isEmpty {
             merged["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(claudeConfigDir)
         }
-        merged = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
-            to: merged,
-            ambientEnvironment: ambientEnvironment
-        )
+        if applyHermesCodexDefaults {
+            merged = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
+                to: merged,
+                ambientEnvironment: ambientEnvironment
+            )
+        }
         return merged
     }
 }

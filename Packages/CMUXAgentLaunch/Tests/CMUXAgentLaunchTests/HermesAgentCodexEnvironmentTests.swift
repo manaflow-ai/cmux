@@ -36,6 +36,12 @@ struct HermesAgentCodexEnvironmentTests {
                 fromChatGPTBaseURL: "https://chatgpt.com/backend-api"
             ) == nil
         )
+        #expect(HermesAgentCodexEnvironment.codexBaseURL(fromChatGPTBaseURL: "https://") == nil)
+        #expect(HermesAgentCodexEnvironment.codexBaseURL(fromChatGPTBaseURL: "https://host?x=1") == nil)
+        #expect(HermesAgentCodexEnvironment.customBaseURL(fromOpenAIBaseURL: "https://") == nil)
+        #expect(HermesAgentCodexEnvironment.customBaseURL(fromOpenAIBaseURL: "https://host?x=1") == nil)
+        #expect(HermesAgentCodexEnvironment.customBaseURL(fromChatGPTBaseURL: "https://") == nil)
+        #expect(HermesAgentCodexEnvironment.customBaseURL(fromChatGPTBaseURL: "https://host?x=1") == nil)
     }
 
     @Test("Reads top-level Codex base URLs")

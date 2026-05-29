@@ -21059,7 +21059,8 @@ struct CMUXCLI {
             var compactExtra: [String: Any] = [:]
             for extraKey in [
                 "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage",
-                "user_message", "userMessage", "command", "description", "pattern_key", "patternKey",
+                "assistantPreamble", "assistant_preamble", "user_message", "userMessage",
+                "title", "command", "description", "pattern_key", "patternKey",
                 "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
             ] {
                 if let value = compactClaudeHookValue(extra[extraKey], key: extraKey) {
@@ -22677,7 +22678,14 @@ struct CMUXCLI {
 
         switch (description, command) {
         case let (description?, command?):
-            return "\(description): \(command)"
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "agent.hermes.notification.body.approvalCommand",
+                    defaultValue: "%1$@: %2$@"
+                ),
+                description,
+                command
+            )
         case let (description?, nil):
             return description
         case let (nil, command?):
@@ -23647,9 +23655,16 @@ struct CMUXCLI {
             from: commandParts,
             workingDirectory: cwd
         )
-        var command = sanitizedCommandParts.map(cliShellQuote).joined(separator: " ")
+        let resumeCommandParts = kind == "hermes-agent"
+            ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
+            : sanitizedCommandParts
+        var command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
         if kind == "hermes-agent" {
-            command = hermesAgentSubrouterResumeCommand(command, environment: environment)
+            command = hermesAgentSubrouterResumeCommand(
+                command,
+                arguments: resumeCommandParts,
+                environment: environment
+            )
         }
         if let cwd {
             let quotedCwd = cliShellQuote(cwd)
@@ -23660,13 +23675,13 @@ struct CMUXCLI {
 
     private func hermesAgentSubrouterResumeCommand(
         _ command: String,
+        arguments: [String],
         environment: [String: String]?
     ) -> String {
-        var result = hermesAgentCommandByReplacingOpenAICodexProvider(command)
-        guard !result.contains("model.api_mode"),
+        guard !hermesAgentArgumentsSetModelAPIMode(arguments),
               let environment,
               let baseURL = normalizedHookValue(environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]) else {
-            return result
+            return command
         }
 
         var bootstrap = [
@@ -23680,23 +23695,33 @@ struct CMUXCLI {
         ) {
             bootstrap.append("hermes config set model.default \(cliShellQuote(model)) >/dev/null")
         }
-        return bootstrap.joined(separator: " && ") + " && " + result
+        return bootstrap.joined(separator: " && ") + " && " + command
     }
 
-    private func hermesAgentCommandByReplacingOpenAICodexProvider(_ command: String) -> String {
-        var result = command
-        let replacements = [
-            ("'--provider' 'openai-codex'", "'--provider' 'custom'"),
-            ("\"--provider\" \"openai-codex\"", "\"--provider\" \"custom\""),
-            ("--provider openai-codex", "--provider custom"),
-            ("'--provider=openai-codex'", "'--provider=custom'"),
-            ("\"--provider=openai-codex\"", "\"--provider=custom\""),
-            ("--provider=openai-codex", "--provider=custom")
-        ]
-        for (old, new) in replacements {
-            result = result.replacingOccurrences(of: old, with: new)
+    private func hermesAgentArgumentsByReplacingOpenAICodexProvider(_ arguments: [String]) -> [String] {
+        var result: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--provider", index + 1 < arguments.count {
+                result.append(argument)
+                let provider = arguments[index + 1]
+                result.append(provider == "openai-codex" ? HermesAgentCodexEnvironment.defaultProvider : provider)
+                index += 2
+                continue
+            }
+            if argument == "--provider=openai-codex" {
+                result.append("--provider=\(HermesAgentCodexEnvironment.defaultProvider)")
+            } else {
+                result.append(argument)
+            }
+            index += 1
         }
         return result
+    }
+
+    private func hermesAgentArgumentsSetModelAPIMode(_ arguments: [String]) -> Bool {
+        arguments.contains { $0.contains("model.api_mode") }
     }
 
     private func agentSurfaceResumeEnvironment(
