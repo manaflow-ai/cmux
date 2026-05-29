@@ -291,12 +291,15 @@ struct OpenCodeEventTextAccumulator {
 
         messageIDByPartID[partID] = messageID
         guard part["type"] as? String == "text",
-              part["ignored"] as? Bool != true,
-              let text = Self.firstString(part["text"], part["textDelta"], part["content"]) else {
+              part["ignored"] as? Bool != true else {
             return []
         }
 
         isTextPartByID[partID] = true
+        guard let text = Self.firstString(part["text"], part["textDelta"], part["content"]) else {
+            return []
+        }
+
         let existingText = textByPartID[partID] ?? ""
         if text.count >= existingText.count {
             textByPartID[partID] = text

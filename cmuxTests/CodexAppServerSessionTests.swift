@@ -155,6 +155,57 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testOpenCodeEventTextAccumulatorStreamsAfterEmptyTextPartAnnouncement() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "text": "",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "info": [
+                            "id": "message-1",
+                            "role": "assistant",
+                        ],
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.delta",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "messageID": "message-1",
+                        "partID": "part-1",
+                        "field": "text",
+                        "delta": "hello",
+                    ],
+                ], sessionID: "session-1"),
+            ["hello"]
+        )
+    }
+
+    @Test
     func testOpenCodeEventTextAccumulatorSkipsUserAndIgnoredText() {
         var accumulator = OpenCodeEventTextAccumulator()
 
