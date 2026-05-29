@@ -468,6 +468,58 @@ func TestPersistentDaemonSocketDirFallsBackFromUnsafeSymlink(t *testing.T) {
 	}
 }
 
+func TestPersistentDaemonSocketDirReplacesInvalidStoredFallback(t *testing.T) {
+	rootBase := filepath.Join(t.TempDir(), "daemon-root")
+	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")
+	if err := os.MkdirAll(socketParent, 0o755); err != nil {
+		t.Fatalf("create socket parent: %v", err)
+	}
+	unsafeTarget := filepath.Join(t.TempDir(), "attacker-dir")
+	if err := os.MkdirAll(unsafeTarget, 0o755); err != nil {
+		t.Fatalf("create unsafe target: %v", err)
+	}
+	unsafeChild := filepath.Join(socketParent, fmt.Sprintf("cmuxd-remote-%d", os.Getuid()))
+	if err := os.Symlink(unsafeTarget, unsafeChild); err != nil {
+		t.Fatalf("create unsafe socket child symlink: %v", err)
+	}
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketParent)
+
+	paths, err := persistentDaemonPathsForSlot("invalid-stored-fallback-slot")
+	if err != nil {
+		t.Fatalf("persistentDaemonPathsForSlot returned error: %v", err)
+	}
+	if err := os.MkdirAll(paths.root, 0o700); err != nil {
+		t.Fatalf("create daemon root: %v", err)
+	}
+	invalidStoredSocketDir := filepath.Join(t.TempDir(), "invalid-stored-socket-dir")
+	if err := os.WriteFile(invalidStoredSocketDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create invalid stored socket path: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.root, persistentDaemonSocketDirFile), []byte(invalidStoredSocketDir+"\n"), 0o600); err != nil {
+		t.Fatalf("write invalid stored socket-dir metadata: %v", err)
+	}
+
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("ensurePersistentDaemonDirectory returned error: %v", err)
+	}
+	socketDir := filepath.Dir(paths.socket)
+	if socketDir == unsafeChild {
+		t.Fatalf("socket dir still points at unsafe child %q", socketDir)
+	}
+	if filepath.Clean(filepath.Dir(socketDir)) != filepath.Clean(os.TempDir()) {
+		t.Fatalf("fallback socket dir parent = %q, want %q", filepath.Dir(socketDir), os.TempDir())
+	}
+	storedSocketDir, err := readPersistentDaemonSocketDir(paths.root)
+	if err != nil {
+		t.Fatalf("read stored replacement socket dir: %v", err)
+	}
+	if storedSocketDir != socketDir {
+		t.Fatalf("stored socket dir = %q, want replacement %q", storedSocketDir, socketDir)
+	}
+}
+
 func TestPersistentDaemonSocketDirReusesStoredFallback(t *testing.T) {
 	rootBase := filepath.Join(t.TempDir(), "daemon-root")
 	socketParent := filepath.Join(t.TempDir(), "caller-socket-dir")

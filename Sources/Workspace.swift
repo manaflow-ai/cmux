@@ -7745,7 +7745,8 @@ final class WorkspaceRemoteSessionController {
             daemonRemotePath: remotePath,
             relayPort: relayPort,
             relayID: relayID,
-            relayToken: relayToken
+            relayToken: relayToken,
+            persistentDaemonSlot: configuration.persistentDaemonSlot
         )
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
@@ -7781,7 +7782,7 @@ final class WorkspaceRemoteSessionController {
         if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
           rm -f "$socket_addr_file"
         fi
-        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).tty"
+        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).slot" "$HOME/.cmux/relay/\(relayPort).tty"
         """
     }
 
@@ -7839,19 +7840,27 @@ final class WorkspaceRemoteSessionController {
           if [ -z "$cmux_child_pids" ]; then
             cmux_cleanup_reason=metadata
             cmux_metadata_ok=0
-            cmux_daemon_map="$HOME/.cmux/relay/${cmux_relay_port}.daemon_path"
-            cmux_auth_file="$HOME/.cmux/relay/${cmux_relay_port}.auth"
-            if [ -r "$cmux_daemon_map" ]; then
-              cmux_daemon_path="$(tr -d '\\r\\n' < "$cmux_daemon_map")"
-              case "$cmux_daemon_path" in
-                *cmuxd-remote*) cmux_metadata_ok=1 ;;
-              esac
+            cmux_slot_file="$HOME/.cmux/relay/${cmux_relay_port}.slot"
+            cmux_metadata_slot_ok=0
+            if [ -r "$cmux_slot_file" ]; then
+              cmux_stored_slot="$(tr -d '\\r\\n' < "$cmux_slot_file")"
+              [ "$cmux_stored_slot" = "$cmux_persistent_slot" ] && cmux_metadata_slot_ok=1
             fi
-            if [ "$cmux_metadata_ok" -ne 1 ] && [ -r "$cmux_auth_file" ]; then
-              cmux_auth_payload="$(tr -d '\\r\\n' < "$cmux_auth_file")"
-              case "$cmux_auth_payload" in
-                *relay_id*relay_token*) cmux_metadata_ok=1 ;;
-              esac
+            if [ "$cmux_metadata_slot_ok" -eq 1 ]; then
+              cmux_daemon_map="$HOME/.cmux/relay/${cmux_relay_port}.daemon_path"
+              cmux_auth_file="$HOME/.cmux/relay/${cmux_relay_port}.auth"
+              if [ -r "$cmux_daemon_map" ]; then
+                cmux_daemon_path="$(tr -d '\\r\\n' < "$cmux_daemon_map")"
+                case "$cmux_daemon_path" in
+                  *cmuxd-remote*) cmux_metadata_ok=1 ;;
+                esac
+              fi
+              if [ "$cmux_metadata_ok" -ne 1 ] && [ -r "$cmux_auth_file" ]; then
+                cmux_auth_payload="$(tr -d '\\r\\n' < "$cmux_auth_file")"
+                case "$cmux_auth_payload" in
+                  *relay_id*relay_token*) cmux_metadata_ok=1 ;;
+                esac
+              fi
             fi
             [ "$cmux_metadata_ok" -eq 1 ] || continue
           fi
@@ -8455,10 +8464,17 @@ final class WorkspaceRemoteSessionController {
         daemonRemotePath: String,
         relayPort: Int,
         relayID: String,
-        relayToken: String
+        relayToken: String,
+        persistentDaemonSlot: String? = nil
     ) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
+        let slotMetadataLine: String
+        if let slot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot) {
+            slotMetadataLine = "printf '%s' \(shellSingleQuoted(slot)) > \"$HOME/.cmux/relay/\(relayPort).slot\"\nchmod 600 \"$HOME/.cmux/relay/\(relayPort).slot\""
+        } else {
+            slotMetadataLine = "rm -f \"$HOME/.cmux/relay/\(relayPort).slot\""
+        }
         let authPayload = """
         {"relay_id":"\(relayID)","relay_token":"\(relayToken)"}
         """
@@ -8468,6 +8484,7 @@ final class WorkspaceRemoteSessionController {
         chmod 700 "$HOME/.cmux/relay"
         \(remoteCLIWrapperInstallScript(daemonRemotePath: trimmedRemotePath))
         printf '%s' \(daemonPathExpression) > "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        \(slotMetadataLine)
         cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
         \(authPayload)
         CMUXRELAYAUTH

@@ -443,6 +443,9 @@ func ensurePersistentDaemonSocketDirectory(root string, defaultSocketDir string)
 		if verifyErr := ensurePrivateDaemonLeafDirectory(storedSocketDir); verifyErr == nil {
 			return storedSocketDir, nil
 		}
+		if removeErr := removePersistentDaemonSocketDirMetadata(root); removeErr != nil {
+			return "", removeErr
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
@@ -536,6 +539,9 @@ func createPersistentDaemonFallbackSocketDir(root string) (string, error) {
 						return storedSocketDir, nil
 					}
 				}
+				if removeErr := removePersistentDaemonSocketDirMetadata(root); removeErr != nil {
+					return "", removeErr
+				}
 				continue
 			}
 			return "", err
@@ -569,6 +575,13 @@ func writePersistentDaemonSocketDir(root string, socketDir string) error {
 	}
 	closeOK = true
 	return os.Link(tmpPath, filepath.Join(root, persistentDaemonSocketDirFile))
+}
+
+func removePersistentDaemonSocketDirMetadata(root string) error {
+	if err := os.Remove(filepath.Join(root, persistentDaemonSocketDirFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func persistentDaemonToken(paths persistentDaemonPaths) (string, error) {
