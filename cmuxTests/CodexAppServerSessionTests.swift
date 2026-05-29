@@ -455,7 +455,37 @@ struct CodexAppServerSessionTests {
         expectEqual(turnParams["threadId"] as? String, "thread-1")
         expectEqual(turnParams["approvalPolicy"] as? String, "on-request")
         expectEqual(turnParams["approvalsReviewer"] as? String, "auto_review")
-        expectNil(turnParams["sandboxPolicy"])
+        expectTrue(turnParams["sandboxPolicy"] is NSNull)
+    }
+
+    @Test
+    func testDefaultPermissionModeClearsStickyCodexOverrides() throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in }
+        )
+
+        try session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try session.submit("use full access", permissionMode: .fullAccess)
+        try session.submit("back to defaults", permissionMode: .standard)
+
+        let elevatedParams = try #require(jsonLine(sentLines[3])["params"] as? [String: Any])
+        expectEqual(elevatedParams["approvalPolicy"] as? String, "never")
+        let elevatedSandboxPolicy = try #require(elevatedParams["sandboxPolicy"] as? [String: Any])
+        expectEqual(elevatedSandboxPolicy["type"] as? String, "dangerFullAccess")
+
+        let defaultParams = try #require(jsonLine(sentLines[4])["params"] as? [String: Any])
+        expectTrue(defaultParams["approvalPolicy"] is NSNull)
+        expectTrue(defaultParams["approvalsReviewer"] is NSNull)
+        expectTrue(defaultParams["sandboxPolicy"] is NSNull)
     }
 
     @Test
@@ -473,6 +503,30 @@ struct CodexAppServerSessionTests {
         expectEqual(output.count, 1)
         expectEqual(output.first?.0, "stdout")
         expectEqual(output.first?.1, "partial answer")
+    }
+
+    @Test
+    func testMapsCodexV2FileChangeKindToSpecificActivityAction() {
+        var activities: [[String: Any]] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { _ in },
+            outputSink: { _, _ in },
+            activitySink: { activity in activities.append(activity) }
+        )
+
+        session.consumeStdout(
+            #"{"method":"item/completed","params":{"item":{"id":"file-1","type":"fileChange","status":"completed","changes":[{"path":"Created.swift","kind":{"type":"add"}}]}}}"#
+                + "\n")
+        session.consumeStdout(
+            #"{"method":"item/fileChange/patchUpdated","params":{"itemId":"file-2","changes":[{"path":"Deleted.swift","kind":{"type":"delete"}}]}}"#
+                + "\n")
+
+        expectEqual(activities.count, 2)
+        expectEqual(activities[0]["detail"] as? String, "Created.swift")
+        expectEqual(activities[0]["action"] as? String, "Created")
+        expectEqual(activities[1]["detail"] as? String, "Deleted.swift")
+        expectEqual(activities[1]["action"] as? String, "Deleting")
     }
 
     @Test

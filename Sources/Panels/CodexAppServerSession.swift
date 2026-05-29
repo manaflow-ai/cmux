@@ -353,15 +353,26 @@ final class CodexAppServerSession {
         if let changes = value as? [String: Any] {
             for key in changes.keys.sorted() {
                 let change = changes[key] as? [String: Any]
-                return (key, change?["type"] as? String)
+                return (key, fileChangeType(from: change))
             }
         }
         if let changes = value as? [[String: Any]],
            let first = changes.first {
             let path = nonEmptyString(first["path"]) ?? nonEmptyString(first["filePath"]) ?? nonEmptyString(first["name"])
-            return (path, first["type"] as? String)
+            return (path, fileChangeType(from: first))
         }
         return (nil, nil)
+    }
+
+    private static func fileChangeType(from change: [String: Any]?) -> String? {
+        guard let change else { return nil }
+        if let type = nonEmptyString(change["type"]) {
+            return type
+        }
+        if let kind = change["kind"] as? [String: Any] {
+            return nonEmptyString(kind["type"])
+        }
+        return nonEmptyString(change["kind"])
     }
 
     private static func nonEmptyString(_ value: Any?) -> String? {
@@ -568,11 +579,16 @@ enum AgentSessionPermissionMode: String {
     var codexTurnOverrides: [String: Any] {
         switch self {
         case .standard, .custom:
-            return [:]
+            return [
+                "approvalPolicy": NSNull(),
+                "approvalsReviewer": NSNull(),
+                "sandboxPolicy": NSNull()
+            ]
         case .autoReview:
             return [
                 "approvalPolicy": "on-request",
-                "approvalsReviewer": "auto_review"
+                "approvalsReviewer": "auto_review",
+                "sandboxPolicy": NSNull()
             ]
         case .fullAccess:
             return [
