@@ -340,7 +340,6 @@ final class AuthManagerSignOutTests: XCTestCase {
         }
 
         let tokenStore = AuthManagerSignOutTestTokenStore()
-        await tokenStore.setTokens(accessToken: "old-access", refreshToken: "old-refresh")
         let manager = AuthManager(
             client: AuthManagerSignOutTestClient(),
             tokenStore: tokenStore,
@@ -348,6 +347,10 @@ final class AuthManagerSignOutTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
+        await manager.debugSeedSignedInTokensForTesting(
+            accessToken: "old-access",
+            refreshToken: "old-refresh"
+        )
         let signOutSnapshot = await manager.debugBeginSignOutMutationForTesting()
         await manager.debugSeedSignedInTokensForTesting(accessToken: "new-access", refreshToken: "new-refresh")
         await manager.debugCompleteSignOutMutationAfterClientReturnForTesting(signOutSnapshot)

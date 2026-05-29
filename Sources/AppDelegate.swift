@@ -12660,7 +12660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
                     cmuxDebugLog("shortcut.closeTab route=noManager")
 #endif
-                    return false
+                    return true
                 }
             }
             return true
