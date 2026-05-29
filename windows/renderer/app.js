@@ -1223,7 +1223,9 @@ function renderSettingsInspector() {
   elements.inspectorTitle.textContent = "Settings";
   elements.inspectorSubtitle.textContent = `${settingsCategoryLabel(state.settingsCategory)} page`;
   const workspace = activeWorkspace();
-  const nodes = [settingsSearch(), settingsCategoryNav()];
+  const settingsChrome = document.createElement("div");
+  settingsChrome.className = "settings-react-host";
+  const nodes = [settingsChrome];
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
 
   const quickSection = settingsSection("Quick setup");
@@ -1476,8 +1478,54 @@ function renderSettingsInspector() {
   empty.hidden = true;
   nodes.push(empty);
 
+  unmountSettingsChrome();
   elements.inspectorBody.replaceChildren(...nodes);
+  renderSettingsChrome(settingsChrome);
   if (searching) applySettingsFilter();
+}
+
+function unmountSettingsChrome() {
+  const reactSettings = window.CmuxSettingsUi;
+  if (!reactSettings?.unmountSettingsShell) return;
+  for (const host of elements.inspectorBody.querySelectorAll(".settings-react-host")) {
+    reactSettings.unmountSettingsShell(host);
+  }
+}
+
+function renderSettingsChrome(host) {
+  const reactSettings = window.CmuxSettingsUi;
+  if (!reactSettings?.renderSettingsShell) {
+    host.replaceChildren(settingsSearch(), settingsCategoryNav());
+    return;
+  }
+  reactSettings.renderSettingsShell(host, {
+    activeCategory: state.settingsCategory,
+    categories: settingsCategories,
+    query: state.settingsQuery,
+    subtitle: elements.inspectorSubtitle.textContent,
+    onCategory: (category) => {
+      state.settingsCategory = category;
+      state.settingsQuery = "";
+      renderSettingsInspector();
+    },
+    onQuery: (query) => {
+      const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+      state.settingsQuery = query;
+      const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+      if (wasSearching !== isSearching) {
+        renderSettingsInspector();
+        scheduleSettingsSearchFocus();
+      } else {
+        renderSettingsChrome(host);
+        applySettingsFilter();
+      }
+    },
+    onClear: () => {
+      state.settingsQuery = "";
+      renderSettingsInspector();
+      scheduleSettingsSearchFocus();
+    }
+  });
 }
 
 function settingsSearch() {
@@ -1519,6 +1567,15 @@ function restoreSettingsSearchFocus() {
   if (!input) return;
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function scheduleSettingsSearchFocus() {
+  requestAnimationFrame(() => {
+    restoreSettingsSearchFocus();
+    if (!elements.inspectorBody.querySelector(".settings-search-input:focus")) {
+      setTimeout(restoreSettingsSearchFocus, 0);
+    }
+  });
 }
 
 function settingsCategoryNav() {
