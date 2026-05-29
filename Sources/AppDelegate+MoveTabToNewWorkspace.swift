@@ -88,14 +88,14 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
-        let explicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pinnedTitle = explicitTitle?.isEmpty == false ? explicitTitle : nil
-        let hasExplicitTitle = pinnedTitle != nil
+        let hasCallerTitleArgument = title != nil
+        let explicitTitle = normalizedDetachedWorkspaceTitle(title)
+        let hasExplicitTitle = explicitTitle != nil
         if !hasExplicitTitle {
             source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
         }
         let destinationTitle = titleForDetachedWorkspace(
-            explicitTitle: pinnedTitle,
+            explicitTitle: explicitTitle,
             workspace: sourceWorkspace,
             panelId: panelId,
             panel: sourcePanel
@@ -104,7 +104,9 @@ extension AppDelegate {
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
         let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
         guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
-        let destinationCustomTitle = pinnedTitle ?? detached.customTitle
+        let destinationCustomTitle = hasCallerTitleArgument
+            ? explicitTitle
+            : normalizedDetachedWorkspaceTitle(detached.customTitle)
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
@@ -171,6 +173,11 @@ extension AppDelegate {
             return .browser(.addressBar)
         }
         return panel.preferredFocusIntentForActivation()
+    }
+
+    private func normalizedDetachedWorkspaceTitle(_ title: String?) -> String? {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle?.isEmpty == false ? trimmedTitle : nil
     }
 
     private func titleForDetachedWorkspace(
