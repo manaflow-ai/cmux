@@ -243,7 +243,7 @@ final class SocketControlPasswordStoreTests: XCTestCase {
 }
 
 @MainActor
-final class AuthManagerSignOutTests: XCTestCase {
+final class AccountAuthManagerSignOutTests: XCTestCase {
     func testAuthLogRedactionRemovesTokensAndEmails() {
         let message = """
         auth.webauth callback failed: cmux://auth-callback?stack_access=access-token&stack_refresh=refresh-token&state=opaque-state user=alice@example.com Authorization: Bearer header.payload.signature
