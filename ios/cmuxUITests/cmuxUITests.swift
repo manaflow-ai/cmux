@@ -1,0 +1,1430 @@
+import CMUXMobileCore
+import Network
+import UIKit
+import XCTest
+
+final class cmuxUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testStackAuthEntryUsesStableIdentifiers() throws {
+        let app = launchApp(mockData: false, clearAuth: true)
+
+        XCTAssertTrue(app.buttons["signin.apple"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["signin.google"].exists)
+
+        let emailField = app.textFields["Email"]
+        XCTAssertTrue(emailField.exists)
+
+        let emailCodeButton = app.buttons["signin.emailCode"]
+        XCTAssertTrue(emailCodeButton.exists)
+        XCTAssertFalse(emailCodeButton.isEnabled)
+
+        try typeText("dogfood@example.com", into: emailField, in: app)
+        XCTAssertTrue(emailCodeButton.isEnabled)
+    }
+
+    @MainActor
+    func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
+        let invalidHostApp = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+        ])
+
+        XCTAssertTrue(invalidHostApp.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceNameField"].exists)
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceHostField"].exists)
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDevicePortField"].exists)
+        XCTAssertTrue(invalidHostApp.staticTexts["MobileAddDeviceSignedInAccount"].exists)
+        XCTAssertTrue(invalidHostApp.staticTexts["MobileAddDeviceSignedInAccount"].label.contains("uitest@cmux.local"))
+        XCTAssertTrue(invalidHostApp.buttons["MobileScanQRCodeButton"].exists)
+
+        let invalidHostPairButton = invalidHostApp.buttons["MobilePairButton"]
+        XCTAssertTrue(invalidHostPairButton.exists)
+        XCTAssertTrue(invalidHostPairButton.isEnabled)
+
+        tap(invalidHostPairButton, in: invalidHostApp)
+        assertPairingError(contains: "Enter a host or IP address", in: invalidHostApp)
+        invalidHostApp.terminate()
+
+        let invalidPortApp = launchAddDeviceApp(environment: [
+            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
+            "CMUX_UITEST_ADD_DEVICE_PORT": "70000",
+        ])
+        defer { invalidPortApp.terminate() }
+        let invalidPortPairButton = invalidPortApp.buttons["MobilePairButton"]
+        XCTAssertTrue(invalidPortPairButton.exists)
+        XCTAssertTrue(invalidPortPairButton.isEnabled)
+
+        tap(invalidPortPairButton, in: invalidPortApp)
+        assertPairingError(contains: "Enter a port from 1 to 65535", in: invalidPortApp)
+    }
+
+    @MainActor
+    func testManualHostConnectsAndNavigatesToWorkspace() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+
+        try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 6))
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        assertTerminalRow(2, label: "host: UI Test Mac", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
+        let workspaceStart = Date()
+        assertTerminalRows([
+            1: "workspace: Workspace 3",
+            2: "terminal: Terminal 1",
+        ], in: app)
+        XCTAssertLessThan(Date().timeIntervalSince(workspaceStart), 6.0)
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["MobileNewTerminalMenuItem"], in: app)
+        let terminalStart = Date()
+        assertTerminalRows([
+            1: "workspace: Workspace 3",
+            2: "terminal: Terminal 2",
+        ], in: app)
+        XCTAssertLessThan(Date().timeIntervalSince(terminalStart), 6.0)
+    }
+
+    @MainActor
+    func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+
+        assertTerminalRow(0, label: "LAZYGIT", in: app)
+        assertTerminalRow(1, label: "files branches log", in: app)
+        assertTerminalRow(3, label: "q quit", in: app)
+    }
+
+    @MainActor
+    func testTUITerminalUsesAvailableViewportAndResizes() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+        try switchToTUITerminal(in: app)
+
+        XCUIDevice.shared.orientation = .portrait
+        let portraitFrame = try waitForTerminalSurfaceFrame(in: app) { frame in
+            frame.height > frame.width
+        }
+        assertTerminalSurfaceUsesAvailableViewport(portraitFrame, in: app)
+        assertTerminalRow(0, label: "LAZYGIT", in: app)
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let landscapeFrame = try waitForTerminalSurfaceFrame(in: app) { frame in
+            app.isLandscape && frame.width > portraitFrame.width + 80
+        }
+        assertTerminalSurfaceUsesAvailableViewport(landscapeFrame, in: app)
+        XCTAssertLessThan(
+            landscapeFrame.height,
+            portraitFrame.height - 40,
+            "Terminal surface should shrink vertically after rotating to landscape."
+        )
+
+        XCUIDevice.shared.orientation = .portrait
+        let restoredPortraitFrame = try waitForTerminalSurfaceFrame(in: app) { frame in
+            app.isPortrait && frame.height > landscapeFrame.height + 40
+        }
+        assertTerminalSurfaceUsesAvailableViewport(restoredPortraitFrame, in: app)
+        assertTerminalRow(0, label: "LAZYGIT", in: app)
+    }
+
+    @MainActor
+    func testTerminalReplayRendersGhosttyText() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6))
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        assertTerminalRow(2, label: "host: UI Test Mac", in: app)
+    }
+
+    @MainActor
+    func testGhosttyColorPixelsSurviveIOSInput() async throws {
+        let server = try MobileSyncMockHostServer(selectedTerminalID: "terminal-colors")
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+            "CMUX_MOBILE_SOAK_INPUT_TEXT": "x",
+        ])
+        waitForWorkspaceShell(in: app)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6))
+        assertTerminalRow(0, label: "RED GREEN BLUE", in: app)
+        assertRendererLayerReady(surface, in: app)
+
+        let beforeInputColors = try terminalColorPixelCounts(surface: surface, in: app)
+        assertHasTerminalRGBPixels(beforeInputColors)
+
+        try await server.waitForTerminalInput(containing: "x", timeout: 12)
+        runMainLoop(for: 0.35)
+        assertRendererLayerReady(surface, in: app)
+
+        let afterInputColors = try terminalColorPixelCounts(surface: surface, in: app)
+        assertHasTerminalRGBPixels(afterInputColors)
+        XCTAssertGreaterThanOrEqual(afterInputColors.red, max(8, beforeInputColors.red / 3))
+        XCTAssertGreaterThanOrEqual(afterInputColors.green, max(8, beforeInputColors.green / 3))
+        XCTAssertGreaterThanOrEqual(afterInputColors.blue, max(8, beforeInputColors.blue / 3))
+        assertTerminalRow(0, label: "RED GREEN BLUE", in: app)
+        assertTerminalRow(2, label: "live echo: x", in: app)
+    }
+
+    /// Tapping a text field opens the system keyboard; the floating Pair
+    /// button (via `.safeAreaInset(edge: .bottom)` with a gradient backdrop)
+    /// must remain in the hierarchy and not jump below the keyboard. We can't
+    /// reliably XCUI-test the swipe-to-dismiss path against SwiftUI's Form
+    /// (the keyboard return key labels differ between iOS versions and
+    /// XCUI's keyboard button lookup is fragile), so we cover the visible
+    /// invariant instead and rely on manual dogfood for the dismiss gesture.
+    @MainActor
+    func testAddDevicePairButtonStaysVisibleWhenKeyboardOpens() throws {
+        let app = launchAddDeviceApp()
+
+        let hostField = app.textFields["MobileAddDeviceHostField"]
+        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        let pairButton = app.buttons["MobilePairButton"]
+        XCTAssertTrue(pairButton.waitForExistence(timeout: 4))
+
+        hostField.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4),
+                      "Tapping the host field should bring up the keyboard")
+
+        // The pair button stays in the hierarchy when the keyboard is up,
+        // proving the .safeAreaInset placement survives keyboard avoidance.
+        XCTAssertTrue(pairButton.exists, "Pair button must remain in the hierarchy with keyboard up")
+        XCTAssertGreaterThan(pairButton.frame.height, 30,
+                             "Pair button should retain a tappable height when the keyboard is up")
+    }
+
+    @MainActor
+    private func launchConnectedApp(port: UInt16) throws -> XCUIApplication {
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+        ])
+        waitForWorkspaceShell(in: app)
+        try openSelectedWorkspaceIfNeeded(app)
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        return app
+    }
+
+    private func attachURL(port: UInt16) throws -> URL {
+        let route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "ui-test-mac",
+            macDisplayName: "UI Test Mac",
+            routes: [route],
+            expiresAt: Date(timeIntervalSinceNow: 60 * 60),
+            authToken: "ui-test-ticket"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let payload = base64URLEncode(try encoder.encode(ticket))
+        guard let url = URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)") else {
+            throw URLError(.badURL)
+        }
+        return url
+    }
+
+    private func base64URLEncode(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    @MainActor
+    private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
+        let app = launchApp(mockData: true, environment: environment)
+        XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchApp(
+        mockData: Bool,
+        clearAuth: Bool = false,
+        environment: [String: String] = [:]
+    ) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
+        for (key, value) in environment {
+            app.launchEnvironment[key] = value
+        }
+        if clearAuth {
+            app.launchEnvironment["CMUX_UITEST_CLEAR_AUTH"] = "1"
+        }
+        app.launch()
+        return app
+    }
+
+    @MainActor
+    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+        if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
+            return
+        }
+
+        let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        row.tap()
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func assertTerminalRow(
+        _ index: Int,
+        label expectedLabel: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+        let labelExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.terminalRows(in: app).dropFirst(index).first == expectedLabel
+            },
+            object: app
+        )
+        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Expected terminal row \(index) to equal \(expectedLabel). Rows: \(terminalRowLabels(in: app))",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+    }
+
+    @MainActor
+    private func assertTerminalRows(
+        _ expectedLabels: [Int: String],
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+        let labelExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                expectedLabels.allSatisfy { index, expectedLabel in
+                    self.terminalRows(in: app).dropFirst(index).first == expectedLabel
+                }
+            },
+            object: app
+        )
+        let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
+        if result != .completed {
+            XCTFail(
+                "Expected terminal rows \(expectedLabels). Rows: \(terminalRowLabels(in: app))",
+                file: file,
+                line: line
+            )
+            return
+        }
+        for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
+        }
+    }
+
+    @MainActor
+    private func waitForWorkspaceShell(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                workspaceRow.exists || terminalSurface.exists
+            },
+            object: app
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: 90)
+        XCTAssertEqual(result, .completed, file: file, line: line)
+    }
+
+    @MainActor
+    private func switchToTUITerminal(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
+        tap(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        assertTerminalRow(0, label: "LAZYGIT", in: app, file: file, line: line)
+    }
+
+    @MainActor
+    private func waitForTerminalSurfaceFrame(
+        in app: XCUIApplication,
+        timeout: TimeInterval = 8,
+        matching predicate: @escaping (CGRect) -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> CGRect {
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
+
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement else {
+                    return false
+                }
+                return predicate(element.frame)
+            },
+            object: surface
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Timed out waiting for terminal surface resize. Last frame: \(surface.frame)",
+            file: file,
+            line: line
+        )
+        return surface.frame
+    }
+
+    @MainActor
+    private func assertTerminalSurfaceUsesAvailableViewport(
+        _ frame: CGRect,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let viewport = availableTerminalViewport(in: app)
+        let horizontalTolerance: CGFloat = 12
+        let bottomTolerance: CGFloat = 4
+        let topChromeBudget = max(CGFloat(150), viewport.height * 0.22)
+
+        XCTAssertLessThanOrEqual(
+            abs(frame.minX - viewport.minX),
+            horizontalTolerance,
+            "Terminal surface should start at the available detail viewport edge. Frame: \(frame), viewport: \(viewport)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            frame.maxX,
+            viewport.maxX - horizontalTolerance,
+            "Terminal surface should reach the available viewport trailing edge. Frame: \(frame), viewport: \(viewport)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            frame.maxX,
+            viewport.maxX + horizontalTolerance,
+            "Terminal surface should not overflow the available viewport trailing edge. Frame: \(frame), viewport: \(viewport)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            frame.maxY,
+            viewport.maxY - bottomTolerance,
+            "Terminal surface should reach the bottom of the viewport without a send/input bar. Frame: \(frame), viewport: \(viewport)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            frame.minY - viewport.minY,
+            topChromeBudget,
+            "Terminal surface should only leave room for navigation chrome above it. Frame: \(frame), viewport: \(viewport)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            frame.height,
+            viewport.height - topChromeBudget - bottomTolerance,
+            "Terminal surface should use the vertical space below the navigation bar. Frame: \(frame), viewport: \(viewport)",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func availableTerminalViewport(in app: XCUIApplication) -> CGRect {
+        let window = app.windows.firstMatch
+        let windowFrame = window.exists ? window.frame : app.frame
+        let workspaceList = app.otherElements["MobileWorkspaceList"]
+        guard workspaceList.exists,
+              workspaceList.frame.width > 180,
+              workspaceList.frame.maxX < windowFrame.maxX - 180 else {
+            return windowFrame
+        }
+
+        return CGRect(
+            x: workspaceList.frame.maxX,
+            y: windowFrame.minY,
+            width: windowFrame.maxX - workspaceList.frame.maxX,
+            height: windowFrame.height
+        )
+    }
+
+    @MainActor
+    private func assertPairingError(
+        contains expectedText: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let error = app.staticTexts["MobilePairingError"]
+        if !error.waitForExistence(timeout: 4) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(error.waitForExistence(timeout: 4), file: file, line: line)
+        XCTAssertTrue(error.label.contains(expectedText), file: file, line: line)
+    }
+
+    @MainActor
+    private func terminalRow(_ index: Int, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["MobileTerminalRow-\(index)"]
+    }
+
+    @MainActor
+    private func terminalRowLabels(in app: XCUIApplication) -> [String] {
+        terminalRows(in: app).enumerated().map { index, row in
+            "\(index):\(row)"
+        }
+    }
+
+    @MainActor
+    private func assertRendererLayerReady(
+        _ surface: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement,
+                      let value = element.value as? String else {
+                    return false
+                }
+                return value.contains("rendererReady=1") && value.contains("rendererZero=0")
+            },
+            object: surface
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: 6)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Expected non-zero Ghostty renderer layer. value=\(surface.value as? String ?? "<nil>") rows=\(terminalRowLabels(in: app))",
+            file: file,
+            line: line
+        )
+    }
+
+    private struct TerminalColorPixelCounts {
+        var red = 0
+        var green = 0
+        var blue = 0
+    }
+
+    @MainActor
+    private func terminalColorPixelCounts(
+        surface: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> TerminalColorPixelCounts {
+        let screenshot = XCUIScreen.main.screenshot()
+        guard let image = screenshot.image.cgImage else {
+            XCTFail("Unable to read UI screenshot image", file: file, line: line)
+            return TerminalColorPixelCounts()
+        }
+
+        let appFrame = app.windows.firstMatch.exists ? app.windows.firstMatch.frame : app.frame
+        let scaleX = CGFloat(image.width) / max(appFrame.width, 1)
+        let scaleY = CGFloat(image.height) / max(appFrame.height, 1)
+        let insetFrame = surface.frame.insetBy(dx: 4, dy: 4)
+        let cropRect = CGRect(
+            x: max(0, floor(insetFrame.minX * scaleX)),
+            y: max(0, floor(insetFrame.minY * scaleY)),
+            width: min(CGFloat(image.width), ceil(insetFrame.width * scaleX)),
+            height: min(CGFloat(image.height), ceil(insetFrame.height * scaleY))
+        )
+        let boundedCropRect = cropRect.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard !boundedCropRect.isEmpty,
+              let cropped = image.cropping(to: boundedCropRect.integral) else {
+            XCTFail("Unable to crop terminal surface screenshot. surface=\(surface.frame) crop=\(boundedCropRect)", file: file, line: line)
+            return TerminalColorPixelCounts()
+        }
+
+        let width = cropped.width
+        let height = cropped.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        ) else {
+            XCTFail("Unable to create screenshot pixel context", file: file, line: line)
+            return TerminalColorPixelCounts()
+        }
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var counts = TerminalColorPixelCounts()
+        for index in stride(from: 0, to: pixels.count - 3, by: 4) {
+            let red = Int(pixels[index])
+            let green = Int(pixels[index + 1])
+            let blue = Int(pixels[index + 2])
+            let alpha = Int(pixels[index + 3])
+            guard alpha > 180 else { continue }
+            if red > 180, green < 130, blue < 130 {
+                counts.red += 1
+            } else if green > 170, red < 150, blue < 150 {
+                counts.green += 1
+            } else if blue > 180, red < 150, green < 190 {
+                counts.blue += 1
+            }
+        }
+        return counts
+    }
+
+    private func assertHasTerminalRGBPixels(
+        _ counts: TerminalColorPixelCounts,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThan(counts.red, 8, "Expected rendered red terminal pixels. counts=\(counts)", file: file, line: line)
+        XCTAssertGreaterThan(counts.green, 8, "Expected rendered green terminal pixels. counts=\(counts)", file: file, line: line)
+        XCTAssertGreaterThan(counts.blue, 8, "Expected rendered blue terminal pixels. counts=\(counts)", file: file, line: line)
+    }
+
+    private func runMainLoop(for duration: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(duration))
+    }
+
+    @MainActor
+    private func terminalRows(in app: XCUIApplication) -> [String] {
+        let surface = app.otherElements["MobileTerminalSurface"]
+        guard surface.exists else { return [] }
+        return surface.label
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+    }
+
+    @MainActor
+    private func typeText(_ text: String, into element: XCUIElement, in app: XCUIApplication) throws {
+        XCTAssertTrue(element.waitForExistence(timeout: 4))
+        XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
+        element.typeText(text)
+        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+    }
+
+    @MainActor
+    private func replaceText(_ text: String, in element: XCUIElement, app: XCUIApplication) throws {
+        XCTAssertTrue(element.waitForExistence(timeout: 4))
+        XCTAssertTrue(focusTextInput(element, in: app), "Expected text input to accept keyboard focus: \(element.debugDescription)")
+        element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 80))
+        element.typeText(text)
+        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: isAddDeviceField(element))
+    }
+
+    @MainActor
+    private func isAddDeviceField(_ element: XCUIElement) -> Bool {
+        element.identifier.hasPrefix("MobileAddDevice")
+    }
+
+    @MainActor
+    private func tap(
+        _ element: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(element.waitForExistence(timeout: 4), file: file, line: line)
+        dismissKeyboard(in: app, preferAddDeviceAccessoryDoneButton: true)
+        if element.isHittable {
+            element.tap()
+            return
+        }
+        guard let frame = waitForUsableFrame(of: element, timeout: 4) else {
+            XCTFail("Element has no usable frame: \(element.debugDescription)", file: file, line: line)
+            return
+        }
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+            .tap()
+    }
+
+    @MainActor
+    private func waitForUsableFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let frame = element.frame
+            if !frame.isNull,
+               !frame.isEmpty,
+               !frame.origin.x.isNaN,
+               !frame.origin.y.isNaN,
+               !frame.width.isNaN,
+               !frame.height.isNaN {
+                return frame
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let frame = element.frame
+        if !frame.isNull,
+           !frame.isEmpty,
+           !frame.origin.x.isNaN,
+           !frame.origin.y.isNaN,
+           !frame.width.isNaN,
+           !frame.height.isNaN {
+            return frame
+        }
+        return nil
+    }
+
+    @MainActor
+    private func focusTextInput(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        for _ in 0..<4 {
+            if let frame = waitForUsableFrame(of: element, timeout: 1) {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                    .tap()
+            } else {
+                element.tap()
+            }
+
+            if waitForKeyboardFocus(of: element, timeout: 1) || app.keyboards.firstMatch.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+    }
+
+    @MainActor
+    private func waitForKeyboardFocus(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    @MainActor
+    private func dismissKeyboard(
+        in app: XCUIApplication,
+        preferAddDeviceAccessoryDoneButton: Bool = false
+    ) {
+        guard app.keyboards.firstMatch.exists else {
+            return
+        }
+        if preferAddDeviceAccessoryDoneButton,
+           app.buttons["MobileAddDeviceKeyboardDoneButton"].exists {
+            let addDeviceDoneButton = app.buttons["MobileAddDeviceKeyboardDoneButton"]
+            addDeviceDoneButton.tap()
+            if waitForKeyboardDismissal(in: app) {
+                return
+            }
+        }
+        for label in ["Done", "Return", "Next"] {
+            let button = app.keyboards.buttons[label]
+            if button.exists {
+                button.tap()
+                if waitForKeyboardDismissal(in: app) {
+                    return
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let app = object as? XCUIApplication else {
+                    return false
+                }
+                return !app.keyboards.firstMatch.exists
+            },
+            object: app
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: 3) == .completed
+    }
+}
+
+private final class MobileSyncMockHostServer: @unchecked Sendable {
+    private struct Workspace {
+        var id: String
+        var title: String
+        var currentDirectory: String
+        var terminals: [Terminal]
+    }
+
+    private struct Terminal {
+        var id: String
+        var title: String
+        var currentDirectory: String
+        var lines: [String]
+        var activeScreen: String = "primary"
+    }
+
+    private struct TerminalInputWaiter {
+        var id: UUID
+        var expectedText: String
+        var continuation: CheckedContinuation<Void, Error>
+    }
+
+    private struct ResponseFrame {
+        var frame: Data
+        var postResponseEvents: [(topic: String, payload: [String: Any])]
+    }
+
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
+    private var readyContinuation: CheckedContinuation<UInt16, Error>?
+    private var connections: [NWConnection] = []
+    private var selectedWorkspaceID = "workspace-main"
+    private var selectedTerminalID = "terminal-build"
+    private var streamOffset: UInt64 = 1
+    private var streamOffsetsByTerminalID: [String: UInt64] = [:]
+    private var terminalInputs: [String] = []
+    private var terminalInputWaiters: [TerminalInputWaiter] = []
+    private var subscriptionsByConnectionID: [ObjectIdentifier: Set<String>] = [:]
+    private var workspaces: [Workspace] = [
+        Workspace(
+            id: "workspace-main",
+            title: "cmux",
+            currentDirectory: "~/cmux",
+            terminals: [
+                Terminal(
+                    id: "terminal-build",
+                    title: "Build",
+                    currentDirectory: "~/cmux",
+                    lines: [
+                        "$ cmux ios status",
+                        "Mobile Core: connected",
+                        "host: UI Test Mac",
+                        "route: debugLoopback",
+                    ]
+                ),
+                Terminal(
+                    id: "terminal-colors",
+                    title: "Colors",
+                    currentDirectory: "~/cmux",
+                    lines: [
+                        "\u{1B}[38;2;255;48;48mRED\u{1B}[0m \u{1B}[38;2;48;255;48mGREEN\u{1B}[0m \u{1B}[38;2;80;160;255mBLUE\u{1B}[0m",
+                        "type to verify colors stay visible",
+                    ]
+                ),
+                Terminal(
+                    id: "terminal-tui",
+                    title: "TUI",
+                    currentDirectory: "~/cmux",
+                    lines: [
+                        "LAZYGIT",
+                        "files branches log",
+                        "main feat-ios clean",
+                        "q quit",
+                    ],
+                    activeScreen: "alternate"
+                ),
+            ]
+        ),
+        Workspace(
+            id: "workspace-docs",
+            title: "Docs",
+            currentDirectory: "~/cmux/docs",
+            terminals: [
+                Terminal(
+                    id: "terminal-notes",
+                    title: "Notes",
+                    currentDirectory: "~/cmux/docs",
+                    lines: [
+                        "$ rg CMUXMobileCore docs",
+                        "docs/ios-swift-mobile-plan.md:iOS shell depends on CMUXMobileCore.",
+                    ]
+                ),
+            ]
+        ),
+    ]
+
+    init(selectedWorkspaceID: String = "workspace-main", selectedTerminalID: String = "terminal-build") throws {
+        self.selectedWorkspaceID = selectedWorkspaceID
+        self.selectedTerminalID = selectedTerminalID
+        listener = try NWListener(using: .tcp, on: .any)
+    }
+
+    func start() async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                self.readyContinuation = continuation
+                self.listener.stateUpdateHandler = { [weak self] state in
+                    self?.handleListenerState(state)
+                }
+                self.listener.newConnectionHandler = { [weak self] connection in
+                    self?.accept(connection)
+                }
+                self.listener.start(queue: self.queue)
+            }
+        }
+    }
+
+    func stop() {
+        queue.async {
+            self.listener.cancel()
+            for connection in self.connections {
+                connection.cancel()
+            }
+            self.connections.removeAll()
+            self.subscriptionsByConnectionID.removeAll()
+        }
+    }
+
+    func waitForTerminalInput(containing expectedText: String, timeout: TimeInterval) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let id = UUID()
+            queue.async {
+                if self.terminalInputs.contains(where: { $0.contains(expectedText) }) {
+                    continuation.resume()
+                    return
+                }
+                self.terminalInputWaiters.append(TerminalInputWaiter(
+                    id: id,
+                    expectedText: expectedText,
+                    continuation: continuation
+                ))
+                self.queue.asyncAfter(deadline: .now() + timeout) {
+                    guard let index = self.terminalInputWaiters.firstIndex(where: { $0.id == id }) else {
+                        return
+                    }
+                    let waiter = self.terminalInputWaiters.remove(at: index)
+                    waiter.continuation.resume(
+                        throwing: self.serverError("Timed out waiting for terminal input containing '\(expectedText)'.")
+                    )
+                }
+            }
+        }
+    }
+
+    private func handleListenerState(_ state: NWListener.State) {
+        switch state {
+        case .ready:
+            if let port = listener.port?.rawValue {
+                readyContinuation?.resume(returning: port)
+            } else {
+                readyContinuation?.resume(throwing: serverError("Listener did not publish a port."))
+            }
+            readyContinuation = nil
+        case let .failed(error):
+            readyContinuation?.resume(throwing: error)
+            readyContinuation = nil
+        case .cancelled:
+            readyContinuation?.resume(throwing: CancellationError())
+            readyContinuation = nil
+        case .setup, .waiting:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func accept(_ connection: NWConnection) {
+        connections.append(connection)
+        connection.start(queue: queue)
+        receiveRequest(on: connection)
+    }
+
+    private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 64 * 1024
+        ) { [weak self, weak connection] data, _, isComplete, error in
+            guard let self, let connection else {
+                return
+            }
+
+            var nextBuffer = buffer
+            if let data, !data.isEmpty {
+                nextBuffer.append(data)
+            }
+
+            if let payload = Self.nextFrame(from: &nextBuffer) {
+                self.respond(to: payload, on: connection, remainingBuffer: nextBuffer)
+                return
+            }
+
+            if isComplete || error != nil {
+                connection.cancel()
+                return
+            }
+
+            self.receiveRequest(on: connection, buffer: nextBuffer)
+        }
+    }
+
+    private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
+        do {
+            let response = try makeResponseFrame(for: payload, on: connection)
+            connection.send(
+                content: response.frame,
+                contentContext: .defaultMessage,
+                isComplete: false,
+                completion: .contentProcessed { [weak self, weak connection] error in
+                    guard error == nil,
+                          let self,
+                          let connection else {
+                        connection?.cancel()
+                        return
+                    }
+                    self.sendPostResponseEvents(
+                        response.postResponseEvents,
+                        on: connection
+                    ) { [weak self, weak connection] in
+                        guard let self, let connection else { return }
+                        self.receiveRequest(on: connection, buffer: remainingBuffer)
+                    }
+                }
+            )
+        } catch {
+            connection.cancel()
+        }
+    }
+
+    private func makeResponseFrame(for payload: Data, on connection: NWConnection) throws -> ResponseFrame {
+        guard let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let method = request["method"] as? String else {
+            throw serverError("Invalid request.")
+        }
+
+        let id = request["id"] as? String ?? ""
+        let params = request["params"] as? [String: Any] ?? [:]
+        let result: [String: Any]
+        let postResponseEvents: [(topic: String, payload: [String: Any])]
+
+        switch method {
+        case "mobile.workspace.list", "workspace.list":
+            result = workspaceListResult()
+            postResponseEvents = []
+        case "workspace.create":
+            result = createWorkspaceResult()
+            postResponseEvents = [("workspace.updated", [:])]
+        case "mobile.terminal.create", "terminal.create":
+            result = createTerminalResult(params: params)
+            postResponseEvents = [("workspace.updated", [:])]
+        case "mobile.events.subscribe":
+            result = subscribeResult(params: params, on: connection)
+            postResponseEvents = []
+        case "mobile.terminal.viewport", "terminal.viewport":
+            result = [
+                "columns": params["viewport_columns"] as? Int ?? 80,
+                "rows": params["viewport_rows"] as? Int ?? 24,
+            ]
+            postResponseEvents = []
+        case "mobile.terminal.replay", "terminal.replay":
+            result = terminalReplayResult(params: params)
+            postResponseEvents = []
+        case "mobile.terminal.input", "terminal.input":
+            let inputResponse = terminalInputResult(params: params)
+            result = inputResponse.result
+            postResponseEvents = inputResponse.postResponseEvents
+        default:
+            result = [:]
+            postResponseEvents = []
+        }
+
+        let envelope: [String: Any] = [
+            "id": id,
+            "ok": true,
+            "result": result,
+        ]
+        let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+        return ResponseFrame(frame: Self.frame(responsePayload), postResponseEvents: postResponseEvents)
+    }
+
+    private func sendPostResponseEvents(
+        _ events: [(topic: String, payload: [String: Any])],
+        on connection: NWConnection,
+        completion: @escaping () -> Void
+    ) {
+        guard let event = events.first else {
+            completion()
+            return
+        }
+        guard subscriptionsByConnectionID[ObjectIdentifier(connection)]?.contains(event.topic) == true else {
+            sendPostResponseEvents(Array(events.dropFirst()), on: connection, completion: completion)
+            return
+        }
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": event.topic,
+            "payload": event.payload,
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: envelope) else {
+            sendPostResponseEvents(Array(events.dropFirst()), on: connection, completion: completion)
+            return
+        }
+        connection.send(
+            content: Self.frame(payload),
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] _ in
+                guard let self, let connection else {
+                    completion()
+                    return
+                }
+                self.sendPostResponseEvents(Array(events.dropFirst()), on: connection, completion: completion)
+            }
+        )
+    }
+
+    private func subscribeResult(params: [String: Any], on connection: NWConnection) -> [String: Any] {
+        let streamID = params["stream_id"] as? String ?? "events"
+        let topics = Set((params["topics"] as? [String] ?? []).filter { !$0.isEmpty })
+        subscriptionsByConnectionID[ObjectIdentifier(connection)] = topics
+        return [
+            "stream_id": streamID,
+            "topics": Array(topics).sorted(),
+        ]
+    }
+
+    private func createWorkspaceResult() -> [String: Any] {
+        let nextIndex = workspaces.count + 1
+        let workspaceID = "workspace-\(nextIndex)"
+        let terminalID = "\(workspaceID)-terminal-1"
+        let workspace = Workspace(
+            id: workspaceID,
+            title: "Workspace \(nextIndex)",
+            currentDirectory: "~/workspace-\(nextIndex)",
+            terminals: [
+                Terminal(
+                    id: terminalID,
+                    title: "Terminal 1",
+                    currentDirectory: "~/workspace-\(nextIndex)",
+                    lines: [
+                        "$ cmux ios",
+                        "workspace: Workspace \(nextIndex)",
+                        "terminal: Terminal 1",
+                    ]
+                ),
+            ]
+        )
+        workspaces.append(workspace)
+        selectedWorkspaceID = workspaceID
+        selectedTerminalID = terminalID
+
+        var result = workspaceListResult()
+        result["created_workspace_id"] = workspaceID
+        return result
+    }
+
+    private func terminalInputResult(params: [String: Any]) -> (
+        result: [String: Any],
+        postResponseEvents: [(topic: String, payload: [String: Any])]
+    ) {
+        let inputData: Data
+        if let b64 = params["data_b64"] as? String,
+           let data = Data(base64Encoded: b64) {
+            inputData = data
+        } else {
+            inputData = Data((params["text"] as? String ?? "").utf8)
+        }
+        let text = String(decoding: inputData, as: UTF8.self)
+        let terminalID = params["surface_id"] as? String ?? selectedTerminalID
+        selectedTerminalID = terminalID
+        terminalInputs.append(text)
+        var stillWaiting: [TerminalInputWaiter] = []
+        for waiter in terminalInputWaiters {
+            if text.contains(waiter.expectedText) {
+                waiter.continuation.resume()
+            } else {
+                stillWaiting.append(waiter)
+            }
+        }
+        terminalInputWaiters = stillWaiting
+        let liveBytes = terminalLiveBytes(forTerminalID: terminalID, input: text)
+        guard !liveBytes.isEmpty else {
+            return (["accepted": true], [])
+        }
+        return (
+            ["accepted": true],
+            [("terminal.bytes", terminalBytesPayload(terminalID: terminalID, bytes: liveBytes))]
+        )
+    }
+
+    private func createTerminalResult(params: [String: Any]) -> [String: Any] {
+        let workspaceID = params["workspace_id"] as? String ?? selectedWorkspaceID
+        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+            return workspaceListResult()
+        }
+
+        let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
+        let terminalID = "\(workspaceID)-terminal-\(terminalIndex)"
+        let terminal = Terminal(
+            id: terminalID,
+            title: "Terminal \(terminalIndex)",
+            currentDirectory: workspaces[workspaceIndex].currentDirectory,
+            lines: [
+                "$ cmux ios",
+                "workspace: \(workspaces[workspaceIndex].title)",
+                "terminal: Terminal \(terminalIndex)",
+            ]
+        )
+        workspaces[workspaceIndex].terminals.append(terminal)
+        selectedWorkspaceID = workspaceID
+        selectedTerminalID = terminalID
+
+        var result = workspaceListResult()
+        result["created_terminal_id"] = terminalID
+        return result
+    }
+
+    private func terminalReplayResult(params: [String: Any]) -> [String: Any] {
+        let terminalID = params["surface_id"] as? String ?? selectedTerminalID
+        selectedTerminalID = terminalID
+        if let workspace = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id == terminalID })
+        }) {
+            selectedWorkspaceID = workspace.id
+        }
+        let (terminal, workspaceID) = workspaces
+            .lazy
+            .flatMap { ws in ws.terminals.map { ($0, ws.id) } }
+            .first { $0.0.id == terminalID }
+            ?? (workspaces[0].terminals[0], workspaces[0].id)
+        let bytes = terminalReplayBytes(for: terminal)
+        let previousOffset = streamOffsetsByTerminalID[terminal.id] ?? 0
+        let nextOffset = previousOffset + UInt64(bytes.count)
+        streamOffsetsByTerminalID[terminal.id] = nextOffset
+        streamOffset = max(streamOffset, nextOffset)
+        return [
+            "workspace_id": workspaceID,
+            "surface_id": terminal.id,
+            "seq": nextOffset,
+            "data_b64": bytes.base64EncodedString(),
+            "columns": 80,
+            "rows": 24,
+        ]
+    }
+
+    private func terminalReplayBytes(for terminal: Terminal) -> Data {
+        var text = ""
+        if terminal.activeScreen == "alternate" {
+            text += "\u{1B}[2J\u{1B}[H"
+        }
+        text += terminal.lines.joined(separator: "\r\n")
+        text += "\r\n"
+        return Data(text.utf8)
+    }
+
+    private func terminalLiveBytes(forTerminalID terminalID: String, input: String) -> Data {
+        let printableInput = input
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        guard !printableInput.isEmpty else {
+            return Data()
+        }
+        if let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.terminals.contains(where: { $0.id == terminalID })
+        }), let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) {
+            workspaces[workspaceIndex].terminals[terminalIndex].lines.append("live echo: \(printableInput)")
+        }
+        return Data("live echo: \(printableInput)\r\n".utf8)
+    }
+
+    private func terminalBytesPayload(terminalID: String, bytes: Data) -> [String: Any] {
+        let previousOffset = streamOffsetsByTerminalID[terminalID] ?? 0
+        let nextOffset = previousOffset + UInt64(bytes.count)
+        streamOffsetsByTerminalID[terminalID] = nextOffset
+        streamOffset = max(streamOffset, nextOffset)
+        return [
+            "surface_id": terminalID,
+            "seq": previousOffset,
+            "data_b64": bytes.base64EncodedString(),
+        ]
+    }
+
+    private func workspaceListResult() -> [String: Any] {
+        [
+            "workspaces": workspaces.map { workspace in
+                [
+                    "id": workspace.id,
+                    "title": workspace.title,
+                    "current_directory": workspace.currentDirectory,
+                    "is_selected": workspace.id == selectedWorkspaceID,
+                    "terminals": workspace.terminals.map { terminal in
+                        [
+                            "id": terminal.id,
+                            "title": terminal.title,
+                            "current_directory": terminal.currentDirectory,
+                            "is_focused": terminal.id == selectedTerminalID,
+                        ] as [String: Any]
+                    },
+                ] as [String: Any]
+            },
+        ]
+    }
+
+    func overrideCursor(workspaceID: String, terminalID: String, row: Int, column: Int, isVisible: Bool) {
+        queue.async { [weak self] in
+            self?.cursorOverrides["\(workspaceID)/\(terminalID)"] = CursorOverride(row: row, column: column, isVisible: isVisible)
+        }
+    }
+
+    private struct CursorOverride {
+        var row: Int
+        var column: Int
+        var isVisible: Bool
+    }
+    private var cursorOverrides: [String: CursorOverride] = [:]
+
+    private func snapshot(for terminal: Terminal, workspaceID: String) -> [String: Any] {
+        let visibleRows = Array((terminal.lines + Array(repeating: "", count: 6)).prefix(6))
+            .map { Self.row($0) }
+        let override = cursorOverrides["\(workspaceID)/\(terminal.id)"]
+        return [
+            "schemaVersion": 1,
+            "terminalID": terminal.id,
+            "gridSize": [
+                "columns": 48,
+                "rows": 6,
+            ],
+            "activeScreen": terminal.activeScreen,
+            "scrollbackRows": [],
+            "visibleRows": visibleRows,
+            "cursor": [
+                "column": override?.column ?? 0,
+                "row": override?.row ?? 5,
+                "isVisible": override?.isVisible ?? false,
+                "style": "block",
+            ],
+            "modes": [
+                "bracketedPaste": false,
+                "applicationCursorKeys": false,
+                "applicationKeypad": false,
+                "mouseTracking": terminal.activeScreen == "alternate",
+                "cursorVisible": false,
+            ],
+            "streamOffset": streamOffset,
+            "generatedAt": "1970-01-01T00:00:00Z",
+        ]
+    }
+
+    private static func row(_ text: String, columns: Int = 48) -> [String: Any] {
+        let visibleCells = text.prefix(columns).map { character in
+            [
+                "text": String(character),
+                "width": "narrow",
+                "style": [
+                    "bold": false,
+                    "italic": false,
+                    "dim": false,
+                    "inverse": false,
+                    "underline": "none",
+                ],
+            ] as [String: Any]
+        }
+        let blankCell = [
+            "text": "",
+            "width": "narrow",
+            "style": [
+                "bold": false,
+                "italic": false,
+                "dim": false,
+                "inverse": false,
+                "underline": "none",
+            ],
+        ] as [String: Any]
+        let cells = visibleCells + Array(repeating: blankCell, count: max(0, columns - visibleCells.count))
+        return [
+            "cells": cells,
+            "isWrapped": false,
+        ]
+    }
+
+    private static func nextFrame(from buffer: inout Data) -> Data? {
+        let headerByteCount = 4
+        guard buffer.count >= headerByteCount else {
+            return nil
+        }
+        let payloadLength = Int(buffer.prefix(headerByteCount).reduce(UInt32(0)) { partial, byte in
+            (partial << 8) | UInt32(byte)
+        })
+        guard buffer.count >= headerByteCount + payloadLength else {
+            return nil
+        }
+        let payloadStart = headerByteCount
+        let payloadEnd = payloadStart + payloadLength
+        let payload = buffer.subdata(in: payloadStart..<payloadEnd)
+        buffer.removeSubrange(0..<payloadEnd)
+        return payload
+    }
+
+    private static func frame(_ payload: Data) -> Data {
+        var length = UInt32(payload.count).bigEndian
+        var frame = Data(bytes: &length, count: 4)
+        frame.append(payload)
+        return frame
+    }
+
+    private func serverError(_ message: String) -> NSError {
+        NSError(domain: "MobileSyncMockHostServer", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+}
+
+private extension XCUIApplication {
+    var isLandscape: Bool {
+        let frame = windows.firstMatch.exists ? windows.firstMatch.frame : self.frame
+        return frame.width > frame.height
+    }
+
+    var isPortrait: Bool {
+        let frame = windows.firstMatch.exists ? windows.firstMatch.frame : self.frame
+        return frame.height > frame.width
+    }
+}

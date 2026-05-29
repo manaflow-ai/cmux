@@ -294,6 +294,23 @@ private func cmuxScalarHex(_ value: String?) -> String {
 #endif
 
 enum GhosttyPasteboardHelper {
+    private final class ClipboardWriteCapture {
+        private let lock = NSLock()
+        private var capturedValue: String?
+
+        func capture(_ value: String) {
+            lock.lock()
+            capturedValue = value
+            lock.unlock()
+        }
+
+        var value: String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return capturedValue
+        }
+    }
+
     enum ImageFileMaterializationResult {
         case saved(URL)
         case noDecodableImagePayload
@@ -315,6 +332,8 @@ enum GhosttyPasteboardHelper {
     private static let objectReplacementCharacter = Character(UnicodeScalar(0xFFFC)!)
     private static let temporaryImageOwnershipLock = NSLock()
     private static var ownedTemporaryImagePaths: Set<String> = []
+    private static let standardClipboardWriteCaptureLock = NSLock()
+    private static var standardClipboardWriteCapture: ClipboardWriteCapture?
 
     static func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
         switch location {
@@ -387,9 +406,43 @@ enum GhosttyPasteboardHelper {
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
+        if location == GHOSTTY_CLIPBOARD_STANDARD {
+            var capture: ClipboardWriteCapture?
+            standardClipboardWriteCaptureLock.lock()
+            capture = standardClipboardWriteCapture
+            if capture != nil {
+                standardClipboardWriteCapture = nil
+            }
+            standardClipboardWriteCaptureLock.unlock()
+
+            if let capture {
+                capture.capture(string)
+                return
+            }
+        }
+
         guard let pasteboard = pasteboard(for: location) else { return }
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
+    }
+
+    @discardableResult
+    static func captureNextStandardClipboardWrite(_ action: () -> Bool) -> String? {
+        let capture = ClipboardWriteCapture()
+        standardClipboardWriteCaptureLock.lock()
+        standardClipboardWriteCapture = capture
+        standardClipboardWriteCaptureLock.unlock()
+
+        defer {
+            standardClipboardWriteCaptureLock.lock()
+            if standardClipboardWriteCapture === capture {
+                standardClipboardWriteCapture = nil
+            }
+            standardClipboardWriteCaptureLock.unlock()
+        }
+
+        guard action() else { return nil }
+        return capture.value
     }
 
     static func escapeForShell(_ value: String) -> String {
@@ -2255,6 +2308,7 @@ class GhosttyApp {
             )
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
+            loadNoActiveDisplayVsyncFallbackIfNeeded(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
                 true,
                 source: "initialize.fallbackConfig"
@@ -2485,9 +2539,26 @@ class GhosttyApp {
         )
         loadCmuxManagedTerminalSettingsConfig(config)
         loadCmuxOwnedGhosttyKeybindOverrides(config)
+        loadNoActiveDisplayVsyncFallbackIfNeeded(config)
 
         ghostty_config_finalize(config)
         return renderingModeChanged
+    }
+
+    private func loadNoActiveDisplayVsyncFallbackIfNeeded(_ config: ghostty_config_t) {
+        var displayCount: UInt32 = 0
+        let error = CGGetActiveDisplayList(0, nil, &displayCount)
+        guard error == .success, displayCount == 0 else { return }
+
+        loadInlineGhosttyConfig(
+            "window-vsync = false",
+            into: config,
+            prefix: "cmux-no-active-display-vsync-fallback",
+            logLabel: "no active display vsync fallback"
+        )
+#if DEBUG
+        cmuxDebugLog("ghostty.vsync.disable reason=noActiveDisplays")
+#endif
     }
 
     private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
@@ -5144,15 +5215,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private enum PendingSocketInput {
         case pasteText(Data)
-        case inputText(String)
+        case inputText(Data)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .pasteText(let data):
+            case .pasteText(let data), .inputText(let data):
                 return data.count
-            case .inputText(let text):
-                return text.utf8.count
             case .key(let event):
                 return event.queuedByteCost
             }
@@ -5160,9 +5229,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private enum ParsedSocketInput {
-        case text(String)
+        case rawBytes(Data)
         case key(PendingKeyEvent)
     }
+
+    private static let committedTextInputChunkByteLimit = 96
 
     enum NamedKeySendResult: Equatable {
         case sent
@@ -5250,8 +5321,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
     private var lastPixelHeight: UInt32 = 0
+    private var lastUncappedPixelWidth: UInt32 = 0
+    private var lastUncappedPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var mobileViewportCellLimit: (columns: Int, rows: Int)?
     private let debugMetadataLock = NSLock()
     private let createdAt: Date = Date()
     private var runtimeSurfaceCreatedAt: Date?
@@ -5266,6 +5340,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceSuspendedForAgentHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Heap-allocated userdata for the libghostty PTY tee callback (cmux
+    /// fork extension). Installed in `createSurface` after
+    /// `ghostty_surface_new` succeeds; released alongside
+    /// `surfaceCallbackContext` whenever we tear down or rebuild the
+    /// surface. The Mac sync server reads the tee'd bytes to broadcast
+    /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
+    private var mobileByteTeeContext: Unmanaged<MobileTerminalByteTeeUserdata>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -5625,6 +5706,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
               cmuxSurfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
+            let teeContext = mobileByteTeeContext
+            mobileByteTeeContext = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
@@ -5639,6 +5722,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            teeContext?.release()
             return nil
         }
         return surface
@@ -5847,6 +5931,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -5856,6 +5943,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -5863,6 +5951,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 #endif
@@ -5872,6 +5961,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            teeContext?.release()
         }
     }
 
@@ -5882,6 +5972,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -5895,6 +5988,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -5908,6 +6002,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            teeContext?.release()
         }
     }
 
@@ -6393,6 +6488,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
+        // Install the PTY tee so MobileTerminalByteTee receives every byte
+        // the read thread produces, in order, before the VT parser runs.
+        // Paired iPhones consume these bytes via `terminal.bytes` events
+        // and feed them into their own libghostty surface, guaranteeing
+        // grid parity by construction. The userdata box is released
+        // alongside `surfaceCallbackContext` when the surface tears down.
+        mobileByteTeeContext?.release()
+        let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: id))
+        ghostty_surface_set_pty_tee_cb(
+            createdSurface,
+            cmuxMobileTerminalByteTeeCallback,
+            teeContext.toOpaque()
+        )
+        mobileByteTeeContext = teeContext
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -6422,6 +6531,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_size(createdSurface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            lastUncappedPixelWidth = wpx
+            lastUncappedPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
@@ -6477,6 +6588,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    @MainActor
     func updateSize(
         width: CGFloat,
         height: CGFloat,
@@ -6485,13 +6597,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
         layerScale: CGFloat,
         backingSize: CGSize? = nil
     ) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
         let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
-        let wpx = pixelDimension(from: resolvedBackingWidth)
-        let hpx = pixelDimension(from: resolvedBackingHeight)
+        let rawWpx = pixelDimension(from: resolvedBackingWidth)
+        let rawHpx = pixelDimension(from: resolvedBackingHeight)
+        lastUncappedPixelWidth = rawWpx
+        lastUncappedPixelHeight = rawHpx
+        let cappedSize = cappedByMobileViewportLimit(width: rawWpx, height: rawHpx, surface: surface)
+        let wpx = cappedSize.width
+        let hpx = cappedSize.height
         guard wpx > 0, hpx > 0 else { return false }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
@@ -6500,6 +6617,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #if DEBUG
         Self.sizeLog("updateSize-call surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) changed=\((scaleChanged || sizeChanged) ? 1 : 0)")
         #endif
+
+        if mobileViewportCellLimit != nil {
+            updateMobileViewportBorder(
+                appliedWidth: wpx,
+                appliedHeight: hpx,
+                baseWidth: rawWpx,
+                baseHeight: rawHpx
+            )
+        }
 
         guard scaleChanged || sizeChanged else { return false }
 
@@ -6524,6 +6650,162 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
+    }
+
+    @discardableResult
+    @MainActor
+    func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
+            hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
+            return false
+        }
+        let size = ghostty_surface_size(surface)
+        let cellWidth = max(1, Int(size.cell_width_px))
+        let cellHeight = max(1, Int(size.cell_height_px))
+        let currentColumns = max(1, Int(size.columns))
+        let currentRows = max(1, Int(size.rows))
+        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
+        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
+        let targetWidth = safePixelDimension(
+            cellCount: columns,
+            cellSize: cellWidth,
+            nonGridPixels: horizontalNonGridPixels
+        )
+        let targetHeight = safePixelDimension(
+            cellCount: rows,
+            cellSize: cellHeight,
+            nonGridPixels: verticalNonGridPixels
+        )
+
+        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
+        let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
+        let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
+        let appliedWidth = min(targetWidth, baseWidth)
+        let appliedHeight = min(targetHeight, baseHeight)
+        let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
+        updateMobileViewportBorder(
+            appliedWidth: appliedWidth,
+            appliedHeight: appliedHeight,
+            baseWidth: baseWidth,
+            baseHeight: baseHeight
+        )
+
+        #if DEBUG
+        Self.sizeLog(
+            "mobileViewportLimit surface=\(id.uuidString.prefix(8)) cells=\(columns)x\(rows) " +
+            "capPx=\(targetWidth)x\(targetHeight) appliedPx=\(appliedWidth)x\(appliedHeight) " +
+            "basePx=\(baseWidth)x\(baseHeight) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+            "changed=\(sizeChanged ? 1 : 0) reason=\(reason)"
+        )
+        #endif
+
+        guard sizeChanged else { return false }
+        ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
+        lastPixelWidth = appliedWidth
+        lastPixelHeight = appliedHeight
+        ghostty_surface_refresh(surface)
+        return true
+    }
+
+    @discardableResult
+    @MainActor
+    func clearMobileViewportLimit(reason: String) -> Bool {
+        mobileViewportCellLimit = nil
+        hostedView.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
+
+        let uncappedWidth = lastUncappedPixelWidth
+        let uncappedHeight = lastUncappedPixelHeight
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "clearMobileViewportLimit"),
+              uncappedWidth > 0,
+              uncappedHeight > 0 else {
+            return false
+        }
+
+        let sizeChanged = uncappedWidth != lastPixelWidth || uncappedHeight != lastPixelHeight
+
+        #if DEBUG
+        Self.sizeLog(
+            "clearMobileViewportLimit surface=\(id.uuidString.prefix(8)) " +
+            "uncappedPx=\(uncappedWidth)x\(uncappedHeight) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+            "changed=\(sizeChanged ? 1 : 0) reason=\(reason)"
+        )
+        #endif
+
+        guard sizeChanged else {
+            ghostty_surface_refresh(surface)
+            return false
+        }
+        ghostty_surface_set_size(surface, uncappedWidth, uncappedHeight)
+        lastPixelWidth = uncappedWidth
+        lastPixelHeight = uncappedHeight
+        ghostty_surface_refresh(surface)
+        return true
+    }
+
+    private func cappedByMobileViewportLimit(
+        width: UInt32,
+        height: UInt32,
+        surface: ghostty_surface_t
+    ) -> (width: UInt32, height: UInt32) {
+        guard let mobileViewportPixelLimit = mobileViewportPixelLimit(for: surface) else {
+            return (width, height)
+        }
+        return (
+            width: min(width, mobileViewportPixelLimit.width),
+            height: min(height, mobileViewportPixelLimit.height)
+        )
+    }
+
+    private func mobileViewportPixelLimit(for surface: ghostty_surface_t) -> (width: UInt32, height: UInt32)? {
+        guard let mobileViewportCellLimit else {
+            return nil
+        }
+        let size = ghostty_surface_size(surface)
+        let cellWidth = max(1, Int(size.cell_width_px))
+        let cellHeight = max(1, Int(size.cell_height_px))
+        let currentColumns = max(1, Int(size.columns))
+        let currentRows = max(1, Int(size.rows))
+        let horizontalNonGridPixels = max(0, Int(size.width_px) - currentColumns * cellWidth)
+        let verticalNonGridPixels = max(0, Int(size.height_px) - currentRows * cellHeight)
+        return (
+            width: safePixelDimension(
+                cellCount: mobileViewportCellLimit.columns,
+                cellSize: cellWidth,
+                nonGridPixels: horizontalNonGridPixels
+            ),
+            height: safePixelDimension(
+                cellCount: mobileViewportCellLimit.rows,
+                cellSize: cellHeight,
+                nonGridPixels: verticalNonGridPixels
+            )
+        )
+    }
+
+    private func safePixelDimension(cellCount: Int, cellSize: Int, nonGridPixels: Int) -> UInt32 {
+        let clampedCellSize = max(1, cellSize)
+        let clampedNonGridPixels = min(max(0, nonGridPixels), Int(UInt32.max) - 1)
+        let maxCells = max(1, (Int(UInt32.max) - clampedNonGridPixels) / clampedCellSize)
+        let clampedCellCount = min(max(1, cellCount), maxCells)
+        return UInt32(clampedCellCount * clampedCellSize + clampedNonGridPixels)
+    }
+
+    private func updateMobileViewportBorder(
+        appliedWidth: UInt32,
+        appliedHeight: UInt32,
+        baseWidth: UInt32,
+        baseHeight: UInt32
+    ) {
+        let drawRightBorder = appliedWidth < baseWidth
+        let drawBottomBorder = appliedHeight < baseHeight
+        let borderScale = hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        hostedView.setMobileViewportBorder(
+            size: CGSize(
+                width: CGFloat(appliedWidth) / max(1, borderScale),
+                height: CGFloat(appliedHeight) / max(1, borderScale)
+            ),
+            drawRight: drawRightBorder,
+            drawBottom: drawBottomBorder
+        )
     }
 
     /// Force a full size recalculation and surface redraw.
@@ -6756,12 +7038,33 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    @discardableResult
+    func sendInputDataResult(_ data: Data) -> InputSendResult {
+        guard !data.isEmpty else { return .sent }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            let queued = enqueuePendingSocketInput(.inputText(data))
+            if queued {
+                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                requestBackgroundSurfaceStartIfNeeded()
+            }
+            return queued ? .queued : .inputQueueFull
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendInputData") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        writeInputTextData(data, to: liveSurface)
+        return .sent
+    }
+
+    @MainActor
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {
             switch event {
-            case .text(let value):
-                var bufferedText = value
-                flushText(&bufferedText, surface: surface)
+            case .rawBytes(let data):
+                writeInputTextData(data, to: surface)
             case .key(let event):
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             }
@@ -6772,8 +7075,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private func enqueuePendingSocketInput(_ text: String) -> Bool {
         let inputs = Self.parsedSocketInputEvents(for: text).compactMap { event -> PendingSocketInput? in
             switch event {
-            case .text(let value):
-                return value.isEmpty ? nil : .inputText(value)
+            case .rawBytes(let data):
+                return data.isEmpty ? nil : .inputText(data)
             case .key(let event):
                 return .key(event)
             }
@@ -6792,7 +7095,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
-            events.append(.text(bufferedText))
+            for chunk in committedTextInputChunks(from: bufferedText) {
+                events.append(.rawBytes(chunk))
+            }
             bufferedText.removeAll(keepingCapacity: true)
         }
 
@@ -6804,17 +7109,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )))
         }
 
+        func appendRawReturn() {
+            events.append(.rawBytes(Data([0x0D])))
+        }
+
         for scalar in text.unicodeScalars {
             switch scalar.value {
             case 0x0A:
                 if !previousWasCR {
                     flushBufferedText()
-                    appendKey(UInt32(kVK_Return), label: "return")
+                    appendRawReturn()
                 }
                 previousWasCR = false
             case 0x0D:
                 flushBufferedText()
-                appendKey(UInt32(kVK_Return), label: "return")
+                appendRawReturn()
                 previousWasCR = true
             case 0x09:
                 flushBufferedText()
@@ -6837,20 +7146,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return events
     }
 
-    private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
-        guard !buffer.isEmpty else { return }
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = 0
-        keyEvent.mods = GHOSTTY_MODS_NONE
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = 0
-        keyEvent.composing = false
-        buffer.withCString { ptr in
-            keyEvent.text = ptr
-            _ = ghostty_surface_key(surface, keyEvent)
+    private static func committedTextInputChunks(from text: String) -> [Data] {
+        guard !text.isEmpty else { return [] }
+
+        var chunks: [Data] = []
+        chunks.reserveCapacity(max(1, (text.utf8.count / committedTextInputChunkByteLimit) + 1))
+        var chunk = Data()
+        chunk.reserveCapacity(committedTextInputChunkByteLimit)
+
+        func flushChunk() {
+            guard !chunk.isEmpty else { return }
+            chunks.append(chunk)
+            chunk.removeAll(keepingCapacity: true)
         }
-        buffer.removeAll(keepingCapacity: true)
+
+        for scalar in text.unicodeScalars {
+            let scalarBytes = String(scalar).utf8
+            if !chunk.isEmpty, chunk.count + scalarBytes.count > committedTextInputChunkByteLimit {
+                flushChunk()
+            }
+            chunk.append(contentsOf: scalarBytes)
+        }
+        flushChunk()
+        return chunks
     }
 
     private func sendKeyEvent(
@@ -6920,6 +7238,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
+    private func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
 
@@ -7147,9 +7472,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             switch item {
             case .pasteText(let chunk):
                 writeTextData(chunk, to: surface)
-            case .inputText(let text):
-                var bufferedText = text
-                flushText(&bufferedText, surface: surface)
+            case .inputText(let chunk):
+                writeInputTextData(chunk, to: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
@@ -7210,18 +7534,42 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func debugBackgroundSurfaceStartQueuedForTesting() -> Bool {
+        backgroundSurfaceStartQueued
+    }
+
+    @MainActor
     func debugHasHeadlessStartupWindowForTesting() -> Bool {
         headlessStartupWindow != nil
     }
 
     @MainActor
-    func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
-        let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
-            if case .key = item {
-                count += 1
+    func debugPendingSocketInputForTesting() -> (
+        items: Int,
+        bytes: Int,
+        keyEvents: Int,
+        pasteTextItems: Int,
+        inputTextItems: Int
+    ) {
+        let counts = pendingSocketInputQueue.reduce(
+            into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0)
+        ) { counts, item in
+            switch item {
+            case .key:
+                counts.keyEvents += 1
+            case .pasteText:
+                counts.pasteTextItems += 1
+            case .inputText:
+                counts.inputTextItems += 1
             }
         }
-        return (pendingSocketInputQueue.count, pendingSocketInputBytes, keyEvents)
+        return (
+            pendingSocketInputQueue.count,
+            pendingSocketInputBytes,
+            counts.keyEvents,
+            counts.pasteTextItems,
+            counts.inputTextItems
+        )
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.
@@ -7269,6 +7617,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let teeContext = mobileByteTeeContext
+        mobileByteTeeContext = nil
+        let surfaceID = id
+        Task { @MainActor in
+            MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        }
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface
@@ -7288,6 +7642,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 
@@ -7295,6 +7650,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            teeContext?.release()
             return
         }
 #endif
@@ -7315,6 +7671,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            teeContext?.release()
 #if DEBUG
             cmuxDebugLog(
                 "surface.lifecycle.deinit.end surface=\(surfaceToken) " +
@@ -11049,6 +11406,60 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private final class TerminalViewportBorderOverlayView: NSView {
+    var effectiveSize: CGSize? {
+        didSet { needsDisplay = true }
+    }
+
+    var drawsVisibleAreaBorder = false {
+        didSet { needsDisplay = true }
+    }
+    var drawsVisibleAreaRightBorder = false {
+        didSet { needsDisplay = true }
+    }
+    var drawsVisibleAreaBottomBorder = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var acceptsFirstResponder: Bool { false }
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard drawsVisibleAreaBorder,
+              let effectiveSize,
+              effectiveSize.width > 1,
+              effectiveSize.height > 1 else {
+            return
+        }
+
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let lineWidth = 1 / max(1, scale)
+        let width = min(effectiveSize.width, bounds.width)
+        let height = min(effectiveSize.height, bounds.height)
+        guard width > lineWidth, height > lineWidth else { return }
+
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        let x = width - lineWidth / 2
+        let y = height - lineWidth / 2
+        if drawsVisibleAreaRightBorder {
+            path.move(to: NSPoint(x: x, y: 0))
+            path.line(to: NSPoint(x: x, y: y))
+        }
+        if drawsVisibleAreaBottomBorder {
+            path.move(to: NSPoint(x: 0, y: y))
+            path.line(to: NSPoint(x: x, y: y))
+        }
+        NSColor.separatorColor.withAlphaComponent(0.95).setStroke()
+        path.stroke()
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -11083,6 +11494,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
@@ -11374,6 +11786,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        mobileViewportBorderOverlayView.isHidden = true
+        addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -11783,6 +12197,7 @@ final class GhosttySurfaceScrollView: NSView {
             size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: bounds)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         if let zone = activeDropZone {
@@ -11823,6 +12238,15 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+    }
+
+    func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool) {
+        let isVisible = drawRight || drawBottom
+        mobileViewportBorderOverlayView.effectiveSize = size
+        mobileViewportBorderOverlayView.drawsVisibleAreaBorder = isVisible
+        mobileViewportBorderOverlayView.drawsVisibleAreaRightBorder = drawRight
+        mobileViewportBorderOverlayView.drawsVisibleAreaBottomBorder = drawBottom
+        mobileViewportBorderOverlayView.isHidden = !isVisible
     }
 
     @discardableResult
@@ -14765,10 +15189,18 @@ struct GhosttyTerminalView: NSViewRepresentable {
             Self.nextInstanceSerial &+= 1
             instanceSerial = Self.nextInstanceSerial
             super.init(frame: frameRect)
+            setContentHuggingPriority(.defaultLow, for: .horizontal)
+            setContentHuggingPriority(.defaultLow, for: .vertical)
+            setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         }
 
         required init?(coder: NSCoder) {
             fatalError("init(coder:) not implemented")
+        }
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
         }
 
         private struct GeometryState: Equatable {

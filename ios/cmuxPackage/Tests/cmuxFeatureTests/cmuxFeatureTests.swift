@@ -1,0 +1,3552 @@
+import CMUXMobileCore
+import Foundation
+import StackAuth
+import SwiftUI
+import Testing
+#if canImport(UIKit)
+import UIKit
+#endif
+@testable import cmuxFeature
+
+@MainActor
+@Test func startsAtSignInWithoutConnection() {
+    let store = CMUXMobileShellStore.preview()
+
+    #expect(store.phase == .signIn)
+    #expect(store.isSignedIn == false)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.selectedWorkspace?.name == "cmux")
+    #expect(store.selectedTerminalID?.rawValue == "terminal-build")
+}
+
+@Test func authBuildPolicyCompilesDevShortcutOnlyForDebug() {
+    #if CMUX_DEV_AUTH
+    #expect(MobileAuthBuildPolicy.includesFortyTwoShortcut)
+    #else
+    #expect(!MobileAuthBuildPolicy.includesFortyTwoShortcut)
+    #endif
+}
+
+@Test func authAutoLoginPolicyUsesRealStoredTokenState() {
+    let credentials = AuthAutoLoginCredentials(email: "test@example.com", password: "pass")
+
+    #expect(MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: false))
+    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: credentials, hasStoredTokens: true))
+    #expect(!MobileAuthAutoLoginPolicy.shouldStartAutoLogin(credentials: nil, hasStoredTokens: false))
+}
+
+#if DEBUG
+@Test func mobileDevStackAuthTokenProviderUsesExplicitEnvironmentOnly() {
+    #expect(MobileShellDevStackAuthTokenProvider.token(environment: [:]) == nil)
+    #expect(MobileShellDevStackAuthTokenProvider.token(environment: [
+        MobileShellDevStackAuthTokenProvider.environmentKey: "   "
+    ]) == nil)
+    #expect(MobileShellDevStackAuthTokenProvider.token(environment: [
+        MobileShellDevStackAuthTokenProvider.environmentKey: " cmux-dev-token "
+    ]) == "cmux-dev-token")
+}
+#endif
+
+@Test func signInCodeInputPolicyNormalizesPastedCodesBeforeVerifying() {
+    #expect(SignInCodeInputPolicy.action(for: "12345") == .none)
+    #expect(SignInCodeInputPolicy.action(for: "123456") == .verify)
+    #expect(SignInCodeInputPolicy.action(for: "123456\n") == .assign("123456"))
+    #expect(SignInCodeInputPolicy.action(for: "1234567") == .assign("123456"))
+}
+
+@Test func authDisplaySafeErrorPreservesUserFacingStackErrors() throws {
+    let userFacingCodes = [
+        "SCHEMA_ERROR",
+        "USER_EMAIL_ALREADY_EXISTS",
+        "VERIFICATION_CODE_ERROR",
+        "INVALID_OTP",
+        "OTP_EXPIRED",
+        "RATE_LIMIT",
+        "EMAIL_PASSWORD_MISMATCH",
+        "USER_NOT_FOUND",
+        "PASSKEY_AUTHENTICATION_FAILED",
+        "PASSKEY_WEBAUTHN_ERROR",
+        "INVALID_TOTP_CODE",
+        "REDIRECT_URL_NOT_WHITELISTED",
+        "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
+        "INVALID_APPLE_CREDENTIALS",
+    ]
+
+    for code in userFacingCodes {
+        let mapped = AuthManager.displaySafeAuthError(StackAuthError(code: code, message: "message"))
+        let stackError = try #require(mapped as? StackAuthErrorProtocol)
+        #expect(stackError.code == code)
+    }
+}
+
+@Test func authDisplaySafeErrorMapsCancellationAndUnknownStackErrors() throws {
+    let cancelled = AuthManager.displaySafeAuthError(StackAuthError(code: "oauth_cancelled", message: "cancelled"))
+    guard case AuthError.cancelled = cancelled else {
+        Issue.record("Expected OAuth cancellation to map to AuthError.cancelled")
+        return
+    }
+
+    let unknown = AuthManager.displaySafeAuthError(StackAuthError(code: "UNEXPECTED", message: "raw server detail"))
+    guard case AuthError.serverError(0, "auth_failed") = unknown else {
+        Issue.record("Expected unknown Stack errors to use the generic auth failure")
+        return
+    }
+}
+
+@Test func cachedSessionValidationClearsOnlyDefinitiveUnauthorizedFailures() {
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: StackAuthError(code: "UNAUTHORIZED", message: "expired")
+        ) == .clearSession
+    )
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: StackAuthError(code: "INVALID_TOKEN", message: "invalid")
+        ) == .clearSession
+    )
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: URLError(.notConnectedToInternet)
+        ) == .preserveCachedSession
+    )
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: StackAuthError(code: "RATE_LIMIT", message: "try later")
+        ) == .preserveCachedSession
+    )
+}
+
+@Test func rpcRequestTimeoutCancelsOperationWhenCallerIsCancelled() async throws {
+    let started = AsyncFlag()
+    let cancelled = AsyncFlag()
+    let task = Task {
+        try await MobileCoreRPCClient.debugWithRequestTimeout(
+            timeoutNanoseconds: 60 * 1_000_000_000
+        ) {
+            await started.set()
+            do {
+                try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                return "completed"
+            } catch {
+                await cancelled.set()
+                throw error
+            }
+        }
+    }
+
+    for _ in 0..<100 {
+        if await started.isSet() {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(await started.isSet())
+
+    task.cancel()
+
+    do {
+        _ = try await task.value
+        Issue.record("Expected cancelled RPC timeout wrapper to throw")
+    } catch is CancellationError {
+    } catch {
+        Issue.record("Expected CancellationError, got \(error)")
+    }
+
+    for _ in 0..<100 {
+        if await cancelled.isSet() {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(await cancelled.isSet())
+}
+
+@Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
+    let transport = QueuedCancellationProbeTransport()
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
+    let runtime = testRuntime(
+        transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+        rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-main",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
+    let firstRequest = try MobileCoreRPCClient.requestData(
+        method: "terminal.input",
+        params: [
+            "workspace_id": "workspace-main",
+            "terminal_id": "terminal-main",
+            "text": "first",
+        ],
+        id: "first-input"
+    )
+    let queuedRequest = try MobileCoreRPCClient.requestData(
+        method: "workspace.create",
+        params: ["title": "queued-workspace"],
+        id: "queued-create"
+    )
+
+    let firstTask = Task {
+        try await client.sendRequest(firstRequest)
+    }
+    let firstSent = try await transport.waitForSentRequestCount(1)
+    #expect(firstSent.map(\.method) == ["terminal.input"])
+
+    let queuedTask = Task {
+        try await client.sendRequest(queuedRequest)
+    }
+    for _ in 0..<100 {
+        await Task.yield()
+    }
+    queuedTask.cancel()
+    do {
+        _ = try await queuedTask.value
+        Issue.record("Expected queued RPC cancellation to throw")
+    } catch {
+    }
+
+    await transport.releaseFirstSend()
+    for _ in 0..<100 {
+        if try await transport.sentRequests().count > 1 {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    let sent = try await transport.sentRequests()
+    #expect(sent.map(\.method) == ["terminal.input"])
+    firstTask.cancel()
+    _ = try? await firstTask.value
+}
+
+@Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: ScriptedTransportResponses([])),
+        stackAccessTokenProvider: { "test-stack-token" }
+    )
+
+    #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
+    #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
+}
+
+@Test func manualRouteAuthPolicyAllowsStackAuthOnlyForTrustedManualHostPortRoutes() throws {
+    let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+    let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
+    let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+    #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
+    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
+    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
+    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
+    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
+}
+
+@Test func pairedMacStorePersistsActiveMacsScopedByStackUser() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let userARoute = try hostPortRoute(kind: .tailscale, host: "work-a.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let userBRoute = try hostPortRoute(kind: .tailscale, host: "work-b.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let now = Date(timeIntervalSince1970: 1_000)
+
+    try store.upsert(
+        macDeviceID: "mac-a",
+        displayName: "Work A",
+        routes: [userARoute],
+        markActive: true,
+        stackUserID: "user-a",
+        now: now
+    )
+    try store.upsert(
+        macDeviceID: "mac-b",
+        displayName: "Work B",
+        routes: [userBRoute],
+        markActive: true,
+        stackUserID: "user-b",
+        now: now.addingTimeInterval(10)
+    )
+
+    #expect(try store.activeMac(stackUserID: "user-a")?.macDeviceID == "mac-a")
+    #expect(try store.activeMac(stackUserID: "user-b")?.macDeviceID == "mac-b")
+    #expect(try store.activeMac(stackUserID: "missing") == nil)
+    #expect(try store.loadAll(stackUserID: "user-a").map(\.routes).first == [userARoute])
+}
+
+@MainActor
+@Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
+    let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+
+    let route = CMUXMobileShellStore.firstReconnectHostPortRoute(
+        [loopback, tailscale],
+        supportedKinds: [.tailscale]
+    )
+
+    #expect(route?.0 == "100.71.210.41")
+    #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
+}
+
+@Test func compactHeightUsesStackWorkspaceNavigation() {
+    #expect(
+        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .compact
+        )
+    )
+    #expect(
+        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .regular
+        )
+    )
+    #expect(
+        !MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular
+        )
+    )
+}
+
+@MainActor
+@Test func rootAuthGateIgnoresLegacyShellSignInState() {
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+
+    #expect(store.isSignedIn)
+    #expect(!MobileRootAuthGate.isAuthenticated(stackAuthenticated: false))
+}
+
+@Test func rootAuthGateAllowsAttachTicketAuthenticationWithoutStackAuth() throws {
+    #expect(MobileRootAuthGate.isAuthenticated(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: true
+    ))
+    #expect(!MobileRootAuthGate.isAuthenticated(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: false
+    ))
+
+    let attachURL = try #require(URL(string: "cmux-ios://attach?v=1&payload=test"))
+    let authURL = try #require(URL(string: "stack-auth-mobile-oauth-url://callback?code=test"))
+    let otherURL = try #require(URL(string: "cmux-ios://oauth?v=1"))
+
+    #expect(MobileRootAuthGate.isAttachURL(attachURL))
+    #expect(!MobileRootAuthGate.isAttachURL(authURL))
+    #expect(!MobileRootAuthGate.isAttachURL(otherURL))
+}
+
+@Test func rootAuthGateShowsRestoringSessionOnlyBeforeAuthentication() {
+    #expect(MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: false,
+        isRestoringSession: true
+    ))
+    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: true,
+        attachTicketAuthenticated: false,
+        isRestoringSession: true
+    ))
+    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: true,
+        isRestoringSession: true
+    ))
+    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: false,
+        isRestoringSession: false
+    ))
+}
+
+@MainActor
+@Test func rootAuthGateSynchronizesStackAuthIntoShellStore() {
+    let store = CMUXMobileShellStore.preview()
+
+    MobileRootAuthGate.syncShellAuthentication(stackAuthenticated: true, store: store)
+
+    #expect(store.isSignedIn)
+
+    MobileRootAuthGate.syncShellAuthentication(stackAuthenticated: false, store: store)
+
+    #expect(!store.isSignedIn)
+    #expect(store.connectionState == .disconnected)
+}
+
+@MainActor
+@Test func rootAuthGateKeepsShellSignedInWhileStackAuthRestores() {
+    let store = CMUXMobileShellStore.preview()
+    store.signIn()
+
+    MobileRootAuthGate.syncShellAuthentication(
+        stackAuthenticated: false,
+        isRestoringSession: true,
+        store: store
+    )
+
+    #expect(store.isSignedIn)
+}
+
+@Test func rootAuthGateClearsOnlyStaleTemporaryAttachAuthentication() {
+    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .failed,
+        connectionState: .disconnected,
+        hasActiveUnexpiredTicket: false
+    ))
+    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .superseded,
+        connectionState: .disconnected,
+        hasActiveUnexpiredTicket: false
+    ))
+    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .superseded,
+        connectionState: .connected,
+        hasActiveUnexpiredTicket: true
+    ))
+    #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .connected,
+        connectionState: .connected,
+        hasActiveUnexpiredTicket: true
+    ))
+    #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        pairingResult: .connected,
+        connectionState: .connected,
+        hasActiveUnexpiredTicket: false
+    ))
+    #expect(MobileRootAuthGate.shouldReconnectStoredMac(
+        stackAuthenticated: true,
+        attachTicketAuthenticated: false,
+        connectionState: .disconnected
+    ))
+    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+        stackAuthenticated: true,
+        attachTicketAuthenticated: true,
+        connectionState: .disconnected
+    ))
+    #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: true,
+        connectionState: .disconnected
+    ))
+}
+
+@MainActor
+@Test func signInMovesToPairingUntilCodeConnects() {
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    #expect(store.phase == .pairing)
+
+    store.connectPreviewHost()
+    #expect(store.phase == .pairing)
+
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+    #expect(store.phase == .workspaces)
+    #expect(store.connectedHostName == "cmux-macbook")
+}
+
+@MainActor
+@Test func pairingURLUsesCMUXMobileCorePayloadWithoutConcreteTransport() async throws {
+    let payload = try MobileSyncPairingPayload(
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        host: "127.0.0.1",
+        port: 49831,
+        expiresAt: Date().addingTimeInterval(60),
+        transport: .debugLoopback
+    )
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    await store.connectPairingURL(try payload.encodedURL().absoluteString)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectedHostName == "Test Mac")
+    #expect(store.activeTicket?.macDeviceID == "test-mac")
+    #expect(store.activeRoute?.kind == .debugLoopback)
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+}
+
+@MainActor
+@Test func connectPreviewHostIgnoresPairingURLsForTrackedAsyncPath() async {
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    store.pairingCode = "cmux-ios://attach?v=1&payload=invalid"
+    store.connectPreviewHost()
+    await Task.yield()
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
+@Test func expiredPairingURLPayloadIsRejectedBeforePreviewConnection() async throws {
+    let json = """
+    {
+      "version": 1,
+      "mac_device_id": "test-mac",
+      "mac_display_name": "Test Mac",
+      "host": "127.0.0.1",
+      "port": 49831,
+      "expires_at": "1970-01-01T00:00:01Z",
+      "transport": "debug_loopback"
+    }
+    """
+    let url = try #require(URL(string: "cmux-ios://pair?v=1&payload=\(base64URLEncode(Data(json.utf8)))"))
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    let didConnect = await store.connectPairingURL(url.absoluteString)
+
+    #expect(!didConnect)
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.connectionError == "Invalid pairing code.")
+}
+
+@MainActor
+@Test func wrappedAttachURLWhitespaceIsAccepted() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let url = try attachURL(for: ticket).absoluteString
+    let wrappedURL = String(url.prefix(72)) + "\n  " + String(url.dropFirst(72))
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    await store.connectPairingURL(String(wrappedURL))
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Test Mac")
+    #expect(store.activeRoute?.kind == .debugLoopback)
+    #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+}
+
+@MainActor
+@Test func supersededPairingURLReportsSupersededWithoutClearingNewerConnection() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let firstTicket = try CmxAttachTicket(
+        workspaceID: "first-workspace",
+        terminalID: "first-terminal",
+        macDeviceID: "first-mac",
+        macDisplayName: "First Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let secondTicket = try CmxAttachTicket(
+        workspaceID: "second-workspace",
+        terminalID: "second-terminal",
+        macDeviceID: "second-mac",
+        macDisplayName: "Second Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = SupersededAttachURLRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let firstURL = try attachURL(for: firstTicket).absoluteString
+    let secondURL = try attachURL(for: secondTicket).absoluteString
+
+    store.signIn()
+    let firstTask = Task { @MainActor in
+        await store.connectPairingURLResult(firstURL)
+    }
+    await router.waitForFirstWorkspaceListRequest()
+
+    let secondResult = await store.connectPairingURLResult(secondURL)
+    await router.releaseFirstWorkspaceListResponse()
+    let firstResult = await firstTask.value
+
+    #expect(secondResult == .connected)
+    #expect(firstResult == .superseded)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectedHostName == "Second Mac")
+    #expect(store.selectedWorkspace?.id.rawValue == "second-workspace")
+    #expect(store.activeTicket?.macDeviceID == "second-mac")
+}
+
+@MainActor
+@Test func attachURLWithoutPathStillConnects() async throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "devbox.local", port: 15432)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let url = try attachURL(for: ticket)
+    let store = CMUXMobileShellStore.preview()
+
+    #expect(url.host == "attach")
+    #expect(url.path.isEmpty)
+
+    store.signIn()
+    await store.connectPairingURL(url.absoluteString)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionError == nil)
+    #expect(store.activeTicket == ticket)
+    #expect(store.activeRoute == route)
+}
+
+@MainActor
+@Test func remoteWorkspaceListAcceptsMacSnakeCasePayload() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "live-workspace",
+                        "title": "Live Workspace",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [],
+                    ],
+                ],
+            ]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Test Mac")
+    #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+    #expect(store.selectedWorkspace?.name == "Live Workspace")
+    #expect(store.selectedTerminalID == nil)
+}
+
+@MainActor
+@Test func attachURLSelectsTicketWorkspaceOverPersistedMobileSelection() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "ticket-workspace",
+        terminalID: "ticket-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "workspace-main",
+                        "title": "Persisted Selection",
+                        "current_directory": "/Users/test/old",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "terminal-build",
+                                "title": "Old Terminal",
+                                "current_directory": "/Users/test/old",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": "ticket-workspace",
+                        "title": "Ticket Workspace",
+                        "current_directory": "/Users/test/new",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": "ticket-terminal",
+                                "title": "Ticket Terminal",
+                                "current_directory": "/Users/test/new",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "ticket-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "ticket-terminal")
+}
+
+@MainActor
+@Test func manualHostPairingUsesNetworkRouteForTailscaleMagicDNSHost() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectedHostName == "Work Mac")
+    #expect(route.kind == .tailscale)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "work-mac.tailnet.ts.net")
+        #expect(port == CmxMobileDefaults.defaultHostPort)
+    } else {
+        Issue.record("manual Tailscale route should use host/port")
+    }
+}
+
+@MainActor
+@Test func runtimeServerPushOptOutDoesNotSubscribeAfterConnect() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "live-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: false
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+}
+
+@MainActor
+@Test func manualHostPairingUsesNetworkRouteForPrivateLANIPWithStackAuth() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
+        try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-lan"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
+
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Studio LAN")
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "192.168.1.77")
+        #expect(port == 15432)
+    } else {
+        Issue.record("manual LAN route should use host/port")
+    }
+    #expect(route.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-lan" })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
+}
+
+@MainActor
+@Test func manualHostPairingUsesNetworkRouteForLocalDNSNameWithStackAuth() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
+        try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-local-dns"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
+
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "devbox.local")
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "devbox.local")
+        #expect(port == 61234)
+    } else {
+        Issue.record("manual local DNS route should use host/port")
+    }
+    #expect(route.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-local-dns" })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
+}
+
+@MainActor
+@Test func manualHostPairingProbesLANHostForAttachTicketBeforeStackAuthFallback() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-fallback"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Studio LAN", host: "192.168.1.77", port: 15432)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Studio LAN")
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-fallback" })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
+}
+
+@MainActor
+@Test func manualHostPairingTimesOutWrongHostWithoutStayingConnected() async throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    )
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: HangingTransportFactory(),
+        pairingRequestTimeoutNanoseconds: 1_000_000
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Slow Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(route.kind == .tailscale)
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure the host app is open and accepting mobile connections.")
+}
+
+@MainActor
+@Test func cancelManualHostPairingDoesNotApplyDelayedTicket() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let router = DelayedManualAttachTicketRouter(route: route)
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    let connectTask = Task { @MainActor in
+        await store.connectManualHost(name: "Slow Mac", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    }
+
+    await router.waitForAttachTicketRequest()
+    store.cancelPairing()
+    await router.releaseAttachTicketResponse()
+    await connectTask.value
+
+    let requests = await router.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create"])
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == nil)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+}
+
+@MainActor
+@Test func manualHostPairingUsesLoopbackRouteForLocalhost() async throws {
+    let attachRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectedHostName == "127.0.0.1")
+    #expect(route.kind == .debugLoopback)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "127.0.0.1")
+        #expect(port == CmxMobileDefaults.defaultHostPort)
+    } else {
+        Issue.record("manual loopback route should use host/port")
+    }
+}
+
+@MainActor
+@Test func debugLoopbackAttachURLRejectsNonLoopbackHostBeforeStackAuth() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "203.0.113.9", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: "local-workspace",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
+@Test func unsupportedAttachTicketClearsPreviousRemoteClient() async throws {
+    let supportedRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let supportedTicket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [supportedRoute],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: supportedTicket).absoluteString)
+    #expect(store.phase == .workspaces)
+
+    let unsupportedRoute = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(id: "iroh-peer", relayHint: nil, directAddrs: [], relayURL: nil)
+    )
+    let unsupportedTicket = try CmxAttachTicket(
+        workspaceID: "iroh-workspace",
+        terminalID: "iroh-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [unsupportedRoute],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    await store.connectPairingURL(try attachURL(for: unsupportedTicket).absoluteString)
+
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "This pairing code is not supported.")
+
+    store.terminalInputText = "echo should-not-hit-old-host"
+    await store.submitTerminalInput()
+
+    let requests = try await responses.sentRequests()
+    #expect(requests.contains { $0.method == "workspace.list" })
+    #expect(!requests.contains { $0.method == "terminal.input" })
+}
+
+@MainActor
+@Test func manualFallbackTicketListsWorkspacesWithoutSyntheticWorkspaceFilter() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(message: "ticket unavailable"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    let requests = try await responses.sentRequests()
+    let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(workspaceList.workspaceID == nil)
+    #expect(store.phase == .workspaces)
+}
+
+@MainActor
+@Test func uuidAttachTicketListsAllWorkspacesFirstWithAttachToken() async throws {
+    let workspaceID = UUID().uuidString
+    let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let requests = try await responses.sentRequests()
+    let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(workspaceList.workspaceID == nil)
+    #expect(workspaceList.attachToken == "ticket-secret")
+    #expect(workspaceList.stackAccessToken == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
+}
+
+@MainActor
+@Test func signedInAttachTicketConnectsWithFullWorkspaceListFirst() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let docsWorkspaceID = UUID().uuidString
+    let docsTerminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": workspaceID,
+                        "title": "cmux",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": terminalID,
+                                "title": "Build",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": docsWorkspaceID,
+                        "title": "Docs",
+                        "current_directory": "/Users/test/docs",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": docsTerminalID,
+                                "title": "Notes",
+                                "current_directory": "/Users/test/docs",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let workspaceLists = try await waitForWorkspaceListRequestCount(1, responses: responses)
+    #expect(workspaceLists[0].workspaceID == nil)
+    #expect(workspaceLists[0].terminalID == nil)
+    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
+    let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, docsWorkspaceID])
+    #expect(workspaceIDs == [workspaceID, docsWorkspaceID])
+    #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
+}
+
+@MainActor
+@Test func signedInLoopbackAttachTicketConnectsWithFullWorkspaceListFirst() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let secondWorkspaceID = UUID().uuidString
+    let secondTerminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": workspaceID,
+                        "title": "Main",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": terminalID,
+                                "title": "Build",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": secondWorkspaceID,
+                        "title": "Second",
+                        "current_directory": "/Users/test/second",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": secondTerminalID,
+                                "title": "Shell",
+                                "current_directory": "/Users/test/second",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let workspaceLists = try await waitForWorkspaceListRequestCount(1, responses: responses)
+    #expect(workspaceLists[0].workspaceID == nil)
+    #expect(workspaceLists[0].terminalID == nil)
+    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
+    let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
+    #expect(workspaceIDs == [workspaceID, secondWorkspaceID])
+}
+
+@MainActor
+@Test func signedInAttachTicketFallsBackToScopedWorkspaceWhenFullListFails() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(message: "Full list not supported"),
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let workspaceLists = try await waitForWorkspaceListRequestCount(2, responses: responses)
+    #expect(workspaceLists[0].workspaceID == nil)
+    #expect(workspaceLists[0].terminalID == nil)
+    #expect(workspaceLists[1].workspaceID == workspaceID)
+    #expect(workspaceLists[1].terminalID == terminalID)
+    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(store.workspaces.map(\.id.rawValue) == [workspaceID])
+}
+
+@MainActor
+@Test func terminalScopedAttachTicketWithAttachTokenListsAllWorkspacesFirst() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let requests = try await responses.sentRequests()
+    let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
+    #expect(workspaceList.workspaceID == nil)
+    #expect(workspaceList.terminalID == nil)
+    #expect(workspaceList.attachToken == "ticket-secret")
+    #expect(workspaceList.stackAccessToken == nil)
+    #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
+}
+
+@MainActor
+@Test func attachTicketFallsBackToNextRouteWhenPreferredRouteFails() async throws {
+    let workspaceID = UUID().uuidString
+    let preferredRoute = try CmxAttachRoute(
+        id: "magicdns",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort),
+        priority: 10
+    )
+    let fallbackRoute = try CmxAttachRoute(
+        id: "numeric",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort),
+        priority: 20
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [fallbackRoute, preferredRoute],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Fallback Workspace"),
+    ])
+    let attempts = RouteAttemptRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: FailingRouteTransportFactory(
+            failingRouteID: preferredRoute.id,
+            responses: responses,
+            attempts: attempts
+        )
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(await attempts.routeIDs() == [preferredRoute.id, preferredRoute.id, fallbackRoute.id])
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.id == fallbackRoute.id)
+    #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
+}
+
+@MainActor
+@Test func failedAttachTicketDoesNotPersistActivePairedMac() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let route = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.71.210.41",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "offline-mac",
+        macDisplayName: "Offline Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([])
+    let attempts = RouteAttemptRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: FailingRouteTransportFactory(
+            failingRouteID: route.id,
+            responses: responses,
+            attempts: attempts
+        )
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore
+    )
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(store.connectionState == .disconnected)
+    #expect(try pairedMacStore.activeMac() == nil)
+    #expect(try pairedMacStore.loadAll().isEmpty)
+}
+
+@MainActor
+@Test func expiredNetworkAttachTicketFromPairLinkDoesNotFallbackToStackAuth() async throws {
+    let ticketExpiresAt = Date().addingTimeInterval(60)
+    let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: "expired-workspace",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: ticketExpiresAt,
+        authToken: "expired-ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "expired-workspace", title: "Expired Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-after-ticket-expiry",
+        now: { ticketExpiresAt.addingTimeInterval(1) }
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func pairLinkWithoutAttachTokenRejectsArbitraryHostBeforeSendingAuth() async throws {
+    let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "untrusted-mac",
+        macDisplayName: "Untrusted Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: ticket.workspaceID, title: "Untrusted Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "do-not-send"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let requests = try await responses.sentRequests()
+    #expect(requests.isEmpty)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError != nil)
+}
+
+@MainActor
+@Test func manualHostPairingUsesNetworkRouteForTailscaleIP() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.71.210.41",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "tailscale-ip-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "tailscale-ip-workspace", title: "Tailscale IP Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-tailscale-ip"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Work Mac")
+    #expect(route.kind == .tailscale)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "100.71.210.41")
+        #expect(port == CmxMobileDefaults.defaultHostPort)
+    } else {
+        Issue.record("manual Tailscale IP route should use host/port")
+    }
+    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-tailscale-ip")
+}
+
+@MainActor
+@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHostWithStackAuth() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
+        try rpcWorkspaceListFrame(workspaceID: "default-port-lan-workspace", title: "Default Port LAN Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-default-lan"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Work Mac")
+    let route = try #require(store.activeRoute)
+    #expect(route.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-default-lan" })
+    #expect(requests.allSatisfy { $0.attachToken == nil })
+}
+
+@MainActor
+@Test func manualHostPairingRejectsInvalidHost() async {
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    await store.connectManualHost(name: "Bad Host", host: "dev box.local", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == "Enter a host or IP address, without spaces or URL paths.")
+}
+
+@MainActor
+@Test func manualHostPairingRejectsInvalidPort() async {
+    let store = CMUXMobileShellStore.preview()
+
+    store.signIn()
+    await store.connectManualHost(name: "Bad Port", host: "devbox.local", port: 70_000)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.connectionError == "Enter a port from 1 to 65535.")
+}
+
+@MainActor
+@Test func terminalSurfaceNotReadyReplacesPlaceholderWithoutPairingError() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: route, workspaceID: "local-workspace"),
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "local-workspace",
+                        "title": "Local Workspace",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "local-terminal",
+                                "title": "Local Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+        try rpcErrorFrame(message: "Terminal surface is not ready"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "local-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "local-terminal")
+}
+
+@MainActor
+@Test func workspaceListPrefersReadyTerminalBeforeSnapshotRefresh() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: route, workspaceID: "local-workspace"),
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "local-workspace",
+                        "title": "Local Workspace",
+                        "current_directory": "/Users/test/project",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "stale-terminal",
+                                "title": "Stale Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": false,
+                                "is_focused": true,
+                            ],
+                            [
+                                "id": "ready-terminal",
+                                "title": "Ready Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": false,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "local-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "ready-terminal")
+}
+
+@MainActor
+@Test func notReadySelectedTerminalDoesNotFallbackToReadyTerminalInAnotherWorkspace() async throws {
+    let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: route, workspaceID: "stale-workspace"),
+        try rpcResultFrame(
+            result: [
+                "workspaces": [
+                    [
+                        "id": "stale-workspace",
+                        "title": "Stale Workspace",
+                        "current_directory": "/Users/test/stale",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "stale-terminal",
+                                "title": "Stale Terminal",
+                                "current_directory": "/Users/test/stale",
+                                "is_ready": false,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                    [
+                        "id": "ready-workspace",
+                        "title": "Ready Workspace",
+                        "current_directory": "/Users/test/ready",
+                        "is_selected": false,
+                        "terminals": [
+                            [
+                                "id": "ready-terminal",
+                                "title": "Ready Terminal",
+                                "current_directory": "/Users/test/ready",
+                                "is_ready": true,
+                                "is_focused": true,
+                            ],
+                        ],
+                    ],
+                ],
+            ]
+        ),
+        try rpcErrorFrame(message: "Terminal surface is not ready"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "stale-workspace")
+    #expect(store.selectedTerminalID?.rawValue == "stale-terminal")
+}
+
+@MainActor
+@Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
+    let store = CMUXMobileShellStore.preview()
+    store.signIn()
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+
+    store.createWorkspace()
+
+    #expect(store.workspaces.count == 3)
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
+    #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-1")
+}
+
+@MainActor
+@Test func remoteCreateWorkspaceKeepsCreatedWorkspaceSelectedAfterTicketAttach() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = RemoteCreateWorkspaceRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.createWorkspace()
+
+    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
+    #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-1")
+    #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
+}
+
+@MainActor
+@Test func remoteCreateWorkspaceUsesAttachTicketAuth() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+        authToken: "ticket-secret"
+    )
+    let router = RemoteCreateWorkspaceRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        stackAccessToken: "test-stack-token"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.createWorkspace()
+
+    for _ in 0..<200 where store.selectedWorkspace?.id.rawValue != "workspace-3" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    let requests = await router.sentRequests()
+    let createRequest = try #require(requests.first { $0.method == "workspace.create" })
+    #expect(createRequest.attachToken == "ticket-secret")
+    #expect(createRequest.stackAccessToken == nil)
+    #expect(store.connectionError == nil)
+    #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
+}
+
+@MainActor
+@Test func createTerminalAddsTerminalToSelectedWorkspace() {
+    let store = CMUXMobileShellStore.preview()
+    store.signIn()
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+
+    store.createTerminal()
+
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+    #expect(store.selectedWorkspace?.terminals.count == 4)
+    #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
+}
+
+@MainActor
+@Test func remoteCreateTerminalKeepsOtherWorkspacesWhenMacReturnsScopedList() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = RemoteCreateTerminalRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
+
+    store.createTerminal()
+
+    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "workspace-main-terminal-2" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
+    #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-2")
+    #expect(store.workspaces.first { $0.id.rawValue == "workspace-docs" }?.terminals.first?.id.rawValue == "terminal-notes")
+}
+
+@MainActor
+@Test func remoteCreateTerminalDoesNotStealSelectionAfterWorkspaceSwitch() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = DelayedRemoteCreateTerminalRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.createTerminal()
+
+    await router.waitForTerminalCreateRequest()
+    await store.openWorkspace(.init(rawValue: "workspace-docs"))
+    await router.releaseTerminalCreateResponse()
+
+    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "terminal-notes" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    let requests = await router.sentRequests()
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
+    #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+    #expect(!requests.contains { $0.workspaceID == "workspace-docs" && $0.terminalID == "workspace-main-terminal-2" })
+}
+
+@MainActor
+@Test func selectingWorkspaceReconcilesTerminalSelection() {
+    let store = CMUXMobileShellStore.preview()
+    store.signIn()
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+    store.selectTerminal("terminal-agent")
+
+    store.selectedWorkspaceID = "workspace-docs"
+
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
+    #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+}
+
+@Test func compactNavigationDoesNotAutoPushWhenAttachSelectsWorkspace() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+        currentPath: [MobileWorkspacePreview.ID](),
+        selectedWorkspaceID: .init(rawValue: "workspace-a")
+    )
+
+    #expect(path.isEmpty)
+}
+
+@Test func compactNavigationPushesNewlyCreatedWorkspaceFromList() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        currentPath: [MobileWorkspacePreview.ID](),
+        selectedWorkspaceID: .init(rawValue: "workspace-created"),
+        existingWorkspaceIDs: [
+            .init(rawValue: "workspace-a"),
+            .init(rawValue: "workspace-b"),
+        ]
+    )
+
+    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
+}
+
+@Test func compactNavigationDoesNotTreatExistingSelectionAsCreatedWorkspace() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        currentPath: [MobileWorkspacePreview.ID](),
+        selectedWorkspaceID: .init(rawValue: "workspace-a"),
+        existingWorkspaceIDs: [
+            .init(rawValue: "workspace-a"),
+            .init(rawValue: "workspace-b"),
+        ]
+    )
+
+    #expect(path == nil)
+}
+
+@Test func compactNavigationIgnoresCreatedWorkspaceSelectionWhenNoCreateIsPending() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        currentPath: [MobileWorkspacePreview.ID](),
+        selectedWorkspaceID: .init(rawValue: "workspace-created"),
+        existingWorkspaceIDs: nil
+    )
+
+    #expect(path == nil)
+}
+
+@Test func compactNavigationTracksSelectionAfterUserOpenedWorkspace() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-b")
+    )
+
+    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-b")])
+}
+
+@Test func compactNavigationClearsWhenSelectedWorkspaceDisappears() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+        selectedWorkspaceID: nil
+    )
+
+    #expect(path.isEmpty)
+}
+
+@Test func workspaceDetailPrefersSelectedWorkspaceWhenDestinationIsStale() {
+    let resolvedID = WorkspaceDetailResolutionPolicy.resolvedWorkspaceID(
+        requestedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+        availableWorkspaceIDs: [
+            MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+            MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+        ]
+    )
+
+    #expect(resolvedID == MobileWorkspacePreview.ID(rawValue: "workspace-created"))
+}
+
+@Test func workspaceDetailUsesRequestedWorkspaceWhenSelectionMatchesDestination() {
+    let resolvedID = WorkspaceDetailResolutionPolicy.resolvedWorkspaceID(
+        requestedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+        availableWorkspaceIDs: [
+            MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+            MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+        ]
+    )
+
+    #expect(resolvedID == MobileWorkspacePreview.ID(rawValue: "workspace-main"))
+}
+
+@Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
+    var buffer = MobileTerminalInputSendBuffer()
+    let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+    let terminalA = MobileTerminalPreview.ID(rawValue: "terminal-a")
+    let terminalB = MobileTerminalPreview.ID(rawValue: "terminal-b")
+
+    let startsDrain = buffer.enqueue(Data("p".utf8), workspaceID: workspaceA, terminalID: terminalA)
+    let appendsWhileDraining = buffer.enqueue(Data("rint".utf8), workspaceID: workspaceA, terminalID: terminalA)
+    let appendsFinalCharacter = buffer.enqueue(Data("f".utf8), workspaceID: workspaceA, terminalID: terminalA)
+    #expect(startsDrain == .startDraining)
+    #expect(appendsWhileDraining == .queued)
+    #expect(appendsFinalCharacter == .queued)
+    let firstBatch = buffer.nextBatch()
+    #expect(firstBatch?.workspaceID == workspaceA)
+    #expect(firstBatch?.terminalID == terminalA)
+    #expect(firstBatch?.data == Data("printf".utf8))
+
+    let appendsSecondBatch = buffer.enqueue(Data(" 'one'".utf8), workspaceID: workspaceA, terminalID: terminalA)
+    #expect(appendsSecondBatch == .queued)
+    #expect(buffer.nextBatch()?.data == Data(" 'one'".utf8))
+    #expect(buffer.nextBatch() == nil)
+
+    let restartsDrain = buffer.enqueue(Data("\r".utf8), workspaceID: workspaceA, terminalID: terminalB)
+    #expect(restartsDrain == .startDraining)
+    let terminalBBatch = buffer.nextBatch()
+    #expect(terminalBBatch?.terminalID == terminalB)
+    #expect(terminalBBatch?.data == Data("\r".utf8))
+}
+
+@Test func rawTerminalInputSendBufferRejectsOverflowUntilPendingInputDrains() {
+    var buffer = MobileTerminalInputSendBuffer()
+    let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+    let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+    let fullBufferText = String(repeating: "a", count: MobileTerminalInputSendBuffer.maximumPendingByteCount)
+    let fullBufferData = Data(fullBufferText.utf8)
+
+    #expect(buffer.enqueue(fullBufferData, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
+    #expect(buffer.enqueue(Data("b".utf8), workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+    #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
+
+    let batch = buffer.nextBatch()
+    #expect(batch?.data == fullBufferData)
+    #expect(buffer.pendingByteCount == 0)
+    #expect(buffer.enqueue(Data("b".utf8), workspaceID: workspaceID, terminalID: terminalID) == .queued)
+    #expect(buffer.nextBatch()?.data == Data("b".utf8))
+    #expect(buffer.nextBatch() == nil)
+    #expect(buffer.enqueue(Data("c".utf8), workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+}
+
+@Test func terminalReplayGateBuffersLiveBytesUntilReplaySequenceIsKnown() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 10, data: Data("tail".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 10,
+        replayData: Data("replay".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["replay", "tail"])
+}
+
+@Test func terminalReplayGateDropsLiveBytesAlreadyCoveredByReplay() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 5, data: Data("live".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 9,
+        replayData: Data("replay-live".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["replay-live"])
+}
+
+@Test func terminalReplayGateKeepsOnlyUncoveredLiveByteSuffix() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 7, data: Data("ABCDE".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 10,
+        replayData: Data("replay".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["replay", "DE"])
+}
+
+@Test func terminalReplayGateDropsLiveBytesBeforeTrimmedReplayWindow() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 10, data: Data("stale".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 105,
+        replayData: Data("window".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["window"])
+}
+
+@Test func terminalReplayGateFlushesBufferedLiveBytesIfReplayFails() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 20, data: Data("second".utf8)) == .buffered)
+    #expect(gate.enqueueLiveBytes(seq: 10, data: Data("first".utf8)) == .buffered)
+
+    let segments = gate.failReplay()
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["first", "second"])
+}
+
+@Test func terminalReplayGateFailsClosedOnPendingLiveOverflow() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+    let oversizedLiveTail = Data(
+        repeating: UInt8(ascii: "x"),
+        count: MobileTerminalReplayGate.maximumPendingLiveByteCount + 1
+    )
+
+    #expect(gate.enqueueLiveBytes(seq: 0, data: oversizedLiveTail) == .overflow)
+    #expect(gate.finishReplay(replayEndSeq: UInt64(oversizedLiveTail.count), replayData: Data("replay".utf8)).isEmpty)
+}
+
+@Test func mobileGhosttyMirrorSuppressesOnlyMirroredOutputGeneratedWrites() {
+    let oscColorReply = Data("\u{1B}]11;rgb:2727/2828/2222\u{07}".utf8)
+    let deviceStatusReply = Data("\u{1B}[0n".utf8)
+    let cursorPositionReply = Data("\u{1B}[42;12R".utf8)
+    let primaryDeviceAttributesReply = Data("\u{1B}[?62;22;52c".utf8)
+    let primaryDeviceAttributesRequest = Data("\u{1B}[c".utf8)
+    let parameterizedDeviceAttributesRequest = Data("\u{1B}[0c".utf8)
+    let upArrowKey = Data("\u{1B}[A".utf8)
+    let focusGained = Data("\u{1B}[I".utf8)
+    let plainBytes = Data("not user input".utf8)
+
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: oscColorReply,
+            isProcessingMirroredOutput: true,
+            callbackOrigin: .mirroredOutputQueue
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: deviceStatusReply,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: cursorPositionReply,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: primaryDeviceAttributesReply,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: upArrowKey,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: primaryDeviceAttributesRequest,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: parameterizedDeviceAttributesRequest,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: focusGained,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: plainBytes,
+            isProcessingMirroredOutput: true,
+            callbackOrigin: .mirroredOutputQueue
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: plainBytes,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .mirroredOutputQueue
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: upArrowKey,
+            isProcessingMirroredOutput: true,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+}
+
+@Test func mobileEventBufferDeliversBufferedEventsInOrder() async {
+    let buffer = MobileEventBuffer(maxBufferedEventCount: 4, maxBufferedByteCount: 128)
+    let first = MobileEventEnvelope(topic: "workspace.updated", payloadJSON: Data("one".utf8), streamID: nil)
+    let second = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: Data("two".utf8), streamID: nil)
+
+    #expect(await buffer.enqueue(first))
+    #expect(await buffer.enqueue(second))
+
+    #expect(await buffer.next()?.topic == "workspace.updated")
+    #expect(await buffer.next()?.topic == "terminal.bytes")
+}
+
+@Test func mobileEventBufferFailsClosedOnByteOverflow() async {
+    let buffer = MobileEventBuffer(maxBufferedEventCount: 4, maxBufferedByteCount: 24)
+    let small = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: Data("abc".utf8), streamID: nil)
+    let large = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: Data(String(repeating: "x", count: 32).utf8), streamID: nil)
+
+    #expect(await buffer.enqueue(small))
+    #expect(await buffer.enqueue(large) == false)
+    #expect(await buffer.next()?.topic == nil)
+    #expect(await buffer.enqueue(small) == false)
+}
+
+@Test func mobileEventBufferFailsClosedOnEventCountOverflow() async {
+    let buffer = MobileEventBuffer(maxBufferedEventCount: 1, maxBufferedByteCount: 128)
+    let first = MobileEventEnvelope(topic: "workspace.updated", payloadJSON: nil, streamID: nil)
+    let second = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: nil, streamID: nil)
+
+    #expect(await buffer.enqueue(first))
+    #expect(await buffer.enqueue(second) == false)
+    #expect(await buffer.next()?.topic == nil)
+}
+
+@MainActor
+@Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.reportTerminalViewport(
+        workspaceID: MobileWorkspacePreview.ID(rawValue: "live-workspace"),
+        terminalID: MobileTerminalPreview.ID(rawValue: "live-terminal"),
+        viewportSize: MobileTerminalViewportSize(columns: 52, rows: 24)
+    )
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.terminalInputText = "echo hi"
+    await store.submitTerminalInput()
+
+    let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
+    #expect(inputRequest.text == "echo hi\r")
+    #expect(inputRequest.dataB64.flatMap { Data(base64Encoded: $0) } == Data("echo hi\r".utf8))
+    #expect(inputRequest.viewportColumns == 52)
+    #expect(inputRequest.viewportRows == 24)
+    #expect(inputRequest.clientID?.isEmpty == false)
+    #expect(store.terminalInputText.isEmpty)
+}
+
+@MainActor
+@Test func rawTerminalInputDoesNotAppendCarriageReturn() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    await store.submitTerminalRawInput("\u{1B}[A")
+
+    let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
+    #expect(inputRequest.text == "\u{1B}[A")
+    #expect(inputRequest.dataB64.flatMap { Data(base64Encoded: $0) } == Data("\u{1B}[A".utf8))
+}
+
+@MainActor
+@Test func rawTerminalInputSendsExactNonUTF8Bytes() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let raw = Data([0x1b, 0x5b, 0x41, 0xff])
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    await store.submitTerminalRawInput(raw, surfaceID: "live-terminal")
+
+    let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
+    #expect(inputRequest.text == nil)
+    #expect(inputRequest.dataB64.flatMap { Data(base64Encoded: $0) } == raw)
+}
+
+@Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: true
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: true)
+    )
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: false
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
+    )
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .splitSidebarVisible,
+            hasCompactVerticalSize: true
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: false, bottom: true)
+    )
+    #expect(
+        MobileTerminalSafeAreaExpansionPolicy.edges(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            includesBottom: false
+        ) == MobileTerminalSafeAreaExpansionEdges(horizontal: true, bottom: false)
+    )
+}
+
+@Test func terminalContentSafeAreaInsetsProtectLandscapeCameraArea() {
+    let landscapeInsets = SwiftUI.EdgeInsets(top: 0, leading: 54, bottom: 0, trailing: 21)
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: landscapeInsets
+        ) == MobileTerminalContentInsets(leading: 33, trailing: 0)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59)
+        ) == MobileTerminalContentInsets(leading: 0, trailing: 59)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
+            symmetricCameraEdge: .leading
+        ) == MobileTerminalContentInsets(leading: 59, trailing: 0)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 59, bottom: 0, trailing: 59),
+            symmetricCameraEdge: .none
+        ) == .zero
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 21, bottom: 0, trailing: 54)
+        ) == MobileTerminalContentInsets(leading: 0, trailing: 33)
+    )
+
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: SwiftUI.EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 8)
+        ) == .zero
+    )
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .fullWidth,
+            hasCompactVerticalSize: false,
+            safeAreaInsets: landscapeInsets
+        ) == .zero
+    )
+    #expect(
+        MobileTerminalContentSafeAreaPolicy.horizontalInsets(
+            context: .splitSidebarVisible,
+            hasCompactVerticalSize: true,
+            safeAreaInsets: landscapeInsets
+        ) == .zero
+    )
+}
+
+@Test func terminalLandscapeCameraEdgeFollowsWindowOrientation() {
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeLeft) == .trailing)
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .landscapeRight) == .leading)
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .portrait) == .trailing)
+    #expect(MobileTerminalLandscapeCameraEdgeResolver.edge(for: .unknown) == .trailing)
+}
+
+private struct MissingTestStackAccessToken: Error {}
+
+private func testRuntime(
+    supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
+    transportFactory: any CmxByteTransportFactory,
+    stackAccessToken: String? = "test-stack-token",
+    rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
+    pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
+    now: @escaping @Sendable () -> Date = Date.init,
+    supportsServerPushEvents: Bool = false
+) -> CMUXMobileRuntime {
+    // Tests script every response and assert on exact request order, so by
+    // default they opt out of background subscribe/poll refreshes. New tests
+    // that exercise the event path should pass `supportsServerPushEvents: true`.
+    CMUXMobileRuntime(
+        supportedRouteKinds: supportedRouteKinds,
+        transportFactory: transportFactory,
+        stackAccessTokenProvider: {
+            guard let stackAccessToken else {
+                throw MissingTestStackAccessToken()
+            }
+            return stackAccessToken
+        },
+        rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
+        pairingRequestTimeoutNanoseconds: pairingRequestTimeoutNanoseconds,
+        now: now,
+        supportsServerPushEvents: supportsServerPushEvents
+    )
+}
+
+private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let payload = base64URLEncode(try encoder.encode(ticket))
+    return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
+}
+
+private func base64URLEncode(_ data: Data) -> String {
+    data.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+}
+
+private func scriptedWorkspaceListResponses(
+    workspaceID: String,
+    title: String
+) throws -> ScriptedTransportResponses {
+    ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: title),
+    ])
+}
+
+private func waitForWorkspaceListRequestCount(
+    _ count: Int,
+    responses: ScriptedTransportResponses
+) async throws -> [RecordedRPCRequest] {
+    var workspaceLists: [RecordedRPCRequest] = []
+    for _ in 0..<200 {
+        workspaceLists = try await responses.sentRequests().filter { $0.method == "workspace.list" }
+        if workspaceLists.count >= count {
+            return workspaceLists
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return workspaceLists
+}
+
+private func waitForRequestCount(
+    _ method: String,
+    count: Int,
+    router: any RequestAwareTransportRouter
+) async throws -> [RecordedRPCRequest] {
+    var matches: [RecordedRPCRequest] = []
+    for _ in 0..<300 {
+        matches = await router.sentRequests().filter { $0.method == method }
+        if matches.count >= count {
+            return matches
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return matches
+}
+
+@MainActor
+private func waitForWorkspaceIDs(
+    in store: CMUXMobileShellStore,
+    matching expectedIDs: [String]
+) async throws -> [String] {
+    var workspaceIDs: [String] = []
+    for _ in 0..<200 {
+        workspaceIDs = store.workspaces.map(\.id.rawValue)
+        if workspaceIDs == expectedIDs {
+            return workspaceIDs
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return workspaceIDs
+}
+
+private func rpcWorkspaceListFrame(
+    workspaceID: String,
+    title: String,
+    terminalID: String? = nil
+) throws -> Data {
+    let terminals: [[String: Any]]
+    if let terminalID {
+        terminals = [
+            [
+                "id": terminalID,
+                "title": "Terminal",
+                "current_directory": "/Users/test/project",
+                "is_ready": true,
+                "is_focused": true,
+            ],
+        ]
+    } else {
+        terminals = []
+    }
+    return try rpcResultFrame(
+        result: [
+            "workspaces": [
+                [
+                    "id": workspaceID,
+                    "title": title,
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": terminals,
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcWorkspaceCreateFrame() throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "created_workspace_id": "workspace-3",
+            "workspaces": [
+                [
+                    "id": "workspace-3",
+                    "title": "Workspace 3",
+                    "current_directory": "/Users/test/workspace-3",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "workspace-3-terminal-1",
+                            "title": "Terminal 1",
+                            "current_directory": "/Users/test/workspace-3",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcTwoWorkspaceListFrame() throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "workspaces": [
+                [
+                    "id": "workspace-main",
+                    "title": "cmux",
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "terminal-build",
+                            "title": "Build",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+                [
+                    "id": "workspace-docs",
+                    "title": "Docs",
+                    "current_directory": "/Users/test/docs",
+                    "is_selected": false,
+                    "terminals": [
+                        [
+                            "id": "terminal-notes",
+                            "title": "Notes",
+                            "current_directory": "/Users/test/docs",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcTerminalCreateScopedFrame() throws -> Data {
+    try rpcResultFrame(
+        result: [
+            "created_terminal_id": "workspace-main-terminal-2",
+            "workspaces": [
+                [
+                    "id": "workspace-main",
+                    "title": "cmux",
+                    "current_directory": "/Users/test/project",
+                    "is_selected": true,
+                    "terminals": [
+                        [
+                            "id": "terminal-build",
+                            "title": "Build",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": false,
+                        ],
+                        [
+                            "id": "workspace-main-terminal-2",
+                            "title": "Terminal 2",
+                            "current_directory": "/Users/test/project",
+                            "is_ready": true,
+                            "is_focused": true,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+    )
+}
+
+private func rpcAttachTicketFrame(
+    route: CmxAttachRoute,
+    workspaceID: String,
+    terminalID: String? = nil
+) throws -> Data {
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: nil,
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+        authToken: "ticket-secret"
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let ticketObject = try JSONSerialization.jsonObject(with: encoder.encode(ticket))
+    return try rpcResultFrame(result: ["ticket": ticketObject])
+}
+
+private func hostPortRoute(
+    kind: CmxAttachTransportKind,
+    host: String,
+    port: Int,
+    priority: Int = 0
+) throws -> CmxAttachRoute {
+    try CmxAttachRoute(
+        id: kind.rawValue,
+        kind: kind,
+        endpoint: .hostPort(host: host, port: port),
+        priority: priority
+    )
+}
+
+private struct ScriptedTransportFactory: CmxByteTransportFactory {
+    let responses: ScriptedTransportResponses
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        ScriptedTransport(responses: responses)
+    }
+}
+
+private struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
+    let transport: QueuedCancellationProbeTransport
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+}
+
+private struct FailingRouteTransportFactory: CmxByteTransportFactory {
+    let failingRouteID: String
+    let responses: ScriptedTransportResponses
+    let attempts: RouteAttemptRecorder
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        FailingRouteTransport(
+            routeID: route.id,
+            failingRouteID: failingRouteID,
+            responses: responses,
+            attempts: attempts
+        )
+    }
+}
+
+private protocol RequestAwareTransportRouter: Actor {
+    func record(_ request: RecordedRPCRequest)
+    func sentRequests() -> [RecordedRPCRequest]
+    func response(for request: RecordedRPCRequest) async throws -> Data?
+}
+
+private struct RequestAwareTransportFactory: CmxByteTransportFactory {
+    let router: any RequestAwareTransportRouter
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        RequestAwareTransport(router: router)
+    }
+}
+
+private actor DelayedManualAttachTicketRouter: RequestAwareTransportRouter {
+    private let route: CmxAttachRoute
+    private var attachTicketRequested = false
+    private var attachTicketReleased = false
+    private var attachTicketRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var attachTicketReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    init(route: CmxAttachRoute) {
+        self.route = route
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForAttachTicketRequest() async {
+        guard !attachTicketRequested else { return }
+        await withCheckedContinuation { continuation in
+            attachTicketRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseAttachTicketResponse() {
+        attachTicketReleased = true
+        attachTicketReleaseContinuation?.resume()
+        attachTicketReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "mobile.attach_ticket.create":
+            markAttachTicketRequested()
+            await waitForAttachTicketRelease()
+            return try rpcAttachTicketFrame(route: route, workspaceID: "delayed-workspace")
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(workspaceID: "delayed-workspace", title: "Delayed Workspace")
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markAttachTicketRequested() {
+        attachTicketRequested = true
+        let waiters = attachTicketRequestWaiters
+        attachTicketRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForAttachTicketRelease() async {
+        guard !attachTicketReleased else { return }
+        await withCheckedContinuation { continuation in
+            attachTicketReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
+    private var workspaceListRequestCount = 0
+    private var firstWorkspaceListRequested = false
+    private var firstWorkspaceListReleased = false
+    private var firstWorkspaceListRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstWorkspaceListReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForFirstWorkspaceListRequest() async {
+        guard !firstWorkspaceListRequested else { return }
+        await withCheckedContinuation { continuation in
+            firstWorkspaceListRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseFirstWorkspaceListResponse() {
+        firstWorkspaceListReleased = true
+        firstWorkspaceListReleaseContinuation?.resume()
+        firstWorkspaceListReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            workspaceListRequestCount += 1
+            if workspaceListRequestCount == 1 {
+                markFirstWorkspaceListRequested()
+                await waitForFirstWorkspaceListRelease()
+                return try rpcWorkspaceListFrame(
+                    workspaceID: "first-workspace",
+                    title: "First Workspace",
+                    terminalID: "first-terminal"
+                )
+            }
+            return try rpcWorkspaceListFrame(
+                workspaceID: "second-workspace",
+                title: "Second Workspace",
+                terminalID: "second-terminal"
+            )
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markFirstWorkspaceListRequested() {
+        firstWorkspaceListRequested = true
+        let waiters = firstWorkspaceListRequestWaiters
+        firstWorkspaceListRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForFirstWorkspaceListRelease() async {
+        guard !firstWorkspaceListReleased else { return }
+        await withCheckedContinuation { continuation in
+            firstWorkspaceListReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcTwoWorkspaceListFrame()
+        case "terminal.create":
+            return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
+    private var terminalCreateRequested = false
+    private var terminalCreateReleased = false
+    private var terminalCreateRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var terminalCreateReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForTerminalCreateRequest() async {
+        guard !terminalCreateRequested else { return }
+        await withCheckedContinuation { continuation in
+            terminalCreateRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseTerminalCreateResponse() {
+        terminalCreateReleased = true
+        terminalCreateReleaseContinuation?.resume()
+        terminalCreateReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcTwoWorkspaceListFrame()
+        case "terminal.create":
+            markTerminalCreateRequested()
+            await waitForTerminalCreateRelease()
+            return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markTerminalCreateRequested() {
+        terminalCreateRequested = true
+        let waiters = terminalCreateRequestWaiters
+        terminalCreateRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForTerminalCreateRelease() async {
+        guard !terminalCreateReleased else { return }
+        await withCheckedContinuation { continuation in
+            terminalCreateReleaseContinuation = continuation
+        }
+    }
+}
+
+private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "workspace-main",
+                title: "cmux",
+                terminalID: "terminal-build"
+            )
+        case "workspace.create":
+            return try rpcWorkspaceCreateFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor RequestAwareTransport: CmxByteTransport {
+    private let router: any RequestAwareTransportRouter
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
+
+    init(router: any RequestAwareTransportRouter) {
+        self.router = router
+    }
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            await router.record(request)
+            // Process each request concurrently so a router that blocks one
+            // request (e.g. a delayed terminal.create) doesn't head-of-line
+            // block subsequent RPCs the persistent transport sends. Matches
+            // the Mac-side semantics we'd want once respond() goes
+            // concurrent on a single connection.
+            Task { [router, weak self] in
+                guard let response = try? await router.response(for: request) else {
+                    return
+                }
+                guard let stamped = try? responseFrame(response, matching: request) else {
+                    return
+                }
+                await self?.deliver(stamped)
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func deliver(_ response: Data) {
+        if let waiter = receiveWaiters.first {
+            receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
+        } else {
+            pendingResponses.append(response)
+        }
+    }
+}
+
+private actor RouteAttemptRecorder {
+    private var recordedRouteIDs: [String] = []
+
+    func record(_ routeID: String) {
+        recordedRouteIDs.append(routeID)
+    }
+
+    func routeIDs() -> [String] {
+        recordedRouteIDs
+    }
+}
+
+private actor ScriptedTransportResponses {
+    private var frames: [Data]
+    private var sentPayloads: [Data] = []
+
+    init(_ frames: [Data]) {
+        self.frames = frames
+    }
+
+    func recordSend(_ data: Data) throws -> [Data] {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        var responses: [Data] = []
+        for payload in payloads {
+            sentPayloads.append(payload)
+            guard !frames.isEmpty else {
+                continue
+            }
+            let request = try recordedRPCRequest(from: payload)
+            let response = try responseFrame(frames.removeFirst(), matching: request)
+            responses.append(response)
+        }
+        return responses
+    }
+
+    func hasRemainingFrames() -> Bool {
+        !frames.isEmpty
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map { payload in
+            let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            let params = request["params"] as? [String: Any] ?? [:]
+            let auth = request["auth"] as? [String: Any]
+            return RecordedRPCRequest(
+                id: request["id"] as? String,
+                method: request["method"] as? String,
+                workspaceID: params["workspace_id"] as? String,
+                terminalID: params["terminal_id"] as? String ??
+                    params["surface_id"] as? String ??
+                    params["tab_id"] as? String,
+                viewportColumns: params["viewport_columns"] as? Int,
+                viewportRows: params["viewport_rows"] as? Int,
+                maxScrollbackRows: params["max_scrollback_rows"] as? Int,
+                clientID: params["client_id"] as? String,
+                text: params["text"] as? String,
+                dataB64: params["data_b64"] as? String,
+                hasAuth: auth != nil,
+                attachToken: auth?["attach_token"] as? String,
+                stackAccessToken: auth?["stack_access_token"] as? String
+            )
+        }
+    }
+}
+
+private struct RecordedRPCRequest: Sendable {
+    var id: String?
+    var method: String?
+    var workspaceID: String?
+    var terminalID: String?
+    var viewportColumns: Int?
+    var viewportRows: Int?
+    var maxScrollbackRows: Int?
+    var clientID: String?
+    var text: String?
+    var dataB64: String?
+    var hasAuth: Bool
+    var attachToken: String?
+    var stackAccessToken: String?
+}
+
+private actor AsyncFlag {
+    private var value = false
+
+    func set() {
+        value = true
+    }
+
+    func isSet() -> Bool {
+        value
+    }
+}
+
+private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest {
+    let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+    let params = request["params"] as? [String: Any] ?? [:]
+    let auth = request["auth"] as? [String: Any]
+    return RecordedRPCRequest(
+        id: request["id"] as? String,
+        method: request["method"] as? String,
+        workspaceID: params["workspace_id"] as? String,
+        terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
+        viewportColumns: params["viewport_columns"] as? Int,
+        viewportRows: params["viewport_rows"] as? Int,
+        maxScrollbackRows: params["max_scrollback_rows"] as? Int,
+        clientID: params["client_id"] as? String,
+        text: params["text"] as? String,
+        dataB64: params["data_b64"] as? String,
+        hasAuth: auth != nil,
+        attachToken: auth?["attach_token"] as? String,
+        stackAccessToken: auth?["stack_access_token"] as? String
+    )
+}
+
+private actor ScriptedTransport: CmxByteTransport {
+    private let responses: ScriptedTransportResponses
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var inFlightSends = 0
+    private var isClosed = false
+
+    init(responses: ScriptedTransportResponses) {
+        self.responses = responses
+    }
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        await nextResponse()
+    }
+
+    func send(_ data: Data) async throws {
+        inFlightSends += 1
+        let responseFrames: [Data]
+        do {
+            responseFrames = try await responses.recordSend(data)
+        } catch {
+            inFlightSends -= 1
+            await finishExhaustedReceiversIfIdle()
+            throw error
+        }
+        for frame in responseFrames {
+            enqueue(frame)
+        }
+        inFlightSends -= 1
+        await finishExhaustedReceiversIfIdle()
+    }
+
+    func close() async {
+        closeLocal()
+    }
+
+    private func nextResponse() async -> Data? {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        if inFlightSends > 0 {
+            return await waitForResponse()
+        }
+        guard await responses.hasRemainingFrames() else {
+            return nil
+        }
+        return await waitForResponse()
+    }
+
+    private func waitForResponse() async -> Data? {
+        await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    private func enqueue(_ response: Data) {
+        if receiveWaiters.isEmpty {
+            pendingResponses.append(response)
+        } else {
+            let waiter = receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
+        }
+    }
+
+    private func finishExhaustedReceiversIfIdle() async {
+        guard inFlightSends == 0, pendingResponses.isEmpty, !(await responses.hasRemainingFrames()) else {
+            return
+        }
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func closeLocal() {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+}
+
+private actor QueuedCancellationProbeTransport: CmxByteTransport {
+    private var sentPayloads: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var firstSendRelease: CheckedContinuation<Void, Never>?
+    private var shouldBlockFirstSend = true
+    private var isClosed = false
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        sentPayloads.append(contentsOf: payloads)
+        if shouldBlockFirstSend {
+            shouldBlockFirstSend = false
+            await withCheckedContinuation { continuation in
+                firstSendRelease = continuation
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+        releaseFirstSend()
+    }
+
+    func releaseFirstSend() {
+        firstSendRelease?.resume()
+        firstSendRelease = nil
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map(recordedRPCRequest(from:))
+    }
+
+    func waitForSentRequestCount(_ count: Int) async throws -> [RecordedRPCRequest] {
+        var requests: [RecordedRPCRequest] = []
+        for _ in 0..<200 {
+            requests = try sentRequests()
+            if requests.count >= count {
+                return requests
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return requests
+    }
+}
+
+private enum FailingRouteTransportError: Error {
+    case connectFailed
+}
+
+private actor FailingRouteTransport: CmxByteTransport {
+    private let routeID: String
+    private let failingRouteID: String
+    private let responses: ScriptedTransportResponses
+    private let attempts: RouteAttemptRecorder
+    private var pendingResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var inFlightSends = 0
+    private var isClosed = false
+
+    init(
+        routeID: String,
+        failingRouteID: String,
+        responses: ScriptedTransportResponses,
+        attempts: RouteAttemptRecorder
+    ) {
+        self.routeID = routeID
+        self.failingRouteID = failingRouteID
+        self.responses = responses
+        self.attempts = attempts
+    }
+
+    func connect() async throws {
+        await attempts.record(routeID)
+        if routeID == failingRouteID {
+            throw FailingRouteTransportError.connectFailed
+        }
+    }
+
+    func receive() async throws -> Data? {
+        await nextResponse()
+    }
+
+    func send(_ data: Data) async throws {
+        inFlightSends += 1
+        let responseFrames: [Data]
+        do {
+            responseFrames = try await responses.recordSend(data)
+        } catch {
+            inFlightSends -= 1
+            await finishExhaustedReceiversIfIdle()
+            throw error
+        }
+        for frame in responseFrames {
+            enqueue(frame)
+        }
+        inFlightSends -= 1
+        await finishExhaustedReceiversIfIdle()
+    }
+
+    func close() async {
+        closeLocal()
+    }
+
+    private func nextResponse() async -> Data? {
+        if !pendingResponses.isEmpty {
+            return pendingResponses.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        if inFlightSends > 0 {
+            return await waitForResponse()
+        }
+        guard await responses.hasRemainingFrames() else {
+            return nil
+        }
+        return await waitForResponse()
+    }
+
+    private func waitForResponse() async -> Data? {
+        await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    private func enqueue(_ response: Data) {
+        if receiveWaiters.isEmpty {
+            pendingResponses.append(response)
+        } else {
+            let waiter = receiveWaiters.removeFirst()
+            waiter.resume(returning: response)
+        }
+    }
+
+    private func finishExhaustedReceiversIfIdle() async {
+        guard inFlightSends == 0, pendingResponses.isEmpty, !(await responses.hasRemainingFrames()) else {
+            return
+        }
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func closeLocal() {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+}
+
+private func responseFrame(_ data: Data, matching request: RecordedRPCRequest) throws -> Data {
+    guard let requestID = request.id else {
+        return data
+    }
+    var buffer = data
+    let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+    guard !frames.isEmpty else {
+        return data
+    }
+    var encoded = Data()
+    for frame in frames {
+        guard var envelope = try JSONSerialization.jsonObject(with: frame) as? [String: Any] else {
+            encoded.append(try MobileSyncFrameCodec.encodeFrame(frame))
+            continue
+        }
+        envelope["id"] = requestID
+        let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
+        encoded.append(try MobileSyncFrameCodec.encodeFrame(envelopeData))
+    }
+    return encoded
+}
+
+private struct HangingTransportFactory: CmxByteTransportFactory {
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        HangingTransport()
+    }
+}
+
+private actor HangingTransport: CmxByteTransport {
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+        return nil
+    }
+
+    func send(_ data: Data) async throws {}
+
+    func close() async {}
+}
+
+private func rpcResultFrame(result: [String: Any]) throws -> Data {
+    let envelope: [String: Any] = [
+        "id": UUID().uuidString,
+        "ok": true,
+        "result": result,
+    ]
+    let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
+    return try MobileSyncFrameCodec.encodeFrame(envelopeData)
+}
+
+private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data {
+    var error: [String: Any] = [
+        "message": message,
+    ]
+    if let code {
+        error["code"] = code
+    }
+    let envelope: [String: Any] = [
+        "id": UUID().uuidString,
+        "ok": false,
+        "error": error,
+    ]
+    let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
+    return try MobileSyncFrameCodec.encodeFrame(envelopeData)
+}

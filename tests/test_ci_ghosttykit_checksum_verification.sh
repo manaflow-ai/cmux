@@ -25,8 +25,28 @@ MISMATCH_LOG="$TMP_DIR/curl-mismatch.log"
 MISMATCH_OUTPUT="$TMP_DIR/mismatch.out"
 MISSING_ENTRY_OUTPUT="$TMP_DIR/missing-entry.out"
 
-mkdir -p "$FIXTURE_DIR/GhosttyKit.xcframework" "$SUCCESS_DIR" "$MISMATCH_DIR" "$MISSING_ENTRY_DIR" "$BIN_DIR"
+mkdir -p "$FIXTURE_DIR/GhosttyKit.xcframework/macos-arm64_x86_64" "$SUCCESS_DIR" "$MISMATCH_DIR" "$MISSING_ENTRY_DIR" "$BIN_DIR"
 printf 'fixture\n' > "$FIXTURE_DIR/GhosttyKit.xcframework/marker.txt"
+printf 'archive\n' > "$FIXTURE_DIR/GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a"
+python3 - "$FIXTURE_DIR/GhosttyKit.xcframework/Info.plist" <<'PY'
+from pathlib import Path
+import plistlib
+import sys
+
+plist = {
+    "AvailableLibraries": [
+        {
+            "LibraryIdentifier": "macos-arm64_x86_64",
+            "LibraryPath": "ghostty-internal.a",
+            "SupportedPlatform": "macos",
+        }
+    ],
+    "CFBundlePackageType": "XFWK",
+    "XCFrameworkFormatVersion": "1.0",
+}
+with Path(sys.argv[1]).open("wb") as handle:
+    plistlib.dump(plist, handle)
+PY
 (cd "$FIXTURE_DIR" && COPYFILE_DISABLE=1 tar czf "$TMP_DIR/GhosttyKit.xcframework.tar.gz" GhosttyKit.xcframework)
 ACTUAL_SHA256="$(shasum -a 256 "$TMP_DIR/GhosttyKit.xcframework.tar.gz" | awk '{print $1}')"
 printf '%s %s\n' "$FIXTURE_SHA" "$ACTUAL_SHA256" > "$CHECKSUMS_FILE"
@@ -80,6 +100,16 @@ chmod +x "$BIN_DIR/curl"
 
 if [ ! -f "$SUCCESS_DIR/GhosttyKit.xcframework/marker.txt" ]; then
   echo "FAIL: verification helper did not extract GhosttyKit.xcframework"
+  exit 1
+fi
+
+if [ ! -f "$SUCCESS_DIR/GhosttyKit.xcframework/macos-arm64_x86_64/libghostty-internal.a" ]; then
+  echo "FAIL: verification helper did not normalize GhosttyKit macOS library name"
+  exit 1
+fi
+
+if [ -f "$SUCCESS_DIR/GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a" ]; then
+  echo "FAIL: verification helper left the unnormalized GhosttyKit macOS library name"
   exit 1
 fi
 

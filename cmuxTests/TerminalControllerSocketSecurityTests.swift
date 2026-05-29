@@ -269,8 +269,32 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(result["pong"] as? Bool, true, file: file, line: line)
         case "system.capabilities":
             let methods = try XCTUnwrap(result["methods"] as? [String], method, file: file, line: line)
-            XCTAssertTrue(methods.contains("system.ping"), file: file, line: line)
-            XCTAssertTrue(methods.contains("system.capabilities"), file: file, line: line)
+            let advertisedMethods = Set(methods)
+            let expectedMethods: Set<String> = [
+                "system.ping",
+                "system.capabilities",
+                "mobile.host.status",
+                "mobile.attach_ticket.create",
+                "mobile.workspace.list",
+                "workspace.list",
+                "workspace.create",
+                "mobile.terminal.create",
+                "terminal.create",
+                "mobile.terminal.input",
+                "terminal.input",
+                "mobile.terminal.replay",
+                "terminal.replay",
+                "mobile.terminal.viewport",
+                "terminal.viewport",
+                "mobile.events.subscribe",
+                "mobile.events.unsubscribe",
+            ]
+            XCTAssertTrue(
+                expectedMethods.isSubset(of: advertisedMethods),
+                "Missing capabilities: \(expectedMethods.subtracting(advertisedMethods).sorted())",
+                file: file,
+                line: line
+            )
         default:
             XCTFail("Unexpected heartbeat method \(method)", file: file, line: line)
         }
@@ -1138,6 +1162,39 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
         let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
+    }
+
+    func testBrowserOpenSplitRegistersDiffViewerAllowlist() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let fileURL = rootURL.appendingPathComponent("registered-\(token).html")
+        try "<html>diff</html>".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        let response = try handleV2Request(
+            method: "browser.open_split",
+            params: [
+                "url": "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html",
+                "diff_viewer_token": token,
+                "diff_viewer_files": [[
+                    "request_path": "/diff.html",
+                    "file_path": fileURL.path,
+                    "mime_type": "text/html",
+                ]],
+            ]
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual((response["result"] as? [String: Any])?["bypass_remote_proxy"] as? Bool, true)
+        let registeredURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/diff.html"))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: registeredURL))
     }
 
     func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
