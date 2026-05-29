@@ -555,6 +555,11 @@ function SessionSurface({
               "provider-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm w-52",
             role: "menu",
             "aria-label": state.context?.copy.provider ?? "",
+            "data-state": "open",
+            "data-side": "top",
+            style: {
+              "--radix-dropdown-menu-content-transform-origin": "left bottom",
+            } as React.CSSProperties,
           },
           h("div", { className: "provider-dropdown-title" }, state.context?.copy.provider ?? "Provider"),
           state.providers.map((item) =>
@@ -2032,6 +2037,11 @@ function PermissionsDropdown({
               "permissions-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
             role: "menu",
             "aria-label": triggerLabel,
+            "data-state": "open",
+            "data-side": "top",
+            style: {
+              "--radix-dropdown-menu-content-transform-origin": "left bottom",
+            } as React.CSSProperties,
           },
           options.map((option) =>
             h(PermissionsMenuItem, {

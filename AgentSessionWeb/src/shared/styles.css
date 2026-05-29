@@ -153,6 +153,9 @@
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   --agent-primary-text: #ffffff;
+  --cubic-enter: cubic-bezier(0.19, 1, 0.22, 1);
+  --cubic-exit-snappy: cubic-bezier(0.65, 0, 0.4, 1);
+  --transition-duration-basic: 0.15s;
   --gray-0: #ffffff;
   --color-background-surface: transparent;
   --color-background-surface-under: transparent;
@@ -704,10 +707,6 @@ select {
   min-height: 0;
 }
 
-.composer-footer-single-line {
-  min-height: 44px;
-}
-
 .composer-single-line-measure {
   pointer-events: none;
   visibility: hidden;
@@ -802,6 +801,43 @@ select {
 .shadow-xl-spread {
   --tw-shadow: 0px 0px 0px 0.5px var(--tw-shadow-color, var(--color-token-border)), var(--shadow-xl);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+}
+
+._content_1hiti_1 {
+  --dropdown-content-inset: 2px;
+  --dropdown-content-start-transform: translateY(calc(var(--dropdown-content-inset) * -1)) scale(0.98);
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+  will-change: opacity, transform;
+}
+
+._content_1hiti_1[data-side="top"] {
+  --dropdown-content-start-transform: translateY(var(--dropdown-content-inset)) scale(0.98);
+}
+
+._content_1hiti_1[data-side="right"] {
+  --dropdown-content-start-transform: translateX(calc(var(--dropdown-content-inset) * -1)) scale(0.98);
+}
+
+._content_1hiti_1[data-side="left"] {
+  --dropdown-content-start-transform: translateX(var(--dropdown-content-inset)) scale(0.98);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ._content_1hiti_1[data-state="open"] {
+    animation: _dropdown-content-enter_1hiti_1 var(--transition-duration-basic) var(--cubic-enter);
+  }
+}
+
+@keyframes _dropdown-content-enter_1hiti_1 {
+  0% {
+    opacity: 0;
+    transform: var(--dropdown-content-start-transform);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate(0) translateY(0) scale(1);
+  }
 }
 
 .hide-scrollbar {
@@ -916,6 +952,7 @@ img.ProseMirror-separator {
 
 .ProseMirror .placeholder {
   pointer-events: none;
+  -webkit-user-select: none;
   user-select: none;
   position: relative;
 }
@@ -925,6 +962,7 @@ img.ProseMirror-separator {
   content: attr(data-placeholder);
   opacity: 0.5;
   pointer-events: none;
+  -webkit-user-select: none;
   user-select: none;
   white-space: nowrap;
   text-overflow: ellipsis;
