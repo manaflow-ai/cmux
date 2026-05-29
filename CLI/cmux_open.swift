@@ -5441,7 +5441,7 @@ extension CMUXCLI {
               showBackgrounds: true,
               lineNumbers: true,
               diffIndicators: "bars",
-              wordDiffs: false,
+              wordDiffs: true,
               fileSearchOpen: false,
             };
             let codeView;
@@ -5743,7 +5743,7 @@ extension CMUXCLI {
               return {
                 theme: payload.appearance.theme,
                 preferredHighlighter: "shiki-wasm",
-                lineDiffType: appState.wordDiffs ? "word" : "none",
+                lineDiffType: lineDiffType(),
                 maxLineDiffLength: 1000,
                 tokenizeMaxLineLength: 1000,
                 useTokenTransformer: false,
@@ -6501,12 +6501,16 @@ extension CMUXCLI {
                 lineHoverHighlight: "number",
                 enableLineSelection: true,
                 enableGutterUtility: true,
-                lineDiffType: appState.wordDiffs ? "word" : "none",
+                lineDiffType: lineDiffType(),
                 stickyHeaders: true,
                 unsafeCSS: codeViewUnsafeCSS(),
                 theme: payload.appearance.theme,
                 themeType: "system",
               };
+            }
+
+            function lineDiffType() {
+              return appState.wordDiffs ? "word-alt" : "none";
             }
 
             function codeViewUnsafeCSS() {
