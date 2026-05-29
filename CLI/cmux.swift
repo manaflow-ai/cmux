@@ -429,6 +429,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
     var isRestorable: Bool?
+    var isNestedAgentSession: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
     var lastBody: String?
@@ -560,6 +561,8 @@ private final class ClaudeHookSessionStore {
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
+        isNestedAgentSession: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false
@@ -583,7 +586,8 @@ private final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
+                isNestedAgentSession: isNestedAgentSession,
                 agentLifecycle: agentLifecycle,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -658,6 +662,8 @@ private final class ClaudeHookSessionStore {
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
+        isNestedAgentSession: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String?,
         lastBody: String?,
@@ -687,7 +693,8 @@ private final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: nil,
+                isRestorable: isRestorable,
+                isNestedAgentSession: isNestedAgentSession,
                 agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
@@ -803,6 +810,7 @@ private final class ClaudeHookSessionStore {
         pid: Int? = nil,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
+        isNestedAgentSession: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
@@ -827,6 +835,7 @@ private final class ClaudeHookSessionStore {
                 pid: nil,
                 launchCommand: nil,
                 isRestorable: nil,
+                isNestedAgentSession: nil,
                 agentLifecycle: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -851,6 +860,7 @@ private final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
+                isNestedAgentSession: isNestedAgentSession,
                 agentLifecycle: agentLifecycle,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
@@ -888,6 +898,7 @@ private final class ClaudeHookSessionStore {
             pid: nil,
             launchCommand: nil,
             isRestorable: nil,
+            isNestedAgentSession: nil,
             agentLifecycle: nil,
             lastSubtitle: nil,
             lastBody: nil,
@@ -972,6 +983,7 @@ private final class ClaudeHookSessionStore {
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
+        isNestedAgentSession: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
         lastSubtitle: String?,
         lastBody: String?,
@@ -1001,6 +1013,9 @@ private final class ClaudeHookSessionStore {
             // Preserve sticky true: a later isRestorable=false must not clear
             // record.isRestorable=true from a transcript-backed event.
             record.isRestorable = isRestorable || record.isRestorable == true
+        }
+        if let isNestedAgentSession {
+            record.isNestedAgentSession = isNestedAgentSession || record.isNestedAgentSession == true
         }
         if let agentLifecycle {
             record.agentLifecycle = agentLifecycle
@@ -19873,6 +19888,10 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
+            let suppressRestore = shouldSuppressNestedAgentRestore(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             let launchCommand = agentLaunchCommandFromEnvironment(
                 ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid,
@@ -19900,6 +19919,7 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
+                    isNestedAgentSession: suppressRestore ? true : nil,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
@@ -23119,6 +23139,35 @@ struct CMUXCLI {
             return true
         }
 
+        return hasNestedNativeAgentAncestor(currentAgentPID: currentAgentPID)
+    }
+
+    private func shouldSuppressNestedAgentRestore(
+        currentAgentPID: Int?,
+        transcriptSubagentSession: Bool = false,
+        env: [String: String]
+    ) -> Bool {
+        if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
+           Self.parseHookBoolean(override) == true {
+            return true
+        }
+
+        guard subagentNotificationSuppressionEnabled(env: env) else {
+            return false
+        }
+
+        if managedSubagentVisibleMutationSuppressionRequested(env: env) {
+            return true
+        }
+
+        if transcriptSubagentSession {
+            return true
+        }
+
+        return hasNestedNativeAgentAncestor(currentAgentPID: currentAgentPID)
+    }
+
+    private func hasNestedNativeAgentAncestor(currentAgentPID: Int?) -> Bool {
         guard let currentAgentPID, currentAgentPID > 1 else {
             return false
         }
@@ -26178,6 +26227,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            let suppressRestore = shouldSuppressNestedAgentRestore(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -26205,6 +26255,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestore ? false : nil,
+                    isNestedAgentSession: suppressRestore ? true : nil,
                     agentLifecycle: .unknown,
                     runtimeStatus: suppressVisibleMutations ? nil : .running,
                     updateRuntimeStatus: !suppressVisibleMutations
@@ -26256,6 +26308,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let suppressRestore = shouldSuppressNestedAgentRestore(currentAgentPID: pid, env: env)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -26292,6 +26345,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestore ? false : nil,
+                    isNestedAgentSession: suppressRestore ? true : nil,
                     agentLifecycle: .running
                 )) ?? false
             } else {
@@ -26506,6 +26561,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: cwd
             )
+            let suppressRestore = shouldSuppressNestedAgentRestore(
+                currentAgentPID: pid,
+                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                env: env
+            )
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
@@ -26542,6 +26602,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
                     launchCommand: launchCommand,
+                    isRestorable: suppressRestore ? false : nil,
+                    isNestedAgentSession: suppressRestore ? true : nil,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil
@@ -26807,6 +26869,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
+                let suppressRestore = shouldSuppressNestedAgentRestore(currentAgentPID: pid, env: env)
                 let lifecycle = agentLifecycle(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
@@ -26820,6 +26883,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: suppressRestore ? false : nil,
+                        isNestedAgentSession: suppressRestore ? true : nil,
                         agentLifecycle: lifecycle,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
@@ -26837,6 +26902,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
+                        isRestorable: suppressRestore ? false : nil,
+                        isNestedAgentSession: suppressRestore ? true : nil,
                         agentLifecycle: lifecycle,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,

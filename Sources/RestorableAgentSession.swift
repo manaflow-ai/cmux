@@ -981,6 +981,7 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
+    var isNestedAgentSession: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }
@@ -1217,6 +1218,9 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
+        if record.isNestedAgentSession == true {
+            return false
+        }
         guard kind == .claude else {
             return record.isRestorable != false
         }
