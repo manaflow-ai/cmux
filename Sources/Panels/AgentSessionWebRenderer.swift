@@ -466,6 +466,22 @@ extension AgentSessionWebRenderer {
                             defaultValue: "Skills"
                         ),
                         "planMode": String(localized: "agentSession.web.planMode", defaultValue: "Plan mode"),
+                        "planSuggestionAction": String(
+                            localized: "agentSession.web.planSuggestion.action",
+                            defaultValue: "Use plan mode"
+                        ),
+                        "planSuggestionDismiss": String(
+                            localized: "agentSession.web.planSuggestion.dismiss",
+                            defaultValue: "Dismiss suggestion"
+                        ),
+                        "planSuggestionShortcut": String(
+                            localized: "agentSession.web.planSuggestion.shortcut",
+                            defaultValue: "Shift + Tab"
+                        ),
+                        "planSuggestionTitle": String(
+                            localized: "agentSession.web.planSuggestion.title",
+                            defaultValue: "Create a plan"
+                        ),
                         "skillPlan": String(localized: "agentSession.web.skillPlan", defaultValue: "Plan"),
                         "skillCodeReview": String(
                             localized: "agentSession.web.skillCodeReview",

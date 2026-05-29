@@ -295,6 +295,7 @@ function SessionSurface({
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const [isPickingFiles, setIsPickingFiles] = useState(false);
   const [isPlanMode, setIsPlanMode] = useState(false);
+  const [isPlanSuggestionDismissed, setIsPlanSuggestionDismissed] = useState(false);
   const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
@@ -338,6 +339,15 @@ function SessionSurface({
     setIsPlanMode((value) => !value);
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
+    editorRef.current?.focus();
+  };
+  const enablePlanModeFromSuggestion = () => {
+    setIsPlanMode(true);
+    setIsPlanSuggestionDismissed(true);
+    setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
+    setProviderMenuOpen(false);
+    setMenuKind(null);
     editorRef.current?.focus();
   };
   const pickLocalFiles = async () => {
@@ -718,6 +728,8 @@ function SessionSurface({
     { className: "codex-composer-inner relative z-10 flex min-h-0 flex-1 flex-col" },
     composerControlsContent,
   );
+  const showPlanSuggestion =
+    !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
 
   return h(
     "section",
@@ -729,6 +741,13 @@ function SessionSurface({
       h(
         "div",
         { className: "relative flex w-full flex-col gap-2" },
+        showPlanSuggestion
+          ? h(AboveComposerPlanSuggestion, {
+              copy: state.context?.copy,
+              onAction: enablePlanModeFromSuggestion,
+              onDismiss: () => setIsPlanSuggestionDismissed(true),
+            })
+          : null,
         h("span", {
           ref: composerLayout.textMeasureRef,
           className: "composer-single-line-measure",
@@ -767,6 +786,93 @@ function SessionSurface({
         ),
       ),
       h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }),
+    ),
+  );
+}
+
+function AboveComposerPlanSuggestion({
+  copy,
+  onAction,
+  onDismiss,
+}: {
+  copy?: AgentSessionCopy;
+  onAction: () => void;
+  onDismiss: () => void;
+}) {
+  return h(
+    "div",
+    { className: "pointer-events-auto flex w-full max-w-full justify-center" },
+    h(
+      "div",
+      {
+        className:
+          "relative inline-flex max-w-full min-w-0 items-center justify-between gap-4 overflow-hidden rounded-3xl border border-token-border/80 bg-token-dropdown-background/90 py-1.5 pr-2 pl-3 text-token-foreground shadow-md backdrop-blur-sm",
+        "data-codex-above-composer-suggestion": "keyword-plan-mode",
+      },
+      h(
+        "div",
+        { className: "flex min-w-0 flex-1 items-center gap-2" },
+        h(
+          "span",
+          { className: "flex items-center justify-center text-token-foreground", "aria-hidden": true },
+          sparkleIcon("icon-xs shrink-0"),
+        ),
+        h(
+          "div",
+          { className: "min-w-0 flex-1 flex items-center gap-2" },
+          h(
+            "span",
+            { className: "truncate text-sm font-medium leading-[18px] text-token-foreground" },
+            copy?.planSuggestionTitle ?? "Create a plan",
+          ),
+          h(
+            "span",
+            {
+              className: "hidden leading-none text-sm text-token-description-foreground @[500px]:inline",
+              "aria-hidden": true,
+            },
+            h(
+              "span",
+              {
+                className:
+                  "pointer-events-none !h-auto rounded-md border border-token-border/80 px-1 py-0.5 text-xs !leading-none text-token-description-foreground",
+              },
+              copy?.planSuggestionShortcut ?? "Shift + Tab",
+            ),
+          ),
+        ),
+      ),
+      h(
+        "div",
+        { className: "flex shrink-0 items-center gap-1" },
+        h(
+          "button",
+          {
+            className:
+              "user-select-none no-drag cursor-interaction flex h-8 items-center justify-center rounded-full border border-transparent bg-token-button-secondary-background px-2.5 text-sm text-token-button-secondary-foreground hover:bg-token-button-secondary-hover-background focus:outline-none",
+            type: "button",
+            onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+              event.stopPropagation();
+              onAction();
+            },
+          },
+          copy?.planSuggestionAction ?? "Use plan mode",
+        ),
+        h(
+          "button",
+          {
+            className:
+              "user-select-none no-drag flex size-[22px] shrink-0 cursor-interaction items-center justify-center rounded-full border border-transparent text-token-description-foreground hover:bg-token-list-hover-background focus:outline-none",
+            type: "button",
+            "aria-label": copy?.planSuggestionDismiss ?? "Dismiss suggestion",
+            onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+              event.stopPropagation();
+              onDismiss();
+            },
+          },
+          xIcon("icon-xs"),
+        ),
+      ),
     ),
   );
 }

@@ -78,6 +78,10 @@ export type AgentSessionCopy = {
   mentionCurrentWorkspace: string;
   skillMenuTitle: string;
   planMode: string;
+  planSuggestionAction: string;
+  planSuggestionDismiss: string;
+  planSuggestionShortcut: string;
+  planSuggestionTitle: string;
   skillPlan: string;
   skillCodeReview: string;
   skillResearch: string;
