@@ -35,7 +35,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         switch self {
         case .classic:
             return TitlebarControlsStyleConfig(
-                spacing: 6,
+                spacing: 10,
                 iconSize: HeaderChromeControlMetrics.iconSize,
                 buttonSize: HeaderChromeControlMetrics.buttonSize,
                 badgeSize: 12,
@@ -48,54 +48,54 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
             )
         case .compact:
             return TitlebarControlsStyleConfig(
-                spacing: 5,
-                iconSize: 11,
-                buttonSize: 18,
+                spacing: 6,
+                iconSize: 13,
+                buttonSize: 20,
                 badgeSize: 11,
                 badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
-                buttonCornerRadius: 5,
+                buttonCornerRadius: 6,
                 hoverBackground: false
             )
         case .roomy:
             return TitlebarControlsStyleConfig(
-                spacing: 7,
-                iconSize: 13,
-                buttonSize: 22,
+                spacing: 14,
+                iconSize: 16,
+                buttonSize: 28,
                 badgeSize: 13,
                 badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
-                buttonCornerRadius: 7,
+                buttonCornerRadius: 10,
                 hoverBackground: false
             )
         case .pillGroup:
             return TitlebarControlsStyleConfig(
-                spacing: 5,
-                iconSize: 12,
-                buttonSize: 20,
+                spacing: 8,
+                iconSize: 14,
+                buttonSize: 24,
                 badgeSize: 12,
                 badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
-                groupPadding: EdgeInsets(top: 1, leading: 3, bottom: 1, trailing: 3),
+                groupPadding: EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4),
                 buttonBackground: false,
-                buttonCornerRadius: 6,
+                buttonCornerRadius: 8,
                 hoverBackground: true
             )
         case .softButtons:
             return TitlebarControlsStyleConfig(
-                spacing: 6,
-                iconSize: 12,
-                buttonSize: 21,
+                spacing: 8,
+                iconSize: 15,
+                buttonSize: 26,
                 badgeSize: 12,
                 badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: true,
-                buttonCornerRadius: 6,
+                buttonCornerRadius: 8,
                 hoverBackground: false
             )
         }
