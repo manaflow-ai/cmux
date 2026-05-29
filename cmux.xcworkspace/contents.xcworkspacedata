@@ -23,6 +23,12 @@
          location = "group:CmuxExtensionKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxSettings">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSettingsUI">
+      </FileRef>
+      <FileRef
          location = "group:CMUXPasteboardFidelity">
       </FileRef>
       <FileRef
