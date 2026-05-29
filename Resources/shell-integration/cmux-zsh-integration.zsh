@@ -13,10 +13,8 @@ typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
     _CMUX_HAS_ZSH_JOBSTATES=1
 fi
-typeset -g _CMUX_ZSH_JOB_TABLE_SATURATED=0
 
 _cmux_zsh_job_table_saturated() {
-    (( _CMUX_ZSH_JOB_TABLE_SATURATED )) && return 0
     (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
 
     local limit="${CMUX_ZSH_JOB_TABLE_SOFT_LIMIT:-900}"
@@ -27,11 +25,6 @@ _cmux_zsh_job_table_saturated() {
 
     local job_count=${#jobstates}
     (( job_count >= limit ))
-    local saturated=$?
-    if (( saturated == 0 )); then
-        _CMUX_ZSH_JOB_TABLE_SATURATED=1
-    fi
-    return "$saturated"
 }
 
 _cmux_restore_status() {
@@ -1296,16 +1289,13 @@ _cmux_run_pr_probe_with_timeout() {
 }
 
 _cmux_halt_pr_poll_loop() {
-    local saturated=0
-    _cmux_zsh_job_table_saturated && saturated=1
-
     # Process-group kill: background jobs are process-group leaders, so
     # negative PID kills the loop + all descendants (gh, sleep) without
     # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
-    [[ -z "$_CMUX_PR_POLL_PID" || "$saturated" == "1" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
+    [[ -z "$_CMUX_PR_POLL_PID" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
     local signal_path=""
     [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
-    [[ -z "$signal_path" || "$saturated" == "1" ]] || /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    [[ -z "$signal_path" ]] || /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
 }
@@ -1367,10 +1357,7 @@ _cmux_start_pr_poll_loop() {
 
 _cmux_stop_git_head_watch() {
     [[ -n "$_CMUX_GIT_HEAD_WATCH_PID" ]] || return 0
-
-    _cmux_zsh_job_table_saturated
-    local saturated=$?
-    (( saturated == 0 )) || kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
+    kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
     _CMUX_GIT_HEAD_WATCH_PID=""
 }
 
@@ -1394,9 +1381,11 @@ _cmux_start_git_head_watch() {
     _CMUX_GIT_HEAD_SIGNATURE="$watch_head_signature"
 
     _cmux_stop_git_head_watch
+    local watch_shell_pid="$$"
     {
         local last_signature="$watch_head_signature"
         while true; do
+            kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
             sleep 1
 
             local signature

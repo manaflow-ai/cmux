@@ -18,8 +18,10 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable
 
 
+BACKGROUND_SLEEP_SECONDS = 30
 ERROR_NEEDLE = b"job table full or recursion limit exceeded"
 EXIT_42_MARKER = b"\x1b]133;D;42\x07"
 
@@ -42,7 +44,11 @@ def _send(master: int, text: str) -> None:
     os.write(master, text.encode("utf-8"))
 
 
-def _capture_saturated_session(env: dict[str, str], zsh_path: str) -> bytes:
+def _run_pty_session(
+    env: dict[str, str],
+    zsh_path: str,
+    interact: Callable[[int, bytearray], None],
+) -> bytes:
     master, slave = pty.openpty()
     proc = subprocess.Popen(
         [zsh_path, "-d", "-i"],
@@ -57,95 +63,54 @@ def _capture_saturated_session(env: dict[str, str], zsh_path: str) -> bytes:
 
     output = bytearray()
     try:
+        interact(master, output)
+    finally:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        finally:
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            os.close(master)
+
+    return bytes(output)
+
+
+def _capture_saturated_session(env: dict[str, str], zsh_path: str) -> bytes:
+    def interact(master: int, output: bytearray) -> None:
         _read_available(master, output, time.time() + 0.75)
         _send(master, "print __CMUX_READY__\n")
         _read_available(master, output, time.time() + 1.0)
-        _send(master, "for i in {1..1100}; do sleep 600 & done\n")
+        _send(master, f"for i in {{1..1100}}; do sleep {BACKGROUND_SLEEP_SECONDS} & done\n")
         _read_available(master, output, time.time() + 8.0)
         _send(master, "print __CMUX_AFTER_FILL__\n")
         _read_available(master, output, time.time() + 1.0)
         for _ in range(3):
             _send(master, "\n")
             _read_available(master, output, time.time() + 0.5)
-    finally:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        finally:
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            os.close(master)
 
-    return bytes(output)
+    return _run_pty_session(env, zsh_path, interact)
 
 
 def _capture_status_marker_session(env: dict[str, str], zsh_path: str) -> bytes:
-    master, slave = pty.openpty()
-    proc = subprocess.Popen(
-        [zsh_path, "-d", "-i"],
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
-        env=env,
-        start_new_session=True,
-        close_fds=True,
-    )
-    os.close(slave)
-
-    output = bytearray()
-    try:
+    def interact(master: int, output: bytearray) -> None:
         _read_available(master, output, time.time() + 1.0)
         _send(master, "/bin/sh -c 'exit 42'\n")
         _read_available(master, output, time.time() + 1.5)
-    finally:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        finally:
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            os.close(master)
 
-    return bytes(output)
+    return _run_pty_session(env, zsh_path, interact)
 
 
 def _capture_initial_prompt(env: dict[str, str], zsh_path: str) -> bytes:
-    master, slave = pty.openpty()
-    proc = subprocess.Popen(
-        [zsh_path, "-d", "-i"],
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
-        env=env,
-        start_new_session=True,
-        close_fds=True,
-    )
-    os.close(slave)
-
-    output = bytearray()
-    try:
+    def interact(master: int, output: bytearray) -> None:
         _read_available(master, output, time.time() + 1.0)
         _send(master, "print __CMUX_READY__\n")
         _read_available(master, output, time.time() + 1.0)
-    finally:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        finally:
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            os.close(master)
 
-    return bytes(output)
+    return _run_pty_session(env, zsh_path, interact)
 
 
 def _prepare_home(home: Path, zshrc: str = "") -> None:
@@ -194,7 +159,7 @@ def main() -> int:
             return 1
 
         initial_home = base / "initially_saturated_home"
-        _prepare_home(initial_home, "sleep 600 &\n")
+        _prepare_home(initial_home, f"sleep {BACKGROUND_SLEEP_SECONDS} &\n")
         initial_env = dict(env)
         initial_env["HOME"] = str(initial_home)
         initial_env["CMUX_ZSH_ZDOTDIR"] = str(initial_home)
