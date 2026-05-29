@@ -36,16 +36,34 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         context.coordinator.attach(surfaceView: view)
+        #if DEBUG
+        configureTestingAccessibility(for: view)
+        #endif
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // No prop-driven mutations yet; bytes flow via the byte sink.
+        #if DEBUG
+        configureTestingAccessibility(for: uiView)
+        #endif
+        // Runtime bytes flow via the byte sink.
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        #if DEBUG
+        if let surfaceView = uiView as? GhosttySurfaceView {
+            surfaceView.setTestingAccessibilityActive(false)
+        }
+        #endif
         coordinator.detach()
     }
+
+    #if DEBUG
+    private func configureTestingAccessibility(for uiView: UIView) {
+        guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        surfaceView.setTestingAccessibilityActive(store.selectedTerminalID?.rawValue == surfaceID)
+    }
+    #endif
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         let surfaceID: String
@@ -113,12 +131,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
 
             surfaceView.onOutputProcessedForTesting = { [weak self, weak surfaceView] in
-                guard let self, !self.didRunSoakInputScript else { return }
+                guard let self, !self.didRunSoakInputScript, let surfaceView else { return }
                 self.didRunSoakInputScript = true
                 let decoded = input
                     .replacingOccurrences(of: "\\r", with: "\r")
                     .replacingOccurrences(of: "\\n", with: "\n")
-                guard let surfaceView else { return }
                 let normalized = decoded.replacingOccurrences(of: "\n", with: "\r")
                 self.ghosttySurfaceView(surfaceView, didProduceInput: Data(normalized.utf8))
             }

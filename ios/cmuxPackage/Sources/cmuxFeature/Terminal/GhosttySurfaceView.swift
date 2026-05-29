@@ -895,6 +895,8 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface else { return }
         #if DEBUG
         appendTestingAccessibilityOutput(data)
+        updateTestingAccessibilityState()
+        onOutputProcessedForTesting?()
         #endif
         #if DEBUG
         if lastInputTimestamp > 0 {
@@ -945,7 +947,6 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 #if DEBUG
                 self.updateTestingAccessibilityState()
-                self.onOutputProcessedForTesting?()
                 #endif
             }
         }
@@ -1444,6 +1445,17 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             accessibilityLabel = labelText
         }
         accessibilityValue = rendererLayerDiagnosticsForTesting()
+    }
+
+    func setTestingAccessibilityActive(_ active: Bool) {
+        isAccessibilityElement = active
+        accessibilityIdentifier = active ? "MobileTerminalSurface" : nil
+        if active {
+            updateTestingAccessibilityState()
+        } else {
+            accessibilityLabel = nil
+            accessibilityValue = nil
+        }
     }
 
     private static func preferredTestingAccessibilityLabel(
