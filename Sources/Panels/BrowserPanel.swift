@@ -40,6 +40,8 @@ struct BrowserRemoteWorkspaceStatus: Equatable {
 }
 
 enum BrowserDeveloperToolsAttachmentPolicy {
+    private static let firstStableAttachedInspectorMajorVersion = 26
+
 #if DEBUG
     private nonisolated(unsafe) static var attachedInspectorAllowedOverrideForTesting: Bool?
 
@@ -62,7 +64,8 @@ enum BrowserDeveloperToolsAttachmentPolicy {
             return attachedInspectorAllowedOverrideForTesting
         }
 #endif
-        return true
+        // macOS 15 WebKit 20621 crashes inside WebInspectorUIProxy::platformAttach.
+        return osVersion.majorVersion >= firstStableAttachedInspectorMajorVersion
     }
 }
 
@@ -6327,6 +6330,10 @@ extension BrowserPanel {
     }
 
     private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
+        guard BrowserDeveloperToolsAttachmentPolicy.allowsAttachedInspector() else {
+            setPreferredDeveloperToolsPresentation(.detached)
+            return
+        }
         if preferredDeveloperToolsPresentation != .unknown {
             guard preferredDeveloperToolsPresentation == .attached else { return }
             guard webView.superview != nil, webView.window != nil else { return }
