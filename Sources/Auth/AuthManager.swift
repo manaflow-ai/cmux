@@ -455,9 +455,6 @@ final class AuthManager: ObservableObject {
         }
         let mutationGeneration = beginAuthMutation(.signIn)
 
-        isLoading = true
-        defer { isLoading = false }
-
         await tokenStore.seed(
             accessToken: payload.accessToken,
             refreshToken: payload.refreshToken
