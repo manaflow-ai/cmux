@@ -1065,19 +1065,27 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
     "div",
     { className: `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}` },
     summary,
-    entry.output && isOutputExpanded
+    entry.output
       ? h(
           "div",
-          { className: "codex-tool-activity-output-shell" },
+          {
+            "aria-hidden": !isOutputExpanded,
+            className: "codex-tool-activity-output-shell relative overflow-hidden",
+            "data-expanded": isOutputExpanded ? "true" : "false",
+          },
           h(
             "div",
-            { className: "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem]" },
-            h("div", {
-              className:
-                "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
-              dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
-            }),
-            h(CopyOutputButton, { label: copyOutputLabel, output: entry.output }),
+            { className: "codex-tool-activity-output-shell-inner" },
+            h(
+              "div",
+              { className: "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem]" },
+              h("div", {
+                className:
+                  "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
+                dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
+              }),
+              h(CopyOutputButton, { label: copyOutputLabel, output: entry.output }),
+            ),
           ),
         )
       : null,

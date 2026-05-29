@@ -518,8 +518,25 @@ select {
 .codex-tool-activity-output-shell {
   width: 100%;
   min-width: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
   overflow: hidden;
-  animation: codex-tool-output-expand 180ms ease-out both;
+  pointer-events: none;
+  transition:
+    grid-template-rows 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.codex-tool-activity-output-shell[data-expanded="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.codex-tool-activity-output-shell-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .codex-tool-activity-output-frame {
@@ -559,18 +576,6 @@ select {
   }
 
   50% {
-    opacity: 1;
-  }
-}
-
-@keyframes codex-tool-output-expand {
-  from {
-    max-height: 0;
-    opacity: 0;
-  }
-
-  to {
-    max-height: 180px;
     opacity: 1;
   }
 }
