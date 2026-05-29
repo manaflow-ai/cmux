@@ -1814,6 +1814,24 @@ final class BrowserPanelPopupContextTests: XCTestCase {
         )
     }
 
+    func testFloatingPopupClosesWhenWebContentProcessTerminates() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        defer { panel.close() }
+        let popupWebView = try XCTUnwrap(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        let popupWindow = try XCTUnwrap(popupWebView.window)
+
+        popupWebView.navigationDelegate?.webViewWebContentProcessDidTerminate?(popupWebView)
+
+        XCTAssertNil(popupWebView.navigationDelegate)
+        XCTAssertNil(popupWebView.uiDelegate)
+        XCTAssertFalse(popupWindow.isVisible)
+    }
+
     func testFloatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
         let remoteWorkspaceId = UUID()
         let panel = BrowserPanel(
