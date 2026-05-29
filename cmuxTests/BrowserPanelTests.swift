@@ -2720,6 +2720,50 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(postLayoutSnapshot.webViewFrame.size.height, 700, accuracy: 0.5)
     }
 
+    func testFrozenCanvasBrowserPresentationHidesWithoutMovingPortalGeometry() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 900),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 1_000, height: 700))
+        window.contentView?.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let portal = WindowBrowserPortal(window: window)
+        let webViewID = ObjectIdentifier(webView)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        portal.setCanvasSurfacePresentation(
+            forWebViewId: webViewID,
+            presentation: CanvasSurfacePresentation(
+                frameInWindow: NSRect(x: 100, y: 120, width: 400, height: 280),
+                nativeContentSize: CGSize(width: 1_000, height: 700),
+                scale: 0.4
+            )
+        )
+
+        let before = try XCTUnwrap(portal.debugSnapshot(forWebViewId: webViewID))
+        portal.freezeCanvasSurfacePresentation(forWebViewId: webViewID)
+        let after = try XCTUnwrap(portal.debugSnapshot(forWebViewId: webViewID))
+
+        XCTAssertFalse(after.containerHidden)
+        XCTAssertEqual(after.containerAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(after.webViewAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(after.frameInWindow.origin.x, before.frameInWindow.origin.x, accuracy: 0.5)
+        XCTAssertEqual(after.frameInWindow.origin.y, before.frameInWindow.origin.y, accuracy: 0.5)
+        XCTAssertEqual(after.frameInWindow.size.width, before.frameInWindow.size.width, accuracy: 0.5)
+        XCTAssertEqual(after.frameInWindow.size.height, before.frameInWindow.size.height, accuracy: 0.5)
+        XCTAssertEqual(after.containerBounds.size.width, before.containerBounds.size.width, accuracy: 0.5)
+        XCTAssertEqual(after.containerBounds.size.height, before.containerBounds.size.height, accuracy: 0.5)
+        XCTAssertEqual(after.webViewFrame.size.width, before.webViewFrame.size.width, accuracy: 0.5)
+        XCTAssertEqual(after.webViewFrame.size.height, before.webViewFrame.size.height, accuracy: 0.5)
+    }
+
     func testCanvasSurfacePresentationClipsContainerAndOffsetsWebView() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 900),

@@ -4015,6 +4015,52 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(hostedView.bounds.size.height, 700, accuracy: 0.5)
     }
 
+    func testFrozenCanvasTerminalPresentationHidesWithoutMovingPortalGeometry() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 900),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 1_000, height: 700))
+        window.contentView?.addSubview(anchor)
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        )
+        let portal = WindowTerminalPortal(window: window)
+        let hostedID = ObjectIdentifier(hostedView)
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+
+        portal.setCanvasSurfacePresentation(
+            forHostedId: hostedID,
+            presentation: CanvasSurfacePresentation(
+                frameInWindow: NSRect(x: 100, y: 120, width: 400, height: 280),
+                nativeContentSize: CGSize(width: 1_000, height: 700),
+                scale: 0.4
+            )
+        )
+
+        let before = try XCTUnwrap(portal.debugSnapshot(forHostedId: hostedID))
+        portal.freezeCanvasSurfacePresentation(forHostedId: hostedID)
+        let after = try XCTUnwrap(portal.debugSnapshot(forHostedId: hostedID))
+
+        XCTAssertFalse(after.containerHidden)
+        XCTAssertEqual(after.containerAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(after.hostedAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(after.frameInWindow.origin.x, before.frameInWindow.origin.x, accuracy: 0.5)
+        XCTAssertEqual(after.frameInWindow.origin.y, before.frameInWindow.origin.y, accuracy: 0.5)
+        XCTAssertEqual(after.frameInWindow.size.width, before.frameInWindow.size.width, accuracy: 0.5)
+        XCTAssertEqual(after.frameInWindow.size.height, before.frameInWindow.size.height, accuracy: 0.5)
+        XCTAssertEqual(after.containerBounds.size.width, before.containerBounds.size.width, accuracy: 0.5)
+        XCTAssertEqual(after.containerBounds.size.height, before.containerBounds.size.height, accuracy: 0.5)
+        XCTAssertEqual(after.hostedFrame.size.width, before.hostedFrame.size.width, accuracy: 0.5)
+        XCTAssertEqual(after.hostedFrame.size.height, before.hostedFrame.size.height, accuracy: 0.5)
+    }
+
     func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

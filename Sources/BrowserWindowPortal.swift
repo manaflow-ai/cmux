@@ -2531,16 +2531,6 @@ final class WindowBrowserPortal: NSObject {
         containerView.setPaneDropContext(nil)
         containerView.setPortalDragDropZone(nil)
         containerView.setDropZoneOverlay(zone: nil)
-        let webView = containerView.hostedWebView
-        let parkedViews = [containerView as NSView, webView].compactMap { $0 }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for parkedView in parkedViews {
-            let parkingFrame = CanvasNativeSurfaceParkingPolicy.parkingFrame(preserving: parkedView.frame)
-            guard !Self.rectApproximatelyEqual(parkedView.frame, parkingFrame) else { continue }
-            parkedView.frame = parkingFrame
-        }
-        CATransaction.commit()
     }
 
     private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {

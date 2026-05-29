@@ -1340,19 +1340,6 @@ final class WindowTerminalPortal: NSObject {
         canvasClipViewsByHostedId[hostedId]?.isHidden = hidden
     }
 
-    private func parkFrozenCanvasSurface(forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView?) {
-        let parkedViews = [canvasClipViewsByHostedId[hostedId], hostedView].compactMap { $0 }
-        guard !parkedViews.isEmpty else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for parkedView in parkedViews {
-            let parkingFrame = CanvasNativeSurfaceParkingPolicy.parkingFrame(preserving: parkedView.frame)
-            guard !Self.rectApproximatelyEqual(parkedView.frame, parkingFrame) else { continue }
-            parkedView.frame = parkingFrame
-        }
-        CATransaction.commit()
-    }
-
     private func setCanvasSurfaceFrozen(_ frozen: Bool, forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView?) {
         let alpha: CGFloat = frozen ? 0 : 1
         hostedView?.alphaValue = alpha
@@ -1363,7 +1350,6 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 canvasClipViewsByHostedId[hostedId]?.isHidden = false
             }
-            parkFrozenCanvasSurface(forHostedId: hostedId, hostedView: hostedView)
         }
     }
 
