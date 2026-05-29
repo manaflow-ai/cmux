@@ -456,11 +456,17 @@ select {
 
 .codex-tool-activity-summary {
   max-width: 100%;
+  padding: 0;
   border: 0;
   color: color-mix(in srgb, var(--color-token-foreground) 40%, transparent);
   background: transparent;
+  font: inherit;
   font-size: var(--codex-chat-font-size);
   line-height: calc(var(--codex-chat-font-size) + 8px);
+}
+
+.codex-tool-activity-summary:focus-visible {
+  outline: none;
 }
 
 .codex-tool-activity-turn.inProgress .codex-tool-activity-summary {
@@ -509,6 +515,13 @@ select {
   color: var(--color-token-foreground);
 }
 
+.codex-tool-activity-output-shell {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  animation: codex-tool-output-expand 180ms ease-out both;
+}
+
 .codex-tool-activity-output-frame {
   position: relative;
   min-height: 1.25rem;
@@ -546,6 +559,18 @@ select {
   }
 
   50% {
+    opacity: 1;
+  }
+}
+
+@keyframes codex-tool-output-expand {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+
+  to {
+    max-height: 180px;
     opacity: 1;
   }
 }

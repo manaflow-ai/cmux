@@ -998,48 +998,90 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
           dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
         }),
       );
-    case "activity": {
-      const copyOutputLabel = copy?.copyOutput ?? "Copy output";
-      return h(
-        "div",
-        { className: `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}` },
+    case "activity":
+      return h(ToolActivityTurn, { copy, entry });
+  }
+}
+
+function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
+  const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  const copyOutputLabel = copy?.copyOutput ?? "Copy output";
+  const isExpandable = Boolean(entry.output);
+  const toggleOutput = useCallback(() => {
+    setIsOutputExpanded((current) => !current);
+  }, []);
+  const summaryContent = h(
+    React.Fragment,
+    null,
+    h("span", { className: "codex-tool-activity-icon icon-xs shrink-0", "aria-hidden": true }, activityGlyph(entry)),
+    h(
+      "span",
+      {
+        className:
+          "codex-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground",
+      },
+      h("span", {
+        className: "codex-tool-activity-action",
+        dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
+      }),
+      entry.detail
+        ? h("span", {
+            className: "codex-tool-activity-detail",
+            dangerouslySetInnerHTML: { __html: ` ${renderPlainTextHTML(entry.detail)}` },
+          })
+        : null,
+    ),
+  );
+  const summary = isExpandable
+    ? h(
+        "button",
+        {
+          type: "button",
+          className:
+            "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left",
+          "aria-expanded": isOutputExpanded,
+          onClick: toggleOutput,
+        },
+        summaryContent,
         h(
-          "div",
+          "span",
           {
             className:
-              "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left",
+              `codex-tool-activity-chevron inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100${isOutputExpanded ? " opacity-100" : ""}`,
           },
-          h("span", { className: "codex-tool-activity-icon icon-xs shrink-0", "aria-hidden": true }, activityGlyph(entry)),
-          h(
-            "span",
-            { className: "codex-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1" },
-            h("span", {
-              className: "codex-tool-activity-action",
-              dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
-            }),
-            entry.detail
-              ? h("span", {
-                  className: "codex-tool-activity-detail",
-                  dangerouslySetInnerHTML: { __html: ` ${renderPlainTextHTML(entry.detail)}` },
-                })
-              : null,
-          ),
+          chevronRightIcon(`icon-2xs text-current transition-transform duration-300${isOutputExpanded ? " rotate-90" : ""}`),
         ),
-        entry.output
-          ? h(
-              "div",
-              { className: "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem]" },
-              h("div", {
-                className:
-                  "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
-                dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
-              }),
-              h(CopyOutputButton, { label: copyOutputLabel, output: entry.output }),
-            )
-          : null,
+      )
+    : h(
+        "div",
+        {
+          className:
+            "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full items-center gap-1 self-start text-left",
+        },
+        summaryContent,
       );
-    }
-  }
+
+  return h(
+    "div",
+    { className: `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}` },
+    summary,
+    entry.output && isOutputExpanded
+      ? h(
+          "div",
+          { className: "codex-tool-activity-output-shell" },
+          h(
+            "div",
+            { className: "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem]" },
+            h("div", {
+              className:
+                "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
+              dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
+            }),
+            h(CopyOutputButton, { label: copyOutputLabel, output: entry.output }),
+          ),
+        )
+      : null,
+  );
 }
 
 function CopyOutputButton({ label, output }: { label: string; output: string }) {
@@ -2098,6 +2140,17 @@ function chevronIcon() {
       fill: "currentColor",
       stroke: "currentColor",
       strokeWidth: "0.6",
+    }),
+  );
+}
+
+function chevronRightIcon(className = "icon-2xs") {
+  return h(
+    "svg",
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z",
+      fill: "currentColor",
     }),
   );
 }
