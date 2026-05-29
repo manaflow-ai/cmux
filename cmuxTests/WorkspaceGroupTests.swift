@@ -90,6 +90,26 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func movingGroupedChildToTopKeepsAnchorFirstWhenGroupIsAlreadyFirst() throws {
+        let manager = makeTabManager()
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "First", childWorkspaceIds: [
+            originalIds[0],
+            originalIds[1],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.moveTabToTop(originalIds[1])
+
+        #expect(manager.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[0],
+            originalIds[2],
+        ])
+    }
+
     @Test func addingWorkspaceToGroupPreservesGroupTopLevelPosition() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

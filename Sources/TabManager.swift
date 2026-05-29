@@ -5533,6 +5533,7 @@ class TabManager: ObservableObject {
 
     func moveTabToTop(_ tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let previousOrder = tabs.map(\.id)
         let tab = tabs[index]
         let targetIndex = tab.isPinned ? 0 : tabs.filter { $0.isPinned }.count
         if index != targetIndex {
@@ -5546,13 +5547,14 @@ class TabManager: ObservableObject {
             // Grouped: bring the group's whole section to the top of its
             // pinned/unpinned tier, then normalize within the group so the
             // anchor stays first and the moved member lands right after it.
-            let isPinnedTier = workspaceGroups.first(where: { $0.id == groupId })?.isPinned == true
-            let tierFirstIndex = workspaceGroups.firstIndex(where: { $0.isPinned == isPinnedTier }) ?? 0
-            moveWorkspaceGroup(groupId: groupId, toIndex: tierFirstIndex)
+            _ = moveWorkspaceGroupSlotToTierStart(groupId: groupId)
+            applyWorkspaceGroupSlotOrderToTabs()
         } else if !workspaceGroups.isEmpty {
             normalizeWorkspaceGroupContiguity()
         }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        if tabs.map(\.id) != previousOrder {
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        }
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
@@ -5574,13 +5576,12 @@ class TabManager: ObservableObject {
                 var seen = Set<UUID>()
                 let orderedUnique = movedGroupIds.filter { seen.insert($0).inserted }
                 for groupId in orderedUnique.reversed() {
-                    let isPinnedTier = workspaceGroups.first(where: { $0.id == groupId })?.isPinned == true
-                    if let tierFirst = workspaceGroups.firstIndex(where: { $0.isPinned == isPinnedTier }) {
-                        moveWorkspaceGroup(groupId: groupId, toIndex: tierFirst)
-                    }
+                    _ = moveWorkspaceGroupSlotToTierStart(groupId: groupId)
                 }
+                applyWorkspaceGroupSlotOrderToTabs()
+            } else {
+                normalizeWorkspaceGroupContiguity()
             }
-            normalizeWorkspaceGroupContiguity()
         }
         if tabs.map(\.id) != previousOrder {
             postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
@@ -6417,13 +6418,31 @@ class TabManager: ObservableObject {
     /// slots; the reordered group anchors are projected back into the existing
     /// group slots.
     func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {
-        guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
+        guard moveWorkspaceGroupSlot(groupId: groupId, toIndex: targetIndex) else { return }
+        applyWorkspaceGroupSlotOrderToTabs()
+        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
+        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
+    }
+
+    @discardableResult
+    private func moveWorkspaceGroupSlotToTierStart(groupId: UUID) -> Bool {
+        guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return false }
+        let isPinnedTier = workspaceGroups[currentIndex].isPinned
+        guard let tierFirstIndex = workspaceGroups.firstIndex(where: { $0.isPinned == isPinnedTier }) else {
+            return false
+        }
+        return moveWorkspaceGroupSlot(groupId: groupId, toIndex: tierFirstIndex)
+    }
+
+    @discardableResult
+    private func moveWorkspaceGroupSlot(groupId: UUID, toIndex targetIndex: Int) -> Bool {
+        guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return false }
         let isPinned = workspaceGroups[currentIndex].isPinned
         let sameTierIndices = workspaceGroups.indices.filter { workspaceGroups[$0].isPinned == isPinned }
         guard let firstSameTier = sameTierIndices.first,
-              let lastSameTier = sameTierIndices.last else { return }
+              let lastSameTier = sameTierIndices.last else { return false }
         let clampedTarget = max(firstSameTier, min(targetIndex, lastSameTier))
-        guard clampedTarget != currentIndex else { return }
+        guard clampedTarget != currentIndex else { return false }
         let group = workspaceGroups.remove(at: currentIndex)
         // Insert at clampedTarget directly — the source's removal already
         // shifted subsequent indices down, so for a desired final position
@@ -6433,6 +6452,10 @@ class TabManager: ObservableObject {
         // final array, which means inserting after that element — index N
         // works because we're inserting into a shorter array.
         workspaceGroups.insert(group, at: max(0, min(clampedTarget, workspaceGroups.count)))
+        return true
+    }
+
+    private func applyWorkspaceGroupSlotOrderToTabs() {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let topLevelIds = sidebarTopLevelWorkspaceIds()
         var pinnedAnchors = workspaceGroups.filter(\.isPinned).map(\.anchorWorkspaceId)
@@ -6449,8 +6472,6 @@ class TabManager: ObservableObject {
         }
         normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
         syncWorkspaceGroupsOrderToAnchorOrder()
-        let memberIds = tabs.filter { $0.groupId == groupId }.map(\.id)
-        postWorkspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
     /// Pick the next "Group N" name that doesn't collide with an existing
