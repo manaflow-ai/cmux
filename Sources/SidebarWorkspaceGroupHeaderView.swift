@@ -269,11 +269,11 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     let reorderDelegate: SidebarTabDropDelegate
 
     func validateDrop(info: DropInfo) -> Bool {
-        reorderDelegate.validateDrop(info: info) || isAnchorOnlyAddDrop(info)
+        reorderDelegate.validateDrop(info: info) || isGroupHeaderAddDrop(info)
     }
 
     func dropEntered(info: DropInfo) {
-        if updateAnchorOnlyAddDrop(info) { return }
+        if updateGroupHeaderAddDrop(info) { return }
         reorderDelegate.dropEntered(info: info)
     }
 
@@ -282,14 +282,14 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        if updateAnchorOnlyAddDrop(info) {
+        if updateGroupHeaderAddDrop(info) {
             return DropProposal(operation: .move)
         }
         return reorderDelegate.dropUpdated(info: info)
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        guard isAnchorOnlyAddDrop(info),
+        guard isGroupHeaderAddDrop(info),
               let draggedTabId = dragState.draggedTabId else {
             return reorderDelegate.performDrop(info: info)
         }
@@ -302,14 +302,14 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
         return true
     }
 
-    private func updateAnchorOnlyAddDrop(_ info: DropInfo) -> Bool {
-        guard isAnchorOnlyAddDrop(info) else { return false }
+    private func updateGroupHeaderAddDrop(_ info: DropInfo) -> Bool {
+        guard isGroupHeaderAddDrop(info) else { return false }
         dragAutoScrollController.updateFromDragLocation()
         dragState.dropIndicator = nil
         return true
     }
 
-    private func isAnchorOnlyAddDrop(_ info: DropInfo) -> Bool {
+    private func isGroupHeaderAddDrop(_ info: DropInfo) -> Bool {
         guard info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
               let draggedTabId = dragState.draggedTabId,
               draggedTabId != targetAnchorWorkspaceId,

@@ -90,6 +90,54 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func draggingWorkspaceAfterCollapsedGroupHeaderKeepsWorkspaceTopLevel() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[0],
+            targetWorkspaceId: group.anchorWorkspaceId
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[0],
+            targetWorkspaceId: group.anchorWorkspaceId
+        )
+        let targetIndex = try #require(SidebarDropPlanner.targetIndex(
+            draggedTabId: originalIds[0],
+            targetTabId: group.anchorWorkspaceId,
+            indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .bottom),
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds
+        ))
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: originalIds[0],
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: manager.sidebarReorderUsesTopLevelRows(
+                forDraggedWorkspaceId: originalIds[0],
+                targetWorkspaceId: group.anchorWorkspaceId
+            )
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == originalIds[0] }?.groupId == nil)
+        #expect(manager.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            originalIds[0],
+            originalIds[3],
+        ])
+    }
+
     @Test func movingGroupedChildToTopKeepsAnchorFirstWhenGroupIsAlreadyFirst() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

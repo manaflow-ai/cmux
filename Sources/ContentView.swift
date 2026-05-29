@@ -16601,7 +16601,10 @@ struct SidebarTabDropDelegate: DropDelegate {
         let hasDrag = draggedTabId != nil
         let targetIsInReorderScope = draggedTabId.map { draggedTabId in
             guard let targetTabId else { return true }
-            return tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: draggedTabId).contains(targetTabId)
+            return tabManager.sidebarReorderWorkspaceIds(
+                forDraggedWorkspaceId: draggedTabId,
+                targetWorkspaceId: targetTabId
+            ).contains(targetTabId)
         } ?? false
         #if DEBUG
         cmuxDebugLog(
@@ -16656,8 +16659,18 @@ struct SidebarTabDropDelegate: DropDelegate {
 #endif
             return false
         }
-        let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: draggedTabId)
-        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(forDraggedWorkspaceId: draggedTabId)
+        let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
+        let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
+        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
         guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId) else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
@@ -16692,14 +16705,25 @@ struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         let selectionBeforeReorder = selectedTabIds
-        _ = tabManager.reorderSidebarWorkspace(tabId: draggedTabId, toIndex: targetIndex, isDragOperation: true)
+        _ = tabManager.reorderSidebarWorkspace(
+            tabId: draggedTabId,
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: usesTopLevelRows
+        )
         syncSidebarSelection(preserving: selectionBeforeReorder)
         return true
     }
 
     private func updateDropIndicator(for info: DropInfo) {
-        let tabIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
-        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
+        let tabIds = tabManager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: dragState.draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
+        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: dragState.draggedTabId,
+            targetWorkspaceId: targetTabId
+        )
         let nextIndicator = SidebarDropPlanner.indicator(
             draggedTabId: dragState.draggedTabId,
             targetTabId: targetTabId,
