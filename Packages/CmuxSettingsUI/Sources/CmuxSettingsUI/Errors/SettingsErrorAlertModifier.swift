@@ -14,7 +14,7 @@ struct SettingsErrorAlertModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .alert(
-                "Couldn't save setting",
+                Text(String(localized: "settings.error.alert.title", defaultValue: "Couldn't save setting")),
                 isPresented: Binding(
                     get: { log.entries.last != nil },
                     set: { newValue in
@@ -25,7 +25,7 @@ struct SettingsErrorAlertModifier: ViewModifier {
                 ),
                 presenting: log.entries.last
             ) { _ in
-                Button("OK") {
+                Button(String(localized: "settings.error.alert.dismiss", defaultValue: "OK")) {
                     if let last = log.entries.last {
                         log.dismiss(last.id)
                     }

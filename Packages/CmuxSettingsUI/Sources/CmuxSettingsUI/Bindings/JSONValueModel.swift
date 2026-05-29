@@ -52,14 +52,12 @@ public final class JSONValueModel<Value: SettingCodable> {
         }
     }
 
-    /// Writes ``value`` through to the JSON config file.
-    ///
-    /// On failure, ``lastWriteError`` is populated and the error is
-    /// recorded in the injected ``SettingsErrorLog`` (if any).
+    /// Persists the value. The observation stream is the single writer of
+    /// ``current``, which updates once the write lands and the store
+    /// yields it back. On failure ``lastWriteError`` is populated and
+    /// recorded in the error log. Synchronous because SwiftUI `Binding`
+    /// setters can't `await`.
     public func set(_ value: Value) {
-        // Synchronous (callable from a Binding setter); the write is
-        // dispatched async. `current` is updated by the file-watcher
-        // stream once the write lands, not synchronously here.
         let keyID = key.id
         Task { [weak self, store, key] in
             do {
@@ -74,7 +72,8 @@ public final class JSONValueModel<Value: SettingCodable> {
         }
     }
 
-    /// Removes the JSON entry. Parents that become empty are pruned.
+    /// Removes the JSON entry (parents that become empty are pruned).
+    /// ``current`` updates when the stream observes the reset.
     public func reset() {
         let keyID = key.id
         Task { [weak self, store, key] in

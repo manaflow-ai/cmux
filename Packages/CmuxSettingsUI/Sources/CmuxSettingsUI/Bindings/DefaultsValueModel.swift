@@ -9,21 +9,21 @@ import Observation
 /// their body. The ``UserDefaultsSettingsStore`` API is `async`, so we
 /// can't bind directly. ``DefaultsValueModel`` is the bridge:
 ///
-/// 1. On construction, it subscribes to ``UserDefaultsSettingsStore/values(for:)``
-///    in a fire-and-forget `Task` that copies new values into the
-///    `@Observable` ``current`` property on the main actor.
-/// 2. SwiftUI views read ``current`` synchronously.
-/// 3. Setters write through to the store, which fires the next stream
-///    element back into ``current``.
+/// 1. On construction it seeds ``current`` from a synchronous store read
+///    and subscribes to ``UserDefaultsSettingsStore/values(for:)`` for
+///    later changes. That stream is `.bufferingNewest(1)`, so a burst of
+///    writes (e.g. a `ColorPicker` drag) coalesces to the latest value
+///    instead of replaying every intermediate back through ``current``.
+/// 2. SwiftUI views read ``current`` synchronously and write via ``set(_:)``.
+/// 3. ``set(_:)`` updates ``current`` optimistically (immediate UI) and
+///    persists the write in a fire-and-forget `Task`.
 ///
-/// Lifecycle: the observation `Task` captures `self` weakly inside its
-/// loop body and exits naturally when the model is deallocated, so no
-/// explicit cancellation or `deinit` cleanup is required.
+/// Lifecycle: the observation `Task` captures `self` weakly and exits
+/// when the model is deallocated, so no explicit cancellation is needed.
 @MainActor
 @Observable
 public final class DefaultsValueModel<Value: SettingCodable> {
-    /// The most recently observed value. Updated by the underlying store's
-    /// `AsyncStream`. SwiftUI views read this synchronously.
+    /// The most recently observed value. SwiftUI views read this synchronously.
     public private(set) var current: Value
 
     private let store: UserDefaultsSettingsStore
@@ -38,10 +38,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         self.store = store
         self.key = key
         // Seed from the actual stored value (synchronous, thread-safe
-        // read) rather than the key default. Section views construct
-        // these models inline in their body, so a fresh instance must
-        // show the real current value immediately or the control reads
-        // as unresponsive until the async stream catches up.
+        // read) so a freshly constructed model shows the real current
+        // value immediately rather than the key default. This is a read,
+        // not a write-ahead-of-storage; the stream is the only writer of
+        // `current` after construction.
         self.current = store.currentValue(for: key)
         Task { [weak self, store, key] in
             for await value in store.values(for: key) {
@@ -52,25 +52,19 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         }
     }
 
-    /// Writes ``value`` through to the underlying store.
-    ///
-    /// Synchronous so it can be called directly from a SwiftUI
-    /// `Binding` setter (which cannot `await`); the actual write is
-    /// dispatched to the actor-isolated store in a `Task`. ``current``
-    /// is intentionally *not* mutated here — the observation stream set
-    /// up in ``init`` is the single source of truth and updates
-    /// ``current`` (on the main actor) once the write lands and
-    /// `UserDefaults.didChangeNotification` fires. The store is an
-    /// `actor`, so concurrent writes serialize with last-write-wins; no
-    /// extra synchronization is needed.
+    /// Persists the value. The observation stream is the single writer of
+    /// ``current``, so the UI reflects the change once the write lands and
+    /// the stream yields it back (a small storage round-trip). Synchronous
+    /// because SwiftUI `Binding` setters can't `await`; the write itself
+    /// runs in a fire-and-forget `Task`.
     public func set(_ value: Value) {
         Task { [store, key] in
             await store.set(value, for: key)
         }
     }
 
-    /// Removes the override. ``current`` is updated by the observation
-    /// stream once the reset lands, not synchronously here.
+    /// Removes the override; ``current`` updates when the stream observes
+    /// the reset.
     public func reset() {
         Task { [store, key] in
             await store.reset(key)

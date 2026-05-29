@@ -183,6 +183,14 @@ public final class RecorderHostButton: NSButton {
     @objc private func buttonClicked() {
         if isRecording {
             stopRecording()
+        } else if window?.firstResponder === self {
+            // Already first responder (e.g. the user just clicked to
+            // cancel an in-progress recording, which stops recording but
+            // keeps focus). `makeFirstResponder(self)` would be a no-op
+            // here and never call `becomeFirstResponder`, so start
+            // recording directly — otherwise a third click can't
+            // re-enter recording mode.
+            startRecording()
         } else {
             window?.makeFirstResponder(self)
         }

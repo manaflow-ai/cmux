@@ -145,8 +145,8 @@ public struct WorkspaceColorsSection: View {
                         .controlSize(.small)
                 }
                 ColorPicker("", selection: Binding(
-                    get: { colorFromHex(model.current) ?? Self.cmuxAccentColor() },
-                    set: { newColor in model.set(hexFromColor(newColor)) }
+                    get: { Color(cmuxHex: model.current) ?? Self.cmuxAccentColor() },
+                    set: { newColor in model.set(newColor.cmuxHexString) }
                 ), supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 38)
@@ -177,14 +177,14 @@ public struct WorkspaceColorsSection: View {
         ) {
             HStack(spacing: 8) {
                 ColorPicker("", selection: Binding(
-                    get: { colorFromHex(entry.hex) ?? Color(nsColor: .systemBlue) },
+                    get: { Color(cmuxHex: entry.hex) ?? Color(nsColor: .systemBlue) },
                     set: { newColor in
                         // Legacy semantics: persist the full effective
                         // palette (built-ins filled in at their default
                         // hex when missing) so editing one entry never
                         // drops the rest.
                         var snapshot = effectivePaletteMap(stored: paletteModel.current)
-                        snapshot[entry.name] = hexFromColor(newColor)
+                        snapshot[entry.name] = newColor.cmuxHexString
                         paletteModel.set(snapshot)
                     }
                 ), supportsOpacity: false)
@@ -252,24 +252,6 @@ public struct WorkspaceColorsSection: View {
         }
     }
 
-    private func colorFromHex(_ hex: String) -> Color? {
-        var trimmed = hex
-        if trimmed.hasPrefix("#") { trimmed.removeFirst() }
-        guard trimmed.count == 6, let intVal = UInt32(trimmed, radix: 16) else { return nil }
-        let r = Double((intVal >> 16) & 0xFF) / 255
-        let g = Double((intVal >> 8) & 0xFF) / 255
-        let b = Double(intVal & 0xFF) / 255
-        return Color(red: r, green: g, blue: b)
-    }
-
-    private func hexFromColor(_ color: Color) -> String {
-        let nsColor = NSColor(color)
-        guard let rgb = nsColor.usingColorSpace(.sRGB) else { return "#000000" }
-        let r = Int((rgb.redComponent * 255).rounded())
-        let g = Int((rgb.greenComponent * 255).rounded())
-        let b = Int((rgb.blueComponent * 255).rounded())
-        return String(format: "#%02X%02X%02X", r, g, b)
-    }
 
     /// cmux-themed accent color used as the live ColorPicker fallback
     /// when the selection or notification badge has no custom hex.

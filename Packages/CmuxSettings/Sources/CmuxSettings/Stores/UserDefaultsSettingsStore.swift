@@ -116,8 +116,13 @@ public actor UserDefaultsSettingsStore {
     ///   yielded value.
     /// - Cancelling the consuming `Task` cancels the underlying notification
     ///   loop and ends the stream.
+    /// - Buffering is `.bufferingNewest(1)`: a burst of writes (e.g. a
+    ///   `ColorPicker` drag spraying a value per frame) coalesces to the
+    ///   most recent value rather than replaying every intermediate
+    ///   through the consumer after the consumer catches up. Only the
+    ///   latest value matters; the stale ones are dropped.
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
-        AsyncStream<Value> { continuation in
+        AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
