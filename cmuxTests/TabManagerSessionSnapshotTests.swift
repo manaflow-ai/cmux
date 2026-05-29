@@ -2652,7 +2652,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let workspaceIndex = try XCTUnwrap(
             legacySnapshot.workspaces.firstIndex { $0.customTitle == "Legacy Persistent SSH" }
         )
-        XCTAssertEqual(legacySnapshot.workspaces[workspaceIndex].id, remoteWorkspace.id)
+        XCTAssertEqual(legacySnapshot.workspaces[workspaceIndex].workspaceId, remoteWorkspace.id)
         let panelIndex = try XCTUnwrap(
             legacySnapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == originalPanelId }
         )
