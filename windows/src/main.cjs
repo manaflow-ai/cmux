@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell, clipboard } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -188,6 +188,11 @@ if (!hasLock) {
     }
     return false;
   });
+  ipcMain.handle("clipboard:write-text", (_event, text) => {
+    clipboard.writeText(String(text || ""));
+    return true;
+  });
+  ipcMain.handle("clipboard:read-text", () => clipboard.readText());
 
   app.on("second-instance", () => {
     if (!mainWindow) return;

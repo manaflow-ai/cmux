@@ -26,6 +26,35 @@ const accentOptions = [
   "oklch(64% 0.17 28)"
 ];
 
+const backgroundPresets = [
+  {
+    value: "",
+    label: "None",
+    preview: "linear-gradient(135deg, var(--color-pane), var(--color-canvas))",
+    css: "none"
+  },
+  {
+    value: "preset:terminal-grid",
+    label: "Terminal grid",
+    preview: "linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 24%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-accent) 18%, transparent) 1px, transparent 1px), radial-gradient(circle at 22% 18%, color-mix(in oklch, var(--color-accent) 22%, transparent), transparent 34%)",
+    css: "linear-gradient(90deg, color-mix(in oklch, var(--color-accent) 17%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-accent) 13%, transparent) 1px, transparent 1px), radial-gradient(circle at 22% 18%, color-mix(in oklch, var(--color-accent) 20%, transparent), transparent 34%)"
+  },
+  {
+    value: "preset:soft-aurora",
+    label: "Soft aurora",
+    preview: "radial-gradient(circle at 18% 20%, color-mix(in oklch, var(--color-success) 32%, transparent), transparent 36%), radial-gradient(circle at 78% 18%, color-mix(in oklch, var(--color-accent) 30%, transparent), transparent 34%), linear-gradient(135deg, var(--color-pane), var(--color-canvas))",
+    css: "radial-gradient(circle at 18% 20%, color-mix(in oklch, var(--color-success) 22%, transparent), transparent 36%), radial-gradient(circle at 78% 18%, color-mix(in oklch, var(--color-accent) 24%, transparent), transparent 34%), linear-gradient(135deg, var(--color-pane), var(--color-canvas))"
+  },
+  {
+    value: "preset:blueprint-lines",
+    label: "Blueprint lines",
+    preview: "linear-gradient(120deg, color-mix(in oklch, var(--color-accent) 24%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent)",
+    css: "linear-gradient(120deg, color-mix(in oklch, var(--color-accent) 18%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-text) 6%, transparent), transparent)"
+  }
+];
+
+const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -34,9 +63,17 @@ const state = {
   inspectorMode: null,
   terminals: new Map(),
   browserViews: new Map(),
+  paneCache: new Map(),
+  workspaceRows: new Map(),
+  surfaceTabButtons: new Map(),
+  newTabButton: null,
   paletteOpen: false,
   paletteIndex: 0,
+  dragPanelId: null,
+  contextMenu: null,
   resizing: null,
+  pendingRender: false,
+  pendingRenderPrevious: null,
   settings: initialSettings,
   terminalFontSize: initialSettings.terminalFontSize
 };
@@ -74,14 +111,8 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
 }
 
-function loadSettings() {
-  let parsed = {};
-  try {
-    parsed = JSON.parse(localStorage.getItem("cmux.settings") || "{}");
-  } catch {
-    parsed = {};
-  }
-  const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
+function normalizeSettings(input = {}, legacyFontSize = 0) {
+  const parsed = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const next = {
     ...defaultSettings,
     ...parsed
@@ -91,7 +122,23 @@ function loadSettings() {
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   if (!accentOptions.includes(next.accent)) next.accent = defaultSettings.accent;
+  if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
+  next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
+  next.showTabs = next.showTabs !== false;
+  next.showStatusbar = next.showStatusbar !== false;
+  next.showAdvanced = Boolean(next.showAdvanced);
   return next;
+}
+
+function loadSettings() {
+  let parsed = {};
+  try {
+    parsed = JSON.parse(localStorage.getItem("cmux.settings") || "{}");
+  } catch {
+    parsed = {};
+  }
+  const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
+  return normalizeSettings(parsed, legacyFontSize);
 }
 
 function saveSettings() {
@@ -99,15 +146,29 @@ function saveSettings() {
   localStorage.setItem("cmux.terminalFontSize", String(state.settings.terminalFontSize));
 }
 
-function normalizedImageUrl(value) {
+function isBackgroundPreset(value) {
+  return backgroundPresetMap.has(String(value || "").trim());
+}
+
+function normalizeBackgroundValue(value) {
   let url = String(value || "").trim();
   if (!url) return "";
+  if (url.startsWith("preset:")) return backgroundPresetMap.has(url) ? url : "";
   if (!/^(https?:|data:image\/|\/)/i.test(url)) url = `https://${url}`;
   return url;
 }
 
-function cssUrl(value) {
-  const url = normalizedImageUrl(value);
+function normalizedImageUrl(value) {
+  const url = normalizeBackgroundValue(value);
+  return url.startsWith("preset:") ? "" : url;
+}
+
+function backgroundCss(value) {
+  const normalized = normalizeBackgroundValue(value);
+  if (!normalized) return "none";
+  const preset = backgroundPresetMap.get(normalized);
+  if (preset) return preset.css;
+  const url = normalizedImageUrl(normalized);
   return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
 }
 
@@ -120,22 +181,29 @@ function applySettings() {
   elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
   elements.shell.classList.toggle("hide-status", !state.settings.showStatusbar);
   elements.shell.classList.toggle("show-advanced", state.settings.showAdvanced);
-  elements.shell.classList.toggle("has-background", Boolean(normalizedImageUrl(state.settings.backgroundImage)));
-  elements.shell.style.setProperty("--background-image", cssUrl(state.settings.backgroundImage));
+  const css = backgroundCss(state.settings.backgroundImage);
+  elements.shell.classList.toggle("has-background", css !== "none");
+  elements.shell.style.setProperty("--background-image", css);
   elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
 }
 
 function updateSettings(updates) {
-  state.settings = {
+  state.settings = normalizeSettings({
     ...state.settings,
     ...updates
-  };
-  state.settings.terminalFontSize = clamp(state.settings.terminalFontSize, 10, 22);
-  state.settings.backgroundOpacity = clamp(state.settings.backgroundOpacity, 0, 42);
+  });
   state.terminalFontSize = state.settings.terminalFontSize;
   saveSettings();
   applySettings();
   refreshTerminalAppearance();
+}
+
+function replaceChildrenIfChanged(parent, nodes) {
+  if (parent.childNodes.length === nodes.length && nodes.every((node, index) => parent.childNodes[index] === node)) {
+    return false;
+  }
+  parent.replaceChildren(...nodes);
+  return true;
 }
 
 function terminalTheme() {
@@ -205,6 +273,22 @@ function activePanel() {
   return workspace?.panels.find((panel) => panel.id === workspace.activePanelId) || workspace?.panels[0];
 }
 
+function allPanels() {
+  return (state.data?.workspaces || []).flatMap((workspace) => workspace.panels);
+}
+
+function allPanelIds() {
+  return new Set(allPanels().map((panel) => panel.id));
+}
+
+function findPanelState(panelId) {
+  for (const workspace of state.data?.workspaces || []) {
+    const panel = workspace.panels.find((candidate) => candidate.id === panelId);
+    if (panel) return { workspace, panel };
+  }
+  return null;
+}
+
 function api(path, options = {}) {
   return fetch(path, {
     ...options,
@@ -238,6 +322,12 @@ function connectEvents() {
 
 function render(previousState) {
   if (!state.data) return;
+  if (state.resizing) {
+    state.pendingRender = true;
+    state.pendingRenderPrevious ||= previousState || null;
+    return;
+  }
+  cleanupStalePaneCache();
   const workspace = activeWorkspace();
   const panelCount = workspace?.panels.length || 0;
   const attentionCount = allAttentionPanels().length;
@@ -263,6 +353,21 @@ function render(previousState) {
   announceNewAttention(previousState, state.data);
 }
 
+function cleanupStalePaneCache() {
+  const livePanelIds = allPanelIds();
+  for (const panelId of [...state.paneCache.keys()]) {
+    if (!livePanelIds.has(panelId)) cleanupPanel(panelId);
+  }
+}
+
+function flushPendingRender() {
+  if (!state.pendingRender) return;
+  const previous = state.pendingRenderPrevious;
+  state.pendingRender = false;
+  state.pendingRenderPrevious = null;
+  render(previous);
+}
+
 function allAttentionPanels() {
   return (state.data?.workspaces || []).flatMap((workspace) =>
     workspace.panels
@@ -273,88 +378,205 @@ function allAttentionPanels() {
 
 function renderWorkspaces() {
   const activeId = state.data.activeWorkspaceId;
-  elements.workspaceList.replaceChildren(...state.data.workspaces.map((workspace, index) => {
-    const button = document.createElement("button");
-    const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
-    const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
-    button.className = `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`;
-    button.style.setProperty("--workspace-color", workspace.color || state.data.palette?.[0] || "");
-    button.onclick = () => focusWorkspace(workspace.id);
-    button.innerHTML = `
-      <span class="workspace-attention"></span>
-      <span class="workspace-card">
-        <span class="workspace-name-line">
-          <span class="workspace-color"></span>
-          <span class="workspace-name"></span>
-          <span class="workspace-badge"></span>
-        </span>
-        <span class="workspace-meta"></span>
-        <span class="workspace-path"></span>
-        <span class="workspace-branch"></span>
-      </span>
-    `;
-    button.querySelector(".workspace-name").textContent = workspace.title || `Workspace ${index + 1}`;
-    button.querySelector(".workspace-badge").textContent = String(attentionTotal);
-    button.querySelector(".workspace-meta").textContent = workspace.latestNotification
-      || `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`;
-    button.querySelector(".workspace-path").textContent = workspace.cwdShort || "~";
-    button.querySelector(".workspace-branch").hidden = true;
+  const validIds = new Set(state.data.workspaces.map((workspace) => workspace.id));
+  for (const [workspaceId, row] of [...state.workspaceRows]) {
+    if (!validIds.has(workspaceId)) {
+      row.remove();
+      state.workspaceRows.delete(workspaceId);
+    }
+  }
+  const nodes = state.data.workspaces.map((workspace, index) => {
+    let button = state.workspaceRows.get(workspace.id);
+    if (!button) {
+      button = createWorkspaceRow();
+      state.workspaceRows.set(workspace.id, button);
+    }
+    updateWorkspaceRow(button, workspace, index, activeId);
     return button;
-  }));
+  });
+  replaceChildrenIfChanged(elements.workspaceList, nodes);
+}
+
+function createWorkspaceRow() {
+  const button = document.createElement("button");
+  button.className = "workspace-row";
+  button.innerHTML = `
+    <span class="workspace-attention"></span>
+    <span class="workspace-card">
+      <span class="workspace-name-line">
+        <span class="workspace-color"></span>
+        <span class="workspace-name"></span>
+        <span class="workspace-badge"></span>
+      </span>
+      <span class="workspace-meta"></span>
+      <span class="workspace-path"></span>
+      <span class="workspace-branch"></span>
+    </span>
+  `;
+  button.addEventListener("click", () => focusWorkspace(button.dataset.workspaceId));
+  button.addEventListener("dragover", (event) => {
+    if (!state.dragPanelId) return;
+    event.preventDefault();
+    button.classList.add("is-drop-target");
+  });
+  button.addEventListener("dragleave", () => button.classList.remove("is-drop-target"));
+  button.addEventListener("drop", (event) => {
+    event.preventDefault();
+    button.classList.remove("is-drop-target");
+    if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, button.dataset.workspaceId);
+  });
+  return button;
+}
+
+function updateWorkspaceRow(button, workspace, index, activeId) {
+  const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
+  const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
+  button.dataset.workspaceId = workspace.id;
+  button.className = `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`;
+  button.style.setProperty("--workspace-color", workspace.color || state.data.palette?.[0] || "");
+  button.querySelector(".workspace-name").textContent = workspace.title || `Workspace ${index + 1}`;
+  button.querySelector(".workspace-badge").textContent = String(attentionTotal);
+  button.querySelector(".workspace-meta").textContent = workspace.latestNotification
+    || `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`;
+  button.querySelector(".workspace-path").textContent = workspace.cwdShort || "~";
+  button.querySelector(".workspace-branch").hidden = true;
 }
 
 function renderSurfaceTabs(workspace) {
   if (!workspace) {
-    elements.surfaceTabs.replaceChildren();
+    replaceChildrenIfChanged(elements.surfaceTabs, []);
     return;
   }
-  elements.surfaceTabs.replaceChildren(...workspace.panels.map((panel) => {
-    const button = document.createElement("button");
-    button.className = `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.needsAttention ? " has-attention" : ""}`;
-    button.onclick = () => focusPanel(panel.id);
-    button.innerHTML = `
-      <span class="surface-dot"></span>
-      <span class="surface-label"></span>
-      <span class="surface-close" title="Close">x</span>
-    `;
-    button.querySelector(".surface-label").textContent = panel.type === "browser"
-      ? hostnameOf(panel.url)
-      : panel.title || "Terminal";
-    button.querySelector(".surface-close").onclick = (event) => {
-      event.stopPropagation();
-      closePanel(panel.id);
-    };
+  const validIds = new Set(workspace.panels.map((panel) => panel.id));
+  for (const [panelId, tab] of [...state.surfaceTabButtons]) {
+    if (!validIds.has(panelId)) {
+      tab.remove();
+      state.surfaceTabButtons.delete(panelId);
+    }
+  }
+  const nodes = workspace.panels.map((panel) => {
+    let button = state.surfaceTabButtons.get(panel.id);
+    if (!button) {
+      button = createSurfaceTab();
+      state.surfaceTabButtons.set(panel.id, button);
+    }
+    updateSurfaceTab(button, workspace, panel);
     return button;
-  }));
+  });
+  nodes.push(getNewSurfaceTab(workspace));
+  replaceChildrenIfChanged(elements.surfaceTabs, nodes);
+}
+
+function createSurfaceTab() {
+  const button = document.createElement("button");
+  button.className = "surface-tab";
+  button.draggable = true;
+  button.innerHTML = `
+    <span class="surface-dot"></span>
+    <span class="surface-label"></span>
+    <span class="surface-close" title="Close">x</span>
+  `;
+  button.addEventListener("click", () => focusPanel(button.dataset.panelId));
+  button.addEventListener("contextmenu", (event) => {
+    const found = findPanelState(button.dataset.panelId);
+    if (found) showPanelContextMenu(event, found.panel);
+  });
+  button.addEventListener("dragstart", (event) => {
+    state.dragPanelId = button.dataset.panelId;
+    button.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", state.dragPanelId);
+  });
+  button.addEventListener("dragover", (event) => {
+    if (!state.dragPanelId || state.dragPanelId === button.dataset.panelId) return;
+    event.preventDefault();
+    button.classList.add("is-drop-before");
+  });
+  button.addEventListener("dragleave", () => button.classList.remove("is-drop-before"));
+  button.addEventListener("drop", (event) => {
+    event.preventDefault();
+    button.classList.remove("is-drop-before");
+    if (state.dragPanelId && state.dragPanelId !== button.dataset.panelId) {
+      movePanelBefore(state.dragPanelId, button.dataset.panelId);
+    }
+  });
+  button.addEventListener("dragend", () => {
+    button.classList.remove("is-dragging");
+    state.dragPanelId = null;
+  });
+  button.querySelector(".surface-close").addEventListener("click", (event) => {
+    event.stopPropagation();
+    closePanel(button.dataset.panelId);
+  });
+  return button;
+}
+
+function updateSurfaceTab(button, workspace, panel) {
+  button.dataset.panelId = panel.id;
+  button.className = `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.needsAttention ? " has-attention" : ""}`;
+  button.style.setProperty("--tab-color", panel.color || workspace.color || "var(--color-accent)");
+  button.querySelector(".surface-label").textContent = panel.type === "browser"
+    ? hostnameOf(panel.url)
+    : panel.title || "Terminal";
+}
+
+function getNewSurfaceTab(workspace) {
+  if (!state.newTabButton) {
+    state.newTabButton = document.createElement("button");
+    state.newTabButton.className = "surface-tab surface-new-tab";
+    state.newTabButton.type = "button";
+    state.newTabButton.title = "New terminal";
+    state.newTabButton.textContent = "+";
+    state.newTabButton.onclick = () => createPanel("terminal", "right");
+    state.newTabButton.addEventListener("dragover", (event) => {
+      if (!state.dragPanelId) return;
+      event.preventDefault();
+      state.newTabButton.classList.add("is-drop-before");
+    });
+    state.newTabButton.addEventListener("dragleave", () => state.newTabButton.classList.remove("is-drop-before"));
+    state.newTabButton.addEventListener("drop", (event) => {
+      event.preventDefault();
+      state.newTabButton.classList.remove("is-drop-before");
+      if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, state.newTabButton.dataset.workspaceId);
+    });
+  }
+  state.newTabButton.dataset.workspaceId = workspace.id;
+  return state.newTabButton;
 }
 
 function renderPanes(workspace) {
   const panels = workspace?.panels || [];
   if (!workspace) {
-    elements.paneGrid.replaceChildren();
+    for (const child of [...elements.paneGrid.children]) {
+      if (child.classList.contains("pane")) child.remove();
+    }
+    replaceChildrenIfChanged(elements.paneGrid, []);
     return;
   }
   elements.paneGrid.classList.toggle("direction-down", workspace.splitDirection === "down");
   const panelIds = new Set(panels.map((panel) => panel.id));
+  const livePanelIds = allPanelIds();
   for (const child of [...elements.paneGrid.children]) {
     if (child.classList.contains("pane") && !panelIds.has(child.dataset.panelId)) {
-      cleanupPanel(child.dataset.panelId);
+      if (!livePanelIds.has(child.dataset.panelId)) cleanupPanel(child.dataset.panelId);
       child.remove();
     }
   }
   if (panels.length === 0) {
-    elements.paneGrid.replaceChildren(createEmptyWorkspace(workspace));
+    renderEmptyWorkspace(workspace);
     return;
   }
 
   const nodes = [];
   for (const [index, panel] of panels.entries()) {
     if (index > 0) nodes.push(getPaneSplitter(workspace, panels[index - 1], panel));
-    let pane = elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`);
+    let pane = elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`) || state.paneCache.get(panel.id);
     if (!pane) {
       pane = createPane(panel);
     }
     nodes.push(pane);
+    pane.dataset.panelId = panel.id;
+    pane.style.setProperty("--panel-color", panel.color || workspace.color || "var(--color-accent)");
     pane.classList.toggle("is-active", panel.id === workspace.activePanelId);
     pane.classList.toggle("has-attention", panel.needsAttention);
     pane.classList.toggle("is-browser", panel.type === "browser");
@@ -363,10 +585,14 @@ function renderPanes(workspace) {
     pane.querySelector(".pane-title").textContent = panel.type === "browser"
       ? panel.url || "Browser"
       : panelTitle(panel);
-    if (panel.type === "terminal") ensureTerminal(panel, pane.querySelector(".pane-body"));
+    if (panel.type === "terminal") {
+      ensureTerminal(panel, pane.querySelector(".pane-body"));
+      const terminal = state.terminals.get(panel.id);
+      if (terminal) scheduleFitTerminal(terminal);
+    }
     if (panel.type === "browser") ensureBrowser(panel, pane.querySelector(".pane-body"));
   }
-  elements.paneGrid.replaceChildren(...nodes);
+  replaceChildrenIfChanged(elements.paneGrid, nodes);
 }
 
 function panelTitle(panel) {
@@ -395,6 +621,16 @@ function createEmptyWorkspace(workspace) {
   return node;
 }
 
+function renderEmptyWorkspace(workspace) {
+  let node = [...elements.paneGrid.children].find((child) => child.classList.contains("empty-workspace"));
+  if (!node) {
+    node = createEmptyWorkspace(workspace);
+  } else {
+    node.querySelector(".empty-workspace-title").textContent = workspace?.title || "cmux Windows";
+  }
+  replaceChildrenIfChanged(elements.paneGrid, [node]);
+}
+
 function getPaneSplitter(workspace, beforePanel, afterPanel) {
   const key = `${beforePanel.id}:${afterPanel.id}`;
   let splitter = elements.paneGrid.querySelector(`[data-splitter-key="${key}"]`);
@@ -403,13 +639,15 @@ function getPaneSplitter(workspace, beforePanel, afterPanel) {
     splitter.className = "pane-splitter";
     splitter.dataset.splitterKey = key;
     splitter.title = "Resize panes";
-    splitter.addEventListener("pointerdown", (event) => startPaneResize(event, splitter, workspace));
+    splitter.addEventListener("pointerdown", (event) => startPaneResize(event, splitter));
   }
   return splitter;
 }
 
-function startPaneResize(event, splitter, workspace) {
+function startPaneResize(event, splitter) {
   event.preventDefault();
+  const workspace = activeWorkspace();
+  if (!workspace) return;
   const previousPane = splitter.previousElementSibling;
   const nextPane = splitter.nextElementSibling;
   if (!previousPane || !nextPane) return;
@@ -451,6 +689,7 @@ function finishPaneResize(event) {
   state.resizing.splitter.releasePointerCapture?.(event.pointerId);
   state.resizing.splitter.classList.remove("is-dragging");
   state.resizing = null;
+  flushPendingRender();
 }
 
 function createPane(panel) {
@@ -472,6 +711,18 @@ function createPane(panel) {
     </div>
     <div class="pane-body"></div>
   `;
+  const header = pane.querySelector(".pane-header");
+  header.draggable = true;
+  header.addEventListener("dragstart", (event) => {
+    state.dragPanelId = pane.dataset.panelId;
+    pane.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", state.dragPanelId);
+  });
+  header.addEventListener("dragend", () => {
+    pane.classList.remove("is-dragging");
+    state.dragPanelId = null;
+  });
   pane.querySelector(".split-right").onclick = (event) => {
     event.stopPropagation();
     createPanel("terminal", "right");
@@ -496,7 +747,21 @@ function createPane(panel) {
     event.stopPropagation();
     closePanel(panel.id);
   };
+  pane.addEventListener("dragover", (event) => {
+    if (!state.dragPanelId || state.dragPanelId === pane.dataset.panelId) return;
+    event.preventDefault();
+    pane.classList.add("is-drop-before");
+  });
+  pane.addEventListener("dragleave", () => pane.classList.remove("is-drop-before"));
+  pane.addEventListener("drop", (event) => {
+    event.preventDefault();
+    pane.classList.remove("is-drop-before");
+    if (state.dragPanelId && state.dragPanelId !== pane.dataset.panelId) {
+      movePanelBefore(state.dragPanelId, pane.dataset.panelId);
+    }
+  });
   pane.addEventListener("pointerdown", () => focusPanel(panel.id));
+  state.paneCache.set(panel.id, pane);
   return pane;
 }
 
@@ -510,6 +775,9 @@ function cleanupPanel(panelId) {
     terminal.term?.dispose();
     state.terminals.delete(panelId);
   }
+  const pane = state.paneCache.get(panelId);
+  pane?.remove();
+  state.paneCache.delete(panelId);
   state.browserViews.delete(panelId);
 }
 
@@ -643,6 +911,7 @@ function ensureBrowser(panel, body) {
   }
 
   const navigate = () => {
+    if (!findPanelState(panel.id)) return;
     const next = normalizeUrl(address.value);
     address.value = next;
     view.src = next;
@@ -668,7 +937,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
       address.value = event.url;
-      updatePanel(panel.id, { url: event.url });
+      if (findPanelState(panel.id)) updatePanel(panel.id, { url: event.url });
     }
   });
   view.addEventListener("did-start-loading", () => {
@@ -790,16 +1059,23 @@ function renderSettingsInspector() {
   themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
   appearanceSection.append(settingRow("Theme", themeSelect));
   appearanceSection.append(settingRow("Accent", swatchGrid(accentOptions, state.settings.accent, (accent) => updateSettings({ accent }))));
+  appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
   const imageInput = document.createElement("input");
   imageInput.className = "setting-control";
-  imageInput.value = state.settings.backgroundImage;
+  imageInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
   imageInput.placeholder = "https://image-url";
   imageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") imageInput.blur();
   });
-  imageInput.addEventListener("blur", () => updateSettings({ backgroundImage: imageInput.value.trim() }));
-  appearanceSection.append(settingRow("Background", imageInput, true));
+  imageInput.addEventListener("blur", () => {
+    const next = imageInput.value.trim();
+    if (next || !isBackgroundPreset(state.settings.backgroundImage)) {
+      updateSettings({ backgroundImage: next });
+      renderSettingsInspector();
+    }
+  });
+  appearanceSection.append(settingRow("Custom image", imageInput, true));
 
   const opacityInput = document.createElement("input");
   opacityInput.className = "setting-control";
@@ -843,6 +1119,17 @@ function renderSettingsInspector() {
   restart.onclick = () => restartActiveTerminal();
   terminalSection.append(restart);
   nodes.push(terminalSection);
+
+  const actionsSection = settingsSection("Settings data");
+  const actions = document.createElement("div");
+  actions.className = "settings-actions";
+  actions.append(
+    settingsActionButton("Export", exportSettings),
+    settingsActionButton("Import", importSettings),
+    settingsActionButton("Reset", resetSettings, "danger")
+  );
+  actionsSection.append(actions);
+  nodes.push(actionsSection);
 
   elements.inspectorBody.replaceChildren(...nodes);
 }
@@ -892,10 +1179,144 @@ function swatchGrid(colors, activeColor, onPick) {
     button.type = "button";
     button.title = color;
     button.style.setProperty("--swatch-color", color);
-    button.onclick = () => onPick(color);
+    button.onclick = () => {
+      onPick(color);
+      for (const sibling of grid.querySelectorAll(".swatch-button")) sibling.classList.remove("is-active");
+      button.classList.add("is-active");
+    };
     grid.append(button);
   }
   return grid;
+}
+
+function backgroundPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "background-preset-grid";
+  for (const preset of backgroundPresets) {
+    const button = document.createElement("button");
+    button.className = `background-preset${preset.value === state.settings.backgroundImage ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = preset.label;
+    button.style.setProperty("--preset-background", preset.preview);
+    button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
+    button.querySelector(".background-preset-label").textContent = preset.label;
+    button.onclick = () => {
+      updateSettings({ backgroundImage: preset.value });
+      renderSettingsInspector();
+    };
+    grid.append(button);
+  }
+  return grid;
+}
+
+function settingsActionButton(label, onClick, tone = "") {
+  const button = document.createElement("button");
+  button.className = `settings-action${tone ? ` ${tone}` : ""}`;
+  button.type = "button";
+  button.textContent = label;
+  button.onclick = onClick;
+  return button;
+}
+
+function ensureContextMenu() {
+  if (state.contextMenu) return state.contextMenu;
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+  menu.hidden = true;
+  document.body.append(menu);
+  state.contextMenu = menu;
+  return menu;
+}
+
+function hideContextMenu() {
+  if (!state.contextMenu) return;
+  state.contextMenu.hidden = true;
+  state.contextMenu.replaceChildren();
+}
+
+function showPanelContextMenu(event, panel) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = ensureContextMenu();
+  const found = findPanelState(panel.id);
+  if (!found) return;
+  const index = found.workspace.panels.findIndex((candidate) => candidate.id === panel.id);
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
+  const actions = document.createElement("div");
+  actions.className = "context-actions";
+  actions.append(
+    contextMenuButton("Rename", () => renamePanel(panel)),
+    contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
+    contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
+    contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
+  );
+  const colors = document.createElement("div");
+  colors.className = "context-colors";
+  for (const color of state.data?.palette || accentOptions) {
+    const button = document.createElement("button");
+    button.className = `context-color${panel.color === color ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = color;
+    button.style.setProperty("--context-color", color);
+    button.onclick = () => {
+      updatePanel(panel.id, { color });
+      hideContextMenu();
+    };
+    colors.append(button);
+  }
+  const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
+  menu.replaceChildren(title, actions, colors, clear);
+  menu.hidden = false;
+  const x = Math.min(event.clientX, window.innerWidth - 238);
+  const y = Math.min(event.clientY, window.innerHeight - 260);
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+}
+
+function contextMenuButton(label, action, disabled = false, tone = "") {
+  const button = document.createElement("button");
+  button.className = `context-action${tone ? ` ${tone}` : ""}`;
+  button.type = "button";
+  button.textContent = label;
+  button.disabled = disabled;
+  button.onclick = () => {
+    if (disabled) return;
+    action();
+    hideContextMenu();
+  };
+  return button;
+}
+
+function renamePanel(panel) {
+  const title = prompt("Tab name", panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"));
+  if (!title) return;
+  updatePanel(panel.id, { title: title.trim() });
+}
+
+function duplicatePanel(panel) {
+  if (panel.type === "browser") {
+    createPanel("browser", "right", { url: panel.url || "https://example.com" });
+    return;
+  }
+  createPanel("terminal", "right");
+}
+
+function movePanelLeft(workspace, index) {
+  if (index <= 0) return;
+  movePanelBefore(workspace.panels[index].id, workspace.panels[index - 1].id);
+}
+
+function movePanelRight(workspace, index) {
+  if (index < 0 || index >= workspace.panels.length - 1) return;
+  const afterNext = workspace.panels[index + 2];
+  if (afterNext) {
+    movePanelBefore(workspace.panels[index].id, afterNext.id);
+  } else {
+    movePanelToWorkspace(workspace.panels[index].id, workspace.id);
+  }
 }
 
 function renderPalette() {
@@ -1015,6 +1436,17 @@ async function updatePanel(panelId, updates) {
   }
 }
 
+async function movePanelBefore(panelId, beforePanelId) {
+  const workspace = activeWorkspace();
+  if (!workspace || !panelId || !beforePanelId || panelId === beforePanelId) return;
+  await updatePanel(panelId, { workspaceId: workspace.id, beforePanelId });
+}
+
+async function movePanelToWorkspace(panelId, workspaceId) {
+  if (!panelId || !workspaceId) return;
+  await updatePanel(panelId, { workspaceId, moveToEnd: true });
+}
+
 async function focusWorkspace(workspaceId) {
   try {
     await api(`/api/workspaces/${workspaceId}/focus`, { method: "POST" });
@@ -1074,6 +1506,70 @@ function clearActiveTerminal() {
 function changeTerminalFontSize(delta) {
   updateSettings({ terminalFontSize: state.terminalFontSize + delta });
   toast(`Terminal text ${state.terminalFontSize}px`);
+}
+
+async function writeClipboardText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall back to the native bridge below.
+  }
+  if (window.cmuxNative?.writeClipboard) {
+    await window.cmuxNative.writeClipboard(text);
+    return true;
+  }
+  return false;
+}
+
+async function readClipboardText() {
+  try {
+    if (navigator.clipboard?.readText) return await navigator.clipboard.readText();
+  } catch {
+    // Fall back to the native bridge below.
+  }
+  if (window.cmuxNative?.readClipboard) return await window.cmuxNative.readClipboard();
+  return "";
+}
+
+async function exportSettings() {
+  const payload = JSON.stringify(state.settings, null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Settings copied to clipboard.");
+    return;
+  }
+  prompt("cmux settings JSON", payload);
+}
+
+async function importSettings() {
+  const clipboard = await readClipboardText();
+  const suggested = clipboard.trim().startsWith("{") ? clipboard : "";
+  const raw = prompt("Paste cmux settings JSON", suggested);
+  if (raw === null) return;
+  try {
+    state.settings = normalizeSettings(JSON.parse(raw));
+    state.terminalFontSize = state.settings.terminalFontSize;
+    saveSettings();
+    applySettings();
+    refreshTerminalAppearance();
+    renderSettingsInspector();
+    toast("Settings imported.");
+  } catch {
+    toast("Settings import failed.");
+  }
+}
+
+function resetSettings() {
+  if (!confirm("Reset cmux Windows settings to defaults?")) return;
+  state.settings = normalizeSettings(defaultSettings);
+  state.terminalFontSize = state.settings.terminalFontSize;
+  saveSettings();
+  applySettings();
+  refreshTerminalAppearance();
+  renderSettingsInspector();
+  toast("Settings reset.");
 }
 
 async function restartActiveTerminal() {
@@ -1175,7 +1671,9 @@ elements.paletteInput.addEventListener("keydown", (event) => {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
-  if (event.ctrlKey && event.shiftKey && key === "p") {
+  if (event.key === "Escape" && state.contextMenu && !state.contextMenu.hidden) {
+    hideContextMenu();
+  } else if (event.ctrlKey && event.shiftKey && key === "p") {
     event.preventDefault();
     state.paletteOpen = !state.paletteOpen;
     renderPalette();
@@ -1222,6 +1720,11 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("pointermove", continuePaneResize);
 window.addEventListener("pointerup", finishPaneResize);
 window.addEventListener("pointercancel", finishPaneResize);
+document.addEventListener("click", (event) => {
+  if (state.contextMenu && !state.contextMenu.hidden && !state.contextMenu.contains(event.target)) {
+    hideContextMenu();
+  }
+});
 
 function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;

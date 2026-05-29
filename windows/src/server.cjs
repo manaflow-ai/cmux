@@ -296,7 +296,13 @@ class CmuxWindowsRuntime {
             color: workspace.color || workspaceColors[0],
             cwd: workspace.cwd || process.cwd(),
             panels: Array.isArray(workspace.panels) && workspace.panels.length > 0
-              ? workspace.panels.map((panel) => ({ ...panel, runtime: this, needsAttention: false }))
+              ? workspace.panels.map((panel) => ({
+                ...panel,
+                color: panel.color || "",
+                runtime: this,
+                needsAttention: false,
+                notificationText: ""
+              }))
               : []
           }))
         };
@@ -333,6 +339,7 @@ class CmuxWindowsRuntime {
           workspaceId: panel.workspaceId,
           type: panel.type,
           title: panel.title,
+          color: panel.color || "",
           cwd: panel.cwd,
           url: panel.url
         }))
@@ -361,6 +368,7 @@ class CmuxWindowsRuntime {
       workspaceId,
       type,
       title: type === "browser" ? "Browser" : "Terminal",
+      color: options.color || "",
       cwd: options.cwd || process.cwd(),
       url: options.url || "https://example.com",
       needsAttention: false,
@@ -408,6 +416,7 @@ class CmuxWindowsRuntime {
       workspaceId: panel.workspaceId,
       type: panel.type,
       title: panel.title,
+      color: panel.color || "",
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
       branch: "",
@@ -465,12 +474,40 @@ class CmuxWindowsRuntime {
     return true;
   }
 
+  movePanel(panelId, targetWorkspaceId, beforePanelId = null) {
+    const found = this.findPanel(panelId);
+    if (!found) return false;
+    const targetWorkspace = this.state.workspaces.find((workspace) => workspace.id === targetWorkspaceId) || found.workspace;
+    if (!targetWorkspace) return false;
+    if (beforePanelId === panelId) return true;
+    found.workspace.panels = found.workspace.panels.filter((candidate) => candidate.id !== panelId);
+    if (found.workspace.activePanelId === panelId) {
+      found.workspace.activePanelId = found.workspace.panels[0]?.id || null;
+    }
+    found.panel.workspaceId = targetWorkspace.id;
+    const insertIndex = beforePanelId
+      ? targetWorkspace.panels.findIndex((candidate) => candidate.id === beforePanelId)
+      : -1;
+    targetWorkspace.panels.splice(insertIndex >= 0 ? insertIndex : targetWorkspace.panels.length, 0, found.panel);
+    targetWorkspace.activePanelId = panelId;
+    this.state.activeWorkspaceId = targetWorkspace.id;
+    return true;
+  }
+
   updatePanel(panelId, updates = {}) {
+    if (Object.hasOwn(updates, "workspaceId") || Object.hasOwn(updates, "beforePanelId") || Object.hasOwn(updates, "moveToEnd")) {
+      const ok = this.movePanel(panelId, updates.workspaceId, updates.moveToEnd ? null : updates.beforePanelId);
+      if (!ok) return false;
+    }
     const found = this.findPanel(panelId);
     if (!found) return false;
     if (Object.hasOwn(updates, "title")) {
       const title = String(updates.title || "").trim();
       if (title) found.panel.title = title.slice(0, 80);
+    }
+    if (Object.hasOwn(updates, "color")) {
+      const color = String(updates.color || "").trim();
+      found.panel.color = workspaceColors.includes(color) ? color : "";
     }
     if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
       const url = String(updates.url || "").trim();
@@ -544,6 +581,7 @@ class CmuxWindowsRuntime {
   focusPanel(panelId) {
     const found = this.findPanel(panelId);
     if (!found) return false;
+    this.state.activeWorkspaceId = found.workspace.id;
     found.workspace.activePanelId = panelId;
     found.panel.needsAttention = false;
     found.panel.notificationText = "";
@@ -649,7 +687,7 @@ class CmuxWindowsRuntime {
       if (request.method === "PATCH" && panelUpdateMatch) {
         const body = await readBody(request);
         const ok = this.updatePanel(panelUpdateMatch[1], body);
-        writeJSON(response, ok ? 200 : 404, { ok });
+        writeJSON(response, 200, { ok });
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/notify") {
