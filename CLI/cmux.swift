@@ -23679,21 +23679,23 @@ struct CMUXCLI {
         environment: [String: String]?
     ) -> String {
         guard !hermesAgentArgumentsSetModelAPIMode(arguments),
+              hermesAgentArgumentsAllowCodexBootstrap(arguments),
               let environment,
               let baseURL = normalizedHookValue(environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]) else {
             return command
         }
+        let hermesExecutable = normalizedHookValue(arguments.first) ?? "hermes"
 
         var bootstrap = [
-            "hermes config set model.provider \(cliShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
-            "hermes config set model.base_url \(cliShellQuote(baseURL)) >/dev/null",
-            "hermes config set model.api_mode \(cliShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+            "\(cliShellQuote(hermesExecutable)) config set model.provider \(cliShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
+            "\(cliShellQuote(hermesExecutable)) config set model.base_url \(cliShellQuote(baseURL)) >/dev/null",
+            "\(cliShellQuote(hermesExecutable)) config set model.api_mode \(cliShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
         ]
         if let model = HermesAgentCodexEnvironment.defaultCodexModel(
             environment: environment,
             ambientEnvironment: ProcessInfo.processInfo.environment
         ) {
-            bootstrap.append("hermes config set model.default \(cliShellQuote(model)) >/dev/null")
+            bootstrap.append("\(cliShellQuote(hermesExecutable)) config set model.default \(cliShellQuote(model)) >/dev/null")
         }
         return bootstrap.joined(separator: " && ") + " && " + command
     }
@@ -23722,6 +23724,28 @@ struct CMUXCLI {
 
     private func hermesAgentArgumentsSetModelAPIMode(_ arguments: [String]) -> Bool {
         arguments.contains { $0.contains("model.api_mode") }
+    }
+
+    private func hermesAgentArgumentsAllowCodexBootstrap(_ arguments: [String]) -> Bool {
+        guard let provider = hermesAgentProviderArgument(arguments) else {
+            return true
+        }
+        return provider == HermesAgentCodexEnvironment.defaultProvider || provider == "openai-codex"
+    }
+
+    private func hermesAgentProviderArgument(_ arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--provider", index + 1 < arguments.count {
+                return arguments[index + 1]
+            }
+            if argument.hasPrefix("--provider=") {
+                return String(argument.dropFirst("--provider=".count))
+            }
+            index += 1
+        }
+        return nil
     }
 
     private func agentSurfaceResumeEnvironment(

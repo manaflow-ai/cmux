@@ -981,17 +981,20 @@ extension Workspace {
         var result = binding
         result.environment = environment.isEmpty ? nil : environment
         result.command = hermesAgentCommandByReplacingOpenAICodexProvider(result.command)
-        guard !hermesAgentCommandSetsModelAPIMode(result.command) else {
+        let commandWords = surfaceResumeShellWords(in: result.command)
+        guard !hermesAgentCommandSetsModelAPIMode(commandWords),
+              hermesAgentCommandAllowsCodexBootstrap(commandWords) else {
             return result
         }
+        let hermesExecutable = hermesAgentCommandExecutable(commandWords)
 
         var bootstrap = [
-            "hermes config set model.provider \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
-            "hermes config set model.base_url \(surfaceResumeShellQuote(baseURL)) >/dev/null",
-            "hermes config set model.api_mode \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+            "\(surfaceResumeShellQuote(hermesExecutable)) config set model.provider \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
+            "\(surfaceResumeShellQuote(hermesExecutable)) config set model.base_url \(surfaceResumeShellQuote(baseURL)) >/dev/null",
+            "\(surfaceResumeShellQuote(hermesExecutable)) config set model.api_mode \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
         ]
         if let model = HermesAgentCodexEnvironment.defaultCodexModel(environment: environment) {
-            bootstrap.append("hermes config set model.default \(surfaceResumeShellQuote(model)) >/dev/null")
+            bootstrap.append("\(surfaceResumeShellQuote(hermesExecutable)) config set model.default \(surfaceResumeShellQuote(model)) >/dev/null")
         }
         result.command = bootstrap.joined(separator: " && ") + " && " + result.command
         return result
@@ -1023,8 +1026,42 @@ extension Workspace {
         return result
     }
 
-    nonisolated private static func hermesAgentCommandSetsModelAPIMode(_ command: String) -> Bool {
-        surfaceResumeShellWords(in: command).contains { $0.value.contains("model.api_mode") }
+    nonisolated private static func hermesAgentCommandSetsModelAPIMode(_ words: [SurfaceResumeShellWord]) -> Bool {
+        words.contains { $0.value.contains("model.api_mode") }
+    }
+
+    nonisolated private static func hermesAgentCommandAllowsCodexBootstrap(
+        _ words: [SurfaceResumeShellWord]
+    ) -> Bool {
+        guard let provider = hermesAgentProviderArgument(words) else {
+            return true
+        }
+        return provider == HermesAgentCodexEnvironment.defaultProvider || provider == "openai-codex"
+    }
+
+    nonisolated private static func hermesAgentProviderArgument(_ words: [SurfaceResumeShellWord]) -> String? {
+        var index = 0
+        while index < words.count {
+            let word = words[index].value
+            if word == "--provider", index + 1 < words.count {
+                return words[index + 1].value
+            }
+            if word.hasPrefix("--provider=") {
+                return String(word.dropFirst("--provider=".count))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    nonisolated private static func hermesAgentCommandExecutable(_ words: [SurfaceResumeShellWord]) -> String {
+        for word in words {
+            let basename = (word.value as NSString).lastPathComponent
+            if basename == "hermes" || basename == "hermes-agent" {
+                return word.value
+            }
+        }
+        return "hermes"
     }
 
     private struct SurfaceResumeShellWord {
