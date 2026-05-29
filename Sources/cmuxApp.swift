@@ -9057,12 +9057,11 @@ private struct GlobalHotkeySection: View {
 
 private struct SettingsWindowRootView: View {
     @State private var draftState = SettingsDraftState()
-    @State private var windowReference = WeakSettingsWindowReference()
-    @State private var shouldRenderSettingsContent = true
+    @State private var visibility = SettingsWindowContentVisibility()
 
     var body: some View {
         Group {
-            if shouldRenderSettingsContent {
+            if visibility.shouldRenderContent {
                 SettingsRootView(draftState: draftState)
             } else {
                 Color.clear
@@ -9073,52 +9072,39 @@ private struct SettingsWindowRootView: View {
             }
         }
         .background(WindowAccessor { window in
-            windowReference.window = window
             SettingsWindowPresenter.configure(window: window)
-            setContentVisibility(!window.isMiniaturized)
+            visibility.windowConfigured(ObjectIdentifier(window), isMiniaturized: window.isMiniaturized)
         })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
+            guard let window = notification.object as? NSWindow else { return }
+            visibility.windowDidMiniaturize(ObjectIdentifier(window))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
+            handleWindowDidBecomeVisible(notification.object)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
+            handleWindowDidBecomeVisible(notification.object)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
+            handleWindowDidBecomeVisible(notification.object)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-            windowReference.window = nil
+            guard let window = notification.object as? NSWindow else { return }
+            visibility.windowWillClose(ObjectIdentifier(window))
         }
     }
 
-    private func isObservedWindow(_ object: Any?) -> Bool {
-        guard
-            let notificationWindow = object as? NSWindow,
-            let window = windowReference.window
-        else {
-            return false
-        }
-        return notificationWindow === window
+    /// Forwards a "window became visible" notification to the visibility model,
+    /// re-adopting the Settings window by its stable identifier when a prior
+    /// close cleared the observed reference (the reused-scene case where
+    /// ``WindowAccessor`` does not fire again on the second open).
+    private func handleWindowDidBecomeVisible(_ object: Any?) {
+        guard let window = object as? NSWindow else { return }
+        visibility.windowDidBecomeVisible(
+            ObjectIdentifier(window),
+            isSettingsWindow: window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+        )
     }
-
-    private func setContentVisibility(_ isVisible: Bool) {
-        guard shouldRenderSettingsContent != isVisible else { return }
-        shouldRenderSettingsContent = isVisible
-    }
-}
-
-@MainActor
-private final class WeakSettingsWindowReference {
-    weak var window: NSWindow?
 }
 
 @MainActor
