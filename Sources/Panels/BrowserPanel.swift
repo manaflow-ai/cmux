@@ -6585,6 +6585,25 @@ extension BrowserPanel {
         cancelDeveloperToolsRestoreRetry()
     }
 
+    private func recordDeveloperToolsManualCloseDuringStableHostUpdate() {
+        developerToolsTransitionSettleWorkItem?.cancel()
+        developerToolsTransitionSettleWorkItem = nil
+        developerToolsTransitionTargetVisible = nil
+        pendingDeveloperToolsTransitionTargetVisible = nil
+        setPreferredDeveloperToolsVisible(false)
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+        forceDeveloperToolsRefreshOnNextAttach = false
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+        cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools stableHost.manualClose panel=\(id.uuidString.prefix(5)) " +
+            "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+    }
+
     func noteDeveloperToolsHostAttached() {
         cancelPendingDeveloperToolsVisibilityLossCheck()
         developerToolsLastAttachedHostAt = Date()
@@ -6615,6 +6634,15 @@ extension BrowserPanel {
         let shouldRestore =
             hasPendingRestore ||
             (wasVisibleBeforeHostUpdate && (didAttachHost || didChangeHostVisibility))
+
+        if wasVisibleBeforeHostUpdate,
+           !isDeveloperToolsVisible(),
+           !didAttachHost,
+           !didChangeHostVisibility,
+           !hasPendingRestore {
+            recordDeveloperToolsManualCloseDuringStableHostUpdate()
+            return
+        }
 
         if shouldRestore {
             restoreDeveloperToolsAfterAttachIfNeeded()
