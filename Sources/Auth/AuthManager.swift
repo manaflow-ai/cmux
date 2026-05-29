@@ -226,7 +226,7 @@ final class AuthManager: ObservableObject {
     }
     #endif
 
-    func beginSignIn(timeout: TimeInterval = Self.defaultBrowserSignInTimeout) {
+    func beginSignIn(timeout: TimeInterval = AuthManager.defaultBrowserSignInTimeout) {
         lastSignInError = nil
         loginPollTask?.cancel()
         let signInState = UUID().uuidString
