@@ -67,6 +67,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             .write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func writeExecutableShellFile(at url: URL, body: String) throws {
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
@@ -180,6 +185,198 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptKillsMatchingPersistentRelayListener() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-cleanup-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            34057 33681 /Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote serve --stdio --persistent --slot ssh-c4ba8ab1
+            34058 33681 /bin/zsh
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("cmux_stale_relay_killed pid=33681 children=34057 port=50446"), result.stdout)
+
+        let killOutput = try String(contentsOf: killLog, encoding: .utf8)
+        XCTAssertTrue(killOutput.contains("-TERM 33681 34057"), killOutput)
+        XCTAssertTrue(killOutput.contains("-KILL 33681"), killOutput)
+        XCTAssertTrue(killOutput.contains("-KILL 34057"), killOutput)
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptPreservesDifferentPersistentSlot() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-preserve-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            34057 33681 /Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote serve --stdio --persistent --slot ssh-other
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
+    }
+
+    func testRemoteStaleRelayListenerCleanupScriptKillsMetadataMatchedListenerWithoutChild() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-metadata-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let relayDir = root.appendingPathComponent(".cmux/relay")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
+        try "/Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote".write(
+            to: relayDir.appendingPathComponent("50446.daemon_path"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-c4ba8ab1"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(root.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("cmux_stale_relay_killed pid=33681 children= port=50446 reason=metadata"),
+            result.stdout
+        )
+
+        let killOutput = try String(contentsOf: killLog, encoding: .utf8)
+        XCTAssertTrue(killOutput.contains("-TERM 33681"), killOutput)
+        XCTAssertTrue(killOutput.contains("-KILL 33681"), killOutput)
     }
 
     func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
@@ -1568,6 +1765,127 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             operations[1].spec.hasPrefix("127.0.0.1:64044:127.0.0.1:"),
             "expected forward to reuse relay port after stale cancel, got \(operations[1].spec)"
         )
+    }
+
+    @MainActor
+    func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() throws {
+        let retryForwardInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var controlOperations: [(command: String, spec: String)] = []
+        var forwardAttempts = 0
+        var cleanupInvoked = false
+        var cleanupArguments: [String] = []
+
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            guard executable == "/usr/bin/ssh" else {
+                XCTFail("unexpected executable \(executable)")
+                return (status: 1, stdout: "", stderr: "unexpected executable")
+            }
+
+            if let operationIndex = arguments.firstIndex(of: "-O"),
+               operationIndex + 3 < arguments.count,
+               arguments[operationIndex + 2] == "-R" {
+                let operation = arguments[operationIndex + 1]
+                let spec = arguments[operationIndex + 3]
+                lock.lock()
+                controlOperations.append((command: operation, spec: spec))
+                if operation == "forward" {
+                    forwardAttempts += 1
+                    let attempt = forwardAttempts
+                    lock.unlock()
+                    if attempt == 1 {
+                        return (
+                            status: 255,
+                            stdout: "",
+                            stderr: "remote port forwarding failed for listen port 64045"
+                        )
+                    }
+                    retryForwardInvoked.signal()
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                lock.unlock()
+                return (status: 0, stdout: "", stderr: "")
+            }
+
+            let command = arguments.last ?? ""
+            if command.contains("cmux_stale_relay_listener_cleanup=1") {
+                lock.lock()
+                cleanupInvoked = true
+                cleanupArguments = arguments
+                lock.unlock()
+                return (
+                    status: 0,
+                    stdout: "cmux_stale_relay_killed pid=33681 children=34057 port=64045\n",
+                    stderr: ""
+                )
+            }
+            if command.contains("uname -s") {
+                return (
+                    status: 0,
+                    stdout: """
+                    __CMUX_REMOTE_HOME__=/home/test
+                    __CMUX_REMOTE_OS__=Linux
+                    __CMUX_REMOTE_ARCH__=x86_64
+                    __CMUX_REMOTE_EXISTS__=yes
+                    """,
+                    stderr: ""
+                )
+            }
+            if command.contains("serve --stdio") {
+                return (
+                    status: 0,
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stderr: ""
+                )
+            }
+            return (status: 0, stdout: "", stderr: "")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-\(getuid())-64045-%C",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64045,
+            relayID: "relay-stale-forward-retry",
+            relayToken: String(repeating: "d", count: 64),
+            localSocketPath: "/tmp/cmux-stale-forward-retry.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-stale-forward-retry"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let operations = controlOperations
+        let cleanupWasInvoked = cleanupInvoked
+        let capturedCleanupArguments = cleanupArguments
+        let attempts = forwardAttempts
+        lock.unlock()
+
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(cleanupWasInvoked)
+        XCTAssertTrue(capturedCleanupArguments.contains("-S"))
+        XCTAssertTrue(capturedCleanupArguments.contains("none"))
+        XCTAssertFalse(capturedCleanupArguments.contains(where: { $0.hasPrefix("ControlPath=") }))
+        XCTAssertGreaterThanOrEqual(operations.count, 3)
+        XCTAssertEqual(operations[0].command, "cancel")
+        XCTAssertEqual(operations[0].spec, "127.0.0.1:64045")
+        XCTAssertEqual(operations[1].command, "forward")
+        XCTAssertEqual(operations[2].command, "forward")
+        XCTAssertEqual(operations[1].spec, operations[2].spec)
+        XCTAssertTrue(operations[2].spec.hasPrefix("127.0.0.1:64045:127.0.0.1:"))
     }
 
     @MainActor
