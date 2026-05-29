@@ -354,6 +354,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectEqual(merged["ANTHROPIC_MODEL"], "")
     }
 
+    @Test
     func testMergedStartupEnvironmentDoesNotDeriveHermesCodexBaseURLForGenericTerminals() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-codex-startup-\(UUID().uuidString)", isDirectory: true)
@@ -375,10 +376,11 @@ struct GhosttyTerminalStartupEnvironmentTests {
             ambientEnvironment: [:]
         )
 
-        XCTAssertNil(merged["HERMES_CODEX_BASE_URL"])
-        XCTAssertNil(merged["CUSTOM_BASE_URL"])
+        expectNil(merged["HERMES_CODEX_BASE_URL"])
+        expectNil(merged["CUSTOM_BASE_URL"])
     }
 
+    @Test
     func testMergedStartupEnvironmentDerivesHermesCodexBaseURLWhenRequested() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-codex-startup-\(UUID().uuidString)", isDirectory: true)
@@ -401,11 +403,11 @@ struct GhosttyTerminalStartupEnvironmentTests {
             applyHermesCodexDefaults: true
         )
 
-        XCTAssertEqual(
+        expectEqual(
             merged["HERMES_CODEX_BASE_URL"],
             "http://subrouter-team:31415/backend-api/codex"
         )
-        XCTAssertEqual(
+        expectEqual(
             merged["CUSTOM_BASE_URL"],
             "http://subrouter-team:31415/v1"
         )
