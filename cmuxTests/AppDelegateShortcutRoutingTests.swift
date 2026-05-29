@@ -2135,21 +2135,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+#if DEBUG
         let previousTabManager = appDelegate.tabManager
-        let windowId = UUID()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let mainWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
-        appDelegate.registerMainWindow(
-            mainWindow,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
-        )
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let manager = context.tabManager
         appDelegate.tabManager = manager
         defer {
             appDelegate.tabManager = previousTabManager
-            closeRegisteredShortcutRoutingWindow(mainWindow, id: windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
         let mainWorkspaceCount = manager.tabs.count
@@ -2163,7 +2157,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         auxiliaryWindow.animationBehavior = .none
         auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         auxiliaryWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                auxiliaryWindow.isVisible && NSApp.keyWindow === auxiliaryWindow
+            },
+            "Expected auxiliary window to become key before Cmd+W"
+        )
         XCTAssertTrue(auxiliaryWindow.isVisible, "Expected auxiliary window to be visible before Cmd+W")
 
         defer {
@@ -2182,17 +2181,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-#if DEBUG
         XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab))
         XCTAssertTrue(
             appDelegate.debugAuxiliaryWindowForFocusedCloseShortcut(event: event) === auxiliaryWindow,
             "Cmd+W should target the auxiliary window before the active terminal manager"
         )
+        XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
 #else
         throw XCTSkip("focused close shortcut debug routing hooks are only available in DEBUG builds")
 #endif
-
-        XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
     }
 
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
@@ -9067,46 +9064,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let previousTabManager = appDelegate.tabManager
-        defer {
-            appDelegate.tabManager = previousTabManager
-        }
-
-        let originalWindowId = UUID()
-        let focusedWindowId = UUID()
-        let originalManager = TabManager(autoWelcomeIfNeeded: false)
-        let focusedManager = TabManager(autoWelcomeIfNeeded: false)
-        let originalWindow = makeRegisteredShortcutRoutingWindow(id: originalWindowId)
-        let focusedWindow = makeRegisteredShortcutRoutingWindow(id: focusedWindowId)
-
-        appDelegate.registerMainWindow(
-            originalWindow,
-            windowId: originalWindowId,
-            tabManager: originalManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        appDelegate.registerMainWindow(
-            focusedWindow,
-            windowId: focusedWindowId,
-            tabManager: focusedManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
-        )
-
-        defer {
-            closeRegisteredShortcutRoutingWindow(originalWindow, id: originalWindowId)
-            closeRegisteredShortcutRoutingWindow(focusedWindow, id: focusedWindowId)
-        }
-
         guard expectedAction == .closeTab || expectedAction == .closeWorkspace else {
             XCTFail("Unexpected close shortcut action \(expectedAction)", file: file, line: line)
             return
         }
 
+#if DEBUG
+        let previousTabManager = appDelegate.tabManager
+        let originalContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let focusedContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let originalWindow = originalContext.window
+        let focusedWindow = focusedContext.window
+        let originalManager = originalContext.tabManager
+        let focusedManager = focusedContext.tabManager
+        defer {
+            appDelegate.tabManager = previousTabManager
+            appDelegate.unregisterMainWindowContextForTesting(windowId: originalContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: focusedContext.windowId)
+            closeTestWindow(originalWindow)
+            closeTestWindow(focusedWindow)
+        }
+
         originalWindow.orderFront(nil)
         focusedWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                focusedWindow.isVisible && NSApp.keyWindow === focusedWindow
+            },
+            "Expected focused test window to become key before \(actionName)",
+            file: file,
+            line: line
+        )
 
         // Model the observed bug: the user-visible focused window is the new window,
         // but the key event still carries the original window number.
@@ -9129,7 +9117,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             line: line
         )
 
-#if DEBUG
         XCTAssertTrue(
             appDelegate.debugMainWindowForFocusedCloseShortcut(event: event) === focusedWindow,
             "\(actionName) should resolve the focused window before stale event-window metadata",
