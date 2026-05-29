@@ -235,6 +235,40 @@ test("provider stdout deltas append to the current assistant transcript turn", (
   });
 });
 
+test("provider turn completion marks the active assistant transcript complete", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const withOutput = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "codex",
+      sessionId: "session-1",
+      stream: "stdout",
+      text: "done",
+    },
+  });
+  const completed = reduceSession(withOutput, {
+    type: "event",
+    event: {
+      type: "provider.turnComplete",
+      providerId: "codex",
+      sessionId: "session-1",
+    },
+  });
+
+  expect(completed.status).toBe("running");
+  expect(completed.runningSessionId).toBe("session-1");
+  expect(completed.transcript[0]).toMatchObject({
+    isComplete: true,
+    role: "assistant",
+    text: "done",
+  });
+});
+
 test("provider exit marks assistant transcript complete", () => {
   const running = {
     ...initialState("solid"),

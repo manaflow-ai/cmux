@@ -403,6 +403,14 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ...state,
         transcript: appendProviderActivityTranscript(state, event),
       };
+    case "provider.turnComplete":
+      if (event.sessionId !== state.runningSessionId) {
+        return state;
+      }
+      return {
+        ...state,
+        transcript: markAssistantTranscriptComplete(state.transcript, event.sessionId),
+      };
     case "provider.exit":
       if (!isCurrentOrPendingStartExit(state, event)) {
         return state;

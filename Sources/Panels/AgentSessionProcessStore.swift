@@ -74,6 +74,12 @@ final class AgentSessionProcessStore {
                         activity: activity
                     )
                 },
+                turnCompleteSink: { [weak self] in
+                    self?.emitTurnComplete(
+                        sessionId: sessionId,
+                        providerID: plan.provider
+                    )
+                },
                 failureSink: { [weak self] _ in
                     self?.failSession(sessionId: sessionId, status: 1)
                 }
@@ -270,12 +276,19 @@ final class AgentSessionProcessStore {
 
         if stream == "stdout",
            session.providerID == .claude {
+            let completesTurn = session.claudeStreamJSONLineCompletesTurn(text)
             for delta in session.consumeClaudeStreamJSONLine(text) {
                 emitOutput(
                     sessionId: session.sessionId,
                     providerID: session.providerID,
                     stream: stream,
                     text: delta
+                )
+            }
+            if completesTurn {
+                emitTurnComplete(
+                    sessionId: session.sessionId,
+                    providerID: session.providerID
                 )
             }
             return
@@ -466,12 +479,22 @@ final class AgentSessionProcessStore {
             return
         }
 
+        let completesTurn = session.openCodeEventCompletesAssistantTurn(
+            event,
+            openCodeSessionID: openCodeSessionID
+        )
         for output in session.consumeOpenCodeEvent(event, openCodeSessionID: openCodeSessionID) {
             emitOutput(
                 sessionId: session.sessionId,
                 providerID: session.providerID,
                 stream: "stdout",
                 text: output
+            )
+        }
+        if completesTurn {
+            emitTurnComplete(
+                sessionId: session.sessionId,
+                providerID: session.providerID
             )
         }
     }
@@ -565,6 +588,17 @@ final class AgentSessionProcessStore {
         eventSink?(event)
     }
 
+    private func emitTurnComplete(
+        sessionId: String,
+        providerID: AgentSessionProviderID
+    ) {
+        eventSink?([
+            "type": "provider.turnComplete",
+            "sessionId": sessionId,
+            "providerId": providerID.rawValue
+        ])
+    }
+
     private func emitExit(
         sessionId: String,
         providerID: AgentSessionProviderID,
@@ -644,8 +678,16 @@ final class AgentSessionProcessStore {
             claudeStreamJSONAccumulator.consumeLine(line)
         }
 
+        func claudeStreamJSONLineCompletesTurn(_ line: String) -> Bool {
+            ClaudeStreamJSONAccumulator.completesAssistantTurn(line)
+        }
+
         func consumeOpenCodeEvent(_ event: [String: Any], openCodeSessionID: String) -> [String] {
             openCodeEventTextAccumulator.consumeEvent(event, sessionID: openCodeSessionID)
+        }
+
+        func openCodeEventCompletesAssistantTurn(_ event: [String: Any], openCodeSessionID: String) -> Bool {
+            OpenCodeEventTextAccumulator.completesAssistantTurn(event, sessionID: openCodeSessionID)
         }
 
         private static func appendOutputData(_ data: Data, buffer: inout Data) -> [String] {

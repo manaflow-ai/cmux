@@ -57,6 +57,23 @@ struct ClaudeStreamJSONAccumulator {
         return []
     }
 
+    static func completesAssistantTurn(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = object["type"] as? String else {
+            return false
+        }
+
+        switch type {
+        case "result", "message_stop", "done":
+            return true
+        default:
+            return false
+        }
+    }
+
     private func assistantMessageID(fromMessageStart object: [String: Any]) -> String? {
         guard object["type"] as? String == "message_start",
               let message = object["message"] as? [String: Any],
@@ -172,6 +189,33 @@ struct OpenCodeEventTextAccumulator {
         }
     }
 
+    static func completesAssistantTurn(_ event: [String: Any], sessionID: String) -> Bool {
+        guard let type = event["type"] as? String,
+              let properties = event["properties"] as? [String: Any],
+              eventSessionID(properties) == sessionID else {
+            return false
+        }
+
+        switch type {
+        case "session.idle":
+            return true
+        case "session.status":
+            return sessionStatusIsIdle(properties["status"])
+        case "message.updated":
+            let info = (properties["info"] as? [String: Any])
+                ?? (properties["message"] as? [String: Any])
+                ?? [:]
+            guard firstString(info["role"], properties["role"]) == "assistant" else {
+                return false
+            }
+            return messageInfoHasCompletedTime(info) ||
+                firstString(info["finish"], info["finishedReason"], properties["finish"]) != nil ||
+                info["error"] != nil
+        default:
+            return false
+        }
+    }
+
     private static func eventSessionID(_ properties: [String: Any]) -> String? {
         firstString(
             properties["sessionID"],
@@ -203,6 +247,22 @@ struct OpenCodeEventTextAccumulator {
             }
         }
         return nil
+    }
+
+    private static func sessionStatusIsIdle(_ value: Any?) -> Bool {
+        if let string = firstString(value) {
+            return string == "idle"
+        }
+        guard let status = value as? [String: Any] else { return false }
+        return firstString(status["type"], status["status"], status["state"]) == "idle"
+    }
+
+    private static func messageInfoHasCompletedTime(_ info: [String: Any]) -> Bool {
+        guard let time = info["time"] as? [String: Any] else { return false }
+        return time["completed"] != nil ||
+            time["completedAt"] != nil ||
+            time["end"] != nil ||
+            time["ended"] != nil
     }
 
     private mutating func consumeMessageUpdated(_ properties: [String: Any]) -> [String] {

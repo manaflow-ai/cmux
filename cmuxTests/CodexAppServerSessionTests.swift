@@ -476,6 +476,67 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexTurnCompletionNotificationMarksAssistantTurnComplete() {
+        var completions = 0
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { _ in },
+            outputSink: { _, _ in },
+            turnCompleteSink: { completions += 1 }
+        )
+
+        session.consumeStdout(
+            #"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
+
+        expectEqual(completions, 1)
+    }
+
+    @Test
+    func testOpenCodeAssistantMessageCompletedTimeMarksTurnComplete() {
+        let event: [String: Any] = [
+            "type": "message.updated",
+            "properties": [
+                "sessionID": "opencode-session-1",
+                "info": [
+                    "id": "message-1",
+                    "role": "assistant",
+                    "time": [
+                        "created": 1,
+                        "completed": 2,
+                    ],
+                ],
+            ],
+        ]
+
+        expectTrue(
+            OpenCodeEventTextAccumulator.completesAssistantTurn(
+                event,
+                sessionID: "opencode-session-1"
+            )
+        )
+        expectFalse(
+            OpenCodeEventTextAccumulator.completesAssistantTurn(
+                event,
+                sessionID: "other-session"
+            )
+        )
+    }
+
+    @Test
+    func testClaudeResultFrameMarksTurnComplete() {
+        expectTrue(
+            ClaudeStreamJSONAccumulator.completesAssistantTurn(
+                #"{"type":"result","subtype":"success","result":"done"}"#
+            )
+        )
+        expectFalse(
+            ClaudeStreamJSONAccumulator.completesAssistantTurn(
+                #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"#
+            )
+        )
+    }
+
+    @Test
     func testDeclinedToolItemsDoNotRenderAsCompletedActivity() {
         var activities: [[String: Any]] = []
         let session = CodexAppServerSession(

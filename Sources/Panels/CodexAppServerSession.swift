@@ -5,6 +5,7 @@ final class CodexAppServerSession {
     typealias DataWriter = (Data) throws -> Void
     typealias OutputSink = (_ stream: String, _ text: String) -> Void
     typealias ActivitySink = (_ activity: [String: Any]) -> Void
+    typealias TurnCompleteSink = () -> Void
     typealias FailureSink = (_ details: String?) -> Void
 
     private struct QueuedInput {
@@ -16,6 +17,7 @@ final class CodexAppServerSession {
     private let writeData: DataWriter
     private let outputSink: OutputSink
     private let activitySink: ActivitySink
+    private let turnCompleteSink: TurnCompleteSink
     private let failureSink: FailureSink
     private var nextRequestID = 1
     private var initializeRequestID: Int?
@@ -31,12 +33,14 @@ final class CodexAppServerSession {
         writeData: @escaping DataWriter,
         outputSink: @escaping OutputSink,
         activitySink: @escaping ActivitySink = { _ in },
+        turnCompleteSink: @escaping TurnCompleteSink = {},
         failureSink: @escaping FailureSink = { _ in }
     ) {
         self.workingDirectory = workingDirectory
         self.writeData = writeData
         self.outputSink = outputSink
         self.activitySink = activitySink
+        self.turnCompleteSink = turnCompleteSink
         self.failureSink = failureSink
     }
 
@@ -160,14 +164,23 @@ final class CodexAppServerSession {
             if let delta = params?["delta"] as? String {
                 outputSink("stdout", delta)
             }
+        case "item/agentMessage/completed", "item/agentMessage/complete", "item/agentMessage/finished":
+            turnCompleteSink()
         case "item/started":
             if let item = params?["item"] as? [String: Any] {
                 emitActivity(for: item, defaultStatus: "inProgress")
             }
         case "item/completed":
             if let item = params?["item"] as? [String: Any] {
+                if Self.itemIsAgentMessage(item) {
+                    turnCompleteSink()
+                    return
+                }
                 emitActivity(for: item, defaultStatus: "completed")
             }
+        case "turn/completed", "turn/complete", "turn/finished", "turn/end", "turn/ended",
+             "turn/stopped", "turn/failed", "turn/canceled", "turn/cancelled":
+            turnCompleteSink()
         case "item/commandExecution/outputDelta":
             guard let itemID = params?["itemId"] as? String else { break }
             emitActivity(
@@ -200,6 +213,16 @@ final class CodexAppServerSession {
             outputSink("stderr", codexMessage(from: params) ?? Self.unknownWarningMessage())
         default:
             break
+        }
+    }
+
+    private static func itemIsAgentMessage(_ item: [String: Any]) -> Bool {
+        guard let itemType = item["type"] as? String else { return false }
+        switch itemType {
+        case "agentMessage", "assistantMessage", "message":
+            return true
+        default:
+            return false
         }
     }
 

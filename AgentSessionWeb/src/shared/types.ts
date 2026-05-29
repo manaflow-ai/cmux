@@ -161,6 +161,11 @@ export type AgentEvent =
       outputDelta?: string;
     }
   | {
+      type: "provider.turnComplete";
+      sessionId: string;
+      providerId: ProviderId;
+    }
+  | {
       type: "provider.exit";
       sessionId: string;
       providerId: ProviderId;
