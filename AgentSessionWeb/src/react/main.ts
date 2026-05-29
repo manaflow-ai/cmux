@@ -1292,13 +1292,14 @@ function ComposerModeIndicator({
       "button",
       {
         className:
-          `composer-mode-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
+          `composer-mode-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
         type: "button",
         "aria-label": label,
         onClick: onClear,
       },
-      h("span", { className: "composer-mode-icon", "aria-hidden": true }, icon),
-      h("span", { className: "composer-mode-label" }, label),
+      h("span", { className: "composer-mode-icon composer-mode-icon-default icon-xs shrink-0", "aria-hidden": true }, icon),
+      h("span", { className: "composer-mode-icon composer-mode-icon-hover icon-xs shrink-0", "aria-hidden": true }, xIcon("icon-xs")),
+      h("span", { className: "composer-footer__label--sm composer-mode-label max-w-16 truncate" }, label),
     ),
   );
 }
