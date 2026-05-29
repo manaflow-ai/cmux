@@ -6467,6 +6467,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
+        if let event,
+           let browserResult = startBrowserFindForShortcutEvent(event, context: context) {
+            return browserResult
+        }
+
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
             currentResponder: window?.firstResponder
         )
@@ -6475,12 +6480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
-            if let event,
-               let browserResult = startBrowserFindForShortcutEvent(event, context: context) {
-                result = browserResult
-            } else {
-                result = context.tabManager.startSearch()
-            }
+            result = context.tabManager.startSearch()
         case .none:
             result = false
         }
@@ -12299,11 +12299,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
+        let addressBarShortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow
+        let addressBarShortcutResponder = addressBarShortcutWindow?.firstResponder
         if browserAddressBarFocusedPanelId != nil,
-           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
+           !isBrowserOmnibarResponder(addressBarShortcutResponder),
+           cmuxOwningGhosttyView(for: addressBarShortcutResponder) != nil {
 #if DEBUG
             let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            let firstResponderType = addressBarShortcutResponder.map { String(describing: type(of: $0)) } ?? "nil"
             cmuxDebugLog(
                 "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
                 "reason=terminal_first_responder fr=\(firstResponderType)"
