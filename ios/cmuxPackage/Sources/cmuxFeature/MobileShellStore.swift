@@ -124,7 +124,7 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     struct Chunk: Equatable, Sendable {
         var workspaceID: MobileWorkspacePreview.ID
         var terminalID: MobileTerminalPreview.ID
-        var text: String
+        var data: Data
     }
 
     private(set) var pendingChunks: [Chunk] = []
@@ -132,26 +132,26 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     private(set) var isDraining = false
 
     mutating func enqueue(
-        _ text: String,
+        _ data: Data,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) -> MobileTerminalInputEnqueueResult {
-        guard !text.isEmpty else { return .queued }
-        let byteCount = text.utf8.count
+        guard !data.isEmpty else { return .queued }
+        let byteCount = data.count
         guard pendingByteCount + byteCount <= Self.maximumPendingByteCount else {
             return .rejected
         }
         if var last = pendingChunks.last,
            last.workspaceID == workspaceID,
            last.terminalID == terminalID {
-            last.text += text
+            last.data.append(data)
             pendingChunks[pendingChunks.count - 1] = last
         } else {
             pendingChunks.append(
                 Chunk(
                     workspaceID: workspaceID,
                     terminalID: terminalID,
-                    text: text
+                    data: data
                 )
             )
         }
@@ -167,7 +167,7 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             return nil
         }
         let chunk = pendingChunks.removeFirst()
-        pendingByteCount = max(0, pendingByteCount - chunk.text.utf8.count)
+        pendingByteCount = max(0, pendingByteCount - chunk.data.count)
         return chunk
     }
 
@@ -1070,13 +1070,14 @@ public final class CMUXMobileShellStore {
         }
         terminalInputText = ""
         guard remoteClient != nil else { return }
-        await sendRemoteTerminalInput(text + "\r")
+        await sendRemoteTerminalInput(Data((text + "\r").utf8))
     }
 
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
         #endif
+        let data = Data(text.utf8)
         guard let workspaceID = selectedWorkspace?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
@@ -1085,7 +1086,7 @@ public final class CMUXMobileShellStore {
             return
         }
         switch rawTerminalInputBuffer.enqueue(
-            text,
+            data,
             workspaceID: workspaceID,
             terminalID: terminalID
         ) {
@@ -1112,43 +1113,38 @@ public final class CMUXMobileShellStore {
               let terminalID = selectedTerminalID else {
             return
         }
-        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        await submitTerminalRawInput(Data(text.utf8), workspaceID: workspaceID, terminalID: terminalID)
     }
 
     /// Raw-bytes overload. The libghostty render path on iOS uses this
     /// for input that may include binary sequences (mouse reports,
-    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
-    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
-    /// then the Mac decodes back to Data. If we ever need true binary
-    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
-    /// `input` param to a base64 field.
+    /// kitty keyboard, IME byte streams). The wire RPC carries exact
+    /// bytes in `data_b64`; `text` is included only as compatibility
+    /// fallback for older Mac hosts.
     public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
         guard !data.isEmpty else { return }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return
-        }
         let workspaceCandidate = workspaces.first(where: { workspace in
             workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
         })
         guard let workspace = workspaceCandidate else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        await submitTerminalRawInput(data, workspaceID: workspace.id, terminalID: terminalID)
     }
 
     private func submitTerminalRawInput(
-        _ text: String,
+        _ data: Data,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async {
-        guard !text.isEmpty else { return }
+        guard !data.isEmpty else { return }
         guard remoteClient != nil else { return }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        await sendRemoteTerminalInput(data, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func drainRawTerminalInputBuffer() async {
         while let chunk = rawTerminalInputBuffer.nextBatch() {
             await submitTerminalRawInput(
-                chunk.text,
+                chunk.data,
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID
             )
@@ -1512,7 +1508,7 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func sendRemoteTerminalInput(_ text: String) async {
+    private func sendRemoteTerminalInput(_ data: Data) async {
         guard let workspaceID = selectedWorkspace?.id,
               let terminalID = selectedTerminalID else {
             #if DEBUG
@@ -1520,11 +1516,11 @@ public final class CMUXMobileShellStore {
             #endif
             return
         }
-        await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        await sendRemoteTerminalInput(data, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func sendRemoteTerminalInput(
-        _ text: String,
+        _ data: Data,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async {
@@ -1537,15 +1533,18 @@ public final class CMUXMobileShellStore {
         let generation = connectionGeneration
         do {
             #if DEBUG
-            mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
+            mobileShellLog.debug("send remote terminal input byteCount=\(data.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
             var params: [String: Any] = [
                 "workspace_id": workspaceID.rawValue,
                 "surface_id": terminalID.rawValue,
-                "text": text,
+                "data_b64": data.base64EncodedString(),
                 "client_id": clientID,
             ]
+            if let text = String(data: data, encoding: .utf8) {
+                params["text"] = text
+            }
             if let viewportSize = reportedViewportSizesByTerminalKey[key] {
                 params["viewport_columns"] = viewportSize.columns
                 params["viewport_rows"] = viewportSize.rows

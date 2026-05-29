@@ -2022,27 +2022,27 @@ import UIKit
     let terminalA = MobileTerminalPreview.ID(rawValue: "terminal-a")
     let terminalB = MobileTerminalPreview.ID(rawValue: "terminal-b")
 
-    let startsDrain = buffer.enqueue("p", workspaceID: workspaceA, terminalID: terminalA)
-    let appendsWhileDraining = buffer.enqueue("rint", workspaceID: workspaceA, terminalID: terminalA)
-    let appendsFinalCharacter = buffer.enqueue("f", workspaceID: workspaceA, terminalID: terminalA)
+    let startsDrain = buffer.enqueue(Data("p".utf8), workspaceID: workspaceA, terminalID: terminalA)
+    let appendsWhileDraining = buffer.enqueue(Data("rint".utf8), workspaceID: workspaceA, terminalID: terminalA)
+    let appendsFinalCharacter = buffer.enqueue(Data("f".utf8), workspaceID: workspaceA, terminalID: terminalA)
     #expect(startsDrain == .startDraining)
     #expect(appendsWhileDraining == .queued)
     #expect(appendsFinalCharacter == .queued)
     let firstBatch = buffer.nextBatch()
     #expect(firstBatch?.workspaceID == workspaceA)
     #expect(firstBatch?.terminalID == terminalA)
-    #expect(firstBatch?.text == "printf")
+    #expect(firstBatch?.data == Data("printf".utf8))
 
-    let appendsSecondBatch = buffer.enqueue(" 'one'", workspaceID: workspaceA, terminalID: terminalA)
+    let appendsSecondBatch = buffer.enqueue(Data(" 'one'".utf8), workspaceID: workspaceA, terminalID: terminalA)
     #expect(appendsSecondBatch == .queued)
-    #expect(buffer.nextBatch()?.text == " 'one'")
+    #expect(buffer.nextBatch()?.data == Data(" 'one'".utf8))
     #expect(buffer.nextBatch() == nil)
 
-    let restartsDrain = buffer.enqueue("\r", workspaceID: workspaceA, terminalID: terminalB)
+    let restartsDrain = buffer.enqueue(Data("\r".utf8), workspaceID: workspaceA, terminalID: terminalB)
     #expect(restartsDrain == .startDraining)
     let terminalBBatch = buffer.nextBatch()
     #expect(terminalBBatch?.terminalID == terminalB)
-    #expect(terminalBBatch?.text == "\r")
+    #expect(terminalBBatch?.data == Data("\r".utf8))
 }
 
 @Test func rawTerminalInputSendBufferRejectsOverflowUntilPendingInputDrains() {
@@ -2050,19 +2050,20 @@ import UIKit
     let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
     let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
     let fullBufferText = String(repeating: "a", count: MobileTerminalInputSendBuffer.maximumPendingByteCount)
+    let fullBufferData = Data(fullBufferText.utf8)
 
-    #expect(buffer.enqueue(fullBufferText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+    #expect(buffer.enqueue(fullBufferData, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
     #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
-    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+    #expect(buffer.enqueue(Data("b".utf8), workspaceID: workspaceID, terminalID: terminalID) == .rejected)
     #expect(buffer.pendingByteCount == MobileTerminalInputSendBuffer.maximumPendingByteCount)
 
     let batch = buffer.nextBatch()
-    #expect(batch?.text == fullBufferText)
+    #expect(batch?.data == fullBufferData)
     #expect(buffer.pendingByteCount == 0)
-    #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .queued)
-    #expect(buffer.nextBatch()?.text == "b")
+    #expect(buffer.enqueue(Data("b".utf8), workspaceID: workspaceID, terminalID: terminalID) == .queued)
+    #expect(buffer.nextBatch()?.data == Data("b".utf8))
     #expect(buffer.nextBatch() == nil)
-    #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+    #expect(buffer.enqueue(Data("c".utf8), workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
 }
 
 @Test func terminalReplayGateBuffersLiveBytesUntilReplaySequenceIsKnown() {
@@ -2304,6 +2305,7 @@ import UIKit
 
     let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
     #expect(inputRequest.text == "echo hi\r")
+    #expect(inputRequest.dataB64.flatMap { Data(base64Encoded: $0) } == Data("echo hi\r".utf8))
     #expect(inputRequest.viewportColumns == 52)
     #expect(inputRequest.viewportRows == 24)
     #expect(inputRequest.clientID?.isEmpty == false)
@@ -2345,6 +2347,46 @@ import UIKit
 
     let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
     #expect(inputRequest.text == "\u{1B}[A")
+    #expect(inputRequest.dataB64.flatMap { Data(base64Encoded: $0) } == Data("\u{1B}[A".utf8))
+}
+
+@MainActor
+@Test func rawTerminalInputSendsExactNonUTF8Bytes() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let raw = Data([0x1b, 0x5b, 0x41, 0xff])
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    await store.submitTerminalRawInput(raw, surfaceID: "live-terminal")
+
+    let inputRequest = try #require(await responses.sentRequests().first { $0.method == "terminal.input" })
+    #expect(inputRequest.text == nil)
+    #expect(inputRequest.dataB64.flatMap { Data(base64Encoded: $0) } == raw)
 }
 
 @Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
@@ -3122,6 +3164,7 @@ private actor ScriptedTransportResponses {
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
+                dataB64: params["data_b64"] as? String,
                 hasAuth: auth != nil,
                 attachToken: auth?["attach_token"] as? String,
                 stackAccessToken: auth?["stack_access_token"] as? String
@@ -3140,6 +3183,7 @@ private struct RecordedRPCRequest: Sendable {
     var maxScrollbackRows: Int?
     var clientID: String?
     var text: String?
+    var dataB64: String?
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
@@ -3171,6 +3215,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
+        dataB64: params["data_b64"] as? String,
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
         stackAccessToken: auth?["stack_access_token"] as? String

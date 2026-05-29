@@ -181,6 +181,7 @@ final class cmuxUITests: XCTestCase {
         let attachURL = try attachURL(port: port)
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+            "CMUX_MOBILE_SOAK_INPUT_TEXT": "x",
         ])
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
@@ -193,8 +194,6 @@ final class cmuxUITests: XCTestCase {
         let beforeInputColors = try terminalColorPixelCounts(surface: surface, in: app)
         assertHasTerminalRGBPixels(beforeInputColors)
 
-        surface.tap()
-        app.typeText("x")
         try await server.waitForTerminalInput(containing: "x", timeout: 4)
         runMainLoop(for: 0.35)
         assertRendererLayerReady(surface, in: app)
@@ -205,6 +204,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(afterInputColors.green, max(8, beforeInputColors.green / 3))
         XCTAssertGreaterThanOrEqual(afterInputColors.blue, max(8, beforeInputColors.blue / 3))
         assertTerminalRow(0, label: "RED GREEN BLUE", in: app)
+        assertTerminalRow(2, label: "live echo: x", in: app)
     }
 
     /// Tapping a text field opens the system keyboard; the floating Pair
@@ -820,6 +820,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         var continuation: CheckedContinuation<Void, Error>
     }
 
+    private struct ResponseFrame {
+        var frame: Data
+        var postResponseEvents: [(topic: String, payload: [String: Any])]
+    }
+
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
@@ -827,8 +832,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var streamOffset: UInt64 = 1
+    private var streamOffsetsByTerminalID: [String: UInt64] = [:]
     private var terminalInputs: [String] = []
     private var terminalInputWaiters: [TerminalInputWaiter] = []
+    private var subscriptionsByConnectionID: [ObjectIdentifier: Set<String>] = [:]
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -915,6 +922,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+            self.subscriptionsByConnectionID.removeAll()
         }
     }
 
@@ -1002,9 +1010,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
-            let responseFrame = try makeResponseFrame(for: payload)
+            let response = try makeResponseFrame(for: payload, on: connection)
             connection.send(
-                content: responseFrame,
+                content: response.frame,
                 contentContext: .defaultMessage,
                 isComplete: false,
                 completion: .contentProcessed { [weak self, weak connection] error in
@@ -1014,7 +1022,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                         connection?.cancel()
                         return
                     }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
+                    self.sendPostResponseEvents(
+                        response.postResponseEvents,
+                        on: connection
+                    ) { [weak self, weak connection] in
+                        guard let self, let connection else { return }
+                        self.receiveRequest(on: connection, buffer: remainingBuffer)
+                    }
                 }
             )
         } catch {
@@ -1022,7 +1036,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
-    private func makeResponseFrame(for payload: Data) throws -> Data {
+    private func makeResponseFrame(for payload: Data, on connection: NWConnection) throws -> ResponseFrame {
         guard let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let method = request["method"] as? String else {
             throw serverError("Invalid request.")
@@ -1031,27 +1045,37 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let id = request["id"] as? String ?? ""
         let params = request["params"] as? [String: Any] ?? [:]
         let result: [String: Any]
+        let postResponseEvents: [(topic: String, payload: [String: Any])]
 
         switch method {
         case "workspace.list":
             result = workspaceListResult()
+            postResponseEvents = []
         case "workspace.create":
             result = createWorkspaceResult()
+            postResponseEvents = [("workspace.updated", [:])]
         case "terminal.create":
             result = createTerminalResult(params: params)
+            postResponseEvents = [("workspace.updated", [:])]
         case "mobile.events.subscribe":
-            result = ["stream_id": params["stream_id"] as? String ?? "events"]
+            result = subscribeResult(params: params, on: connection)
+            postResponseEvents = []
         case "mobile.terminal.viewport", "terminal.viewport":
             result = [
                 "columns": params["viewport_columns"] as? Int ?? 80,
                 "rows": params["viewport_rows"] as? Int ?? 24,
             ]
+            postResponseEvents = []
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
+            postResponseEvents = []
         case "mobile.terminal.input", "terminal.input":
-            result = terminalInputResult(params: params)
+            let inputResponse = terminalInputResult(params: params)
+            result = inputResponse.result
+            postResponseEvents = inputResponse.postResponseEvents
         default:
             result = [:]
+            postResponseEvents = []
         }
 
         let envelope: [String: Any] = [
@@ -1060,7 +1084,53 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "result": result,
         ]
         let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
-        return Self.frame(responsePayload)
+        return ResponseFrame(frame: Self.frame(responsePayload), postResponseEvents: postResponseEvents)
+    }
+
+    private func sendPostResponseEvents(
+        _ events: [(topic: String, payload: [String: Any])],
+        on connection: NWConnection,
+        completion: @escaping () -> Void
+    ) {
+        guard let event = events.first else {
+            completion()
+            return
+        }
+        guard subscriptionsByConnectionID[ObjectIdentifier(connection)]?.contains(event.topic) == true else {
+            sendPostResponseEvents(Array(events.dropFirst()), on: connection, completion: completion)
+            return
+        }
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": event.topic,
+            "payload": event.payload,
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: envelope) else {
+            sendPostResponseEvents(Array(events.dropFirst()), on: connection, completion: completion)
+            return
+        }
+        connection.send(
+            content: Self.frame(payload),
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] _ in
+                guard let self, let connection else {
+                    completion()
+                    return
+                }
+                self.sendPostResponseEvents(Array(events.dropFirst()), on: connection, completion: completion)
+            }
+        )
+    }
+
+    private func subscribeResult(params: [String: Any], on connection: NWConnection) -> [String: Any] {
+        let streamID = params["stream_id"] as? String ?? "events"
+        let topics = Set((params["topics"] as? [String] ?? []).filter { !$0.isEmpty })
+        subscriptionsByConnectionID[ObjectIdentifier(connection)] = topics
+        return [
+            "stream_id": streamID,
+            "topics": Array(topics).sorted(),
+        ]
     }
 
     private func createWorkspaceResult() -> [String: Any] {
@@ -1093,8 +1163,20 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         return result
     }
 
-    private func terminalInputResult(params: [String: Any]) -> [String: Any] {
-        let text = params["text"] as? String ?? ""
+    private func terminalInputResult(params: [String: Any]) -> (
+        result: [String: Any],
+        postResponseEvents: [(topic: String, payload: [String: Any])]
+    ) {
+        let inputData: Data
+        if let b64 = params["data_b64"] as? String,
+           let data = Data(base64Encoded: b64) {
+            inputData = data
+        } else {
+            inputData = Data((params["text"] as? String ?? "").utf8)
+        }
+        let text = String(decoding: inputData, as: UTF8.self)
+        let terminalID = params["surface_id"] as? String ?? selectedTerminalID
+        selectedTerminalID = terminalID
         terminalInputs.append(text)
         var stillWaiting: [TerminalInputWaiter] = []
         for waiter in terminalInputWaiters {
@@ -1105,7 +1187,14 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             }
         }
         terminalInputWaiters = stillWaiting
-        return ["accepted": true]
+        let liveBytes = terminalLiveBytes(forTerminalID: terminalID, input: text)
+        guard !liveBytes.isEmpty else {
+            return (["accepted": true], [])
+        }
+        return (
+            ["accepted": true],
+            [("terminal.bytes", terminalBytesPayload(terminalID: terminalID, bytes: liveBytes))]
+        )
     }
 
     private func createTerminalResult(params: [String: Any]) -> [String: Any] {
@@ -1148,12 +1237,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             .flatMap { ws in ws.terminals.map { ($0, ws.id) } }
             .first { $0.0.id == terminalID }
             ?? (workspaces[0].terminals[0], workspaces[0].id)
-        streamOffset += 1
         let bytes = terminalReplayBytes(for: terminal)
+        let previousOffset = streamOffsetsByTerminalID[terminal.id] ?? 0
+        let nextOffset = previousOffset + UInt64(bytes.count)
+        streamOffsetsByTerminalID[terminal.id] = nextOffset
+        streamOffset = max(streamOffset, nextOffset)
         return [
             "workspace_id": workspaceID,
             "surface_id": terminal.id,
-            "seq": streamOffset,
+            "seq": nextOffset,
             "data_b64": bytes.base64EncodedString(),
             "columns": 80,
             "rows": 24,
@@ -1168,6 +1260,33 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         text += terminal.lines.joined(separator: "\r\n")
         text += "\r\n"
         return Data(text.utf8)
+    }
+
+    private func terminalLiveBytes(forTerminalID terminalID: String, input: String) -> Data {
+        let printableInput = input
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        guard !printableInput.isEmpty else {
+            return Data()
+        }
+        if let workspaceIndex = workspaces.firstIndex(where: { workspace in
+            workspace.terminals.contains(where: { $0.id == terminalID })
+        }), let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) {
+            workspaces[workspaceIndex].terminals[terminalIndex].lines.append("live echo: \(printableInput)")
+        }
+        return Data("live echo: \(printableInput)\r\n".utf8)
+    }
+
+    private func terminalBytesPayload(terminalID: String, bytes: Data) -> [String: Any] {
+        let previousOffset = streamOffsetsByTerminalID[terminalID] ?? 0
+        let nextOffset = previousOffset + UInt64(bytes.count)
+        streamOffsetsByTerminalID[terminalID] = nextOffset
+        streamOffset = max(streamOffset, nextOffset)
+        return [
+            "surface_id": terminalID,
+            "seq": previousOffset,
+            "data_b64": bytes.base64EncodedString(),
+        ]
     }
 
     private func workspaceListResult() -> [String: Any] {

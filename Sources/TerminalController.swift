@@ -22070,8 +22070,19 @@ class TerminalController {
     }
 
     private func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
-        guard let text = v2RawString(params, "text"), !text.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        let inputData: Data
+        let legacyText: String?
+        if let dataB64 = v2RawString(params, "data_b64") {
+            guard let decoded = Data(base64Encoded: dataB64), !decoded.isEmpty else {
+                return .err(code: "invalid_params", message: "Invalid data_b64", data: nil)
+            }
+            inputData = decoded
+            legacyText = v2RawString(params, "text")
+        } else if let text = v2RawString(params, "text"), !text.isEmpty {
+            inputData = Data(text.utf8)
+            legacyText = text
+        } else {
+            return .err(code: "invalid_params", message: "Missing input", data: nil)
         }
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
@@ -22090,7 +22101,12 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalPanel.surface.sendInputResult(text)
+        let sendResult: TerminalSurface.InputSendResult
+        if params["data_b64"] != nil {
+            sendResult = terminalPanel.surface.sendInputDataResult(inputData)
+        } else {
+            sendResult = terminalPanel.surface.sendInputResult(legacyText ?? String(decoding: inputData, as: UTF8.self))
+        }
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
@@ -22106,7 +22122,7 @@ class TerminalController {
         #if DEBUG
         let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
         cmuxDebugLog(
-            "mobile.terminal.input workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(sendResult == .queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+            "mobile.terminal.input workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(sendResult == .queued ? 1 : 0) bytes=\(inputData.count) ms=\(String(format: "%.2f", sendMs))"
         )
         #endif
         return .ok([

@@ -7038,6 +7038,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    @discardableResult
+    func sendInputDataResult(_ data: Data) -> InputSendResult {
+        guard !data.isEmpty else { return .sent }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            let queued = enqueuePendingSocketInput(.inputText(data))
+            if queued {
+                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                requestBackgroundSurfaceStartIfNeeded()
+            }
+            return queued ? .queued : .inputQueueFull
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendInputData") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        writeInputTextData(data, to: liveSurface)
+        return .sent
+    }
+
+    @MainActor
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {
             switch event {
@@ -7597,7 +7619,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = nil
         let teeContext = mobileByteTeeContext
         mobileByteTeeContext = nil
-        MobileTerminalByteTee.shared.dropSurface(surfaceID: id)
+        let surfaceID = id
+        Task { @MainActor in
+            MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        }
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface
