@@ -5878,6 +5878,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
             return mainWindow
         }
+        for window in NSApp.orderedWindows where isMainTerminalWindow(window) {
+            return window
+        }
         return mainWindowForShortcutEvent(event)
     }
 
@@ -12293,7 +12296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
-        if hasEventWindowContext && !didSynchronizeShortcutContext {
+        let allowsFocusedCloseShortcutFallback = isFocusedCloseShortcutEvent(event)
+        if hasEventWindowContext && !didSynchronizeShortcutContext && !allowsFocusedCloseShortcutFallback {
 #if DEBUG
             cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
@@ -14083,6 +14087,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !action.shortcutContext.isAlwaysAvailable && !action.shortcutContext.isAvailable(shortcutEventFocusContext(event)) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+    }
+
+    private func isFocusedCloseShortcutEvent(_ event: NSEvent) -> Bool {
+        let actions: [KeyboardShortcutSettings.Action] = [.closeTab, .closeWorkspace, .closeWindow]
+        return actions.contains { action in
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            if matchConfiguredShortcut(event: event, shortcut: shortcut) {
+                return true
+            }
+            return activeConfiguredShortcutChordPrefixForCurrentEvent == nil
+                && shortcut.hasChord
+                && matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        }
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {

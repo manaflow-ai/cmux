@@ -349,9 +349,7 @@ final class AuthManagerSignOutTests: XCTestCase {
         await manager.awaitBootstrapped()
 
         let signOutSnapshot = await manager.debugBeginSignOutMutationForTesting()
-
-        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=new-refresh&stack_access=new-access"))
-        try await manager.handleCallbackURL(callbackURL)
+        await manager.debugSeedSignedInTokensForTesting(accessToken: "new-access", refreshToken: "new-refresh")
         await manager.debugCompleteSignOutMutationAfterClientReturnForTesting(signOutSnapshot)
 
         XCTAssertTrue(manager.isAuthenticated)

@@ -257,6 +257,23 @@ final class AuthManager: ObservableObject {
         guard isCurrentAuthMutation(snapshot.generation) else { return }
         clearSessionState(clearSelectedTeam: true)
     }
+
+    func debugSeedSignedInTokensForTesting(accessToken: String, refreshToken: String) async {
+        let generation = beginAuthMutation(.signIn)
+        isLoading = true
+        defer { isLoading = false }
+        await tokenStore.seed(accessToken: accessToken, refreshToken: refreshToken)
+        guard await keepAuthMutationIfCurrent(
+            generation,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        ) else {
+            return
+        }
+        lastKnownAccessToken = accessToken
+        isAuthenticated = true
+        didCompleteBrowserSignIn = true
+    }
     #endif
 
     func beginSignIn() {
