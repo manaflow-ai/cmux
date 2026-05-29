@@ -226,6 +226,37 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandReadsOversizedInitialRecordBeforeDecodeFallback() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("oversized-start-project", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        let slashDecodedAlternative = fixture.root
+            .appendingPathComponent("oversized", isDirectory: true)
+            .appendingPathComponent("start", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: slashDecodedAlternative, withIntermediateDirectories: true)
+
+        let sessionId = "session-oversized-initial-record"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path],
+            firstContent: String(repeating: "x", count: SessionIndexStore.headByteCap + 1024)
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+        )
+    }
+
     func testGrokResumeCommandPreservesSpecifics() {
         let entry = makeEntry(
             agent: .grok,
@@ -613,7 +644,8 @@ final class SessionIndexViewTests: XCTestCase {
         projectsRoot: URL,
         sessionId: String,
         projectCwd: String,
-        cwdLines: [String]
+        cwdLines: [String],
+        firstContent: String = "hi"
     ) throws {
         let projectDir = projectsRoot.appendingPathComponent(
             claudeProjectDirectoryName(for: projectCwd),
@@ -622,7 +654,7 @@ final class SessionIndexViewTests: XCTestCase {
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
         let lines = try cwdLines.enumerated().map { index, cwd in
-            try claudeTranscriptLine(cwd: cwd, content: index == 0 ? "hi" : "continue")
+            try claudeTranscriptLine(cwd: cwd, content: index == 0 ? firstContent : "continue")
         }
         let transcript = lines.joined(separator: "\n") + "\n"
         try transcript.write(
