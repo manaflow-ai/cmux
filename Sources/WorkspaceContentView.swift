@@ -2086,18 +2086,37 @@ struct WorkspaceContentView: View {
         // cannot remain stacked above portal-hosted browser content.
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        Group {
+            if isCanvasOverviewActive {
+                WorkspaceCanvasOverviewView(
+                    workspace: workspace,
+                    controller: workspace.layoutController,
+                    appearance: appearance
+                ) { tab, paneId in
+                    buildPanelContent(tab, paneId, true)
+                } emptyPane: { paneId in
+                    EmptyPanelView(workspace: workspace, paneId: paneId)
+                }
+            } else {
+                workspaceLayoutView
+            }
+        }
         .onAppear {
+            installWorkspaceLayoutDropHandler()
+            syncWorkspaceLayoutInteractivity(isWorkspaceInputActive)
             updateAgentHibernationPresentationVisibility()
             syncCMUXLayoutNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
+        }
+        .onChange(of: isWorkspaceInputActive) { _, isActive in
+            syncWorkspaceLayoutInteractivity(isActive)
+            updateAgentHibernationPresentationVisibility()
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
-        }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
         }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
@@ -2141,29 +2160,6 @@ struct WorkspaceContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
-        }
-
-        Group {
-            if isCanvasOverviewActive {
-                WorkspaceCanvasOverviewView(
-                    workspace: workspace,
-                    controller: workspace.layoutController,
-                    appearance: appearance
-                ) { tab, paneId in
-                    buildPanelContent(tab, paneId, true)
-                } emptyPane: { paneId in
-                    EmptyPanelView(workspace: workspace, paneId: paneId)
-                }
-            } else {
-                workspaceLayoutView
-            }
-        }
-        .onAppear {
-            installWorkspaceLayoutDropHandler()
-            syncWorkspaceLayoutInteractivity(isWorkspaceInputActive)
-        }
-        .onChange(of: isWorkspaceInputActive) { _, isActive in
-            syncWorkspaceLayoutInteractivity(isActive)
         }
         .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
@@ -2805,9 +2801,11 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let metalScene = CanvasScene(presentation: presentation)
             let visibleItems = presentation.presentationSurfaces.map(\.item)
             let transform = metalScene.transform
-            let scrollPassthroughFrames: [CGRect] = []
             let nativePresentationRequests = canvasSurfacePortalRequests(
                 presentation: presentation
+            )
+            let scrollPassthroughFrames = CanvasScrollPassthroughPolicy.frames(
+                nativeOverlays: presentation.nativeOverlays
             )
             let visibleNativePortalCount = canvasVisibleNativePortalCount(
                 for: presentation.presentationSurfaces

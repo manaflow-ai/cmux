@@ -5303,6 +5303,25 @@ final class CMUXLayoutTests: XCTestCase {
         )
     }
 
+    func testCanvasScrollPassthroughPolicyUsesLiveNativeContentFrames() {
+        let itemID = LayoutItemID()
+        let overlay = CanvasNativeOverlay(
+            id: itemID,
+            kind: .terminal,
+            frameInCanvas: CGRect(x: 10, y: 20, width: 300, height: 220),
+            contentFrameInCanvas: CGRect(x: 10, y: 40, width: 300, height: 200),
+            nativeContentSize: CGSize(width: 300, height: 200),
+            zIndex: 0,
+            scale: 1
+        )
+
+        XCTAssertEqual(
+            CanvasScrollPassthroughPolicy.frames(nativeOverlays: [overlay]),
+            [CGRect(x: 10, y: 40, width: 300, height: 200)]
+        )
+        XCTAssertTrue(CanvasScrollPassthroughPolicy.frames(nativeOverlays: []).isEmpty)
+    }
+
     @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()

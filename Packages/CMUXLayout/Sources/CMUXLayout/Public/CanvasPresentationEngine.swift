@@ -336,6 +336,14 @@ public struct CanvasNativeOverlay: Identifiable, Sendable, Equatable {
     }
 }
 
+public enum CanvasScrollPassthroughPolicy {
+    public static func frames(nativeOverlays: [CanvasNativeOverlay]) -> [CGRect] {
+        nativeOverlays
+            .map(\.contentFrameInCanvas)
+            .filter { $0.width > 1 && $0.height > 1 }
+    }
+}
+
 public struct CanvasNativeOverlayPlan: Sendable, Equatable {
     public var nativeOverlays: [CanvasNativeOverlay]
     public var textureSurfaces: [CanvasSurfaceDescriptor]
