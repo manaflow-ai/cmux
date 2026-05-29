@@ -39,6 +39,7 @@ const state = {
   zoomedPanelId: null,
   contextMenu: null,
   resizing: null,
+  sidebarResizing: null,
   inspectorResizing: null,
   renderFrame: 0,
   scheduledRenderPrevious: null,
@@ -62,6 +63,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 const elements = {
   shell: document.getElementById("shell"),
+  sidebar: document.getElementById("sidebar"),
   workspaceList: document.getElementById("workspaceList"),
   workspaceHeading: document.getElementById("workspaceHeading"),
   workspaceSubheading: document.getElementById("workspaceSubheading"),
@@ -798,6 +800,47 @@ function finishPaneResize(event) {
   state.resizing.splitter.classList.remove("is-dragging");
   state.resizing = null;
   flushPendingRender();
+}
+
+function startSidebarResize(event) {
+  if (state.sidebarCollapsed || event.button !== 0) return;
+  const rect = elements.sidebar.getBoundingClientRect();
+  if (rect.right - event.clientX > 8) return;
+  event.preventDefault();
+  elements.sidebar.setPointerCapture?.(event.pointerId);
+  elements.shell.classList.add("sidebar-resizing");
+  state.sidebarResizing = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startWidth: rect.width,
+    width: rect.width
+  };
+}
+
+function continueSidebarResize(event) {
+  if (!state.sidebarResizing) return;
+  const nextWidth = Math.round(clamp(
+    state.sidebarResizing.startWidth + event.clientX - state.sidebarResizing.startX,
+    188,
+    304
+  ));
+  state.sidebarResizing.width = nextWidth;
+  state.settings.sidebarWidth = nextWidth;
+  elements.shell.style.setProperty("--sidebar-width", `${nextWidth}px`);
+}
+
+function finishSidebarResize(event) {
+  if (!state.sidebarResizing) return;
+  if (event.pointerId === state.sidebarResizing.pointerId) {
+    elements.sidebar.releasePointerCapture?.(event.pointerId);
+  }
+  state.sidebarResizing = null;
+  elements.shell.classList.remove("sidebar-resizing");
+  saveSettings();
+  applySettings();
+  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
+    renderSettingsInspector();
+  }
 }
 
 function startInspectorResize(event) {
@@ -2842,17 +2885,21 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
 window.addEventListener("pointermove", (event) => {
   continuePaneResize(event);
+  continueSidebarResize(event);
   continueInspectorResize(event);
 });
 window.addEventListener("pointerup", (event) => {
   finishPaneResize(event);
+  finishSidebarResize(event);
   finishInspectorResize(event);
 });
 window.addEventListener("pointercancel", (event) => {
   finishPaneResize(event);
+  finishSidebarResize(event);
   finishInspectorResize(event);
 });
 document.addEventListener("click", (event) => {

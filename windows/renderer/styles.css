@@ -221,6 +221,7 @@ button {
 
 .sidebar {
   min-width: 0;
+  position: relative;
   display: grid;
   grid-template-rows: 44px 36px minmax(0, 1fr) auto;
   overflow: hidden;
@@ -228,8 +229,43 @@ button {
   background: var(--color-rail);
 }
 
+.sidebar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 1px;
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.sidebar:hover::after,
+.shell.sidebar-resizing .sidebar::after {
+  background: var(--color-accent);
+}
+
 .shell.sidebar-collapsed .sidebar {
   border-right: 0;
+}
+
+.shell.sidebar-collapsed .sidebar::before,
+.shell.sidebar-collapsed .sidebar::after {
+  display: none;
 }
 
 .brand {
