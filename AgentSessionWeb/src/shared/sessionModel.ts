@@ -507,8 +507,9 @@ function appendProviderTranscript(
   return appendTranscript(state.transcript, {
     id: makeClientId(),
     role: "assistant",
-    text: event.text,
     sessionId: event.sessionId,
+    sentAtMs: Date.now(),
+    text: event.text,
   });
 }
 

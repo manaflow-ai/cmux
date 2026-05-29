@@ -987,7 +987,7 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
             dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
           },
         ),
-        entry.text.trim().length > 0 ? h(AssistantMessageActions, { copy, text: entry.text }) : null,
+        entry.text.trim().length > 0 ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text }) : null,
       );
     case "notice":
       return h(
@@ -1148,7 +1148,7 @@ function UserMessageActions({
   const copyLabel = copy?.copyUserMessage ?? "";
   const copiedLabel = copy?.copiedUserMessage ?? "";
   const activeLabel = isCopied ? copiedLabel : copyLabel;
-  const sentAtLabel = sentAtMs == null ? null : formatUserMessageSentAt(sentAtMs);
+  const sentAtLabel = sentAtMs == null ? null : formatMessageSentAt(sentAtMs);
   const buttonRef = useCallback((node: HTMLButtonElement | null) => {
     if (node !== null || resetTimerRef.current === null) {
       return;
@@ -1197,12 +1197,21 @@ function UserMessageActions({
   );
 }
 
-function AssistantMessageActions({ copy, text }: { copy?: AgentSessionCopy; text: string }) {
+function AssistantMessageActions({
+  copy,
+  sentAtMs,
+  text,
+}: {
+  copy?: AgentSessionCopy;
+  sentAtMs?: number;
+  text: string;
+}) {
   const [isCopied, setIsCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
   const copyLabel = copy?.copyAssistantMessage ?? "";
   const copiedLabel = copy?.copiedAssistantMessage ?? copyLabel;
   const activeLabel = isCopied ? copiedLabel : copyLabel;
+  const sentAtLabel = sentAtMs == null ? null : formatMessageSentAt(sentAtMs);
   const buttonRef = useCallback((node: HTMLButtonElement | null) => {
     if (node !== null || resetTimerRef.current === null) {
       return;
@@ -1246,18 +1255,25 @@ function AssistantMessageActions({ copy, text }: { copy?: AgentSessionCopy; text
       },
       isCopied ? checkIcon("icon-xs") : copyIcon("icon-xs"),
     ),
+    sentAtLabel == null
+      ? null
+      : h(
+          "span",
+          { className: "ml-1.5 flex h-full items-center text-size-chat leading-5 text-token-input-placeholder-foreground" },
+          sentAtLabel,
+        ),
   );
 }
 
-const USER_MESSAGE_RELATIVE_DAY_LIMIT = 7;
+const MESSAGE_RELATIVE_DAY_LIMIT = 7;
 
-function formatUserMessageSentAt(sentAtMs: number, now = new Date()): string {
+function formatMessageSentAt(sentAtMs: number, now = new Date()): string {
   const sentAt = new Date(sentAtMs);
   const dayDelta = calendarDayDelta(sentAt, now);
   if (dayDelta === 0) {
     return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(sentAt);
   }
-  if (dayDelta < 0 && dayDelta > -USER_MESSAGE_RELATIVE_DAY_LIMIT) {
+  if (dayDelta < 0 && dayDelta > -MESSAGE_RELATIVE_DAY_LIMIT) {
     return new Intl.DateTimeFormat(undefined, {
       hour: "numeric",
       minute: "2-digit",

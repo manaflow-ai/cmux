@@ -188,6 +188,7 @@ test("provider output is appended without changing running session", () => {
   expect(state.transcript.at(-1)).toMatchObject({
     role: "assistant",
     sessionId: "session-1",
+    sentAtMs: expect.any(Number),
     text: "{\"type\":\"assistant\"}",
   });
 });
@@ -222,6 +223,7 @@ test("provider stdout deltas append to the current assistant transcript turn", (
   expect(second.transcript).toHaveLength(1);
   expect(second.transcript[0]).toMatchObject({
     role: "assistant",
+    sentAtMs: first.transcript[0]?.sentAtMs,
     text: "hello world",
   });
 });
