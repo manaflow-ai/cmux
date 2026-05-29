@@ -122,7 +122,8 @@ body.theme-paper {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -853,6 +854,19 @@ button {
   cursor: grabbing;
 }
 
+.pane-grip {
+  flex: 0 0 auto;
+  width: 14px;
+  color: var(--color-faint);
+  font: 11px/1 var(--font-mono);
+  text-align: center;
+}
+
+.pane-header:hover .pane-grip,
+.pane.is-active .pane-grip {
+  color: var(--panel-color, var(--color-accent));
+}
+
 .pane.is-dragging {
   opacity: .65;
 }
@@ -963,6 +977,7 @@ button {
   height: 100%;
   padding: var(--terminal-padding, 8px) calc(var(--terminal-padding, 8px) + 1px);
   background: var(--color-pane);
+  font-family: var(--terminal-font-family, var(--font-mono));
 }
 
 .terminal-host .xterm {

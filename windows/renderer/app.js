@@ -10,7 +10,9 @@ const defaultSettings = {
   showAdvanced: false,
   performanceMode: false,
   sidebarWidth: 232,
+  terminalFontFamily: "cascadia",
   terminalFontSize: 13,
+  terminalLineHeight: 1.22,
   terminalPadding: 8,
   terminalScrollback: 12000,
   terminalCursorStyle: "block",
@@ -90,10 +92,23 @@ const terminalCursorStyles = [
   ["underline", "Underline"]
 ];
 
+const terminalFontOptions = [
+  ["cascadia", "Cascadia Mono", "\"Cascadia Mono\", \"Cascadia Code\", Consolas, monospace"],
+  ["cascadia-code", "Cascadia Code", "\"Cascadia Code\", \"Cascadia Mono\", Consolas, monospace"],
+  ["consolas", "Consolas", "Consolas, \"Cascadia Mono\", monospace"],
+  ["jetbrains", "JetBrains Mono", "\"JetBrains Mono\", \"Cascadia Mono\", Consolas, monospace"],
+  ["fira", "Fira Code", "\"Fira Code\", \"Cascadia Mono\", Consolas, monospace"],
+  ["mono", "System monospace", "ui-monospace, \"Cascadia Mono\", Consolas, monospace"]
+];
+
+const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
+
 const terminalAppearanceKeys = new Set([
   "theme",
   "accent",
+  "terminalFontFamily",
   "terminalFontSize",
+  "terminalLineHeight",
   "terminalPadding",
   "terminalScrollback",
   "terminalCursorStyle",
@@ -116,7 +131,9 @@ const settingsPresets = [
       showAdvanced: false,
       performanceMode: false,
       sidebarWidth: 232,
+      terminalFontFamily: "cascadia",
       terminalFontSize: 13,
+      terminalLineHeight: 1.22,
       terminalPadding: 8,
       terminalScrollback: 12000
     }
@@ -136,7 +153,9 @@ const settingsPresets = [
       showAdvanced: false,
       performanceMode: false,
       sidebarWidth: 216,
+      terminalFontFamily: "cascadia",
       terminalFontSize: 14,
+      terminalLineHeight: 1.18,
       terminalPadding: 6,
       terminalScrollback: 10000
     }
@@ -156,7 +175,9 @@ const settingsPresets = [
       showAdvanced: false,
       performanceMode: true,
       sidebarWidth: 204,
+      terminalFontFamily: "consolas",
       terminalFontSize: 13,
+      terminalLineHeight: 1.16,
       terminalPadding: 4,
       terminalScrollback: 6000
     }
@@ -176,7 +197,9 @@ const settingsPresets = [
       showAdvanced: false,
       performanceMode: false,
       sidebarWidth: 248,
+      terminalFontFamily: "cascadia",
       terminalFontSize: 14,
+      terminalLineHeight: 1.24,
       terminalPadding: 10,
       terminalScrollback: 12000
     }
@@ -261,11 +284,13 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   };
   if (legacyFontSize && !parsed.terminalFontSize) next.terminalFontSize = legacyFontSize;
   next.terminalFontSize = clamp(next.terminalFontSize, 10, 22);
+  next.terminalLineHeight = clamp(next.terminalLineHeight, 1, 1.5);
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   if (!accentOptions.includes(next.accent)) next.accent = defaultSettings.accent;
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
+  if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
   next.browserHomeUrl = normalizeUrl(next.browserHomeUrl || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
@@ -323,12 +348,21 @@ function backgroundCss(value) {
   return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
 }
 
+function terminalFontStack(value = state.settings.terminalFontFamily) {
+  return terminalFontStacks.get(value) || terminalFontStacks.get(defaultSettings.terminalFontFamily);
+}
+
+function formatLineHeight(value) {
+  return Number(value).toFixed(2);
+}
+
 function applySettings() {
   document.body.classList.remove(...themeOptions.filter(([id]) => id !== "cmux").map(([id]) => `theme-${id}`));
   if (state.settings.theme !== "cmux") document.body.classList.add(`theme-${state.settings.theme}`);
   document.documentElement.style.setProperty("--color-accent", state.settings.accent);
   document.documentElement.style.setProperty("--color-accent-hover", state.settings.accent);
   elements.shell.style.setProperty("--sidebar-width", `${state.settings.sidebarWidth}px`);
+  elements.shell.style.setProperty("--terminal-font-family", terminalFontStack());
   elements.shell.style.setProperty("--terminal-padding", `${state.settings.terminalPadding}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
   elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
@@ -392,7 +426,9 @@ function terminalTheme() {
 
 function refreshTerminalAppearance() {
   for (const session of state.terminals.values()) {
+    session.term.options.fontFamily = terminalFontStack();
     session.term.options.fontSize = state.terminalFontSize;
+    session.term.options.lineHeight = state.settings.terminalLineHeight;
     session.term.options.scrollback = state.settings.terminalScrollback;
     session.term.options.cursorStyle = state.settings.terminalCursorStyle;
     session.term.options.cursorBlink = state.settings.terminalCursorBlink;
@@ -874,6 +910,7 @@ function createPane(panel) {
   pane.dataset.panelId = panel.id;
   pane.innerHTML = `
     <div class="pane-header">
+      <div class="pane-grip" title="Drag pane">::</div>
       <div class="pane-type"></div>
       <div class="pane-title"></div>
       <div class="pane-toolbar">
@@ -1007,9 +1044,9 @@ function ensureTerminal(panel, body) {
     cursorStyle: state.settings.terminalCursorStyle,
     allowProposedApi: true,
     convertEol: true,
-    fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-mono"),
+    fontFamily: terminalFontStack(),
     fontSize: state.terminalFontSize,
-    lineHeight: 1.22,
+    lineHeight: state.settings.terminalLineHeight,
     scrollback: state.settings.terminalScrollback,
     theme: terminalTheme()
   });
@@ -1020,7 +1057,19 @@ function ensureTerminal(panel, body) {
   term.open(host);
 
   const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}/terminal/${panel.id}`);
-  const session = { term, fitAddon, socket, queue: "", scheduled: false, fitFrame: 0, resizeObserver: null, disposed: false };
+  const session = {
+    term,
+    fitAddon,
+    socket,
+    host,
+    queue: "",
+    scheduled: false,
+    fitFrame: 0,
+    resizeObserver: null,
+    disposed: false,
+    lastFitCols: 0,
+    lastFitRows: 0
+  };
 
   socket.addEventListener("open", () => scheduleFitTerminal(session));
   socket.addEventListener("message", (event) => {
@@ -1063,10 +1112,15 @@ function scheduleFitTerminal(session) {
 }
 
 function fitTerminal(session) {
-  if (session.disposed) return;
+  if (session.disposed || !isTerminalHostVisible(session)) return;
   try {
     session.fitAddon.fit();
-    if (session.socket.readyState === WebSocket.OPEN) {
+    if (
+      session.socket.readyState === WebSocket.OPEN
+      && (session.term.cols !== session.lastFitCols || session.term.rows !== session.lastFitRows)
+    ) {
+      session.lastFitCols = session.term.cols;
+      session.lastFitRows = session.term.rows;
       session.socket.send(JSON.stringify({
         type: "resize",
         cols: session.term.cols,
@@ -1076,6 +1130,16 @@ function fitTerminal(session) {
   } catch {
     // xterm can reject fit during first layout; later resize observer calls repair it.
   }
+}
+
+function isTerminalHostVisible(session) {
+  const host = session.host;
+  return Boolean(
+    host?.isConnected
+    && host.clientWidth > 0
+    && host.clientHeight > 0
+    && host.getClientRects().length > 0
+  );
 }
 
 function ensureBrowser(panel, body) {
@@ -1423,6 +1487,17 @@ function renderSettingsInspector() {
   appendSettingsSection(nodes, "layout", layoutSection);
 
   const terminalSection = settingsSection("Terminal");
+  const fontSelect = document.createElement("select");
+  fontSelect.className = "setting-select";
+  for (const [value, label] of terminalFontOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    fontSelect.append(option);
+  }
+  fontSelect.value = state.settings.terminalFontFamily;
+  fontSelect.onchange = () => updateSettings({ terminalFontFamily: fontSelect.value });
+  terminalSection.append(settingRow("Font", fontSelect));
   const fontRange = document.createElement("input");
   fontRange.className = "setting-control";
   fontRange.type = "range";
@@ -1435,6 +1510,19 @@ function renderSettingsInspector() {
     fontRow.querySelector(".setting-label").textContent = `Text size ${state.terminalFontSize}px`;
   };
   terminalSection.append(fontRow);
+  const lineHeightRange = document.createElement("input");
+  lineHeightRange.className = "setting-control";
+  lineHeightRange.type = "range";
+  lineHeightRange.min = "1";
+  lineHeightRange.max = "1.5";
+  lineHeightRange.step = "0.02";
+  lineHeightRange.value = String(state.settings.terminalLineHeight);
+  const lineHeightRow = settingRow(`Line height ${formatLineHeight(state.settings.terminalLineHeight)}`, lineHeightRange);
+  lineHeightRange.oninput = () => {
+    updateSettings({ terminalLineHeight: Number(lineHeightRange.value) });
+    lineHeightRow.querySelector(".setting-label").textContent = `Line height ${formatLineHeight(state.settings.terminalLineHeight)}`;
+  };
+  terminalSection.append(lineHeightRow);
   const paddingRange = document.createElement("input");
   paddingRange.className = "setting-control";
   paddingRange.type = "range";
@@ -1940,22 +2028,105 @@ async function openBrowserPrompt(workspaceId = null) {
   await createPanel("browser", "right", { url, workspaceId });
 }
 
+function refreshWorkspaceCounts(workspace) {
+  if (!workspace) return;
+  workspace.terminalCount = workspace.panels.filter((panel) => panel.type === "terminal").length;
+  workspace.browserCount = workspace.panels.filter((panel) => panel.type === "browser").length;
+}
+
+function optimisticFocusWorkspace(workspaceId) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace) return false;
+  if (state.data.activeWorkspaceId !== workspaceId) {
+    state.data.activeWorkspaceId = workspaceId;
+    render();
+  }
+  return true;
+}
+
+function optimisticFocusPanel(panelId) {
+  const found = findPanelState(panelId);
+  if (!found) return false;
+  found.workspace.activePanelId = panelId;
+  state.data.activeWorkspaceId = found.workspace.id;
+  render();
+  return true;
+}
+
+function optimisticClosePanel(panelId) {
+  const found = findPanelState(panelId);
+  if (!found) return false;
+  found.workspace.panels = found.workspace.panels.filter((candidate) => candidate.id !== panelId);
+  found.workspace.activePanelId = found.workspace.panels[0]?.id || null;
+  refreshWorkspaceCounts(found.workspace);
+  render();
+  return true;
+}
+
+function optimisticUpdatePanel(panelId, updates = {}) {
+  const found = findPanelState(panelId);
+  if (!found) return false;
+  let panelWorkspace = found.workspace;
+  if (
+    Object.hasOwn(updates, "workspaceId")
+    || Object.hasOwn(updates, "beforePanelId")
+    || Object.hasOwn(updates, "moveToEnd")
+  ) {
+    if (updates.beforePanelId === panelId) return false;
+    const targetWorkspace = state.data?.workspaces.find((workspace) => workspace.id === updates.workspaceId) || found.workspace;
+    found.workspace.panels = found.workspace.panels.filter((candidate) => candidate.id !== panelId);
+    if (found.workspace.activePanelId === panelId) {
+      found.workspace.activePanelId = found.workspace.panels[0]?.id || null;
+    }
+    found.panel.workspaceId = targetWorkspace.id;
+    const insertIndex = updates.moveToEnd || !updates.beforePanelId
+      ? -1
+      : targetWorkspace.panels.findIndex((candidate) => candidate.id === updates.beforePanelId);
+    targetWorkspace.panels.splice(insertIndex >= 0 ? insertIndex : targetWorkspace.panels.length, 0, found.panel);
+    targetWorkspace.activePanelId = panelId;
+    state.data.activeWorkspaceId = targetWorkspace.id;
+    panelWorkspace = targetWorkspace;
+    refreshWorkspaceCounts(found.workspace);
+    if (targetWorkspace !== found.workspace) refreshWorkspaceCounts(targetWorkspace);
+  }
+  if (Object.hasOwn(updates, "title")) {
+    const title = String(updates.title || "").trim();
+    if (title) found.panel.title = title.slice(0, 80);
+  }
+  if (Object.hasOwn(updates, "color")) {
+    const color = String(updates.color || "").trim();
+    found.panel.color = (state.data?.palette || accentOptions).includes(color) ? color : "";
+  }
+  if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
+    found.panel.url = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  }
+  if (updates.direction === "down" || updates.direction === "right") {
+    panelWorkspace.splitDirection = updates.direction;
+  }
+  render();
+  return true;
+}
+
 async function closePanel(panelId) {
+  optimisticClosePanel(panelId);
   try {
     await api(`/api/panels/${panelId}`, { method: "DELETE" });
+    await loadState();
   } catch {
     await loadState();
   }
 }
 
 async function updatePanel(panelId, updates) {
+  optimisticUpdatePanel(panelId, updates);
   try {
     await api(`/api/panels/${panelId}`, {
       method: "PATCH",
       body: JSON.stringify(updates)
     });
+    await loadState();
   } catch {
-    // Navigation can race with pane closure; the next state event will reconcile.
+    await loadState();
   }
 }
 
@@ -1989,8 +2160,10 @@ async function movePanelToWorkspace(panelId, workspaceId) {
 }
 
 async function focusWorkspace(workspaceId) {
+  if (!optimisticFocusWorkspace(workspaceId)) return;
   try {
     await api(`/api/workspaces/${workspaceId}/focus`, { method: "POST" });
+    await loadState();
   } catch {
     await loadState();
   }
@@ -2002,8 +2175,10 @@ async function focusPanel(panelId) {
     focusTerminalSession(panelId);
     return;
   }
+  if (!optimisticFocusPanel(panelId)) return;
   try {
     await api(`/api/panels/${panelId}/focus`, { method: "POST" });
+    await loadState();
   } catch {
     await loadState();
     return;
