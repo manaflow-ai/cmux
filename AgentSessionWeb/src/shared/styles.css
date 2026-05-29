@@ -1318,7 +1318,9 @@ img.ProseMirror-separator {
   z-index: 50;
   bottom: calc(100% + 6px);
   left: -8px;
-  width: 14rem;
+  min-width: 120px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
   max-height: min(270px, calc(100vh - 16px));
   overflow-y: auto;
   border: 0.5px solid color-mix(in srgb, var(--color-token-menu-border) 78%, transparent);
@@ -1333,10 +1335,11 @@ img.ProseMirror-separator {
   width: 100%;
   min-height: calc(var(--spacing) * 8);
   align-items: center;
-  gap: calc(var(--spacing) * 2);
+  gap: calc(var(--spacing) * 1.5);
   border: 0;
   color: var(--color-token-foreground);
   background: transparent;
+  cursor: var(--cursor-interaction);
   text-align: left;
 }
 
@@ -1346,7 +1349,7 @@ img.ProseMirror-separator {
 }
 
 .add-context-item:disabled {
-  cursor: not-allowed;
+  cursor: default;
   opacity: 0.5;
 }
 
@@ -1359,6 +1362,12 @@ img.ProseMirror-separator {
   align-items: center;
   justify-content: center;
   color: var(--color-token-description-foreground);
+  opacity: 0.75;
+}
+
+.add-context-item:hover .add-context-item-icon,
+.add-context-item:focus-visible .add-context-item-icon {
+  opacity: 1;
 }
 
 .add-context-glyph {
@@ -1384,9 +1393,11 @@ img.ProseMirror-separator {
 }
 
 .add-context-separator {
-  height: 1px;
-  margin: var(--spacing) 0;
-  background: color-mix(in srgb, var(--color-token-border) 70%, transparent);
+  flex: 0 0 auto;
+}
+
+.add-context-separator-line {
+  background: var(--color-token-menu-border);
 }
 
 .add-context-switch {

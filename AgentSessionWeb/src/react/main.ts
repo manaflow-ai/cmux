@@ -1487,9 +1487,14 @@ function AddContextDropdown({
           "div",
           {
             className:
-              "add-context-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+              "add-context-dropdown _content_1hiti_1 no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
             role: "menu",
             "aria-label": addFilesAndMoreLabel,
+            "data-state": "open",
+            "data-side": "top",
+            style: {
+              "--radix-dropdown-menu-content-transform-origin": "left bottom",
+            } as React.CSSProperties,
           },
           h(AddContextMenuItem, {
             disabled: isPickingFiles,
@@ -1505,7 +1510,7 @@ function AddContextDropdown({
                 onSelect: () => chooseItem(workspaceItem),
               })
             : null,
-          workspaceItem || planItem ? h("div", { className: "add-context-separator", role: "separator" }) : null,
+          workspaceItem || planItem ? h(AddContextSeparator) : null,
           planItem
             ? h(AddContextMenuSwitchItem, {
                 checked: isPlanMode,
@@ -1535,7 +1540,8 @@ function AddContextMenuItem({
   return h(
     "button",
     {
-      className: "add-context-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      className:
+        "add-context-item group no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
       disabled,
       type: "button",
       role: "menuitem",
@@ -1568,7 +1574,8 @@ function AddContextMenuSwitchItem({
   return h(
     "button",
     {
-      className: "add-context-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      className:
+        "add-context-item group no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
       type: "button",
       role: "menuitemcheckbox",
       "aria-checked": checked,
@@ -1576,8 +1583,24 @@ function AddContextMenuSwitchItem({
       onClick: onSelect,
     },
     h("span", { className: "add-context-item-icon icon-xs shrink-0", "aria-hidden": true }, icon),
-    h("span", { className: "add-context-item-label min-w-0 flex-1 truncate" }, label),
-    h("span", { className: "add-context-switch", "data-checked": checked ? "true" : "false", "aria-hidden": true }),
+    h(
+      "span",
+      { className: "add-context-switch-row flex w-full min-w-0 items-center justify-between gap-2" },
+      h(
+        "span",
+        { className: "flex min-w-0 items-center gap-2" },
+        h("span", { className: "add-context-item-label min-w-0 truncate" }, label),
+      ),
+      h("span", { className: "add-context-switch", "data-checked": checked ? "true" : "false", "aria-hidden": true }),
+    ),
+  );
+}
+
+function AddContextSeparator() {
+  return h(
+    "div",
+    { className: "add-context-separator w-full px-[var(--padding-row-x)] py-1", role: "separator" },
+    h("div", { className: "add-context-separator-line h-[1px] w-full bg-token-menu-border" }),
   );
 }
 
