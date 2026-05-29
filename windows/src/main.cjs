@@ -1,4 +1,5 @@
-const { app, BrowserWindow, Menu, ipcMain, shell, clipboard } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, dialog } = require("electron");
+const { pathToFileURL } = require("node:url");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -193,6 +194,18 @@ if (!hasLock) {
     return true;
   });
   ipcMain.handle("clipboard:read-text", () => clipboard.readText());
+  ipcMain.handle("background:pick-image", async () => {
+    if (!mainWindow) return "";
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose background image",
+      properties: ["openFile"],
+      filters: [
+        { name: "Images", extensions: ["jpg", "jpeg", "png", "gif", "webp", "bmp", "avif"] }
+      ]
+    });
+    const filePath = result.canceled ? "" : result.filePaths[0];
+    return filePath ? pathToFileURL(filePath).href : "";
+  });
 
   app.on("second-instance", () => {
     if (!mainWindow) return;

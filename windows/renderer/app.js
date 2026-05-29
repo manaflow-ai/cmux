@@ -132,7 +132,7 @@ function normalizeBackgroundValue(value) {
   let url = String(value || "").trim();
   if (!url) return "";
   if (url.startsWith("preset:")) return backgroundPresetMap.has(url) ? url : "";
-  if (!/^(https?:|data:image\/|\/)/i.test(url)) url = `https://${url}`;
+  if (!/^(https?:|data:image\/|file:|\/)/i.test(url)) url = `https://${url}`;
   return url;
 }
 
@@ -1254,6 +1254,17 @@ function renderSettingsInspector() {
     }
   });
   appearanceSection.append(settingRow("Custom image", imageInput, true));
+  const imageActions = document.createElement("div");
+  imageActions.className = "settings-actions background-actions";
+  imageActions.append(
+    settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
+    settingsActionButton("Clear image", () => {
+      updateSettings({ backgroundImage: "" });
+      renderSettingsInspector();
+    }, "danger", "background image local file wallpaper reset remove")
+  );
+  imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper clear");
+  appearanceSection.append(imageActions);
 
   const opacityInput = document.createElement("input");
   opacityInput.className = "setting-control";
@@ -1543,9 +1554,9 @@ function applySettingsFilter() {
   let visibleSections = 0;
   for (const section of elements.inspectorBody.querySelectorAll(".settings-section")) {
     const items = [...section.querySelectorAll("[data-settings-search]")].filter((item) => item !== section);
-    let sectionVisible = !query || section.dataset.settingsSearch.includes(query);
+    let sectionVisible = settingsSearchMatches(section.dataset.settingsSearch, query);
     for (const item of items) {
-      const visible = !query || item.dataset.settingsSearch.includes(query) || section.dataset.settingsSearch.includes(query);
+      const visible = settingsSearchMatches(item.dataset.settingsSearch, query) || settingsSearchMatches(section.dataset.settingsSearch, query);
       item.hidden = !visible;
       sectionVisible ||= visible;
     }
@@ -1556,6 +1567,12 @@ function applySettingsFilter() {
   if (empty) empty.hidden = !query || visibleSections > 0;
   const clear = elements.inspectorBody.querySelector(".settings-search-clear");
   if (clear) clear.disabled = !query;
+}
+
+function settingsSearchMatches(searchText, query) {
+  if (!query) return true;
+  const haystack = normalizeSettingsQuery(searchText);
+  return query.split(/\s+/).every((token) => haystack.includes(token));
 }
 
 function toggleInput(checked, onChange) {
@@ -1614,14 +1631,26 @@ function backgroundPresetGrid() {
   return grid;
 }
 
-function settingsActionButton(label, onClick, tone = "") {
+function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   const button = document.createElement("button");
   button.className = `settings-action${tone ? ` ${tone}` : ""}`;
   button.type = "button";
   button.textContent = label;
-  button.dataset.settingsSearch = normalizeSettingsQuery(label);
+  button.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
   button.onclick = onClick;
   return button;
+}
+
+async function chooseBackgroundImage() {
+  if (!window.cmuxNative?.pickBackgroundImage) {
+    toast("Local image picker is unavailable.");
+    return;
+  }
+  const url = await window.cmuxNative.pickBackgroundImage();
+  if (!url) return;
+  updateSettings({ backgroundImage: url });
+  renderSettingsInspector();
+  toast("Background image updated.");
 }
 
 function settingsPresetGrid() {

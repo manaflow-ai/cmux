@@ -29,5 +29,8 @@ contextBridge.exposeInMainWorld("cmuxNative", {
   },
   readClipboard() {
     return ipcRenderer.invoke("clipboard:read-text");
+  },
+  pickBackgroundImage() {
+    return ipcRenderer.invoke("background:pick-image");
   }
 });
