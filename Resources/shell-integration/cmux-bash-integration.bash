@@ -32,6 +32,97 @@ _cmux_send() {
     esac
 }
 
+_cmux_spawn_detached() {
+    # Bash 3.2 job control is global to the interactive shell. Starting cmux's
+    # prompt telemetry with plain `&` makes those helpers visible to `jobs`,
+    # and any later `disown` can delete the user's Ctrl-Z-stopped foreground
+    # job. Launch them from a subshell with job control disabled so they never
+    # enter the interactive shell's job table in the first place.
+    ( set +m; "$@" >/dev/null 2>&1 & )
+}
+
+_cmux_spawn_detached_capture_pid() {
+    local __var_name="$1"
+    shift
+
+    local pidfile=""
+    pidfile="$(mktemp "${TMPDIR:-/tmp}/cmux-bash-bgpid.XXXXXX" 2>/dev/null)" || return 1
+    (
+        set +m
+        "$@" >/dev/null 2>&1 &
+        printf '%s\n' "$!" > "$pidfile"
+    )
+
+    local spawned_pid=""
+    if [[ -r "$pidfile" ]]; then
+        IFS= read -r spawned_pid < "$pidfile" || spawned_pid=""
+    fi
+    /bin/rm -f -- "$pidfile" >/dev/null 2>&1 || true
+    printf -v "$__var_name" '%s' "$spawned_pid"
+    [[ -n "$spawned_pid" ]]
+}
+
+_cmux_send_payload() {
+    _cmux_send "$1"
+}
+
+_cmux_async_relay_rpc() {
+    local relay_cli="$1"
+    local method="$2"
+    local params="$3"
+    "$relay_cli" rpc "$method" "$params"
+}
+
+_cmux_async_report_pwd() {
+    local pwd="$1"
+    local qpwd="${pwd//\"/\\\"}"
+    _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_probe_git_branch() {
+    # Skip git operations if not in a git repository to avoid TCC prompts.
+    git rev-parse --git-dir >/dev/null 2>&1 || return 0
+
+    local branch dirty_opt=""
+    branch=$(git branch --show-current 2>/dev/null)
+    if [[ -n "$branch" ]]; then
+        local first
+        first=$(git status --porcelain -uno 2>/dev/null | head -1)
+        [[ -n "$first" ]] && dirty_opt="--status=dirty"
+        _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    else
+        _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    fi
+}
+
+_cmux_pr_poll_loop() {
+    local watch_pwd="$1"
+    local watch_shell_pid="$2"
+    local interval="$3"
+
+    local signal_path=""
+    signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+    while :; do
+        kill -0 "$watch_shell_pid" 2>/dev/null || break
+        local force_probe=0
+        if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+            force_probe=1
+            /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+        fi
+        _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
+
+        local slept=0
+        while (( slept < interval )); do
+            kill -0 "$watch_shell_pid" 2>/dev/null || exit 0
+            if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+                break
+            fi
+            sleep 1
+            slept=$(( slept + 1 ))
+        done
+    done
+}
+
 _cmux_socket_is_unix() {
     [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
 }
@@ -72,10 +163,7 @@ _cmux_relay_rpc_bg() {
     local relay_cli=""
     _cmux_socket_uses_remote_relay || return 1
     relay_cli="$(_cmux_relay_cli_path)" || return 1
-    {
-        "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true
-    } >/dev/null 2>&1 &
-    disown 2>/dev/null || true
+    _cmux_spawn_detached _cmux_async_relay_rpc "$relay_cli" "$method" "$params"
 }
 
 _cmux_relay_rpc() {
@@ -402,9 +490,7 @@ _cmux_report_tty_once() {
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
         _CMUX_TTY_REPORTED=1
-        {
-            _cmux_send "$payload"
-        } >/dev/null 2>&1 & disown
+        _cmux_spawn_detached _cmux_send_payload "$payload"
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -422,9 +508,7 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    {
-        _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    _cmux_spawn_detached _cmux_send_payload "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
@@ -445,9 +529,7 @@ _cmux_ports_kick() {
     fi
     _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     if _cmux_socket_is_unix; then
-        {
-            _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
-        } >/dev/null 2>&1 & disown
+        _cmux_spawn_detached _cmux_send_payload "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
     else
         _cmux_ports_kick_via_relay "$reason"
     fi
@@ -544,9 +626,7 @@ _cmux_emit_pr_command_hint() {
         local quoted_target="${_CMUX_LAST_PR_TARGET//\"/\\\"}"
         payload+=" --target=\"$quoted_target\""
     fi
-    {
-        _cmux_send "$payload"
-    } >/dev/null 2>&1 & disown
+    _cmux_spawn_detached _cmux_send_payload "$payload"
     _CMUX_LAST_PR_ACTION=""
     _CMUX_LAST_PR_TARGET=""
 }
@@ -1092,31 +1172,9 @@ _cmux_start_pr_poll_loop() {
     fi
     _CMUX_PR_POLL_PWD="$watch_pwd"
 
-    {
-        local signal_path=""
-        signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
-        while :; do
-            kill -0 "$watch_shell_pid" 2>/dev/null || break
-            local force_probe=0
-            if [[ -n "$signal_path" && -f "$signal_path" ]]; then
-                force_probe=1
-                /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
-            fi
-            _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
-
-            local slept=0
-            while (( slept < interval )); do
-                kill -0 "$watch_shell_pid" 2>/dev/null || exit 0
-                if [[ -n "$signal_path" && -f "$signal_path" ]]; then
-                    break
-                fi
-                sleep 1
-                slept=$(( slept + 1 ))
-            done
-        done
-    } >/dev/null 2>&1 &
-    _CMUX_PR_POLL_PID=$!
-    disown "$_CMUX_PR_POLL_PID" 2>/dev/null || disown
+    if ! _cmux_spawn_detached_capture_pid _CMUX_PR_POLL_PID _cmux_pr_poll_loop "$watch_pwd" "$watch_shell_pid" "$interval"; then
+        _CMUX_PR_POLL_PID=""
+    fi
 }
 
 _cmux_bash_cleanup() {
@@ -1262,10 +1320,7 @@ _cmux_prompt_command() {
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        {
-            local qpwd="${pwd//\"/\\\"}"
-            _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 & disown
+        _cmux_spawn_detached _cmux_async_report_pwd "$pwd"
     fi
 
     # Branch can change via aliases/tools while an older probe is still in flight.
@@ -1325,18 +1380,12 @@ _cmux_prompt_command() {
     if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && { [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; }; then
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
-        {
-            local branch dirty_opt="--status=unknown"
-            branch="$(_cmux_git_branch_for_path "$pwd" 2>/dev/null || true)"
-            if [[ -n "$branch" ]]; then
-                _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-            else
-                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-            fi
-        } >/dev/null 2>&1 &
-        _CMUX_GIT_JOB_PID=$!
-        disown
-        _CMUX_GIT_JOB_STARTED_AT=$now
+        if _cmux_spawn_detached_capture_pid _CMUX_GIT_JOB_PID _cmux_probe_git_branch; then
+            _CMUX_GIT_JOB_STARTED_AT=$now
+        else
+            _CMUX_GIT_JOB_PID=""
+            _CMUX_GIT_JOB_STARTED_AT=0
+        fi
     fi
 
     if [[ "$git_head_changed" == "1" ]]; then
