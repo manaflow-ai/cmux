@@ -135,6 +135,35 @@ extension CMUXCLI {
         return format.contains("#{pane_start_command}") || format.contains("#{pane_current_command}")
     }
 
+    func tmuxFormatRequestsSessionAttached(_ format: String?) -> Bool {
+        guard let format else { return false }
+        return format.contains("#{session_attached}")
+    }
+
+    func tmuxSessionAttachedValue(workspaceId: String, windows: [[String: Any]]) -> String {
+        // tmux reports #{session_attached} as the number of attached clients.
+        // cmux has no one-to-one client attach model, so the compatibility
+        // layer maps the count to whether this workspace is selected in a
+        // visible cmux window. That is the closest signal that rendering a
+        // pane-targeted prompt will be visible to the user.
+        let isVisibleSelectedWorkspace = windows.contains { window in
+            guard (window["visible"] as? Bool) == true else { return false }
+            return (window["selected_workspace_id"] as? String) == workspaceId
+        }
+        return isVisibleSelectedWorkspace ? "1" : "0"
+    }
+
+    func tmuxWindowListForSessionAttached(client: SocketClient) -> [[String: Any]] {
+        do {
+            let payload = try client.sendV2(method: "window.list")
+            return payload["windows"] as? [[String: Any]] ?? []
+        } catch {
+            // Keep callers integer-shaped on lookup failure by returning an
+            // empty list, which maps any workspace to session_attached=0.
+            return []
+        }
+    }
+
     func tmuxLegacyOMXHudStartCommand(
         workspaceId: String,
         surfaceId: String,

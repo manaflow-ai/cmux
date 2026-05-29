@@ -158,6 +158,25 @@ def test_display_geometry_format(cli: str) -> None:
     print("PASS")
 
 
+def test_display_session_attached_format(cli: str, c: cmux) -> None:
+    """display -p renders session_attached as a parseInt-compatible tmux count."""
+    print("  test_display_session_attached_format ... ", end="", flush=True)
+    c.select_workspace(c.current_workspace())
+    proc = _run_tmux_compat(cli, ["display-message", "-p", "#{session_attached}"])
+    _must(proc.returncode == 0, f"display-message failed: {proc.stderr}")
+
+    value = proc.stdout.rstrip("\n")
+    _must(proc.stdout == f"{value}\n", f"Expected exactly one trailing newline, got: {proc.stdout!r}")
+    _must(value == proc.stdout.strip(), f"session_attached should not include spaces: {proc.stdout!r}")
+    _must(value.isdigit(), f"session_attached should be a non-empty integer string, got: {value!r}")
+    _must(int(value) == 1, f"visible selected workspace should report attached count 1, got: {value!r}")
+
+    wrapped = _run_tmux_compat(cli, ["display-message", "-p", "x#{session_attached}x"])
+    _must(wrapped.returncode == 0, f"wrapped display-message failed: {wrapped.stderr}")
+    _must(wrapped.stdout.strip() == "x1x", f"session_attached should not render empty inside text: {wrapped.stdout!r}")
+    print("PASS")
+
+
 def test_multi_pane_geometry(cli: str, c: cmux) -> None:
     """After splitting, two panes have different pane_left values and halved widths."""
     print("  test_multi_pane_geometry ... ", end="", flush=True)
@@ -222,6 +241,7 @@ def main() -> int:
             ("test_list_panes_geometry_format", lambda: test_list_panes_geometry_format(cli)),
             ("test_list_panes_pane_target", lambda: test_list_panes_pane_target(cli, c)),
             ("test_display_geometry_format", lambda: test_display_geometry_format(cli)),
+            ("test_display_session_attached_format", lambda: test_display_session_attached_format(cli, c)),
             ("test_multi_pane_geometry", lambda: test_multi_pane_geometry(cli, c)),
         ]
 
