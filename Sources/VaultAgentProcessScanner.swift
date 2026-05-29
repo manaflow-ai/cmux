@@ -2,6 +2,41 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+/// Tracks fingerprint of latest assistant message per (workspace, panel, session)
+/// to emit completion notifications only on change, not on first observation.
+private actor OpenCodeCompletionTracker {
+    // Key: "workspaceId:panelId:sessionId"
+    private var fingerprintsByKey: [String: (timeCreated: Int64, dataLength: Int)] = [:]
+    private var isPolling = false
+
+    func beginPolling() -> Bool {
+        guard !isPolling else { return false }
+        isPolling = true
+        return true
+    }
+
+    func endPolling() {
+        isPolling = false
+    }
+
+    func updateFingerprint(
+        _ fingerprint: (timeCreated: Int64, dataLength: Int),
+        for key: String
+    ) -> Bool {
+        if let existing = fingerprintsByKey[key] {
+            let changed = existing.timeCreated != fingerprint.timeCreated
+                || existing.dataLength != fingerprint.dataLength
+            fingerprintsByKey[key] = fingerprint
+            return changed
+        }
+
+        fingerprintsByKey[key] = fingerprint
+        return false
+    }
+}
+
+private let openCodeCompletionTracker = OpenCodeCompletionTracker()
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -64,12 +99,13 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
-        var resolved = processDetectedOpenCodeSnapshots(
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        let openCodeResult = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
             fileManager: fileManager
         )
+        var resolved = openCodeResult.resolved
 
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -137,6 +173,27 @@ extension RestorableAgentSessionIndex {
         return resolved
     }
 
+    static func pollOpenCodeCompletionNotifications(
+        currentSocketPath: String? = nil,
+        fileManager: FileManager = .default
+    ) async {
+        guard await openCodeCompletionTracker.beginPolling() else { return }
+
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let openCodeResult = processDetectedOpenCodeSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            currentSocketPath: currentSocketPath
+        )
+        await processOpenCodeCompletionNotifications(
+            resolved: openCodeResult.resolved,
+            perPanelDBURLs: openCodeResult.perPanelDBURLs,
+            fileManager: fileManager
+        )
+        await openCodeCompletionTracker.endPolling()
+    }
     static func processLooksLikeOpenCode(
         processName: String,
         processPath: String?,
@@ -219,9 +276,14 @@ extension RestorableAgentSessionIndex {
     private static func processDetectedOpenCodeSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] {
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)] = [:]
+        fileManager: FileManager,
+        currentSocketPath: String? = nil
+    ) -> (
+        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
+        perPanelDBURLs: [PanelKey: URL]
+    ) {
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var perPanelDBURLs: [PanelKey: URL] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
         var sessionMissesByWorkingDirectoryAndParent = Set<String>()
         var openCodeProcesses: [
@@ -248,6 +310,13 @@ extension RestorableAgentSessionIndex {
                 environment: processArguments.environment
             )
             guard observed.isOpenCodeProcess else { continue }
+            if let currentSocketPath {
+                guard let processSocketPath = processArguments.environment["CMUX_SOCKET_PATH"],
+                      !processSocketPath.isEmpty,
+                      SocketControlSettings.pathsMatch(processSocketPath, currentSocketPath) else {
+                    continue
+                }
+            }
 
             let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
@@ -287,11 +356,32 @@ extension RestorableAgentSessionIndex {
                     sessionMissesByWorkingDirectoryAndParent.insert(sessionCacheKey)
                 }
             }
-            guard let sessionId = openCodeFallbackSessionIdForProcess(
+
+            // Resolve per-panel MMS DB URL before session guard so it can serve as fallback.
+            let perPanelDBURL = openCodeDatabaseURL(
+                environment: process.environment,
+                fileManager: fileManager
+            )
+            if let perPanelDBURL {
+                perPanelDBURLs[process.panelKey] = perPanelDBURL
+            }
+
+            let sessionId: String?
+            if let fallbackSessionId = openCodeFallbackSessionIdForProcess(
                 arguments: process.observed.arguments,
                 latestSessionIdForSolePanel: latestSessionId,
                 sameWorkingDirectoryPanelCount: sameWorkingDirectoryPanelCount
-            ) else { continue }
+            ) {
+                sessionId = fallbackSessionId
+            } else if let perPanelDBURL {
+                sessionId = latestOpenCodeSessionId(
+                    sourcePath: perPanelDBURL.path,
+                    workingDirectory: process.workingDirectory
+                )
+            } else {
+                sessionId = nil
+            }
+            guard let sessionId else { continue }
 
             let executablePath = openCodeExecutablePath(
                 observed: process.observed,
@@ -320,7 +410,7 @@ extension RestorableAgentSessionIndex {
             )
         }
 
-        return resolved
+        return (resolved: resolved, perPanelDBURLs: perPanelDBURLs)
     }
 
     private static func openCodeExecutablePath(
@@ -569,6 +659,251 @@ extension RestorableAgentSessionIndex {
         }
         return rawValue
     }
+
+    private static func openCodeDatabaseURL(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> URL? {
+        guard let mmsSessionHome = environment["MMS_SESSION_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !mmsSessionHome.isEmpty else {
+            return nil
+        }
+        let dbPath = (mmsSessionHome as NSString).appendingPathComponent(".local/share/opencode/opencode.db")
+        guard fileManager.fileExists(atPath: dbPath) else { return nil }
+        return URL(fileURLWithPath: dbPath)
+    }
+
+    private static func latestOpenCodeSessionId(
+        sourcePath: String,
+        workingDirectory: String?
+    ) -> String? {
+        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        do {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(
+                from: sourcePath,
+                prefix: "cmux-opencode-mms"
+            ) else {
+                return nil
+            }
+            snapshot = madeSnapshot
+        } catch {
+            return nil
+        }
+        defer { snapshot.remove() }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        defer { sqlite3_close(db) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+
+        // Prefer exact working directory match.
+        if let cwd = normalized(workingDirectory).map({ ($0 as NSString).standardizingPath }) {
+            let exactSQL = """
+                SELECT id FROM session
+                WHERE directory = ?
+                ORDER BY time_updated DESC
+                LIMIT 1
+                """
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, exactSQL, -1, &stmt, nil) == SQLITE_OK, let stmt {
+                defer { sqlite3_finalize(stmt) }
+                sqlite3_bind_text(stmt, 1, cwd, -1, SQLITE_TRANSIENT_FN)
+                if sqlite3_step(stmt) == SQLITE_ROW,
+                   let sessionId = SessionIndexStore.sqliteText(stmt, 0),
+                   !sessionId.isEmpty {
+                    return sessionId
+                }
+            }
+        }
+
+        // Fallback to latest session in this per-panel DB.
+        let fallbackSQL = """
+            SELECT id FROM session
+            ORDER BY time_updated DESC
+            LIMIT 1
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, fallbackSQL, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let sessionId = SessionIndexStore.sqliteText(stmt, 0),
+              !sessionId.isEmpty else {
+            return nil
+        }
+        return sessionId
+    }
+
+    // MARK: - OpenCode completion notification
+
+    private static func processOpenCodeCompletionNotifications(
+        resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)],
+        perPanelDBURLs: [PanelKey: URL],
+        fileManager: FileManager
+    ) async {
+        _ = fileManager
+        guard !resolved.isEmpty else { return }
+
+        var panelsBySourcePath: [String?: [(PanelKey, SessionRestorableAgentSnapshot)]] = [:]
+        for (panelKey, pair) in resolved {
+            guard pair.snapshot.kind == .opencode, !pair.snapshot.sessionId.isEmpty else { continue }
+            let sourcePath = perPanelDBURLs[panelKey]?.path
+            panelsBySourcePath[sourcePath, default: []].append((panelKey, pair.snapshot))
+        }
+        guard !panelsBySourcePath.isEmpty else { return }
+
+        for (sourcePath, panels) in panelsBySourcePath {
+            let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+            do {
+                let made: OpenCodeDatabaseSnapshot.Snapshot?
+                if let sourcePath {
+                    made = try OpenCodeDatabaseSnapshot.make(from: sourcePath, prefix: "cmux-opencode-notify")
+                } else {
+                    made = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-notify")
+                }
+                guard let made else { continue }
+                snapshot = made
+            } catch {
+                continue
+            }
+            defer { snapshot.remove() }
+
+            var db: OpaquePointer?
+            guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+                sqlite3_close(db)
+                continue
+            }
+            defer { sqlite3_close(db) }
+
+            for (panelKey, panelSnapshot) in panels {
+                await processOpenCodePanelCompletion(db: db, panelKey: panelKey, snapshot: panelSnapshot)
+            }
+        }
+    }
+
+    private static func processOpenCodePanelCompletion(
+        db: OpaquePointer,
+        panelKey: PanelKey,
+        snapshot: SessionRestorableAgentSnapshot
+    ) async {
+        let sessionId = snapshot.sessionId
+        guard let (dataJSON, timeCreated) = queryLatestAssistantMessage(db: db, sessionId: sessionId),
+              !dataJSON.isEmpty else {
+            return
+        }
+
+        let dedupeKey = "\(panelKey.workspaceId.uuidString):\(panelKey.panelId.uuidString):\(sessionId)"
+        let fingerprint = (timeCreated, dataJSON.count)
+
+        if await openCodeCompletionTracker.updateFingerprint(fingerprint, for: dedupeKey) {
+            emitOpenCodeCompletionNotification(
+                panelKey: panelKey,
+                workingDirectory: snapshot.workingDirectory,
+                dataJSON: dataJSON
+            )
+        }
+    }
+
+    private static func queryLatestAssistantMessage(
+        db: OpaquePointer,
+        sessionId: String
+    ) -> (dataJSON: String, timeCreated: Int64)? {
+        let sql = """
+            SELECT data, time_created FROM message
+            WHERE session_id = ? AND data LIKE '%"role":"assistant"%'
+            ORDER BY time_created DESC LIMIT 1
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+
+        let dataText = SessionIndexStore.sqliteText(stmt, 0) ?? ""
+        let timeCreated = sqlite3_column_int64(stmt, 1)
+
+        return (dataText, timeCreated)
+    }
+
+    private static func emitOpenCodeCompletionNotification(
+        panelKey: PanelKey,
+        workingDirectory: String?,
+        dataJSON: String
+    ) {
+        let body = extractAssistantText(from: dataJSON) ?? String(localized: "opencode.completion.fallbackBody", defaultValue: "Agent produced a new response.")
+        let subtitle = workingDirectory.map { ($0 as NSString).lastPathComponent } ?? String(localized: "opencode.completion.subtitle", defaultValue: "Agent")
+
+        Task { @MainActor in
+            TerminalNotificationStore.shared.addNotification(
+                tabId: panelKey.workspaceId,
+                surfaceId: panelKey.panelId,
+                title: String(localized: "opencode.completion.title", defaultValue: "Agent completed"),
+                subtitle: subtitle,
+                body: body
+            )
+        }
+    }
+
+    private static func extractAssistantText(from dataJSON: String) -> String? {
+        guard let data = dataJSON.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        func collectText(from root: Any) -> String? {
+            if let str = root as? [String], !str.isEmpty {
+                return str.compactMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }.joined(separator: " ")
+            }
+            if let str = root as? String {
+                let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if let dict = root as? [String: Any] {
+                if let parts = dict["parts"] as? [[String: Any]] {
+                    let texts = parts.compactMap { collectText(from: $0) }
+                    if !texts.isEmpty { return texts.joined(separator: " ") }
+                }
+                if let content = dict["content"] as? String {
+                    return collectText(from: content)
+                }
+                if let contentItems = dict["content"] as? [[String: Any]] {
+                    let texts = contentItems.compactMap { collectText(from: $0) }
+                    if !texts.isEmpty { return texts.joined(separator: " ") }
+                }
+                if let text = dict["text"] as? String {
+                    return collectText(from: text)
+                }
+                return nil
+            }
+            if let arr = root as? [Any] {
+                let texts = arr.compactMap { collectText(from: $0) }
+                if !texts.isEmpty { return texts.joined(separator: " ") }
+            }
+            return nil
+        }
+
+        guard let text = collectText(from: obj) else { return nil }
+
+        let collapsed = text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        if collapsed.isEmpty { return nil }
+        if collapsed.count <= 240 { return collapsed }
+        return String(collapsed.prefix(240))
+    }
+
 }
 
 extension SurfaceResumeBindingIndex {

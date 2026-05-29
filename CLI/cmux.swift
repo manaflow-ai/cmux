@@ -20611,6 +20611,8 @@ struct CMUXCLI {
                         agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
+                        runtimeStatus: .idle,
+                        updateRuntimeStatus: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -20710,7 +20712,8 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     isRestorable: true,
-                    agentLifecycle: .running,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
@@ -20771,6 +20774,13 @@ struct CMUXCLI {
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
+                print("OK")
+                return
+            }
+            if let mappedSession,
+               mappedSession.runtimeStatus == .idle,
+               isGenericClaudeNeedsInputNotification(summary: summary) {
+                telemetry.breadcrumb("claude-hook.notification.stale-idle")
                 print("OK")
                 return
             }
@@ -23163,6 +23173,21 @@ struct CMUXCLI {
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
+    }
+
+    private func isGenericClaudeNeedsInputNotification(summary: (subtitle: String, body: String)) -> Bool {
+        let combined = "\(summary.subtitle) \(summary.body)".trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combined.isEmpty else { return true }
+        let normalized = combined.lowercased()
+        let genericPhrases = [
+            "claude is waiting for your input",
+            "claude needs your input",
+            "claude code needs your attention",
+            "needs your attention",
+            "needs your input",
+            "waiting for your input"
+        ]
+        return genericPhrases.contains { normalized.contains($0) }
     }
 
     private func summarizeAgentHookNotification(
@@ -29800,6 +29825,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let hookCwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
+            ?? firstWorkspacePath(in: stdinObj)
+            ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) })
 
         var eventDict: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
@@ -29810,11 +29839,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
-        if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
-            ?? firstWorkspacePath(in: stdinObj)
-            ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
-            eventDict["cwd"] = cwd
+        if let hookCwd {
+            eventDict["cwd"] = hookCwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
@@ -29836,6 +29862,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hookEventName: hookEventName,
             promptText: promptText
         )
+        if source == "codex", hookEventName == "PreToolUse" {
+            publishCodexFeedRunningStatus(
+                client: client,
+                workspaceId: feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
+                surfaceId: env["CMUX_SURFACE_ID"]
+            )
+        }
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
@@ -29898,6 +29931,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    private func publishCodexFeedRunningStatus(
+        client: SocketClient,
+        workspaceId rawWorkspaceId: String?,
+        surfaceId: String?
+    ) {
+        guard let workspaceId = rawWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceId.isEmpty else {
+            return
+        }
+        _ = try? sendV1Command(
+            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+        setAgentLifecycle(
+            client: client,
+            key: "codex",
+            lifecycle: .running,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+        _ = try? sendV1Command(
+            "set_status codex \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
     }
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`

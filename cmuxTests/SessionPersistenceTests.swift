@@ -483,6 +483,91 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEnvironmentDropsTrailingIdlePowerlinePromptBlocks() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reset = "\u{001B}[0m"
+        let green = "\u{001B}[38;2;166;227;161m"
+        let commandPromptHeader = "\(reset)\u{001B}[48;2;243;139;168m\u{E0B6} xin \u{E0B0} ~ \u{E0B4}\(reset)\r\n"
+        let commandLine = "\(reset)\(green)❯\(reset) cd feature-update\r\n"
+        let idlePromptHeader = "\(reset)\u{001B}[48;2;243;139;168m\u{E0B6} xin \u{E0B0} feature-update \u{E0B0} 12:34 \u{E0B4}\(reset)\r\n"
+        let idlePromptInput = "\(reset)\(green)❯\(reset) "
+        let source = commandPromptHeader
+            + commandLine
+            + idlePromptHeader
+            + idlePromptInput
+            + "\r\n\r\n"
+            + idlePromptHeader
+            + idlePromptInput
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey],
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertTrue(contents.contains("cd feature-update"))
+        XCTAssertFalse(contents.contains("12:34"))
+        XCTAssertTrue(contents.hasSuffix(reset))
+    }
+
+    func testScrollbackReplayEnvironmentKeepsPartialCommandLine() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reset = "\u{001B}[0m"
+        let source = "\(reset)\u{001B}[38;2;166;227;161m❯\(reset) echo still typing"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey],
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertTrue(contents.contains("echo still typing"))
+        XCTAssertTrue(contents.hasSuffix("\n"))
+    }
+
+    func testScrollbackReplayEnvironmentDropsPromptOnlyControlSequences() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reset = "\u{001B}[0m"
+        let green = "\u{001B}[38;2;166;227;161m"
+        let colors = "\u{001B}]10;rgb:cd/d6/f4\u{001B}\\\u{001B}]11;rgb:1e/1e/2e\u{001B}\\\r\n"
+        let idlePromptHeader = "\(reset)\u{001B}[48;2;243;139;168m\u{E0B6} xin \u{E0B0} feature-update \u{E0B0} 12:34 \u{E0B4}\(reset)\r\n"
+        let idlePromptInput = "\(reset)\(green)❯\(reset) "
+        let source = colors
+            + idlePromptHeader
+            + idlePromptInput
+            + "\r\n\r\n"
+            + idlePromptHeader
+            + idlePromptInput
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        XCTAssertTrue(environment.isEmpty)
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(

@@ -830,6 +830,26 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    // MARK: - OpenCode completion FSEvents watchers
+
+    /// File descriptors for watched OpenCode DB parent directories.
+    /// Each FD is kept alive as long as the corresponding DispatchSource is active.
+    private var openCodeWatchFDs: [Int32] = []
+
+    /// DispatchSourceFileSystemObject watchers that fire on directory writes/renames/deletes.
+    /// On each event the handler re-scans the existing completion-detection path.
+    private var openCodeWatchSources: [DispatchSourceFileSystemObject] = []
+
+    /// Serial queue for re-arming watches on directories that don't yet exist.
+    /// Uses a bounded asyncAfter instead of a repeating timer.
+    private static let openCodeWatchRearmQueue = DispatchQueue(
+        label: "com.cmuxterm.opencode-fswatch-rearm",
+        qos: .utility
+    )
+    /// Guards the one-shot re-arm so the asyncAfter retry fires at most once per app lifetime.
+    /// Reset to false when watchers are successfully created so that a future directory
+    /// creation can trigger exactly one more retry if needed.
+    private var didScheduleOpenCodeWatchRearm = false
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -843,14 +863,112 @@ final class TerminalNotificationStore: ObservableObject {
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
+        startOpenCodeCompletionPolling()
     }
 
     deinit {
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
+        // Cancel handlers on sources close their FDs; only cancel and clear.
+        for source in openCodeWatchSources {
+            source.cancel()
+        }
+        openCodeWatchSources.removeAll()
+        openCodeWatchFDs.removeAll()
     }
 
+    /// Starts event-driven watching of OpenCode DB directories.
+    /// Instead of a repeating 3-second wall-clock poll, uses DispatchSourceFileSystemObject
+    /// to receive kernel events when watched directories are written to, renamed, or deleted.
+    /// The handler re-scans existing state on every event, preserving the same
+    /// socket path computation and OpenCodeCompletionTracker dedupe as before.
+    private func startOpenCodeCompletionPolling() {
+        // Cancel any existing watchers before setting up new ones.
+        // Cancel handlers on sources close their FDs; only cancel and clear.
+        for source in openCodeWatchSources {
+            source.cancel()
+        }
+        openCodeWatchSources.removeAll()
+        openCodeWatchFDs.removeAll()
+
+        let fm = FileManager.default
+        let homeDir = NSHomeDirectory()
+
+        // Watch stable parent directories where OpenCode stores its DB:
+        //   ~/.local/share/opencode/        (default location)
+        //   $MMS_SESSION_HOME/.local/share/opencode/  (when available from process env)
+        var watchDirectories: [String] = []
+        let defaultDir = (homeDir as NSString).appendingPathComponent(".local/share/opencode")
+        if fm.fileExists(atPath: defaultDir) {
+            watchDirectories.append(defaultDir)
+        }
+        if let mmsHome = ProcessInfo.processInfo.environment["MMS_SESSION_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !mmsHome.isEmpty {
+            let mmsDir = (mmsHome as NSString).appendingPathComponent(".local/share/opencode")
+            if fm.fileExists(atPath: mmsDir) {
+                // Avoid duplicating if MMS_SESSION_HOME points to the same home.
+                let resolvedMmsDir = (mmsDir as NSString).standardizingPath
+                let resolvedDefaultDir = (defaultDir as NSString).standardizingPath
+                if resolvedMmsDir != resolvedDefaultDir {
+                    watchDirectories.append(mmsDir)
+                }
+            }
+        }
+
+        if watchDirectories.isEmpty {
+            // Bounded re-arm: directories don't exist yet. Retry at most once after 10 seconds.
+            // If the retry also finds no directories, it returns without scheduling again.
+            guard !didScheduleOpenCodeWatchRearm else { return }
+            didScheduleOpenCodeWatchRearm = true
+            Self.openCodeWatchRearmQueue.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.startOpenCodeCompletionPolling()
+                }
+            }
+            return
+        }
+
+        // Watchers created successfully — allow a future retry if directories disappear
+        // and reappear (e.g. user installs OpenCode after app launch).
+        didScheduleOpenCodeWatchRearm = false
+
+        for directoryPath in watchDirectories {
+            let fd = open(directoryPath, O_EVTONLY)
+            guard fd >= 0 else { continue }
+
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .rename, .delete],
+                queue: Self.openCodeWatchRearmQueue
+            )
+
+            openCodeWatchFDs.append(fd)
+            openCodeWatchSources.append(source)
+
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                // Dispatch scan to main actor to match the original MainActor context.
+                // The poll function itself is async-safe and runs off-main internally.
+                Task { @MainActor in
+                    let currentSocketPath = TerminalController.shared.activeSocketPath(
+                        preferredPath: SocketControlSettings.socketPath()
+                    )
+                    await RestorableAgentSessionIndex.pollOpenCodeCompletionNotifications(
+                        currentSocketPath: currentSocketPath
+                    )
+                }
+            }
+
+            source.setCancelHandler { [fd] in
+                close(fd)
+            }
+
+            source.resume()
+        }
+    }
     static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
         let unreadLabel: String? = {
             guard isEnabled, unreadCount > 0 else { return nil }
@@ -1047,6 +1165,18 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Reconcilie workspace unread indicators after a single notification is removed or
+    /// marked read from the store-level list.  When the tab has zero remaining unread
+    /// notifications we clear panel-derived, restored, and focused-read indicators; we
+    /// must not touch manual-unread (that is a user-explicit choice).
+    /// Called after `notifications` has been updated and `indexes` rebuilt.
+    private func reconcileWorkspaceUnreadAfterNotificationStateChange(tabId: UUID) {
+        guard (indexes.unreadCountByTabId[tabId] ?? 0) == 0 else { return }
+        setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
+        setWorkspaceRestoredUnread(false, forTabId: tabId)
+        clearFocusedReadIndicator(forTabId: tabId)
+        clearWorkspacePanelUnread(forTabId: tabId)
+    }
     @discardableResult
     private func setWorkspaceRestoredUnread(_ isUnread: Bool, forTabId tabId: UUID) -> Bool {
         var nextIds = restoredUnreadWorkspaceIds
@@ -1138,6 +1268,10 @@ final class TerminalNotificationStore: ObservableObject {
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         indexes.latestByTabId[tabId]
+    }
+
+    func latestUnreadNotification(forTabId tabId: UUID) -> TerminalNotification? {
+        indexes.latestUnreadByTabId[tabId]
     }
 
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
@@ -1713,6 +1847,9 @@ final class TerminalNotificationStore: ObservableObject {
         notifications = updated
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
+        }
+        if let removed {
+            reconcileWorkspaceUnreadAfterNotificationStateChange(tabId: removed.tabId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }

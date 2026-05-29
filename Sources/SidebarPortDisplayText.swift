@@ -10,7 +10,10 @@ enum SidebarPortDisplayText {
 
     static func openTooltip(for port: Int) -> String {
         String(
-            format: String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:%lld"),
+            format: String(
+                localized: "sidebar.port.openTooltip",
+                defaultValue: "Listening port detected for this workspace. Click to open http://localhost:%lld. Source: local process."
+            ),
             Int64(port)
         )
     }

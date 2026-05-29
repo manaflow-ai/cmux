@@ -4536,17 +4536,23 @@ class GhosttyApp {
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
-               let surfaceId = surfaceView.terminalSurface?.id {
+               let terminalSurface = surfaceView.terminalSurface {
+                let surfaceId = terminalSurface.id
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
-                    )
+                    MainActor.assumeIsolated {
+                        guard let publishedTitle = terminalSurface.publishableTerminalTitle(title) else {
+                            return
+                        }
+                        NotificationCenter.default.post(
+                            name: .ghosttyDidSetTitle,
+                            object: surfaceView,
+                            userInfo: [
+                                GhosttyNotificationKey.tabId: tabId,
+                                GhosttyNotificationKey.surfaceId: surfaceId,
+                                GhosttyNotificationKey.title: publishedTitle,
+                            ]
+                        )
+                    }
                 }
             }
             return true
@@ -5192,6 +5198,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
+    private var lastPublishedTerminalTitle: String?
 
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
@@ -5441,7 +5448,41 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+        lastPublishedTerminalTitle = nil
     }
+
+    @MainActor
+    func publishableTerminalTitle(_ title: String) -> String? {
+        let stableTitle = Self.stableTerminalNotificationTitle(title)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stableTitle.isEmpty else { return nil }
+        guard lastPublishedTerminalTitle != stableTitle else { return nil }
+        lastPublishedTerminalTitle = stableTitle
+        return stableTitle
+    }
+
+    private static func stableTerminalNotificationTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first,
+              terminalTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+
+        let afterSpinner = trimmed.index(after: trimmed.startIndex)
+        guard afterSpinner < trimmed.endIndex,
+              trimmed[afterSpinner].isWhitespace else {
+            return title
+        }
+
+        guard let remainderStart = trimmed[afterSpinner...].firstIndex(where: { !$0.isWhitespace }) else {
+            return title
+        }
+        return String(trimmed[remainderStart...])
+    }
+
+    private static let terminalTitleSpinnerCharacters = Set<Character>(
+        "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    )
 
     @MainActor
     private func scheduleHeadlessRuntimeStartIfNeeded(reason: String) {
@@ -8347,7 +8388,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
+        guard let selection = readSelectionSnapshot()?.string else {
+            _ = performBindingAction("copy_to_clipboard")
+            return
+        }
+        guard let cleaned = TerminalCopyCleaner.cleanedSelectionText(for: selection),
+              cleaned != selection else {
+            _ = performBindingAction("copy_to_clipboard")
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(cleaned, forType: .string)
+    }
+
+    /// Always copies raw terminal selection text, bypassing smart cleaning.
+    @IBAction func copyRaw(_ sender: Any?) {
         _ = performBindingAction("copy_to_clipboard")
+    }
+
+    @IBAction func copyCleaned(_ sender: Any?) {
+        guard let selection = readSelectionSnapshot()?.string else {
+            copyRaw(sender)
+            return
+        }
+        guard let cleaned = TerminalCopyCleaner.cleanedSelectionText(for: selection) else {
+            copyRaw(sender)
+            return
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(cleaned, forType: .string)
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -8410,7 +8482,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
-        case #selector(copy(_:)):
+        case #selector(copy(_:)), #selector(copyCleaned(_:)), #selector(copyRaw(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
         case #selector(paste(_:)):
@@ -10383,12 +10455,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             menu.addItem(.separator())
         }
         if ghostty_surface_has_selection(surface) {
-            let item = menu.addItem(
+            let copyItem = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
                 keyEquivalent: ""
             )
-            item.target = self
+            copyItem.target = self
+
+            let copyRawItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyRaw", defaultValue: "Copy Raw"),
+                action: #selector(copyRaw(_:)),
+                keyEquivalent: ""
+            )
+            copyRawItem.target = self
+
+            let cleanedItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copyCleaned", defaultValue: "Copy Cleaned"),
+                action: #selector(copyCleaned(_:)),
+                keyEquivalent: ""
+            )
+            cleanedItem.target = self
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),

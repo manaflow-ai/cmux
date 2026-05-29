@@ -1449,7 +1449,11 @@ class TabManager: ObservableObject {
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
+                enqueuePanelTitleUpdate(
+                    tabId: tabId,
+                    panelId: surfaceId,
+                    title: Self.stableTerminalPanelTitle(title)
+                )
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -1961,16 +1965,25 @@ class TabManager: ObservableObject {
             clearWorkspaceGitMetadata(for: key)
             return
         }
+        let shouldForceImmediate = Self.workspacePullRequestRefreshForcesImmediate(reason: reason)
+        if !shouldForceImmediate,
+           let nextPollAt = workspacePullRequestNextPollAtByKey[key],
+           nextPollAt > Date() {
+            updateWorkspacePullRequestPollTimer()
+            return
+        }
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
         if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
             workspacePullRequestFollowUpShouldBypassRepoCache = true
         }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
-            markWorkspacePullRequestProbeRerunPending(
-                for: key,
-                bypassRepoCache: shouldBypassRepoCache
-            )
-        } else {
+            if shouldForceImmediate {
+                markWorkspacePullRequestProbeRerunPending(
+                    for: key,
+                    bypassRepoCache: shouldBypassRepoCache
+                )
+            }
+        } else if shouldForceImmediate || workspacePullRequestNextPollAtByKey[key] == nil {
             workspacePullRequestNextPollAtByKey[key] = .distantPast
         }
 #if DEBUG
@@ -2263,10 +2276,15 @@ class TabManager: ObservableObject {
             "periodicPoll",
             "selectedPeriodicPoll",
             "timer",
+            "shellPrompt",
         ]
         return periodicPrefixes.contains { prefix in
             reason == prefix || reason.hasPrefix("\(prefix).")
         }
+    }
+
+    nonisolated static func workspacePullRequestRefreshForcesImmediate(reason: String) -> Bool {
+        !(reason == "shellPrompt" || reason.hasPrefix("shellPrompt."))
     }
 
     nonisolated static func shouldRefreshWorkspacePullRequest(
@@ -7970,26 +7988,41 @@ class TabManager: ObservableObject {
         let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
             (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
         let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
+        let hasWorkspaceLevelUnread = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
+        let hasWorkspaceLevelFocused = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
         let hasUnreadNotification: Bool
         let hasFocusedIndicator: Bool
         if notificationSurfaceIds.isEmpty {
-            hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
-            hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
+            hasUnreadNotification = hasWorkspaceLevelUnread
+            hasFocusedIndicator = hasWorkspaceLevelFocused
         } else {
             hasUnreadNotification = notificationSurfaceIds.contains {
                 notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
-            }
+            } || hasWorkspaceLevelUnread
             hasFocusedIndicator = notificationSurfaceIds.contains {
                 notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
             }
         }
         guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
+        let hasSurfaceTargetedNotification: Bool
+        if notificationSurfaceIds.isEmpty {
+            hasSurfaceTargetedNotification = hasWorkspaceLevelUnread || hasWorkspaceLevelFocused
+        } else {
+            hasSurfaceTargetedNotification = notificationSurfaceIds.contains {
+                notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
+            } || notificationSurfaceIds.contains {
+                notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
+            }
+        }
         if hasUnreadNotification {
             if notificationSurfaceIds.isEmpty {
                 notificationStore.markRead(forTabId: tabId, surfaceId: nil)
             } else {
                 for surfaceId in notificationSurfaceIds {
                     notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+                }
+                if hasWorkspaceLevelUnread {
+                    notificationStore.markRead(forTabId: tabId, surfaceId: nil)
                 }
             }
         }
@@ -8019,10 +8052,14 @@ class TabManager: ObservableObject {
             for surfaceId in notificationSurfaceIds {
                 notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
             }
+            if hasWorkspaceLevelFocused {
+                notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: nil)
+            }
         }
         if let targetPanelId,
            let workspace {
-            if hasUnreadNotification || hasFocusedIndicator {
+            let shouldFlashNotificationDismiss = hasSurfaceTargetedNotification
+            if shouldFlashNotificationDismiss {
                 workspace.triggerNotificationDismissFlash(panelId: targetPanelId)
             } else if didDismissUnreadIndicator {
                 workspace.triggerUnreadIndicatorDismissFlash(panelId: targetPanelId)
@@ -8034,13 +8071,21 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        if pendingPanelTitleUpdates[key] == trimmed {
+            return
+        }
+        if let tab = tabs.first(where: { $0.id == tabId }),
+           tab.alreadyReflectsPanelTitleUpdate(panelId: panelId, title: trimmed),
+           selectedTabId != tabId || window?.title == windowTitle(for: tab) {
+            return
+        }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
         )
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -8067,6 +8112,28 @@ class TabManager: ObservableObject {
             }
         }
     }
+
+    private static func stableTerminalPanelTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first,
+              terminalTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+
+        let afterSpinner = trimmed.index(after: trimmed.startIndex)
+        guard afterSpinner < trimmed.endIndex,
+              trimmed[afterSpinner].isWhitespace else {
+            return title
+        }
+
+        let remainderStart = trimmed[afterSpinner...].firstIndex { !$0.isWhitespace }
+        guard let remainderStart else { return title }
+        return String(trimmed[remainderStart...])
+    }
+
+    private static let terminalTitleSpinnerCharacters = Set<Character>(
+        "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    )
 
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }),
@@ -8180,6 +8247,11 @@ class TabManager: ObservableObject {
         if let targetPanelId = desiredPanelId ?? tab.focusedPanelId,
            tab.panels[targetPanelId] != nil {
             _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: targetPanelId)
+            tab.triggerNotificationFocusFlash(
+                panelId: targetPanelId,
+                requiresSplit: false,
+                shouldFocus: false
+            )
         }
         return true
     }
