@@ -9,12 +9,8 @@ extension WKWebView {
         NSSelectorFromString("_setPageMuted:")
     }
 
-    nonisolated private static var cmuxMediaMutedStateAudio: UInt {
+    nonisolated private static var cmuxMediaMutedStateAudio: Int {
         1 << 0
-    }
-
-    var cmuxCanSetPageAudioMuted: Bool {
-        responds(to: Self.cmuxSetPageMutedSelector)
     }
 
     @discardableResult
@@ -25,7 +21,7 @@ extension WKWebView {
             return false
         }
 
-        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, UInt) -> Void
+        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, Int) -> Void
         let function = unsafeBitCast(implementation, to: SetPageMutedFunction.self)
         function(self, selector, muted ? Self.cmuxMediaMutedStateAudio : 0)
         return true

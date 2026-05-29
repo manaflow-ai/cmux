@@ -26,6 +26,12 @@
          location = "group:CMUXPasteboardFidelity">
       </FileRef>
       <FileRef
+         location = "group:CmuxSettings">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSettingsUI">
+      </FileRef>
+      <FileRef
          location = "group:CMUXSocketPathDomain">
       </FileRef>
       <FileRef

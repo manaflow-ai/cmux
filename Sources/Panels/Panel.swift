@@ -9,6 +9,7 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case project
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -59,11 +60,17 @@ public enum FilePreviewPanelFocusIntent: Hashable {
     case quickLook
 }
 
+public enum ProjectPanelFocusIntent: Hashable {
+    case navigator
+    case detail
+}
+
 public enum PanelFocusIntent: Equatable {
     case panel
     case terminal(TerminalPanelFocusIntent)
     case browser(BrowserPanelFocusIntent)
     case filePreview(FilePreviewPanelFocusIntent)
+    case project(ProjectPanelFocusIntent)
 }
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {

@@ -60,6 +60,9 @@ jobs:
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
 
+      - name: Validate bash shell integration job control
+        run: python3 tests/test_bash_integration_no_done_notifications.py
+
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
       # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
@@ -161,7 +164,7 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -388,8 +391,14 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 20
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
+    # mints a new cache key with no restore-keys fallback) forces a full
+    # cmux build whose Swift codegen alone runs ~18-20 min, so 20 was right at
+    # the edge and got guillotined mid-build (the post-cache step never ran, so
+    # the cache stayed cold and every retry timed out the same way). 35 gives a
+    # cold build enough room to finish and populate the cache.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -581,7 +590,7 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -685,7 +694,7 @@ jobs:
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
 
   ui-regressions:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 25
     steps:
       - name: Checkout

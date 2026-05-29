@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Combine
 import CryptoKit
 import Darwin
@@ -233,11 +234,13 @@ extension Workspace {
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
 
         return SessionWorkspaceSnapshot(
+            workspaceId: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -310,6 +313,7 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        groupId = snapshot.groupId
         setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -528,6 +532,7 @@ extension Workspace {
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -597,6 +602,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
@@ -616,6 +622,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -623,6 +630,7 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
@@ -630,6 +638,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
             terminalSnapshot = nil
@@ -637,6 +646,21 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            projectSnapshot = nil
+        case .project:
+            guard let projectPanel = panel as? ProjectPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            projectSnapshot = SessionProjectPanelSnapshot(
+                projectPath: projectPanel.projectURL.path,
+                selectedNodePath: projectPanel.selectedFilePath,
+                activeTab: projectPanel.activeTab.rawValue,
+                selectedSchemeName: projectPanel.selectedSchemeName,
+                selectedConfigurationName: projectPanel.selectedConfigurationName
+            )
         }
 
         return SessionPanelSnapshot(
@@ -657,7 +681,8 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
-            rightSidebarTool: rightSidebarToolSnapshot
+            rightSidebarTool: rightSidebarToolSnapshot,
+            project: projectSnapshot
         )
     }
 
@@ -905,6 +930,20 @@ extension Workspace {
         ) else {
             return nil
         }
+        return surfaceResumeStartupLaunch(
+            forApprovedBinding: effectiveBinding,
+            allowLauncherScript: allowLauncherScript,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        )
+    }
+
+    nonisolated private static func surfaceResumeStartupLaunch(
+        forApprovedBinding effectiveBinding: SurfaceResumeBindingSnapshot,
+        allowLauncherScript: Bool = true,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> SurfaceResumeStartupLaunch? {
         if effectiveBinding.isAgentHookBinding,
            allowLauncherScript,
            let command = effectiveBinding.startupCommandWithLauncherScript(
@@ -924,16 +963,17 @@ extension Workspace {
     nonisolated private static func approvedSurfaceResumeBinding(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
-        promptForApproval: Bool,
-        approvalStoreURL: URL,
-        approvalSigningSecret: Data?
+        promptForApproval: Bool = true,
+        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
+        approvalSigningSecret: Data? = nil
     ) -> SurfaceResumeBindingSnapshot? {
         guard let resumeBinding else { return nil }
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
             to: resumeBinding,
             fileURL: approvalStoreURL,
             signingSecret: approvalSigningSecret
         )
+        effectiveBinding = hermesAgentSubrouterBindingForStartup(effectiveBinding)
         if effectiveBinding.source == "agent-hook", !autoResumeAgentSessions {
             return nil
         }
@@ -944,6 +984,311 @@ extension Workspace {
         }
         guard effectiveBinding.allowsAutomaticResume else { return nil }
         return effectiveBinding
+    }
+
+    nonisolated private static func hermesAgentSubrouterBindingForStartup(
+        _ binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot {
+        guard binding.source == "agent-hook",
+              binding.kind == "hermes-agent" else {
+            return binding
+        }
+
+        var environment = binding.environment ?? [:]
+        environment = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(to: environment)
+        guard let baseURL = normalizedSurfaceResumeValue(
+            environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]
+        ) else {
+            return binding
+        }
+        environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey] = baseURL
+
+        var result = binding
+        result.environment = environment.isEmpty ? nil : environment
+        result.command = hermesAgentCommandByReplacingOpenAICodexProvider(result.command)
+        result.command = hermesAgentCommandByRemovingBootstrapPrefix(result.command)
+        let agentCommandWords = hermesAgentWordsAfterCwdGuard(surfaceResumeShellWords(in: result.command))
+        guard !hermesAgentCommandSetsModelAPIMode(agentCommandWords),
+              hermesAgentCommandAllowsCodexBootstrap(agentCommandWords) else {
+            return result
+        }
+        let hermesExecutable = hermesAgentCommandExecutable(agentCommandWords)
+
+        var bootstrap = [
+            "\(surfaceResumeShellQuote(hermesExecutable)) config set model.provider \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
+            "\(surfaceResumeShellQuote(hermesExecutable)) config set model.base_url \(surfaceResumeShellQuote(baseURL)) >/dev/null",
+            "\(surfaceResumeShellQuote(hermesExecutable)) config set model.api_mode \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+        ]
+        if let model = HermesAgentCodexEnvironment.defaultCodexModel(environment: environment) {
+            bootstrap.append("\(surfaceResumeShellQuote(hermesExecutable)) config set model.default \(surfaceResumeShellQuote(model)) >/dev/null")
+        }
+        result.command = hermesAgentCommandByInsertingBootstrap(bootstrap, into: result.command)
+        return result
+    }
+
+    nonisolated private static func hermesAgentCommandByInsertingBootstrap(
+        _ bootstrap: [String],
+        into command: String
+    ) -> String {
+        let bootstrapCommand = bootstrap.joined(separator: " && ") + " && "
+        let words = surfaceResumeShellWords(in: command)
+        let commandStart = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        guard commandStart < words.endIndex else {
+            return bootstrapCommand + command
+        }
+        let insertIndex = words[commandStart].range.lowerBound
+        return String(command[..<insertIndex]) + bootstrapCommand + String(command[insertIndex...])
+    }
+
+    nonisolated private static func hermesAgentCommandByReplacingOpenAICodexProvider(_ command: String) -> String {
+        var result = command
+        var replacements: [(Range<String.Index>, String)] = []
+        let words = surfaceResumeShellWords(in: command)
+        for index in words.indices {
+            let word = words[index]
+            if word.value == "--provider",
+               index + 1 < words.count,
+               words[index + 1].value == "openai-codex" {
+                replacements.append((
+                    words[index + 1].range,
+                    surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)
+                ))
+            } else if word.value == "--provider=openai-codex" {
+                replacements.append((
+                    word.range,
+                    surfaceResumeShellQuote("--provider=\(HermesAgentCodexEnvironment.defaultProvider)")
+                ))
+            }
+        }
+        for (range, replacement) in replacements.reversed() {
+            result.replaceSubrange(range, with: replacement)
+        }
+        return result
+    }
+
+    nonisolated private static func hermesAgentCommandByRemovingBootstrapPrefix(_ command: String) -> String {
+        let words = surfaceResumeShellWords(in: command)
+        var scanIndex = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        guard scanIndex < words.endIndex else { return command }
+        let removeStartIndex = scanIndex
+        var removedBootstrap = false
+
+        while let endIndex = hermesAgentBootstrapCommandEndIndex(words, startIndex: scanIndex) {
+            removedBootstrap = true
+            scanIndex = endIndex
+            if scanIndex < words.endIndex, words[scanIndex].value == "&&" {
+                scanIndex = words.index(after: scanIndex)
+                continue
+            }
+            break
+        }
+
+        guard removedBootstrap,
+              scanIndex < words.endIndex else {
+            return command
+        }
+        let removeStart = words[removeStartIndex].range.lowerBound
+        let removeEnd = words[scanIndex].range.lowerBound
+        return String(command[..<removeStart]) + String(command[removeEnd...])
+    }
+
+    nonisolated private static func hermesAgentBootstrapCommandEndIndex(
+        _ words: [SurfaceResumeShellWord],
+        startIndex: Int
+    ) -> Int? {
+        guard startIndex + 4 < words.endIndex,
+              hermesAgentCommandWordIsExecutable(words[startIndex].value),
+              words[startIndex + 1].value == "config",
+              words[startIndex + 2].value == "set",
+              hermesAgentBootstrapConfigKeys.contains(words[startIndex + 3].value) else {
+            return nil
+        }
+        var endIndex = startIndex + 5
+        if endIndex < words.endIndex, words[endIndex].value == ">/dev/null" {
+            endIndex = words.index(after: endIndex)
+        }
+        return endIndex
+    }
+
+    nonisolated private static let hermesAgentBootstrapConfigKeys: Set<String> = [
+        "model.provider",
+        "model.base_url",
+        "model.api_mode",
+        "model.default",
+    ]
+
+    nonisolated private static func hermesAgentCommandSetsModelAPIMode(_ words: [SurfaceResumeShellWord]) -> Bool {
+        words.contains { $0.value.contains("model.api_mode") }
+    }
+
+    nonisolated private static func hermesAgentCommandAllowsCodexBootstrap(
+        _ words: [SurfaceResumeShellWord]
+    ) -> Bool {
+        guard let provider = hermesAgentProviderArgument(words) else {
+            return true
+        }
+        return provider == HermesAgentCodexEnvironment.defaultProvider || provider == "openai-codex"
+    }
+
+    nonisolated private static func hermesAgentProviderArgument(_ words: [SurfaceResumeShellWord]) -> String? {
+        var index = 0
+        while index < words.count {
+            let word = words[index].value
+            if word == "--provider", index + 1 < words.count {
+                return words[index + 1].value
+            }
+            if word.hasPrefix("--provider=") {
+                return String(word.dropFirst("--provider=".count))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    nonisolated private static func hermesAgentCommandExecutable(_ words: [SurfaceResumeShellWord]) -> String {
+        for word in words {
+            guard word.value != "env",
+                  !isSurfaceResumeShellAssignment(word.value) else {
+                continue
+            }
+            if hermesAgentCommandWordIsExecutable(word.value) {
+                return word.value
+            }
+        }
+        return "hermes"
+    }
+
+    nonisolated private static func hermesAgentCommandWordIsExecutable(_ value: String) -> Bool {
+        let basename = (value as NSString).lastPathComponent
+        return basename == "hermes" || basename == "hermes-agent"
+    }
+
+    nonisolated private static func hermesAgentWordsAfterCwdGuard(
+        _ words: [SurfaceResumeShellWord]
+    ) -> [SurfaceResumeShellWord] {
+        let commandStart = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        guard commandStart < words.endIndex else { return [] }
+        return Array(words[commandStart...])
+    }
+
+    nonisolated private static func hermesAgentCommandStartIndexAfterCwdGuard(
+        _ words: [SurfaceResumeShellWord]
+    ) -> Int {
+        guard let first = words.first,
+              first.value == "{" || first.value == "cd" else {
+            return words.startIndex
+        }
+        guard let andIndex = words.firstIndex(where: { $0.value == "&&" }) else {
+            return words.startIndex
+        }
+        return words.index(after: andIndex)
+    }
+
+    nonisolated private static func isSurfaceResumeShellAssignment(_ value: String) -> Bool {
+        guard let equalIndex = value.firstIndex(of: "="),
+              equalIndex > value.startIndex else {
+            return false
+        }
+        let key = value[..<equalIndex]
+        guard let first = key.first,
+              first == "_" || first.isLetter else {
+            return false
+        }
+        return key.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
+    }
+
+    private struct SurfaceResumeShellWord {
+        let value: String
+        let range: Range<String.Index>
+    }
+
+    nonisolated private static func surfaceResumeShellWords(in command: String) -> [SurfaceResumeShellWord] {
+        var words: [SurfaceResumeShellWord] = []
+        var index = command.startIndex
+        while index < command.endIndex {
+            while index < command.endIndex, command[index].isWhitespace {
+                index = command.index(after: index)
+            }
+            guard index < command.endIndex else { break }
+
+            let start = index
+            var value = ""
+            var isComplete = true
+            while index < command.endIndex, !command[index].isWhitespace {
+                let character = command[index]
+                if character == "'" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "'" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        value.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\"" {
+                    index = command.index(after: index)
+                    var foundEndQuote = false
+                    while index < command.endIndex {
+                        let quotedCharacter = command[index]
+                        if quotedCharacter == "\"" {
+                            index = command.index(after: index)
+                            foundEndQuote = true
+                            break
+                        }
+                        if quotedCharacter == "\\" {
+                            let next = command.index(after: index)
+                            guard next < command.endIndex else {
+                                isComplete = false
+                                index = command.endIndex
+                                break
+                            }
+                            value.append(command[next])
+                            index = command.index(after: next)
+                            continue
+                        }
+                        value.append(quotedCharacter)
+                        index = command.index(after: index)
+                    }
+                    if !foundEndQuote || !isComplete {
+                        isComplete = false
+                        break
+                    }
+                } else if character == "\\" {
+                    let next = command.index(after: index)
+                    guard next < command.endIndex else {
+                        isComplete = false
+                        index = command.endIndex
+                        break
+                    }
+                    value.append(command[next])
+                    index = command.index(after: next)
+                } else {
+                    value.append(character)
+                    index = command.index(after: index)
+                }
+            }
+            if isComplete, !value.isEmpty {
+                words.append(SurfaceResumeShellWord(value: value, range: start..<index))
+            }
+        }
+        return words
+    }
+
+    nonisolated private static func normalizedSurfaceResumeValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    nonisolated private static func surfaceResumeShellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     nonisolated private static func shouldRunPromptedSurfaceResume(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
@@ -1227,19 +1572,23 @@ extension Workspace {
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
                     : resumeBinding
+            let effectiveResumeBindingForStartup = Self.approvedSurfaceResumeBinding(
+                resumeBindingForStartup,
+                autoResumeAgentSessions: shouldAutoResumeAgent,
+                promptForApproval: true
+            )
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
-                Self.surfaceResumeStartupInput(
-                    resumeBindingForStartup,
-                    autoResumeAgentSessions: shouldAutoResumeAgent,
-                    allowLauncherScript: false
-                ).map(SurfaceResumeStartupLaunch.input)
+                effectiveResumeBindingForStartup?
+                    .startupInputWithLauncherScript(allowLauncherScript: false)
+                    .map(SurfaceResumeStartupLaunch.input)
             } else {
-                Self.surfaceResumeStartupLaunch(
-                    resumeBindingForStartup,
-                    autoResumeAgentSessions: shouldAutoResumeAgent,
-                    allowLauncherScript: true
-                )
+                effectiveResumeBindingForStartup.flatMap {
+                    Self.surfaceResumeStartupLaunch(
+                        forApprovedBinding: $0,
+                        allowLauncherScript: true
+                    )
+                }
             }
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
             let workingDirectory =
@@ -1345,8 +1694,8 @@ extension Workspace {
             ) else {
                 return nil
             }
-            if let resumeBinding {
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = resumeBinding
+            if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -1427,6 +1776,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
+        case .project:
+            guard let projectPath = snapshot.project?.projectPath,
+                  let projectPanel = newProjectSurface(
+                    inPane: paneId,
+                    projectPath: projectPath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
+            return projectPanel.id
         }
     }
 
@@ -1698,6 +2058,17 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+
+        case .project:
+            if let panel = newProjectSurface(
+                inPane: paneId,
+                projectPath: surface.url ?? surface.cwd ?? "",
+                focus: false
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
     }
 
@@ -1728,6 +2099,16 @@ extension Workspace {
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
+            ) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+
+        case .project:
+            if let panel = newProjectSurface(
+                inPane: paneId,
+                projectPath: surface.url ?? surface.cwd ?? "",
+                focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -9420,6 +9801,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
+    /// The group entity itself lives in `TabManager.workspaceGroups`.
+    @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String {
@@ -9428,6 +9812,16 @@ final class Workspace: Identifiable, ObservableObject {
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+            // Notify the sidebar so anchor-cwd-driven group config (color,
+            // icon, context menu, newWorkspacePlacement) refreshes even
+            // when the anchor isn't the visible/selected workspace. Group
+            // headers are the anchor's only sidebar surface, so a
+            // TabItemView-style observation isn't mounted for them.
+            NotificationCenter.default.post(
+                name: .workspaceCurrentDirectoryDidChange,
+                object: self,
+                userInfo: ["workspaceId": id]
+            )
         }
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
@@ -9779,6 +10173,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let markdown = "markdown"
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
+        static let project = "project"
     }
 
     enum PanelShellActivityState: String {
@@ -10200,6 +10595,9 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self,
                   let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
             return self.canForkAgentConversationFromPanel(panelId)
+        }
+        bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
+            AgentConversationForkDefaultSettings.current().tabContextAction
         }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
             switch source {
@@ -10716,6 +11114,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.filePreview
         case .rightSidebarTool:
             return SurfaceKind.rightSidebarTool
+        case .project:
+            return SurfaceKind.project
         }
     }
 
@@ -13593,6 +13993,58 @@ final class Workspace: Identifiable, ObservableObject {
 
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    @discardableResult
+    func newProjectSurface(
+        inPane paneId: PaneID,
+        projectPath: String,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> ProjectPanel? {
+        guard !projectPath.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let projectPanel = ProjectPanel(projectURL: url)
+        panels[projectPanel.id] = projectPanel
+        panelTitles[projectPanel.id] = projectPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: projectPanel.displayTitle,
+            icon: projectPanel.displayIcon,
+            kind: SurfaceKind.project,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: projectPanel.id)
+            panelTitles.removeValue(forKey: projectPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = projectPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(projectPanel.id, paneId: paneId, kind: SurfaceKind.project, origin: "project_tab", focused: shouldFocusNewTab)
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: projectPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        projectPanel.reload()
+        return projectPanel
     }
 
     @discardableResult
@@ -16879,7 +17331,7 @@ extension Workspace: BonsplitDelegate {
         switch intent {
         case .browser(.addressBar), .browser(.findField), .terminal(.findField), .terminal(.textBoxInput):
             return true
-        case .panel, .browser(.webView), .terminal(.surface), .filePreview:
+        case .panel, .browser(.webView), .terminal(.surface), .filePreview, .project:
             return false
         }
     }
@@ -17752,38 +18204,117 @@ extension Workspace: BonsplitDelegate {
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
-        case .forkConversation:
-            guard let panelId = panelIdFromSurfaceId(tab.id),
-                  let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
-                NSSound.beep()
-                return
-            }
-            // Mirror the menu-visibility gate exactly: only fork when the snapshot is
-            // probe-free supported. Using the weaker `!= .unsupported` here would let a
-            // `.requiresProbe` snapshot through if the action is ever wired up outside
-            // the bonsplit menu, leading to a fork that may quietly fail at the shell.
-            let isRemote = isRemoteTerminalSurface(panelId)
-            guard ContentView.commandPaletteSnapshotForkAvailability(
-                snapshot,
-                isRemoteTerminal: isRemote
-            ) == .supportedWithoutProbe else {
-                NSSound.beep()
-                return
-            }
-            // Beep on a silent failure (e.g. terminal surface creation rejected by the
-            // workspace) so the user gets the same feedback as the other guard paths in
-            // this action handler.
-            if forkAgentConversationToNewTab(
-                fromPanelId: panelId,
-                snapshot: snapshot,
-                anchorTabId: tab.id,
-                paneId: pane
-            ) == nil {
-                NSSound.beep()
-            }
+        case .forkConversation,
+             .forkConversationRight,
+             .forkConversationLeft,
+             .forkConversationTop,
+             .forkConversationBottom,
+             .forkConversationNewTab,
+             .forkConversationNewWorkspace:
+            handleForkConversationContextAction(action, for: tab, inPane: pane)
         @unknown default:
             break
         }
+    }
+
+    private func handleForkConversationContextAction(_ action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard let panelId = panelIdFromSurfaceId(tab.id),
+              let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
+            NSSound.beep()
+            return
+        }
+        // Mirror the menu-visibility gate exactly: only fork when the snapshot is
+        // probe-free supported. Using the weaker `!= .unsupported` here would let a
+        // `.requiresProbe` snapshot through if the action is ever wired up outside
+        // the bonsplit menu, leading to a fork that may quietly fail at the shell.
+        let isRemote = isRemoteTerminalSurface(panelId)
+        guard ContentView.commandPaletteSnapshotForkAvailability(
+            snapshot,
+            isRemoteTerminal: isRemote
+        ) == .supportedWithoutProbe else {
+            NSSound.beep()
+            return
+        }
+
+        let destination = action == .forkConversation
+            ? AgentConversationForkDefaultSettings.current()
+            : AgentConversationForkDestination(tabContextAction: action)
+        guard forkAgentConversation(
+            fromPanelId: panelId,
+            snapshot: snapshot,
+            destination: destination,
+            anchorTabId: tab.id,
+            paneId: pane
+        ) else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    private func forkAgentConversation(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        destination: AgentConversationForkDestination,
+        anchorTabId: TabID,
+        paneId: PaneID
+    ) -> Bool {
+        if let direction = destination.splitDirection {
+            return forkAgentConversation(
+                fromPanelId: panelId,
+                snapshot: snapshot,
+                direction: direction
+            ) != nil
+        }
+
+        switch destination {
+        case .newTab:
+            return forkAgentConversationToNewTab(
+                fromPanelId: panelId,
+                snapshot: snapshot,
+                anchorTabId: anchorTabId,
+                paneId: paneId
+            ) != nil
+        case .newWorkspace:
+            return forkAgentConversationToNewWorkspace(
+                fromPanelId: panelId,
+                snapshot: snapshot
+            )
+        case .right, .left, .top, .bottom:
+            return false
+        }
+    }
+
+    private func forkAgentConversationToNewWorkspace(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        guard let owningTabManager,
+              let launch = forkAgentWorkspaceLaunch(
+                  fromPanelId: panelId,
+                  snapshot: snapshot
+              ) else {
+            return false
+        }
+
+        let forkWorkspace = owningTabManager.addWorkspace(
+            workingDirectory: launch.terminalWorkingDirectory,
+            initialTerminalCommand: launch.initialTerminalCommand,
+            initialTerminalInput: launch.initialTerminalInput,
+            inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
+            autoWelcomeIfNeeded: false
+        )
+        if let remoteConfiguration = launch.remoteConfiguration {
+            forkWorkspace.configureRemoteConnection(
+                remoteConfiguration,
+                autoConnect: launch.autoConnectRemoteConfiguration
+            )
+        }
+        if let workingDirectory = launch.workingDirectory,
+           launch.terminalWorkingDirectory == nil,
+           let forkPanelId = forkWorkspace.focusedPanelId {
+            forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+        }
+        return true
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabMoveToDestination destinationId: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
