@@ -9392,6 +9392,66 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 }
 
+enum WorkspaceLayoutMode: String, Codable, Sendable {
+    case bonsplit
+    case paper
+}
+
+struct PaperLayoutState: Codable, Equatable, Sendable {
+    var panes: [PaperPane]
+    var focusedPaneId: UUID?
+    var viewportOrigin: PaperPoint
+
+    static func initial(paneId: PaneID, tabId: UUID, viewportSize: CGSize) -> PaperLayoutState {
+        let frame = PaperRect(
+            x: 0,
+            y: 0,
+            width: max(900, viewportSize.width),
+            height: max(600, viewportSize.height)
+        )
+        let pane = PaperPane(
+            id: paneId.id,
+            frame: frame,
+            tabIds: [tabId],
+            selectedTabId: tabId
+        )
+
+        return PaperLayoutState(
+            panes: [pane],
+            focusedPaneId: pane.id,
+            viewportOrigin: PaperPoint(x: 0, y: 0)
+        )
+    }
+}
+
+struct PaperPane: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var frame: PaperRect
+    var tabIds: [UUID]
+    var selectedTabId: UUID?
+}
+
+struct PaperPoint: Codable, Equatable, Sendable {
+    var x: CGFloat
+    var y: CGFloat
+}
+
+struct PaperRect: Codable, Equatable, Sendable {
+    var x: CGFloat
+    var y: CGFloat
+    var width: CGFloat
+    var height: CGFloat
+
+    var cgRect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    var minX: CGFloat { x }
+    var minY: CGFloat { y }
+    var maxX: CGFloat { x + width }
+    var maxY: CGFloat { y + height }
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -9439,6 +9499,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+    @Published var layoutMode: WorkspaceLayoutMode = .bonsplit
+    @Published var paperLayoutState: PaperLayoutState?
+
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
