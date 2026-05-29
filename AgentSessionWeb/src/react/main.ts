@@ -987,7 +987,9 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
             dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
           },
         ),
-        entry.text.trim().length > 0 ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text }) : null,
+        entry.text.trim().length > 0 && entry.isComplete !== false
+          ? h(AssistantMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text })
+          : null,
       );
     case "notice":
       return h(

@@ -21,6 +21,7 @@ export type TranscriptEntry = {
   activityStatus?: "inProgress" | "completed" | "failed" | "stopped";
   attachments?: AgentSessionAttachment[];
   detail?: string;
+  isComplete?: boolean;
   output?: string;
 };
 
@@ -405,6 +406,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           seenSessionIds: rememberSessionId(state, event.sessionId),
           status: "idle",
           log: appendLog(state, "info", copyText(state, "stopped", "Stopped")),
+          transcript: markAssistantTranscriptComplete(state.transcript, event.sessionId),
         };
       }
       return {
@@ -419,9 +421,12 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
           formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
         ),
         transcript: event.status === 0
-          ? state.transcript
+          ? markAssistantTranscriptComplete(state.transcript, event.sessionId)
           : appendNoticeTranscript(
-              state,
+              {
+                ...state,
+                transcript: markAssistantTranscriptComplete(state.transcript, event.sessionId),
+              },
               formatCopy(state, "providerExitedFormat", "Provider exited %d", event.status),
               "error",
             ),
@@ -499,6 +504,7 @@ function appendProviderTranscript(
       ...state.transcript.slice(0, -1),
       {
         ...previous,
+        isComplete: false,
         text: previous.text + event.text,
       },
     ];
@@ -507,10 +513,26 @@ function appendProviderTranscript(
   return appendTranscript(state.transcript, {
     id: makeClientId(),
     role: "assistant",
+    isComplete: false,
     sessionId: event.sessionId,
     sentAtMs: Date.now(),
     text: event.text,
   });
+}
+
+function markAssistantTranscriptComplete(transcript: TranscriptEntry[], sessionId: string): TranscriptEntry[] {
+  let didChange = false;
+  const next = transcript.map((entry) => {
+    if (entry.role !== "assistant" || entry.sessionId !== sessionId || entry.isComplete === true) {
+      return entry;
+    }
+    didChange = true;
+    return {
+      ...entry,
+      isComplete: true,
+    };
+  });
+  return didChange ? next : transcript;
 }
 
 function appendProviderActivityTranscript(

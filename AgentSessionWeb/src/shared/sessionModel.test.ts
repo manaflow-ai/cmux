@@ -186,6 +186,7 @@ test("provider output is appended without changing running session", () => {
   expect(state.runningSessionId).toBe("session-1");
   expect(state.log.at(-1)?.level).toBe("stdout");
   expect(state.transcript.at(-1)).toMatchObject({
+    isComplete: false,
     role: "assistant",
     sessionId: "session-1",
     sentAtMs: expect.any(Number),
@@ -222,9 +223,43 @@ test("provider stdout deltas append to the current assistant transcript turn", (
 
   expect(second.transcript).toHaveLength(1);
   expect(second.transcript[0]).toMatchObject({
+    isComplete: false,
     role: "assistant",
     sentAtMs: first.transcript[0]?.sentAtMs,
     text: "hello world",
+  });
+});
+
+test("provider exit marks assistant transcript complete", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const withOutput = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "codex",
+      sessionId: "session-1",
+      stream: "stdout",
+      text: "done",
+    },
+  });
+  const exited = reduceSession(withOutput, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "codex",
+      sessionId: "session-1",
+      status: 0,
+    },
+  });
+
+  expect(exited.transcript[0]).toMatchObject({
+    isComplete: true,
+    role: "assistant",
+    text: "done",
   });
 });
 
