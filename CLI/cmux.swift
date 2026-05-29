@@ -16177,6 +16177,7 @@ struct CMUXCLI {
         workspaceId: String,
         paneId: String? = nil,
         surfaceId: String? = nil,
+        sessionAttachedWindows: [[String: Any]]? = nil,
         client: SocketClient
     ) throws -> [String: String] {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
@@ -16185,6 +16186,12 @@ struct CMUXCLI {
             "window_id": "@\(canonicalWorkspaceId)",
             "window_uuid": canonicalWorkspaceId
         ]
+        if let sessionAttachedWindows {
+            context["session_attached"] = tmuxSessionAttachedValue(
+                workspaceId: canonicalWorkspaceId,
+                windows: sessionAttachedWindows
+            )
+        }
 
         let workspaceItems = try tmuxWorkspaceItems(client: client)
         if let workspace = workspaceItems.first(where: {
@@ -18635,8 +18642,16 @@ struct CMUXCLI {
                 ])
             }
             if parsed.hasFlag("-P") {
-                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
-                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: "@\(workspaceId)"))
+                let format = parsed.value("-F")
+                let sessionAttachedWindows = tmuxFormatRequestsSessionAttached(format)
+                    ? tmuxWindowListForSessionAttached(client: client)
+                    : nil
+                let context = try tmuxFormatContext(
+                    workspaceId: workspaceId,
+                    sessionAttachedWindows: sessionAttachedWindows,
+                    client: client
+                )
+                print(tmuxRenderFormat(format, context: context, fallback: "@\(workspaceId)"))
             }
 
         case "new-window", "neww":
@@ -18672,8 +18687,16 @@ struct CMUXCLI {
                 ])
             }
             if parsed.hasFlag("-P") {
-                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
-                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: "@\(workspaceId)"))
+                let format = parsed.value("-F")
+                let sessionAttachedWindows = tmuxFormatRequestsSessionAttached(format)
+                    ? tmuxWindowListForSessionAttached(client: client)
+                    : nil
+                let context = try tmuxFormatContext(
+                    workspaceId: workspaceId,
+                    sessionAttachedWindows: sessionAttachedWindows,
+                    client: client
+                )
+                print(tmuxRenderFormat(format, context: context, fallback: "@\(workspaceId)"))
             }
 
         case "split-window", "splitw":
@@ -18795,14 +18818,19 @@ struct CMUXCLI {
                 ])
             }
             if parsed.hasFlag("-P") {
+                let format = parsed.value("-F")
+                let sessionAttachedWindows = tmuxFormatRequestsSessionAttached(format)
+                    ? tmuxWindowListForSessionAttached(client: client)
+                    : nil
                 let context = try tmuxFormatContext(
                     workspaceId: target.workspaceId,
                     paneId: paneId,
                     surfaceId: surfaceId,
+                    sessionAttachedWindows: sessionAttachedWindows,
                     client: client
                 )
                 let fallback = context["pane_id"] ?? surfaceId
-                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
+                print(tmuxRenderFormat(format, context: context, fallback: fallback))
             }
 
         case "select-window", "selectw":
@@ -18885,10 +18913,15 @@ struct CMUXCLI {
         case "display-message", "display", "displayp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-t"], boolFlags: ["-p"])
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+            let format = parsed.positional.isEmpty ? parsed.value("-F") : parsed.positional.joined(separator: " ")
+            let sessionAttachedWindows = tmuxFormatRequestsSessionAttached(format)
+                ? tmuxWindowListForSessionAttached(client: client)
+                : nil
             var context = try tmuxFormatContext(
                 workspaceId: target.workspaceId,
                 paneId: target.paneId,
                 surfaceId: target.surfaceId,
+                sessionAttachedWindows: sessionAttachedWindows,
                 client: client
             )
             // Enrich with geometry for format strings like #{pane_width},#{window_width}
@@ -18901,7 +18934,6 @@ struct CMUXCLI {
             } else if let firstPane = panesList.first(where: { ($0["focused"] as? Bool) == true }) ?? panesList.first {
                 tmuxEnrichContextWithGeometry(&context, pane: firstPane, containerFrame: containerFrame)
             }
-            let format = parsed.positional.isEmpty ? parsed.value("-F") : parsed.positional.joined(separator: " ")
             let rendered = tmuxRenderFormat(format, context: context, fallback: "")
             if parsed.hasFlag("-p") || !rendered.isEmpty {
                 print(rendered)
@@ -18909,19 +18941,31 @@ struct CMUXCLI {
 
         case "list-windows", "lsw":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-t"], boolFlags: [])
+            let format = parsed.value("-F")
+            let sessionAttachedWindows = tmuxFormatRequestsSessionAttached(format)
+                ? tmuxWindowListForSessionAttached(client: client)
+                : nil
             let items = try tmuxWorkspaceItems(client: client)
             for item in items {
                 guard let workspaceId = item["id"] as? String else { continue }
-                let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+                let context = try tmuxFormatContext(
+                    workspaceId: workspaceId,
+                    sessionAttachedWindows: sessionAttachedWindows,
+                    client: client
+                )
                 let fallback = [
                     context["window_index"] ?? "?",
                     context["window_name"] ?? workspaceId
                 ].joined(separator: " ")
-                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
+                print(tmuxRenderFormat(format, context: context, fallback: fallback))
             }
 
         case "list-panes", "lsp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-t"], boolFlags: [])
+            let format = parsed.value("-F")
+            let sessionAttachedWindows = tmuxFormatRequestsSessionAttached(format)
+                ? tmuxWindowListForSessionAttached(client: client)
+                : nil
             // Resolve target: can be a pane (%uuid) or workspace. In tmux,
             // list-panes -t %<pane> lists all panes in the window containing that pane.
             let workspaceId: String
@@ -18936,9 +18980,14 @@ struct CMUXCLI {
             let containerFrame = payload["container_frame"] as? [String: Any]
             for pane in panes {
                 guard let paneId = pane["id"] as? String else { continue }
-                var context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
+                var context = try tmuxFormatContext(
+                    workspaceId: workspaceId,
+                    paneId: paneId,
+                    sessionAttachedWindows: sessionAttachedWindows,
+                    client: client
+                )
                 tmuxEnrichContextWithGeometry(&context, pane: pane, containerFrame: containerFrame)
-                if tmuxFormatRequestsPaneCommand(parsed.value("-F")),
+                if tmuxFormatRequestsPaneCommand(format),
                    context["pane_start_command"] == nil,
                    let surfaceId = context["surface_id"],
                    let legacyHudStartCommand = tmuxLegacyOMXHudStartCommand(
@@ -18950,7 +18999,7 @@ struct CMUXCLI {
                     context["pane_current_command"] = tmuxCurrentCommandName(from: legacyHudStartCommand)
                 }
                 let fallback = context["pane_id"] ?? paneId
-                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
+                print(tmuxRenderFormat(format, context: context, fallback: fallback))
             }
 
         case "rename-window", "renamew":
