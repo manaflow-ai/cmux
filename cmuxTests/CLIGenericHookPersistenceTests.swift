@@ -2569,6 +2569,72 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(isDirectory.boolValue)
     }
 
+    func testCodexFeedPreToolUseMarksRunning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-feed-running")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-feed-running-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            if method == "feed.push" {
+                return self.v2Response(id: id, ok: true, result: [:])
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "codex", "--event", "PreToolUse"],
+            environment: environment,
+            standardInput: #"{"session_id":"codex-feed-running","hook_event_name":"PreToolUse","tool_name":"shell","cwd":"\#(root.path)"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("clear_notifications --tab=\(workspaceId)") },
+            "Expected Codex work feed event to clear stale notifications, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_agent_lifecycle codex running") && $0.contains("--tab=\(workspaceId)") },
+            "Expected Codex work feed event to mark lifecycle running, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains { $0.contains("set_status codex Running") && $0.contains("--tab=\(workspaceId)") },
+            "Expected Codex work feed event to show Running status, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"PreToolUse""#) },
+            "Expected Codex work feed event to keep Feed telemetry, saw \(state.commands)"
+        )
+    }
+
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook-\(scenario.agent)")

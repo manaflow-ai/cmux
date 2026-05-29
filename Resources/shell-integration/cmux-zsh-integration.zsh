@@ -364,7 +364,7 @@ _cmux_ensure_ghostty_preexec_strips_both_marks() {
 
     local old_strip new_strip updated
     old_strip=$'PS1=${PS1//$\'%{\\e]133;A;cl=line\\a%}\'}'
-    new_strip=$'PS1=${PS1//$\'%{\\e]133;A;redraw=last;cl=line\\a%}\'}'
+    new_strip=$'PS1=${PS1//$\'%{\\e]133;A;redraw=1;cl=line\\a%}\'}'
     updated="${functions[$fn_name]}"
 
     if [[ "$updated" == *"$new_strip"* && "$updated" != *"$old_strip"* ]]; then
@@ -385,7 +385,7 @@ _cmux_ensure_ghostty_preexec_strips_both_marks() {
 _cmux_patch_ghostty_semantic_redraw() {
     local old_frag new_frag
     old_frag='133;A;cl=line'
-    new_frag='133;A;redraw=last;cl=line'
+    new_frag='133;A;redraw=1;cl=line'
 
     # Patch both deferred and live hook definitions, depending on init timing.
     if (( $+functions[_ghostty_deferred_init] )); then
@@ -402,7 +402,9 @@ _cmux_patch_ghostty_semantic_redraw() {
     fi
 
     # Keep legacy + redraw-aware strip lines so prompts created before patching
-    # are still cleared by preexec.
+    # are still cleared by preexec. Use full prompt redraw because common
+    # two-line prompts (for example Powerlevel10k) otherwise leave the header
+    # line behind on startup resize and accumulate duplicate prompts.
     _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_deferred_init
     _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_preexec
 }

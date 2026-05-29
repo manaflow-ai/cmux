@@ -1891,7 +1891,129 @@ enum SessionScrollbackReplayStore {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        return ansiSafeReplayText(truncated)
+        let replayable = removingTrailingIdlePromptBlocks(from: truncated)
+        guard hasVisibleReplayContent(replayable) else { return nil }
+        return shellSafeReplayText(replayable)
+    }
+
+    /// Preserve ANSI color state and finish partial output before the live shell prompt.
+    /// zsh shows PROMPT_EOL_MARK (usually `%`) if replayed scrollback leaves the cursor on
+    /// a non-empty line. Idle prompt blocks are stripped before this so restore does not
+    /// accumulate an extra visual prompt on every app launch.
+    private static func shellSafeReplayText(_ text: String) -> String {
+        let hasLineTerminator = text.last?.isNewline == true
+        let output = ansiSafeReplayText(text)
+        guard !hasLineTerminator else { return output }
+        return output + "\n"
+    }
+
+    private struct ReplayLine {
+        let fullRange: Range<String.Index>
+        let contentRange: Range<String.Index>
+    }
+
+    private static func removingTrailingIdlePromptBlocks(from text: String) -> String {
+        let lines = replayLines(in: text)
+        var scanIndex = lines.count - 1
+        var cutStart: String.Index?
+
+        while scanIndex >= 0 {
+            var promptLineIndex = scanIndex
+            while promptLineIndex >= 0, isBlankReplayLine(lines[promptLineIndex], in: text) {
+                promptLineIndex -= 1
+            }
+            guard promptLineIndex >= 0,
+                  isIdlePromptInputLine(text[lines[promptLineIndex].contentRange]) else {
+                break
+            }
+
+            var blockStartIndex = promptLineIndex
+            let headerIndex = promptLineIndex - 1
+            if headerIndex >= 0, isPromptHeaderLine(text[lines[headerIndex].contentRange]) {
+                blockStartIndex = headerIndex
+            }
+
+            cutStart = lines[blockStartIndex].fullRange.lowerBound
+            scanIndex = blockStartIndex - 1
+        }
+
+        guard let cutStart else { return text }
+        return String(text[..<cutStart])
+    }
+
+    private static func replayLines(in text: String) -> [ReplayLine] {
+        var lines: [ReplayLine] = []
+        var lineStart = text.startIndex
+        var index = lineStart
+
+        while index < text.endIndex {
+            if text[index].isNewline {
+                let nextLineStart = text.index(after: index)
+                lines.append(
+                    ReplayLine(
+                        fullRange: lineStart..<nextLineStart,
+                        contentRange: lineStart..<index
+                    )
+                )
+                lineStart = nextLineStart
+            }
+            index = text.index(after: index)
+        }
+
+        if lineStart < text.endIndex {
+            lines.append(
+                ReplayLine(
+                    fullRange: lineStart..<text.endIndex,
+                    contentRange: lineStart..<text.endIndex
+                )
+            )
+        }
+
+        return lines
+    }
+
+    private static func isBlankReplayLine(_ line: ReplayLine, in text: String) -> Bool {
+        text[line.contentRange].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func isIdlePromptInputLine(_ line: Substring) -> Bool {
+        let visible = visibleReplayLine(line)
+        guard !visible.isEmpty, visible.count <= 12 else { return false }
+        return !visible.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+    }
+
+    private static func isPromptHeaderLine(_ line: Substring) -> Bool {
+        let raw = String(line)
+        guard raw.contains(ansiEscape) else { return false }
+        return raw.unicodeScalars.contains { scalar in
+            // Powerline and Nerd Font prompt themes use private-use glyphs for
+            // separators/status icons. Treat those two-line headers as replaceable
+            // because the live shell will render a fresh prompt immediately after replay.
+            (0xE000...0xF8FF).contains(scalar.value)
+        }
+    }
+
+    private static func visibleReplayLine(_ line: Substring) -> String {
+        strippedTerminalControls(from: String(line))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func hasVisibleReplayContent(_ text: String) -> Bool {
+        strippedTerminalControls(from: text).contains { !$0.isWhitespace }
+    }
+
+    private static func strippedTerminalControls(from raw: String) -> String {
+        let withoutCSI = raw.replacingOccurrences(
+            of: "\u{001B}\\[[0-?]*[ -/]*[@-~]",
+            with: "",
+            options: .regularExpression
+        )
+        let withoutOSC = withoutCSI.replacingOccurrences(
+            of: "\u{001B}\\][^\u{0007}\u{001B}]*(\u{0007}|\u{001B}\\\\)",
+            with: "",
+            options: .regularExpression
+        )
+        return withoutOSC
     }
 
     /// Preserve ANSI color state safely across replay boundaries.

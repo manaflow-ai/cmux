@@ -4308,7 +4308,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertTrue(output.contains("PRECMD_BODY="), output)
         XCTAssertTrue(output.contains("PREEXEC_BODY="), output)
-        XCTAssertTrue(output.contains("133;A;redraw=last;cl=line"), output)
+        XCTAssertTrue(output.contains("133;A;redraw=1;cl=line"), output)
     }
 
     func testShellIntegrationWinchGuardDoesNotPrintSpacerLineOnResize() throws {

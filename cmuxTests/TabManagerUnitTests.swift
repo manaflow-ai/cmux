@@ -455,6 +455,65 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testCodexSpinnerTerminalTitlesCollapseToStablePanelTitle() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "⠋ cmux-ctrixin"
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "cmux-ctrixin" &&
+                    workspace.title == "cmux-ctrixin"
+            }
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "⠹ cmux-ctrixin"
+            ]
+        )
+
+        drainMainQueue()
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "cmux-ctrixin" &&
+                    workspace.title == "cmux-ctrixin"
+            }
+        )
+
+        workspace.title = "stale title"
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "⠼ cmux-ctrixin"
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "cmux-ctrixin" &&
+                    workspace.title == "cmux-ctrixin"
+            }
+        )
+    }
 }
 
 @MainActor
@@ -790,8 +849,19 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
-        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt.followUp"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
+    }
+
+    func testWorkspacePullRequestRefreshOnlyForcesImmediateForStructuralReasons() {
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshForcesImmediate(reason: "shellPrompt"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshForcesImmediate(reason: "shellPrompt.followUp"))
+
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshForcesImmediate(reason: "branchChange"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshForcesImmediate(reason: "directoryChange"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshForcesImmediate(reason: "localGitProbe"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshForcesImmediate(reason: "commandHint:merge"))
     }
 
     func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {

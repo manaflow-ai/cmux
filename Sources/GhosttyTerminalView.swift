@@ -4536,17 +4536,23 @@ class GhosttyApp {
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
-               let surfaceId = surfaceView.terminalSurface?.id {
+               let terminalSurface = surfaceView.terminalSurface {
+                let surfaceId = terminalSurface.id
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
-                    )
+                    MainActor.assumeIsolated {
+                        guard let publishedTitle = terminalSurface.publishableTerminalTitle(title) else {
+                            return
+                        }
+                        NotificationCenter.default.post(
+                            name: .ghosttyDidSetTitle,
+                            object: surfaceView,
+                            userInfo: [
+                                GhosttyNotificationKey.tabId: tabId,
+                                GhosttyNotificationKey.surfaceId: surfaceId,
+                                GhosttyNotificationKey.title: publishedTitle,
+                            ]
+                        )
+                    }
                 }
             }
             return true
@@ -5192,6 +5198,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
+    private var lastPublishedTerminalTitle: String?
 
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
@@ -5441,7 +5448,41 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+        lastPublishedTerminalTitle = nil
     }
+
+    @MainActor
+    func publishableTerminalTitle(_ title: String) -> String? {
+        let stableTitle = Self.stableTerminalNotificationTitle(title)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stableTitle.isEmpty else { return nil }
+        guard lastPublishedTerminalTitle != stableTitle else { return nil }
+        lastPublishedTerminalTitle = stableTitle
+        return stableTitle
+    }
+
+    private static func stableTerminalNotificationTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first,
+              terminalTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+
+        let afterSpinner = trimmed.index(after: trimmed.startIndex)
+        guard afterSpinner < trimmed.endIndex,
+              trimmed[afterSpinner].isWhitespace else {
+            return title
+        }
+
+        guard let remainderStart = trimmed[afterSpinner...].firstIndex(where: { !$0.isWhitespace }) else {
+            return title
+        }
+        return String(trimmed[remainderStart...])
+    }
+
+    private static let terminalTitleSpinnerCharacters = Set<Character>(
+        "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    )
 
     @MainActor
     private func scheduleHeadlessRuntimeStartIfNeeded(reason: String) {
