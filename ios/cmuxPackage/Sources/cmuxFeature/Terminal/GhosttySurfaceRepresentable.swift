@@ -40,6 +40,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         #if DEBUG
         configureTestingAccessibility(for: view)
         #endif
+        context.coordinator.setActive(activeSurfaceID == surfaceID)
         return view
     }
 
@@ -47,6 +48,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         #if DEBUG
         configureTestingAccessibility(for: uiView)
         #endif
+        context.coordinator.setActive(activeSurfaceID == surfaceID)
         // Runtime bytes flow via the byte sink.
     }
 
@@ -70,6 +72,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        private var isActive = false
+        private var isByteSinkRegistered = false
         #if DEBUG
         private var didRunSoakInputScript = false
         #endif
@@ -85,13 +89,37 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             #if DEBUG
             installSoakInputScriptIfNeeded(surfaceView: surfaceView)
             #endif
+            updateByteSinkRegistration()
+        }
+
+        func setActive(_ active: Bool) {
+            guard isActive != active else { return }
+            isActive = active
+            updateByteSinkRegistration()
+        }
+
+        private func updateByteSinkRegistration() {
+            guard isActive, let surfaceView else {
+                if isByteSinkRegistered {
+                    store?.unregisterTerminalByteSink(surfaceID: surfaceID)
+                    isByteSinkRegistered = false
+                }
+                return
+            }
+            guard !isByteSinkRegistered else { return }
             store?.registerTerminalByteSink(surfaceID: surfaceID) { [weak surfaceView] data in
                 surfaceView?.processOutput(data)
             }
+            isByteSinkRegistered = true
         }
 
         func detach() {
-            store?.unregisterTerminalByteSink(surfaceID: surfaceID)
+            if isByteSinkRegistered {
+                store?.unregisterTerminalByteSink(surfaceID: surfaceID)
+                isByteSinkRegistered = false
+            }
+            isActive = false
+            surfaceView = nil
         }
 
         // MARK: - GhosttySurfaceViewDelegate
