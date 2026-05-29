@@ -751,7 +751,7 @@
       "pythonClient": "Python istemcisi",
       "shellScript": "Shell betiği",
       "buildScriptNotification": "Bildirimli build betiği",
-      "metaTitle": "CLI referansı"
+      "metaTitle": "CLI Referansı"
     },
     "notifications": {
       "title": "Bildirimler",

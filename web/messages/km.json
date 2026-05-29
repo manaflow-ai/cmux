@@ -751,7 +751,7 @@
       "pythonClient": "Python client",
       "shellScript": "Shell script",
       "buildScriptNotification": "Build script ជាមួយជូនដំណឹង",
-      "metaTitle": "ឯកសារ CLI"
+      "metaTitle": "ឯកសារយោង CLI"
     },
     "notifications": {
       "title": "ជូនដំណឹង",

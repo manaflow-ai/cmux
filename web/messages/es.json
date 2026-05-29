@@ -751,7 +751,7 @@
       "pythonClient": "Cliente Python",
       "shellScript": "Script de shell",
       "buildScriptNotification": "Script de compilación con notificación",
-      "metaTitle": "Referencia CLI"
+      "metaTitle": "Referencia de CLI"
     },
     "notifications": {
       "title": "Notificaciones",

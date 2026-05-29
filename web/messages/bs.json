@@ -751,7 +751,7 @@
       "pythonClient": "Python klijent",
       "shellScript": "Shell skripta",
       "buildScriptNotification": "Build skripta sa notifikacijom",
-      "metaTitle": "CLI referenca"
+      "metaTitle": "CLI Referenca"
     },
     "notifications": {
       "title": "Notifikacije",
