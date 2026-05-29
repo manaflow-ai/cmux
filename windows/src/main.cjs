@@ -107,6 +107,10 @@ function buildMenu() {
     {
       label: "Edit",
       submenu: [
+        { label: "Find in Active Terminal", accelerator: "Ctrl+F", click: () => mainWindow?.webContents.send("cmux-command", "terminal.find") },
+        { label: "Find Next in Terminal", accelerator: "F3", click: () => mainWindow?.webContents.send("cmux-command", "terminal.findNext") },
+        { label: "Find Previous in Terminal", accelerator: "Shift+F3", click: () => mainWindow?.webContents.send("cmux-command", "terminal.findPrevious") },
+        { type: "separator" },
         { role: "undo" },
         { role: "redo" },
         { type: "separator" },

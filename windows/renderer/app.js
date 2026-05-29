@@ -18,8 +18,17 @@ const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [i
 const TerminalConstructor = window.Terminal;
 const FitAddonConstructor = window.FitAddon?.FitAddon;
 const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
+const SearchAddonConstructor = window.SearchAddon?.SearchAddon;
 const terminalOutputChunkSize = 32768;
 const terminalOutputPerformanceChunkSize = 16384;
+const terminalSearchDecorations = {
+  matchBackground: "#5f4b1a",
+  activeMatchBackground: "#9d6b20",
+  matchOverviewRuler: "#8f7a35",
+  activeMatchColorOverviewRuler: "#d59a3d",
+  matchBorder: "#9b7a32",
+  activeMatchBorder: "#ffd166"
+};
 const paneLayoutStorageKey = "cmux.paneLayout";
 const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
 const recentFoldersLimit = 8;
@@ -664,6 +673,9 @@ const commands = [
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => createPanel("terminal", "down") },
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
+  { id: "terminal.find", label: "Find in Active Terminal", shortcut: "Ctrl+F", run: () => openTerminalSearch() },
+  { id: "terminal.findNext", label: "Find Next in Terminal", shortcut: "F3", run: () => findNextInTerminal() },
+  { id: "terminal.findPrevious", label: "Find Previous in Terminal", shortcut: "Shift+F3", run: () => findPreviousInTerminal() },
   { id: "terminal.copySelection", label: "Copy Terminal Selection", shortcut: "Ctrl+Shift+C", run: () => copyActiveTerminalSelection() },
   { id: "terminal.pasteClipboard", label: "Paste Clipboard to Terminal", shortcut: "Ctrl+Shift+V", run: () => pasteClipboardToTerminal() },
   { id: "terminal.clear", label: "Clear Active Terminal", shortcut: "Ctrl+K", run: () => clearActiveTerminal() },
@@ -1409,6 +1421,7 @@ function cleanupPanel(panelId) {
     if (terminal.fitFrame) cancelAnimationFrame(terminal.fitFrame);
     closeSocketQuietly(terminal.socket);
     terminal.resizeObserver?.disconnect();
+    terminal.searchResultDisposable?.dispose?.();
     terminal.term?.dispose();
     state.terminals.delete(panelId);
   }
@@ -1456,14 +1469,17 @@ function ensureTerminal(panel, body) {
   });
   const fitAddon = new FitAddonConstructor();
   const webLinksAddon = new WebLinksAddonConstructor();
+  const searchAddon = SearchAddonConstructor ? new SearchAddonConstructor({ highlightLimit: 2000 }) : null;
   term.loadAddon(fitAddon);
   term.loadAddon(webLinksAddon);
+  if (searchAddon) term.loadAddon(searchAddon);
   term.open(host);
 
   const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}/terminal/${panel.id}`);
   const session = {
     term,
     fitAddon,
+    searchAddon,
     socket,
     host,
     queue: "",
@@ -1475,8 +1491,17 @@ function ensureTerminal(panel, body) {
     lastFitRows: 0,
     lastHostWidth: 0,
     lastHostHeight: 0,
-    forceFit: false
+    forceFit: false,
+    searchOverlay: null,
+    searchTerm: "",
+    searchCaseSensitive: false,
+    searchResultDisposable: null
   };
+  session.searchOverlay = createTerminalSearchOverlay(panel, session);
+  if (session.searchOverlay) host.append(session.searchOverlay);
+  session.searchResultDisposable = searchAddon?.onDidChangeResults?.((result) => {
+    updateTerminalSearchStatus(session, result.resultIndex, result.resultCount);
+  });
 
   socket.addEventListener("open", () => scheduleFitTerminal(session, true));
   socket.addEventListener("message", (event) => {
@@ -1500,6 +1525,151 @@ function ensureTerminal(panel, body) {
     if (panel.id === activeWorkspace()?.activePanelId) term.focus();
   }, 60);
   state.terminals.set(panel.id, session);
+}
+
+function createTerminalSearchOverlay(panel, session) {
+  const overlay = document.createElement("div");
+  overlay.className = "terminal-search";
+  overlay.hidden = true;
+  overlay.innerHTML = `
+    <input class="terminal-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Find in terminal">
+    <span class="terminal-search-status"></span>
+    <button class="terminal-search-button terminal-search-prev" type="button" title="Previous match">↑</button>
+    <button class="terminal-search-button terminal-search-next" type="button" title="Next match">↓</button>
+    <button class="terminal-search-button terminal-search-case" type="button" title="Match case">Aa</button>
+    <button class="terminal-search-button terminal-search-close" type="button" title="Close search">×</button>
+  `;
+  const input = overlay.querySelector(".terminal-search-input");
+  const previous = overlay.querySelector(".terminal-search-prev");
+  const next = overlay.querySelector(".terminal-search-next");
+  const matchCase = overlay.querySelector(".terminal-search-case");
+  const close = overlay.querySelector(".terminal-search-close");
+  overlay.addEventListener("pointerdown", (event) => event.stopPropagation());
+  overlay.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("input", () => runTerminalSearch(session, "next", true));
+  input.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTerminalSearch(panel);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runTerminalSearch(session, event.shiftKey ? "previous" : "next");
+    }
+    if (event.key === "F3") {
+      event.preventDefault();
+      runTerminalSearch(session, event.shiftKey ? "previous" : "next");
+    }
+  });
+  previous.onclick = () => runTerminalSearch(session, "previous");
+  next.onclick = () => runTerminalSearch(session, "next");
+  matchCase.onclick = () => {
+    session.searchCaseSensitive = !session.searchCaseSensitive;
+    matchCase.classList.toggle("is-active", session.searchCaseSensitive);
+    runTerminalSearch(session, "next", true);
+  };
+  close.onclick = () => closeTerminalSearch(panel);
+  return overlay;
+}
+
+function terminalSearchInput(session) {
+  return session?.searchOverlay?.querySelector(".terminal-search-input") || null;
+}
+
+function terminalSearchOptions(session, incremental = false) {
+  return {
+    caseSensitive: Boolean(session.searchCaseSensitive),
+    regex: false,
+    wholeWord: false,
+    incremental,
+    decorations: terminalSearchDecorations
+  };
+}
+
+function updateTerminalSearchStatus(session, resultIndex = -1, resultCount = 0) {
+  const status = session?.searchOverlay?.querySelector(".terminal-search-status");
+  if (!status) return;
+  const hasTerm = Boolean(session.searchTerm);
+  const count = Number(resultCount) || 0;
+  status.classList.toggle("is-empty", hasTerm && count === 0);
+  if (!hasTerm) {
+    status.textContent = "";
+  } else if (count === 0) {
+    status.textContent = "No results";
+  } else {
+    status.textContent = `${Math.max(0, Number(resultIndex) || 0) + 1} / ${count}`;
+  }
+}
+
+function runTerminalSearch(session, direction = "next", incremental = false) {
+  if (!session?.searchAddon) return false;
+  const input = terminalSearchInput(session);
+  const term = input?.value || "";
+  session.searchTerm = term;
+  if (!term) {
+    session.searchAddon.clearDecorations?.();
+    updateTerminalSearchStatus(session, -1, 0);
+    return false;
+  }
+  const options = terminalSearchOptions(session, incremental);
+  const found = direction === "previous"
+    ? session.searchAddon.findPrevious(term, options)
+    : session.searchAddon.findNext(term, options);
+  if (!found) updateTerminalSearchStatus(session, -1, 0);
+  return found;
+}
+
+function terminalSearchTarget(panel = activePanel()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) return null;
+  const session = state.terminals.get(terminalPanel.id);
+  return session ? { panel: terminalPanel, session } : null;
+}
+
+function openTerminalSearch(panel = activePanel()) {
+  const target = terminalSearchTarget(panel);
+  if (!target) {
+    toast("Focus a terminal pane first.");
+    return false;
+  }
+  if (!target.session.searchAddon) {
+    toast("Terminal search is unavailable.");
+    return false;
+  }
+  target.session.searchOverlay.hidden = false;
+  target.session.host.classList.add("has-terminal-search");
+  focusPanel(target.panel.id);
+  setTimeout(() => {
+    const input = terminalSearchInput(target.session);
+    input?.focus();
+    input?.select();
+  }, 35);
+  if (target.session.searchTerm) runTerminalSearch(target.session, "next", true);
+  return true;
+}
+
+function closeTerminalSearch(panel = activePanel()) {
+  const target = terminalSearchTarget(panel);
+  if (!target) return false;
+  target.session.searchOverlay.hidden = true;
+  target.session.host.classList.remove("has-terminal-search");
+  target.session.searchAddon?.clearDecorations?.();
+  focusTerminalSession(target.panel.id);
+  return true;
+}
+
+function findNextInTerminal(panel = activePanel()) {
+  const target = terminalSearchTarget(panel);
+  if (!target || target.session.searchOverlay.hidden) return openTerminalSearch(panel);
+  return runTerminalSearch(target.session, "next");
+}
+
+function findPreviousInTerminal(panel = activePanel()) {
+  const target = terminalSearchTarget(panel);
+  if (!target || target.session.searchOverlay.hidden) return openTerminalSearch(panel);
+  return runTerminalSearch(target.session, "previous");
 }
 
 function enqueueTerminalOutput(session, data) {
@@ -2758,6 +2928,8 @@ function showPanelContextMenu(event, panel) {
   actions.append(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    contextMenuButton("Find", () => openTerminalSearch(panel), !isTerminal),
+    contextMenuButton("Find next", () => findNextInTerminal(panel), !isTerminal),
     contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
     contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), !isTerminal),
     contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), !isTerminal),
@@ -2862,6 +3034,8 @@ function showToolbarMenu(event) {
     contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !activeWorkspace()),
     contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
     contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
+    contextMenuButton("Find in terminal", openTerminalSearch, panel?.type !== "terminal"),
+    contextMenuButton("Find next", findNextInTerminal, panel?.type !== "terminal"),
     contextMenuButton("Copy terminal selection", copyActiveTerminalSelection, panel?.type !== "terminal"),
     contextMenuButton("Paste to terminal", pasteClipboardToTerminal, panel?.type !== "terminal"),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
@@ -3958,11 +4132,17 @@ function toast(message) {
 
 function isFormEditableTarget(target) {
   const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+  if (element?.closest(".terminal-search")) return true;
   if (!element || element.closest(".terminal-host")) return false;
   return Boolean(
     element.isContentEditable
     || element.closest("input, textarea, select, [contenteditable='true'], [contenteditable='plaintext-only']")
   );
+}
+
+function consumeGlobalShortcut(event) {
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 function announceNewAttention(previous, next) {
@@ -4044,62 +4224,73 @@ window.addEventListener("keydown", (event) => {
   if (state.activeDialog) return;
   const editingText = isFormEditableTarget(event.target);
   if (event.key === "Escape" && state.contextMenu && !state.contextMenu.hidden) {
+    consumeGlobalShortcut(event);
     hideContextMenu();
-  } else if (!editingText && event.ctrlKey && event.shiftKey && key === "c") {
-    event.preventDefault();
+    return;
+  }
+  if (editingText) return;
+  if (event.ctrlKey && key === "f") {
+    consumeGlobalShortcut(event);
+    openTerminalSearch();
+  } else if (event.key === "F3") {
+    consumeGlobalShortcut(event);
+    if (event.shiftKey) findPreviousInTerminal();
+    else findNextInTerminal();
+  } else if (event.ctrlKey && event.shiftKey && key === "c") {
+    consumeGlobalShortcut(event);
     copyActiveTerminalSelection();
-  } else if (!editingText && event.ctrlKey && event.shiftKey && key === "v") {
-    event.preventDefault();
+  } else if (event.ctrlKey && event.shiftKey && key === "v") {
+    consumeGlobalShortcut(event);
     pasteClipboardToTerminal();
   } else if (event.ctrlKey && event.shiftKey && key === "p") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     state.paletteOpen = !state.paletteOpen;
     renderPalette();
     if (state.paletteOpen) setTimeout(() => elements.paletteInput.focus(), 0);
   } else if (event.ctrlKey && key === "n") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     createWorkspace();
   } else if (event.ctrlKey && event.shiftKey && key === "t") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     reopenClosedPanel();
   } else if (event.ctrlKey && key === "t") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     createPanel("terminal", "right");
   } else if (event.ctrlKey && event.shiftKey && key === "l") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     openBrowserPrompt();
   } else if (event.ctrlKey && key === "i") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     openInspector("notifications");
   } else if (event.ctrlKey && key === "b") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     toggleSidebar();
   } else if (event.ctrlKey && event.key === ",") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     openInspector("settings");
   } else if (event.ctrlKey && key === "k") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     clearActiveTerminal();
   } else if (event.ctrlKey && (event.key === "=" || event.key === "+")) {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     changeTerminalFontSize(1);
   } else if (event.ctrlKey && event.key === "-") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     changeTerminalFontSize(-1);
   } else if (event.ctrlKey && event.shiftKey && key === "r") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     restartActiveTerminal();
   } else if (event.ctrlKey && event.shiftKey && key === "m") {
-    event.preventDefault();
+    consumeGlobalShortcut(event);
     togglePaneZoom();
   } else if (event.ctrlKey && key === "w") {
     const workspace = activeWorkspace();
     if (workspace?.activePanelId) {
-      event.preventDefault();
+      consumeGlobalShortcut(event);
       closePanel(workspace.activePanelId);
     }
   }
-});
+}, true);
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);

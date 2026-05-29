@@ -829,7 +829,8 @@ class CmuxWindowsRuntime {
       "/vendor/xterm.css": path.join(root, "@xterm", "xterm", "css", "xterm.css"),
       "/vendor/xterm.js": path.join(root, "@xterm", "xterm", "lib", "xterm.js"),
       "/vendor/addon-fit.js": path.join(root, "@xterm", "addon-fit", "lib", "addon-fit.js"),
-      "/vendor/addon-web-links.js": path.join(root, "@xterm", "addon-web-links", "lib", "addon-web-links.js")
+      "/vendor/addon-web-links.js": path.join(root, "@xterm", "addon-web-links", "lib", "addon-web-links.js"),
+      "/vendor/addon-search.js": path.join(root, "@xterm", "addon-search", "lib", "addon-search.js")
     };
     return files[pathname];
   }
