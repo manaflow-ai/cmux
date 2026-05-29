@@ -139,6 +139,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
   next.terminalCursorColor = normalizeTerminalColor(next.terminalCursorColor);
   next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
+  next.inspectorWidth = clamp(next.inspectorWidth, 300, 480);
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   next.terminalPadding = clamp(next.terminalPadding, 0, 16);
   return next;
@@ -207,6 +208,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.showAdvanced,
     settings.performanceMode,
     settings.sidebarWidth,
+    settings.inspectorWidth,
     settings.terminalFontFamily,
     settings.terminalPadding
   ].join("\u001f");
@@ -221,6 +223,7 @@ function applySettings() {
   document.documentElement.style.setProperty("--color-accent", state.settings.accent);
   document.documentElement.style.setProperty("--color-accent-hover", state.settings.accent);
   elements.shell.style.setProperty("--sidebar-width", `${state.settings.sidebarWidth}px`);
+  elements.shell.style.setProperty("--inspector-width", `${state.settings.inspectorWidth}px`);
   elements.shell.style.setProperty("--terminal-font-family", terminalFontStack());
   elements.shell.style.setProperty("--terminal-padding", `${state.settings.terminalPadding}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
@@ -1455,6 +1458,19 @@ function renderSettingsInspector() {
       sidebarWidthRow.querySelector(".setting-label").textContent = `Sidebar ${state.settings.sidebarWidth}px`;
     };
     layoutSection.append(sidebarWidthRow);
+    const inspectorWidthRange = document.createElement("input");
+    inspectorWidthRange.className = "setting-control";
+    inspectorWidthRange.type = "range";
+    inspectorWidthRange.min = "300";
+    inspectorWidthRange.max = "480";
+    inspectorWidthRange.step = "4";
+    inspectorWidthRange.value = String(state.settings.inspectorWidth);
+    const inspectorWidthRow = settingRow(`Settings panel ${state.settings.inspectorWidth}px`, inspectorWidthRange, false, "settings inspector right panel width preferences customization");
+    inspectorWidthRange.oninput = () => {
+      updateSettings({ inspectorWidth: Number(inspectorWidthRange.value) });
+      inspectorWidthRow.querySelector(".setting-label").textContent = `Settings panel ${state.settings.inspectorWidth}px`;
+    };
+    layoutSection.append(inspectorWidthRow);
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));

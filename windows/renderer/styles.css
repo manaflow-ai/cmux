@@ -179,11 +179,11 @@ button {
 }
 
 .shell.inspector-open {
-  grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr) 318px;
+  grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr) var(--inspector-width, 360px);
 }
 
 .shell.sidebar-collapsed.inspector-open {
-  grid-template-columns: 0 minmax(0, 1fr) 318px;
+  grid-template-columns: 0 minmax(0, 1fr) var(--inspector-width, 360px);
 }
 
 .shell.hide-tabs .surface-tabs {
