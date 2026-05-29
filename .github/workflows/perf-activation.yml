@@ -9,14 +9,17 @@ on:
         required: false
         default: ""
       runner:
-        description: macOS runner
+        description: macOS runner (auto follows the MACOS_RUNNER_15 repo variable, then warp)
         required: false
-        default: blacksmith-6vcpu-macos-15
+        default: auto
         type: choice
         options:
+          - auto
           - blacksmith-6vcpu-macos-15
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
+          - warp-macos-15-arm64-6x
+          - warp-macos-26-arm64-6x
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -36,7 +39,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -53,7 +56,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -86,8 +94,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-
+          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
 
       - name: Resolve Swift packages
         run: |

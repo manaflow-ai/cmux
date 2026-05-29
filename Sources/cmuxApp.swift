@@ -4973,10 +4973,24 @@ enum TelemetrySettings {
 
 enum CmdClickMarkdownRouteSettings {
     static let key = "openMarkdownInCmuxViewer"
-    static let defaultValue = false
+    static let didChangeNotification = Notification.Name("cmux.cmdClickMarkdownRouteDidChange")
+    static let defaultValue = true
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        defaults.set(enabled, forKey: key)
+        notifyDidChange(notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
     /// Cheap extension check. Safe to call off the main thread before any
@@ -5304,6 +5318,8 @@ struct SettingsView: View {
     @Setting(\.app.renameSelectsExistingName) private var commandPaletteRenameSelectAllOnFocus
     @Setting(\.app.commandPaletteSearchesAllSurfaces) private var commandPaletteSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(AgentConversationForkDefaultSettings.key)
+    private var forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
     @Setting(\.app.workspaceInheritWorkingDirectory) private var workspaceInheritWorkingDirectory
     @Setting(\.app.keepWorkspaceOpenWhenClosingLastSurface) private var closeWorkspaceOnLastSurfaceShortcut
     @Setting(\.app.focusPaneOnFirstClick) private var paneFirstClickFocusEnabled
@@ -5321,6 +5337,10 @@ struct SettingsView: View {
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
     @Setting(\.app.reorderOnNotification) private var workspaceAutoReorder
     @Setting(\.app.iMessageMode) private var iMessageMode
+    // iMessageModeGroupSortSettings.{sortInsideGroupsKey,floatGroupsKey}
+    // exist in UserDefaults but are not surfaced in Settings yet — the
+    // sort path doesn't read them yet. Re-add @AppStorage bindings here
+    // when the sort logic lands.
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
@@ -5389,6 +5409,25 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedForkConversationDefaultDestination: AgentConversationForkDestination {
+        AgentConversationForkDestination(rawValue: forkConversationDefaultDestination) ?? AgentConversationForkDefaultSettings.defaultDestination
+    }
+
+    private var forkConversationDefaultDestinationBinding: Binding<String> {
+        Binding(
+            get: {
+                selectedForkConversationDefaultDestination.rawValue
+            },
+            set: { newValue in
+                guard let destination = AgentConversationForkDestination(rawValue: newValue) else {
+                    forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
+                    return
+                }
+                forkConversationDefaultDestination = destination.rawValue
+            }
+        )
     }
 
     private var workspaceWorkingDirectoryInheritanceSubtitle: String {
@@ -5688,6 +5727,16 @@ struct SettingsView: View {
             set: { newValue in
                 CmdClickSupportedFileRouteSettings.setEnabled(newValue)
                 openSupportedFilesInCmux = newValue
+            }
+        )
+    }
+
+    private var markdownRoutingBinding: Binding<Bool> {
+        Binding(
+            get: { openMarkdownInCmuxViewer },
+            set: { newValue in
+                CmdClickMarkdownRouteSettings.setEnabled(newValue)
+                openMarkdownInCmuxViewer = newValue
             }
         )
     }
@@ -6289,6 +6338,20 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsPickerRow(
+                            configurationReview: .json("app.forkConversationDefaultDestination"),
+                            String(localized: "settings.app.forkConversationDefaultDestination", defaultValue: "Fork Conversation Default"),
+                            subtitle: selectedForkConversationDefaultDestination.settingsDescription,
+                            controlWidth: pickerColumnWidth,
+                            selection: forkConversationDefaultDestinationBinding
+                        ) {
+                            ForEach(AgentConversationForkDestination.allCases) { destination in
+                                Text(destination.settingsTitle).tag(destination.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             configurationReview: .json("app.workspaceInheritWorkingDirectory"),
                             String(
@@ -6424,9 +6487,9 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.openMarkdownInCmuxViewer"),
                             String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
                         ) {
-                            Toggle("", isOn: $openMarkdownInCmuxViewer)
+                            Toggle("", isOn: markdownRoutingBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityLabel(
@@ -7043,6 +7106,15 @@ struct SettingsView: View {
                         SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
                         SettingsCardDivider()
+
+                        // iMessage-mode group sort toggles are deliberately
+                        // not surfaced in Settings yet — the underlying
+                        // reorder path doesn't read
+                        // IMessageModeGroupSortSettings.{sortInsideGroups,
+                        // floatGroups} yet, so flipping the toggles wouldn't
+                        // change behavior. The settings keys ship persisted
+                        // so user-set values survive the upgrade that
+                        // activates the sort.
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
@@ -8119,6 +8191,7 @@ struct SettingsView: View {
         preferredEditorCommand = ""
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
+        CmdClickMarkdownRouteSettings.setEnabled(CmdClickMarkdownRouteSettings.defaultValue)
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
@@ -8161,6 +8234,7 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
         workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
