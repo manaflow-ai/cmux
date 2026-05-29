@@ -544,7 +544,7 @@ function SessionSurface({
               {
                 key: item.id,
                 className:
-                  "provider-dropdown-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+                  "provider-dropdown-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
                 type: "button",
                 role: "menuitem",
                 "data-selected": item.id === state.selectedProviderId ? "true" : undefined,
@@ -1476,7 +1476,7 @@ function PermissionsMenuItem({
   return h(
     "button",
     {
-      className: "permissions-item no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+      className: "permissions-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
       type: "button",
       role: "menuitemradio",
       "aria-checked": isSelected,
@@ -1612,7 +1612,7 @@ function AddContextMenuItem({
     "button",
     {
       className:
-        "add-context-item group no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+        "add-context-item group no-drag hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
       disabled,
       type: "button",
       role: "menuitem",
@@ -1646,7 +1646,7 @@ function AddContextMenuSwitchItem({
     "button",
     {
       className:
-        "add-context-item group no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+        "add-context-item group no-drag hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
       type: "button",
       role: "menuitemcheckbox",
       "aria-checked": checked,
