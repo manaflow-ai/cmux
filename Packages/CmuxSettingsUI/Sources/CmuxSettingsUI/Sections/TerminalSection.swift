@@ -10,19 +10,18 @@ public struct TerminalSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
-
-    @State private var resumeCommands: [String] = []
-    @State private var resumeDraft: String = ""
-    @State private var resumeStreamTask: Task<Void, Never>?
+    private let hostActions: SettingsHostActions?
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
-        catalog: SettingCatalog
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions? = nil
     ) {
         self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
+        self.hostActions = hostActions
     }
 
     public var body: some View {
@@ -31,8 +30,34 @@ public struct TerminalSection: View {
             mainCard
             resumeCommandsCard
         }
-        .task { await observeResumeCommands() }
-        .onDisappear { resumeStreamTask?.cancel() }
+    }
+
+    @ViewBuilder
+    private var resumeCommandsCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("terminal.resumeCommands"),
+                String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"),
+                subtitle: String(
+                    localized: "settings.terminal.resumeCommands.subtitle",
+                    defaultValue: "Review signed command prefixes that can restore non-agent terminal surfaces."
+                ),
+                controlWidth: 170
+            ) {
+                HStack(spacing: 8) {
+                    Text(verbatim: "0")
+                        .font(.caption.monospacedDigit())
+                        .foregroundColor(.secondary)
+                    if let hostActions {
+                        Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                            hostActions.openConfigInExternalEditor()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -63,7 +88,7 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.textBoxMaxLines"),
                 String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
                 subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
-                controlWidth: 220
+                controlWidth: 196
             ) {
                 Stepper(
                     value: Binding(get: { textBoxLines.current }, set: { textBoxLines.set($0) }),
@@ -128,7 +153,6 @@ public struct TerminalSection: View {
                     in: 5...604_800,
                     step: 60
                 )
-                .controlSize(.small)
                 .accessibilityIdentifier("SettingsTerminalAgentHibernationIdleSecondsStepper")
             }
             SettingsCardDivider()
@@ -144,65 +168,9 @@ public struct TerminalSection: View {
                     in: 1...256,
                     step: 1
                 )
-                .controlSize(.small)
                 .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
             }
         }
     }
 
-    @ViewBuilder
-    private var resumeCommandsCard: some View {
-        SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("terminal.resumeCommands"),
-                String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"),
-                subtitle: String(localized: "settings.terminal.resumeCommands.subtitle", defaultValue: "Newline-delimited commands cmux runs when a terminal resumes. Persisted in cmux.json so the same list applies to every workspace.")
-            ) {
-                EmptyView()
-            }
-            SettingsCardDivider()
-            VStack(alignment: .leading, spacing: 6) {
-                TextEditor(text: $resumeDraft)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 90, maxHeight: 160)
-                    .border(Color(nsColor: .separatorColor))
-                HStack {
-                    Spacer()
-                    Button(String(localized: "settings.terminal.resumeCommands.apply", defaultValue: "Apply")) {
-                        commitResumeDraft()
-                    }
-                    .disabled(resumeDraft == resumeCommands.joined(separator: "\n"))
-                    .controlSize(.small)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-        }
-    }
-
-    private func observeResumeCommands() async {
-        resumeStreamTask?.cancel()
-        let task = Task {
-            for await commands in jsonStore.values(for: catalog.terminal.resumeCommands) {
-                if Task.isCancelled { break }
-                if commands != resumeCommands {
-                    resumeCommands = commands
-                    let joined = commands.joined(separator: "\n")
-                    if resumeDraft != joined { resumeDraft = joined }
-                }
-            }
-        }
-        resumeStreamTask = task
-        await task.value
-    }
-
-    private func commitResumeDraft() {
-        let updated = resumeDraft
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        Task {
-            try? await jsonStore.set(updated, for: catalog.terminal.resumeCommands)
-        }
-    }
 }

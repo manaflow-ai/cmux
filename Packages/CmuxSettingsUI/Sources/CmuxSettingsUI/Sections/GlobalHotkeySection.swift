@@ -2,16 +2,36 @@ import CmuxSettings
 import SwiftUI
 
 /// **Global Hotkey** section — mirrors the legacy in-app section:
-/// one card with an Enable toggle and a chord recorder, followed by
-/// a card note.
+/// one card with an Enable toggle and the system-wide chord recorder,
+/// followed by a card note explaining macOS permissions.
+///
+/// The recorder reads and writes the same JSON-backed shortcut binding
+/// the legacy app uses — `shortcuts.bindings["showHideAllWindows"]` —
+/// so keystrokes persist immediately and round-trip with the rest of
+/// the Keyboard Shortcuts section.
 @MainActor
 public struct GlobalHotkeySection: View {
     private let defaultsStore: UserDefaultsSettingsStore
+    private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
+    private let errorLog: SettingsErrorLog?
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    @State private var bindings: [String: StoredShortcut] = [:]
+    @State private var bindingsTask: Task<Void, Never>?
+    @State private var restoreShortcut: StoredShortcut?
+
+    private let hotkeyAction: ShortcutAction = .showHideAllWindows
+
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog? = nil
+    ) {
         self.defaultsStore = defaultsStore
+        self.jsonStore = jsonStore
         self.catalog = catalog
+        self.errorLog = errorLog
     }
 
     public var body: some View {
@@ -24,6 +44,8 @@ public struct GlobalHotkeySection: View {
             )
             .accessibilityIdentifier("SettingsGlobalHotkeyNote")
         }
+        .task { await streamBindings() }
+        .onDisappear { bindingsTask?.cancel() }
     }
 
     @ViewBuilder
@@ -34,8 +56,8 @@ public struct GlobalHotkeySection: View {
                 configurationReview: .settingsOnly,
                 String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
                 subtitle: enabled.current
-                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "The configured chord toggles cmux visibility from any application.")
-                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "The chord below is recorded but inactive until you enable it here.")
+                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide all cmux windows.")
+                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "Turn this on to show or hide all cmux windows from any app.")
             ) {
                 Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                     .labelsHidden()
@@ -49,18 +71,105 @@ public struct GlobalHotkeySection: View {
 
     @ViewBuilder
     private var recorderRow: some View {
+        let effective = currentShortcut
+        let isUnbound = effective?.isUnbound ?? true
+        let canRestore = isUnbound && restoreShortcut != nil
         VStack(alignment: .leading, spacing: 4) {
-            Text(String(localized: "settings.globalHotkey.recorder.label", defaultValue: "Hotkey"))
-                .font(.system(size: 13, weight: .medium))
-            ShortcutRecorderView(placeholder: String(localized: "settings.globalHotkey.recorder.placeholder", defaultValue: "Click and press a shortcut")) { _ in
-                // The chord is configured in Keyboard Shortcuts → Toggle cmux;
-                // this recorder is wired as a convenience but routes through
-                // the same JSON-backed shortcuts dictionary.
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"))
+                }
+                Spacer()
+                ShortcutRecorderView(
+                    placeholder: placeholderText(for: effective)
+                ) { stroke in
+                    Task { await assign(stroke: stroke) }
+                }
+                .frame(width: 160)
+                .accessibilityIdentifier("SettingsGlobalHotkeyRecorder")
+
+                Button {
+                    if canRestore, let restore = restoreShortcut {
+                        Task { await write(updating: restore) }
+                        restoreShortcut = nil
+                    } else if let effective, !effective.isUnbound {
+                        restoreShortcut = effective
+                        Task { await write(updating: .unbound) }
+                    }
+                } label: {
+                    Image(systemName: canRestore ? "arrow.counterclockwise.circle.fill" : "xmark.circle.fill")
+                        .imageScale(.medium)
+                }
+                .buttonStyle(.borderless)
+                .disabled(isUnbound && !canRestore)
+                .help(
+                    canRestore
+                        ? String(localized: "shortcut.recorder.restore.help", defaultValue: "Restore previous shortcut")
+                        : String(localized: "shortcut.recorder.clear.help", defaultValue: "Unbind shortcut")
+                )
+                .accessibilityLabel(
+                    canRestore
+                        ? String(localized: "shortcut.recorder.restore", defaultValue: "Restore")
+                        : String(localized: "shortcut.recorder.clear", defaultValue: "Unbind")
+                )
+                .accessibilityIdentifier("ShortcutRecorderClearRestoreButton")
             }
-            .frame(width: 200, height: 26)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .accessibilityIdentifier("SettingsGlobalHotkeyRecorder")
+    }
+
+    private func write(updating shortcut: StoredShortcut) async {
+        var updated = bindings
+        updated[hotkeyAction.rawValue] = shortcut
+        await write(updated)
+    }
+
+    private var currentShortcut: StoredShortcut? {
+        if let override = bindings[hotkeyAction.rawValue] { return override }
+        return hotkeyAction.defaultStroke.map { StoredShortcut(first: $0) }
+    }
+
+    private func placeholderText(for shortcut: StoredShortcut?) -> String {
+        guard let shortcut, !shortcut.isUnbound else {
+            return String(localized: "settings.globalHotkey.recorder.placeholder", defaultValue: "Click and press a shortcut")
+        }
+        return format(shortcut)
+    }
+
+    private func format(_ shortcut: StoredShortcut) -> String {
+        var parts: [String] = []
+        if shortcut.first.control { parts.append("⌃") }
+        if shortcut.first.option { parts.append("⌥") }
+        if shortcut.first.shift { parts.append("⇧") }
+        if shortcut.first.command { parts.append("⌘") }
+        parts.append(shortcut.first.key.uppercased())
+        return parts.joined()
+    }
+
+    private func streamBindings() async {
+        bindingsTask?.cancel()
+        let task = Task {
+            for await dictionary in jsonStore.values(for: catalog.shortcuts.bindings) {
+                if Task.isCancelled { break }
+                bindings = dictionary
+            }
+        }
+        bindingsTask = task
+        await task.value
+    }
+
+    private func assign(stroke: ShortcutStroke) async {
+        var updated = bindings
+        updated[hotkeyAction.rawValue] = StoredShortcut(first: stroke)
+        await write(updated)
+    }
+
+    private func write(_ updated: [String: StoredShortcut]) async {
+        do {
+            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+        } catch {
+            errorLog?.record(error, keyID: catalog.shortcuts.bindings.id)
+        }
     }
 }

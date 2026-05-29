@@ -64,4 +64,9 @@ final class HostSettingsActions: SettingsHostActions {
     func previewNotificationSound() {
         NSSound(named: NSSound.Name("Glass"))?.play()
     }
+
+    func browserHistoryEntryCount() -> Int? {
+        guard BrowserHistoryStore.shared.isLoaded else { return nil }
+        return BrowserHistoryStore.shared.entries.count
+    }
 }

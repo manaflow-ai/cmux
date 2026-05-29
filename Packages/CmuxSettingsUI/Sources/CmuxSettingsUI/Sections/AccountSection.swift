@@ -2,10 +2,10 @@ import CmuxSettings
 import SwiftUI
 
 /// **Account** section — mirrors the legacy in-app section: a single
-/// `SettingsCard` containing the identity row (avatar + display name
-/// or email + Sign In / Sign Out button). The integration toggles
-/// (Claude Code, Cursor, Gemini, ripgrep, subagent suppression) live
-/// under **Automation** to match legacy ordering.
+/// `SettingsCard` containing the identity row (primary email title +
+/// display name subtitle + Sign In / Sign Out button, no avatar). The
+/// integration toggles (Claude Code, Cursor, Gemini, ripgrep, subagent
+/// suppression) live under **Automation** to match legacy ordering.
 @MainActor
 public struct AccountSection: View {
     private let defaultsStore: UserDefaultsSettingsStore
@@ -26,10 +26,7 @@ public struct AccountSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.account", defaultValue: "Account"))
             SettingsCard {
-                AccountIdentityCard(
-                    flow: accountFlow,
-                    piiModel: DefaultsValueModel(store: defaultsStore, key: catalog.account.piiDisplayMode)
-                )
+                AccountIdentityCard(flow: accountFlow)
             }
         }
     }

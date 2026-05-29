@@ -97,12 +97,12 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("sidebar.branchVerticalLayout"),
+                configurationReview: .json("sidebar.branchLayout"),
                 String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
                 subtitle: branchVerticalLayout.current
                     ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
                     : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
-                controlWidth: 220
+                controlWidth: 196
             ) {
                 Picker("", selection: Binding(get: { branchVerticalLayout.current }, set: { branchVerticalLayout.set($0) })) {
                     Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)

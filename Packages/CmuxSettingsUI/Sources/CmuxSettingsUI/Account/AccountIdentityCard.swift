@@ -1,121 +1,79 @@
 import CmuxSettings
 import SwiftUI
 
-/// Compact identity card rendered at the top of the Account section.
+/// Identity row rendered at the top of the Account section.
 ///
-/// Pulls the current user from the supplied ``AccountFlow``. Hides
-/// PII (display name + email) when ``piiModel`` resolves to
-/// ``PIIDisplayMode/hidden`` — typical when the user is recording a
-/// screen for support. The card still renders the avatar so the user
-/// can confirm they are signed into the right identity.
+/// Mirrors the legacy in-app `AuthSettingsRow`: a primary email title
+/// (13pt medium), a display-name subtitle (11pt secondary), an
+/// optional inline `ProgressView` while auth is in flight, and a
+/// trailing Sign In / Sign Out button. No avatar, no redaction —
+/// matches the legacy layout exactly.
 @MainActor
 struct AccountIdentityCard: View {
     let flow: AccountFlow?
-    @State var piiModel: DefaultsValueModel<PIIDisplayMode>
 
-    init(flow: AccountFlow?, piiModel: DefaultsValueModel<PIIDisplayMode>) {
+    init(flow: AccountFlow?) {
         self.flow = flow
-        _piiModel = State(initialValue: piiModel)
     }
 
     var body: some View {
-        if let flow {
-            HStack(spacing: 12) {
-                avatar(for: flow)
-                identityLines(for: flow)
-                Spacer()
-                actionsCluster(for: flow)
-            }
-        } else {
-            HStack(spacing: 12) {
-                avatarPlaceholder
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
-                        .font(.headline)
-                    Text(String(localized: "settings.account.signedOut.subtitle", defaultValue: "Sign in with your cmux account to enable sync across devices."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func avatar(for flow: AccountFlow) -> some View {
-        if let url = flow.currentIdentity?.avatarURL {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty: avatarPlaceholder
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 44, height: 44)
-                        .clipShape(Circle())
-                case .failure: avatarPlaceholder
-                @unknown default: avatarPlaceholder
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(titleText)
+                    .font(.system(size: 13, weight: .medium))
+                if let subtitle = subtitleText {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
                 }
             }
-        } else {
-            avatarPlaceholder
-        }
-    }
-
-    private var avatarPlaceholder: some View {
-        Image(systemName: "person.crop.circle.fill")
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 44, height: 44)
-            .foregroundStyle(.secondary)
-    }
-
-    @ViewBuilder
-    private func identityLines(for flow: AccountFlow) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let identity = flow.currentIdentity {
-                Text(redact(identity.displayName.isEmpty ? identity.email : identity.displayName))
-                    .font(.headline)
-                Text(redact(identity.email))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
-                    .font(.headline)
-                Text(String(localized: "settings.account.signedOut.subtitle", defaultValue: "Sign in with your cmux account to enable sync across devices."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            if flow?.isWorkingOnAuth == true {
+                ProgressView().controlSize(.small)
             }
+            Button(action: buttonAction) {
+                Text(buttonTitle)
+            }
+            .controlSize(.small)
+            .disabled(flow?.isWorkingOnAuth == true)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    @ViewBuilder
-    private func actionsCluster(for flow: AccountFlow) -> some View {
-        if flow.isWorkingOnAuth {
-            ProgressView()
-                .controlSize(.small)
+    private var titleText: String {
+        if let identity = flow?.currentIdentity {
+            if !identity.email.isEmpty {
+                return identity.email
+            }
+            return String(localized: "settings.account.signedIn.title", defaultValue: "Signed in")
         }
+        return String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in")
+    }
+
+    private var subtitleText: String? {
+        if let identity = flow?.currentIdentity {
+            // Legacy AuthSettingsRow returns authManager.currentUser?.displayName
+            // directly. Pass the raw value through (including empty strings) so
+            // the row shape matches when displayName is set to "".
+            return identity.displayName
+        }
+        return String(localized: "settings.account.signedOut.subtitle", defaultValue: "Sign in with your cmux account to enable sync across devices.")
+    }
+
+    private var buttonTitle: String {
+        if flow?.currentIdentity != nil {
+            return String(localized: "settings.account.signOut", defaultValue: "Sign Out")
+        }
+        return String(localized: "settings.account.signIn", defaultValue: "Sign In…")
+    }
+
+    private func buttonAction() {
+        guard let flow else { return }
         if flow.currentIdentity != nil {
-            Button(String(localized: "settings.account.signOut", defaultValue: "Sign Out"), role: .destructive) {
-                Task { await flow.signOut() }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(flow.isWorkingOnAuth)
+            Task { await flow.signOut() }
         } else {
-            Button(String(localized: "settings.account.signIn", defaultValue: "Sign In…")) {
-                flow.startSignIn()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(flow.isWorkingOnAuth)
-        }
-    }
-
-    private func redact(_ value: String) -> String {
-        switch piiModel.current {
-        case .visible: return value
-        case .hidden: return value.isEmpty ? value : "••••••••"
+            flow.startSignIn()
         }
     }
 }

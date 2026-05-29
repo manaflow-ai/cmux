@@ -19,6 +19,7 @@ public struct BrowserSection: View {
 
     @State private var confirmClearHistory: Bool = false
     @State private var httpAllowlistDraft: String = ""
+    @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
 
     public init(
@@ -33,7 +34,7 @@ public struct BrowserSection: View {
         self.importAnchorID = importAnchorID
     }
 
-    private static let columnWidth: CGFloat = 240
+    private static let columnWidth: CGFloat = 196
 
     public var body: some View {
         Group {
@@ -78,15 +79,16 @@ public struct BrowserSection: View {
         SettingsCard {
             // Enable cmux Browser
             SettingsCardRow(
-                configurationReview: .json("browser.disabled"),
+                configurationReview: .settingsOnly,
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
                 subtitle: !disabled.current
-                    ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "The cmux browser is available alongside the system browser.")
-                    : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Disabled. Web URLs route to your system default browser.")
+                    ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
+                    : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
             ) {
                 Toggle("", isOn: Binding(get: { !disabled.current }, set: { disabled.set(!$0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    .accessibilityIdentifier("BrowserEnabledToggle")
             }
             SettingsCardDivider()
 
@@ -150,9 +152,9 @@ public struct BrowserSection: View {
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
-                    Text(String(localized: "settings.browser.theme.system", defaultValue: "System")).tag(BrowserThemeMode.system)
-                    Text(String(localized: "settings.browser.theme.light", defaultValue: "Light")).tag(BrowserThemeMode.light)
-                    Text(String(localized: "settings.browser.theme.dark", defaultValue: "Dark")).tag(BrowserThemeMode.dark)
+                    ForEach(BrowserThemeMode.allCases, id: \.self) { mode in
+                        Text(themeDisplayName(mode)).tag(mode)
+                    }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
@@ -164,8 +166,8 @@ public struct BrowserSection: View {
                 configurationReview: .json("browser.discardHiddenWebViews"),
                 String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
                 subtitle: discardEnabled.current
-                    ? String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden tabs unload after the delay to save memory.")
-                    : String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden tabs stay loaded.")
+                    ? String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release page memory after the delay below, then restore when shown again.")
+                    : String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep page memory until closed.")
             ) {
                 Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
                     .labelsHidden()
@@ -178,18 +180,18 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.hiddenWebViewDiscardDelaySeconds"),
                 String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
-                subtitle: String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a tab can be hidden before it is unloaded."),
+                subtitle: String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped."),
                 controlWidth: Self.columnWidth
             ) {
                 HStack(spacing: 8) {
-                    Text("\(Int(discardDelay.current))s")
+                    Text(formatDiscardDelay(discardDelay.current))
                         .font(.system(.body, design: .monospaced))
                         .monospacedDigit()
                         .frame(width: 56, alignment: .trailing)
                     Stepper(
                         "",
                         value: Binding(get: { discardDelay.current }, set: { discardDelay.set($0) }),
-                        in: 5...3_600,
+                        in: 0...3_600,
                         step: 30
                     )
                     .labelsHidden()
@@ -249,14 +251,12 @@ public struct BrowserSection: View {
             // Import Browser Data subsection — tagged with the
             // browserImport anchor id so sidebar deeplinks for that
             // navigation target scroll the user to this inline block.
-            if let hostActions {
-                importBrowserDataBlock(
-                    importHintModel: importHint,
-                    onImport: { hostActions.openBrowserImportFlow() }
-                )
-                .id(importAnchorID ?? "section:browserImport.inline")
-                SettingsCardDivider()
-            }
+            importBrowserDataBlock(
+                importHintModel: importHint,
+                onImport: { hostActions?.openBrowserImportFlow() }
+            )
+            .id(importAnchorID ?? "section:browserImport.inline")
+            SettingsCardDivider()
 
             // React Grab Version
             SettingsCardRow(
@@ -271,21 +271,23 @@ public struct BrowserSection: View {
                     .accessibilityIdentifier("SettingsReactGrabVersionField")
             }
 
-            // Browsing History
-            if let hostActions {
-                SettingsCardDivider()
-                SettingsCardRow(
-                    configurationReview: .action,
-                    String(localized: "settings.browser.history", defaultValue: "Browsing History"),
-                    subtitle: String(localized: "settings.browser.history.subtitle", defaultValue: "Clear visited-page suggestions from the browser omnibar.")
-                ) {
-                    Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
-                        _ = hostActions
-                        confirmClearHistory = true
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+            // Browsing History — legacy renders this row unconditionally.
+            // When the host has no history store wired in, the count is
+            // nil so the subtitle falls back to the generic instruction
+            // and the Clear button is disabled.
+            let historyCount = hostActions?.browserHistoryEntryCount()
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.browser.history", defaultValue: "Browsing History"),
+                subtitle: historySubtitle(count: historyCount)
+            ) {
+                Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
+                    confirmClearHistory = true
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(hostActions == nil || historyCount == 0)
             }
         }
     }
@@ -333,19 +335,38 @@ public struct BrowserSection: View {
                         .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                 )
                 .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
-            HStack {
-                Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
-                    model.set(httpAllowlistDraft)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
+                        model.set(httpAllowlistDraft)
+                        httpAllowlistSyncedValue = httpAllowlistDraft
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(httpAllowlistDraft == model.current)
+                    .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(httpAllowlistDraft == model.current)
-                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
+                            model.set(httpAllowlistDraft)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(httpAllowlistDraft == model.current)
+                        .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                    }
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -353,14 +374,25 @@ public struct BrowserSection: View {
         .task {
             if !httpAllowlistLoaded {
                 httpAllowlistDraft = model.current
+                httpAllowlistSyncedValue = model.current
                 httpAllowlistLoaded = true
             }
         }
         .onChange(of: model.current) { _, newValue in
-            if httpAllowlistDraft == "" || !httpAllowlistLoaded {
+            // Mirrors SettingsDraftState.syncBrowserInsecureHTTPAllowlistFromSavedValue:
+            // only refresh the draft when the user hasn't edited it
+            // since the last sync. Otherwise keep their in-progress
+            // edits intact across external store updates.
+            if !httpAllowlistLoaded {
                 httpAllowlistDraft = newValue
+                httpAllowlistSyncedValue = newValue
                 httpAllowlistLoaded = true
+                return
             }
+            if httpAllowlistDraft == httpAllowlistSyncedValue {
+                httpAllowlistDraft = newValue
+            }
+            httpAllowlistSyncedValue = newValue
         }
     }
 
@@ -377,9 +409,11 @@ public struct BrowserSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("SettingsBrowserImportSummary")
                     Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -398,48 +432,101 @@ public struct BrowserSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsBrowserImportChooseButton")
+                Button(String(localized: "settings.browser.import.refresh", defaultValue: "Refresh")) {}
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(true)
             }
+            .accessibilityIdentifier("SettingsBrowserImportActions")
             Toggle(
                 String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
                 isOn: Binding(get: { importHintModel.current }, set: { importHintModel.set($0) })
             )
             .controlSize(.small)
             .accessibilityIdentifier("SettingsBrowserImportHintToggle")
+            Text(String(localized: "settings.browser.import.hint.settingsNote", defaultValue: "Shown until you import or dismiss it on a blank tab."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .accessibilityIdentifier("SettingsBrowserImportSection")
     }
 
     private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {
+        if mode == .system {
+            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
+        }
+        let name = themeDisplayName(mode)
+        return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
+    }
+
+    private func themeDisplayName(_ mode: BrowserThemeMode) -> String {
         switch mode {
         case .system:
-            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
+            return String(localized: "theme.system", defaultValue: "System")
         case .light:
-            return String(localized: "settings.browser.theme.subtitleLight", defaultValue: "Light forces that color scheme for compatible pages.")
+            return String(localized: "theme.light", defaultValue: "Light")
         case .dark:
-            return String(localized: "settings.browser.theme.subtitleDark", defaultValue: "Dark forces that color scheme for compatible pages.")
+            return String(localized: "theme.dark", defaultValue: "Dark")
         }
     }
 
     private func searchEngineLabel(_ engine: BrowserSearchEngine) -> String {
         switch engine {
-        case .google: return "Google"
-        case .duckduckgo: return "DuckDuckGo"
-        case .bing: return "Bing"
-        case .kagi: return "Kagi"
-        case .startpage: return "Startpage"
-        case .brave: return "Brave"
-        case .perplexity: return "Perplexity"
-        case .exa: return "Exa"
-        case .yahoo: return "Yahoo"
-        case .ecosia: return "Ecosia"
-        case .qwant: return "Qwant"
-        case .mojeek: return "Mojeek"
-        case .wikipedia: return "Wikipedia"
-        case .github: return "GitHub"
-        case .baidu: return "Baidu"
-        case .yandex: return "Yandex"
+        case .google: return String(localized: "settings.browser.searchEngine.google", defaultValue: "Google")
+        case .duckduckgo: return String(localized: "settings.browser.searchEngine.duckduckgo", defaultValue: "DuckDuckGo")
+        case .bing: return String(localized: "settings.browser.searchEngine.bing", defaultValue: "Bing")
+        case .kagi: return String(localized: "settings.browser.searchEngine.kagi", defaultValue: "Kagi")
+        case .startpage: return String(localized: "settings.browser.searchEngine.startpage", defaultValue: "Startpage")
+        case .brave: return String(localized: "settings.browser.searchEngine.brave", defaultValue: "Brave Search")
+        case .perplexity: return String(localized: "settings.browser.searchEngine.perplexity", defaultValue: "Perplexity")
+        case .exa: return String(localized: "settings.browser.searchEngine.exa", defaultValue: "Exa")
+        case .yahoo: return String(localized: "settings.browser.searchEngine.yahoo", defaultValue: "Yahoo")
+        case .ecosia: return String(localized: "settings.browser.searchEngine.ecosia", defaultValue: "Ecosia")
+        case .qwant: return String(localized: "settings.browser.searchEngine.qwant", defaultValue: "Qwant")
+        case .mojeek: return String(localized: "settings.browser.searchEngine.mojeek", defaultValue: "Mojeek")
+        case .wikipedia: return String(localized: "settings.browser.searchEngine.wikipedia", defaultValue: "Wikipedia")
+        case .github: return String(localized: "settings.browser.searchEngine.github", defaultValue: "GitHub")
+        case .baidu: return String(localized: "settings.browser.searchEngine.baidu", defaultValue: "Baidu")
+        case .yandex: return String(localized: "settings.browser.searchEngine.yandex", defaultValue: "Yandex")
         case .custom: return String(localized: "settings.browser.searchEngine.custom", defaultValue: "Custom")
         }
+    }
+
+    /// Builds the Browsing History row subtitle, matching the legacy
+    /// `browserHistorySubtitle`: dynamic phrasing when the count is
+    /// known, a generic instruction otherwise.
+    private func historySubtitle(count: Int?) -> String {
+        switch count {
+        case .none:
+            return String(localized: "settings.browser.history.subtitle", defaultValue: "Clear visited-page suggestions from the browser omnibar.")
+        case .some(0):
+            return String(localized: "settings.browser.history.subtitleNone", defaultValue: "No saved pages yet.")
+        case .some(1):
+            return String(localized: "settings.browser.history.subtitleOne", defaultValue: "1 saved page appears in omnibar suggestions.")
+        case .some(let n):
+            return String(localized: "settings.browser.history.subtitleMany", defaultValue: "\(n) saved pages appear in omnibar suggestions.")
+        }
+    }
+
+    /// Formats the Memory Saver Delay value as `Xm Ys` (or `Ys`) so
+    /// the stepper readout reads naturally for delays measured in
+    /// minutes. Matches the legacy
+    /// `browserHiddenWebViewDiscardDelayLabel` formatter, including
+    /// the localized format strings.
+    private func formatDiscardDelay(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        if total < 60 {
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "%llds")
+            return String.localizedStringWithFormat(format, Int64(total))
+        }
+        if total % 60 == 0 {
+            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutes", defaultValue: "%lldm")
+            return String.localizedStringWithFormat(format, Int64(total / 60))
+        }
+        let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "%lldm %llds")
+        return String.localizedStringWithFormat(format, Int64(total / 60), Int64(total % 60))
     }
 }

@@ -7,13 +7,16 @@ struct AccountTeamPicker: View {
     let flow: AccountFlow
 
     var body: some View {
-        Picker("Active Team", selection: Binding(
-            get: { flow.selectedTeamID ?? "" },
-            set: { newValue in
-                flow.selectedTeamID = newValue.isEmpty ? nil : newValue
-            }
-        )) {
-            Text("None").tag("")
+        Picker(
+            String(localized: "settings.account.activeTeam", defaultValue: "Active Team"),
+            selection: Binding(
+                get: { flow.selectedTeamID ?? "" },
+                set: { newValue in
+                    flow.selectedTeamID = newValue.isEmpty ? nil : newValue
+                }
+            )
+        ) {
+            Text(String(localized: "settings.account.activeTeam.none", defaultValue: "None")).tag("")
             ForEach(flow.availableTeams) { team in
                 Text(team.displayName).tag(team.id)
             }

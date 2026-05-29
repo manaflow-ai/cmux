@@ -13,10 +13,29 @@ public struct WorkspaceColorsSection: View {
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog?
 
-    @State private var paletteOverrides: [String: String] = [:]
-    @State private var customColors: [String] = []
-    @State private var overridesTask: Task<Void, Never>?
-    @State private var customColorsTask: Task<Void, Never>?
+    /// Built-in palette order and default hexes. Mirrors
+    /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
+    /// Kept in this file so the section can render the full effective
+    /// palette (built-ins + customs) with `Base:` subtitles and Remove
+    /// gating without reaching outside the package.
+    private static let builtInPalette: [(name: String, hex: String)] = [
+        ("Red", "#C0392B"),
+        ("Crimson", "#922B21"),
+        ("Orange", "#A04000"),
+        ("Amber", "#7D6608"),
+        ("Olive", "#4A5C18"),
+        ("Green", "#196F3D"),
+        ("Teal", "#006B6B"),
+        ("Aqua", "#0E6B8C"),
+        ("Blue", "#1565C0"),
+        ("Navy", "#1A5276"),
+        ("Indigo", "#283593"),
+        ("Purple", "#6A1B9A"),
+        ("Magenta", "#AD1457"),
+        ("Rose", "#880E4F"),
+        ("Brown", "#7B3F00"),
+        ("Charcoal", "#3E4B5E"),
+    ]
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -35,12 +54,6 @@ public struct WorkspaceColorsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
             mainCard
         }
-        .task { await observeOverrides() }
-        .task { await observeCustomColors() }
-        .onDisappear {
-            overridesTask?.cancel()
-            customColorsTask?.cancel()
-        }
     }
 
     @ViewBuilder
@@ -48,12 +61,13 @@ public struct WorkspaceColorsSection: View {
         let indicator = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle)
         let selectionHex = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex)
         let badgeHex = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex)
+        let paletteModel = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette)
 
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("workspaceColors.indicatorStyle"),
                 String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
-                controlWidth: 220
+                controlWidth: 196
             ) {
                 Picker("", selection: Binding(get: { indicator.current }, set: { indicator.set($0) })) {
                     ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
@@ -86,15 +100,15 @@ public struct WorkspaceColorsSection: View {
                 String(localized: "settings.workspaceColors.dictionaryNote", defaultValue: "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries.")
             )
 
-            if paletteOverrides.isEmpty && customColors.isEmpty {
+            let entries = effectivePaletteEntries(overrides: paletteModel.current)
+            if entries.isEmpty {
                 SettingsCardNote(
                     String(localized: "settings.workspaceColors.emptyPalette", defaultValue: "No palette entries. Add colors in cmux.json or use \"Choose Custom Color...\" from a workspace context menu.")
                 )
             } else {
-                let names = (Array(paletteOverrides.keys) + customColors.indices.map { "Custom \($0 + 1)" }).sorted()
-                ForEach(Array(names.enumerated()), id: \.element) { index, name in
+                ForEach(Array(entries.enumerated()), id: \.element.name) { index, entry in
                     if index > 0 { SettingsCardDivider() }
-                    paletteEntryRow(name: name)
+                    paletteEntryRow(entry: entry, paletteModel: paletteModel)
                 }
             }
 
@@ -106,7 +120,7 @@ public struct WorkspaceColorsSection: View {
                 subtitle: String(localized: "settings.workspaceColors.resetPalette.subtitleV2", defaultValue: "Restore the built-in palette and remove extra named colors.")
             ) {
                 Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
-                    resetPalette()
+                    paletteModel.reset()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -129,7 +143,7 @@ public struct WorkspaceColorsSection: View {
                         .controlSize(.small)
                 }
                 ColorPicker("", selection: Binding(
-                    get: { colorFromHex(model.current) ?? .accentColor },
+                    get: { colorFromHex(model.current) ?? Self.cmuxAccentColor() },
                     set: { newColor in model.set(hexFromColor(newColor)) }
                 ), supportsOpacity: false)
                 .labelsHidden()
@@ -143,88 +157,96 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func paletteEntryRow(name: String) -> some View {
-        let hex = paletteOverrides[name] ?? "#000000"
+    private func paletteEntryRow(
+        entry: (name: String, hex: String),
+        paletteModel: DefaultsValueModel<[String: String]>
+    ) -> some View {
+        let baseHex = baseHex(for: entry.name)
+        let subtitle: String = {
+            if let baseHex {
+                return String(localized: "settings.workspaceColors.base", defaultValue: "Base: \(baseHex)")
+            }
+            return String(localized: "settings.workspaceColors.customEntry", defaultValue: "Named palette entry.")
+        }()
         SettingsCardRow(
             configurationReview: .json("workspaceColors.colors"),
-            name,
-            subtitle: String(localized: "settings.workspaceColors.customEntry", defaultValue: "Named palette entry.")
+            entry.name,
+            subtitle: subtitle
         ) {
             HStack(spacing: 8) {
                 ColorPicker("", selection: Binding(
-                    get: { colorFromHex(hex) ?? .gray },
+                    get: { colorFromHex(entry.hex) ?? Color(nsColor: .systemBlue) },
                     set: { newColor in
-                        paletteOverrides[name] = hexFromColor(newColor)
-                        persistOverrides()
+                        // Legacy semantics: persist the full effective
+                        // palette (built-ins filled in at their default
+                        // hex when missing) so editing one entry never
+                        // drops the rest.
+                        var snapshot = effectivePaletteMap(stored: paletteModel.current)
+                        snapshot[entry.name] = hexFromColor(newColor)
+                        paletteModel.set(snapshot)
                     }
                 ), supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 38)
-                Text(hex)
+                Text(entry.hex)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(width: 76, alignment: .trailing)
-                Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
-                    paletteOverrides.removeValue(forKey: name)
-                    persistOverrides()
+                if baseHex == nil {
+                    Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
+                        var snapshot = effectivePaletteMap(stored: paletteModel.current)
+                        snapshot.removeValue(forKey: entry.name)
+                        paletteModel.set(snapshot)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
         }
     }
 
-    private func resetPalette() {
-        paletteOverrides = [:]
-        customColors = []
-        persistOverrides()
-        persistCustomColors()
-    }
-
-    private func observeOverrides() async {
-        overridesTask?.cancel()
-        let task = Task {
-            for await value in jsonStore.values(for: catalog.workspaceColors.paletteOverrides) {
-                if Task.isCancelled { break }
-                paletteOverrides = value
-            }
+    /// Returns the effective palette entries: built-in entries first
+    /// (in `builtInPalette` order, with overrides applied or default
+    /// hex), followed by custom entries sorted by name. Mirrors
+    /// `WorkspaceTabColorSettings.palette()`.
+    private func effectivePaletteEntries(overrides: [String: String]) -> [(name: String, hex: String)] {
+        let resolved = effectivePaletteMap(stored: overrides)
+        let builtInNames = Set(Self.builtInPalette.map(\.name))
+        let builtIn: [(name: String, hex: String)] = Self.builtInPalette.compactMap { entry in
+            guard let hex = resolved[entry.name] else { return nil }
+            return (name: entry.name, hex: hex)
         }
-        overridesTask = task
-        await task.value
+        let customs = resolved
+            .filter { !builtInNames.contains($0.key) }
+            .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+            .map { (name: $0.key, hex: $0.value) }
+        return builtIn + customs
     }
 
-    private func observeCustomColors() async {
-        customColorsTask?.cancel()
-        let task = Task {
-            for await value in jsonStore.values(for: catalog.workspaceColors.customColors) {
-                if Task.isCancelled { break }
-                customColors = value
-            }
+    /// Returns the full effective palette dictionary. When `stored` is
+    /// empty (no UserDefaults entry yet) this is the built-in default
+    /// palette; otherwise the stored map is returned verbatim. Matches
+    /// legacy `WorkspaceTabColorSettings.effectivePaletteMap`.
+    private func effectivePaletteMap(stored: [String: String]) -> [String: String] {
+        if stored.isEmpty {
+            return Dictionary(uniqueKeysWithValues: Self.builtInPalette.map { ($0.name, $0.hex) })
         }
-        customColorsTask = task
-        await task.value
+        return stored
     }
 
-    private func persistOverrides() {
-        let snapshot = paletteOverrides
-        Task {
-            do { try await jsonStore.set(snapshot, for: catalog.workspaceColors.paletteOverrides) }
-            catch { errorLog?.record(error, keyID: catalog.workspaceColors.paletteOverrides.id) }
-        }
+    private func baseHex(for name: String) -> String? {
+        Self.builtInPalette.first(where: { $0.name == name })?.hex
     }
 
-    private func persistCustomColors() {
-        let snapshot = customColors
-        Task {
-            do { try await jsonStore.set(snapshot, for: catalog.workspaceColors.customColors) }
-            catch { errorLog?.record(error, keyID: catalog.workspaceColors.customColors.id) }
-        }
-    }
-
+    /// Localized label for an indicator style.
+    ///
+    /// Uses the legacy `sidebar.activeTabIndicator.*` localization keys
+    /// (mirrors `SidebarActiveTabIndicatorStyle.displayName` in the app
+    /// target) so existing translations apply.
     private func indicatorStyleLabel(_ style: WorkspaceIndicatorStyle) -> String {
         switch style {
-        case .leftRail: return String(localized: "settings.workspaceColors.indicator.leftRail", defaultValue: "Left Rail")
-        case .solidFill: return String(localized: "settings.workspaceColors.indicator.solidFill", defaultValue: "Solid Fill")
+        case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
+        case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }
     }
 
@@ -245,5 +267,21 @@ public struct WorkspaceColorsSection: View {
         let g = Int((rgb.greenComponent * 255).rounded())
         let b = Int((rgb.blueComponent * 255).rounded())
         return String(format: "#%02X%02X%02X", r, g, b)
+    }
+
+    /// cmux-themed accent color used as the live ColorPicker fallback
+    /// when the selection or notification badge has no custom hex.
+    /// Mirrors the legacy `cmuxAccentColor()` helper (see
+    /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
+    /// swatch matches the rest of the app instead of the system accent.
+    private static func cmuxAccentColor() -> Color {
+        let nsColor = NSColor(name: nil) { appearance in
+            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
+            if bestMatch == .darkAqua {
+                return NSColor(srgbRed: 0, green: 145.0 / 255.0, blue: 1.0, alpha: 1.0)
+            }
+            return NSColor(srgbRed: 0, green: 136.0 / 255.0, blue: 1.0, alpha: 1.0)
+        }
+        return Color(nsColor: nsColor)
     }
 }

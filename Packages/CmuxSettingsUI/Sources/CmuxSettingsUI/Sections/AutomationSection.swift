@@ -15,6 +15,15 @@ public struct AutomationSection: View {
 
     @State private var socketPasswordModel: JSONValueModel<String>?
     @State private var socketPasswordDraft: String = ""
+    @State private var socketPasswordStatus: SocketPasswordStatus?
+    @State private var showOpenAccessConfirmation: Bool = false
+    @State private var pendingOpenAccessMode: SocketControlMode?
+    @State private var modeBeforePendingOpenAccess: SocketControlMode?
+
+    private struct SocketPasswordStatus: Equatable {
+        let message: String
+        let isError: Bool
+    }
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -26,7 +35,7 @@ public struct AutomationSection: View {
         self.catalog = catalog
     }
 
-    private static let columnWidth: CGFloat = 220
+    private static let columnWidth: CGFloat = 196
 
     public var body: some View {
         Group {
@@ -46,6 +55,35 @@ public struct AutomationSection: View {
                 socketPasswordModel = JSONValueModel(store: jsonStore, key: catalog.automation.socketPassword)
             }
         }
+        .confirmationDialog(
+            String(localized: "settings.automation.openAccess.dialog.title", defaultValue: "Enable full open access?"),
+            isPresented: $showOpenAccessConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(
+                String(localized: "settings.automation.openAccess.dialog.confirm", defaultValue: "Enable Full Open Access"),
+                role: .destructive
+            ) {
+                let modeModel = DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode)
+                if let pending = pendingOpenAccessMode {
+                    modeModel.set(pending)
+                }
+                pendingOpenAccessMode = nil
+                modeBeforePendingOpenAccess = nil
+            }
+            Button(
+                String(localized: "settings.automation.openAccess.dialog.cancel", defaultValue: "Cancel"),
+                role: .cancel
+            ) {
+                pendingOpenAccessMode = nil
+                modeBeforePendingOpenAccess = nil
+            }
+        } message: {
+            Text(String(
+                localized: "settings.automation.openAccess.dialog.message",
+                defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
+            ))
+        }
     }
 
     @ViewBuilder
@@ -59,12 +97,26 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.socketControlMode"),
                 String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                subtitle: socketModeDescription(modeModel.current),
+                subtitle: modeModel.current.description,
                 controlWidth: Self.columnWidth
             ) {
-                Picker("", selection: Binding(get: { modeModel.current }, set: { modeModel.set($0) })) {
-                    ForEach(SocketControlMode.allCases, id: \.self) { mode in
-                        Text(socketModeLabel(mode)).tag(mode)
+                Picker("", selection: Binding(
+                    get: { modeModel.current },
+                    set: { newValue in
+                        if newValue == .allowAll && modeModel.current != .allowAll {
+                            modeBeforePendingOpenAccess = modeModel.current
+                            pendingOpenAccessMode = newValue
+                            showOpenAccessConfirmation = true
+                            return
+                        }
+                        modeModel.set(newValue)
+                        if newValue != .password {
+                            socketPasswordStatus = nil
+                        }
+                    }
+                )) {
+                    ForEach(SocketControlMode.uiCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
                     }
                 }
                 .labelsHidden()
@@ -108,6 +160,13 @@ public struct AutomationSection: View {
                             .controlSize(.small)
                         }
                     }
+                }
+                if let status = socketPasswordStatus {
+                    Text(status.message)
+                        .font(.caption)
+                        .foregroundStyle(status.isError ? Color.red : Color.secondary)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 8)
                 }
             }
 
@@ -280,33 +339,28 @@ public struct AutomationSection: View {
     private func saveSocketPassword() {
         guard let model = socketPasswordModel else { return }
         let trimmed = socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
+            socketPasswordStatus = SocketPasswordStatus(
+                message: String(localized: "settings.automation.socketPassword.empty", defaultValue: "Enter a password first."),
+                isError: true
+            )
+            return
+        }
         model.set(trimmed)
         socketPasswordDraft = ""
+        socketPasswordStatus = SocketPasswordStatus(
+            message: String(localized: "settings.automation.socketPassword.saved", defaultValue: "Saved."),
+            isError: false
+        )
     }
 
     private func clearSocketPassword() {
         socketPasswordModel?.reset()
         socketPasswordDraft = ""
+        socketPasswordStatus = SocketPasswordStatus(
+            message: String(localized: "settings.automation.socketPassword.cleared", defaultValue: "Cleared."),
+            isError: false
+        )
     }
 
-    private func socketModeLabel(_ mode: SocketControlMode) -> String {
-        switch mode {
-        case .off: return String(localized: "settings.automation.socketMode.off", defaultValue: "Off")
-        case .cmuxOnly: return String(localized: "settings.automation.socketMode.cmuxOnly", defaultValue: "Bundled CLI Only")
-        case .automation: return String(localized: "settings.automation.socketMode.automation", defaultValue: "Automation Tools")
-        case .password: return String(localized: "settings.automation.socketMode.password", defaultValue: "Password Required")
-        case .allowAll: return String(localized: "settings.automation.socketMode.allowAll", defaultValue: "Allow All Local Clients")
-        }
-    }
-
-    private func socketModeDescription(_ mode: SocketControlMode) -> String {
-        switch mode {
-        case .off: return String(localized: "settings.automation.socketMode.off.subtitle", defaultValue: "External programmatic control is disabled.")
-        case .cmuxOnly: return String(localized: "settings.automation.socketMode.cmuxOnly.subtitle", defaultValue: "Only the cmux CLI bundled in this app can talk to the socket.")
-        case .automation: return String(localized: "settings.automation.socketMode.automation.subtitle", defaultValue: "Allowlisted automation tools can talk to the socket.")
-        case .password: return String(localized: "settings.automation.socketMode.password.subtitle", defaultValue: "Clients must present the configured password.")
-        case .allowAll: return String(localized: "settings.automation.socketMode.allowAll.subtitle", defaultValue: "Every local process can talk to the socket. Debug only.")
-        }
-    }
 }

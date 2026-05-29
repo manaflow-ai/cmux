@@ -56,4 +56,14 @@ public protocol SettingsHostActions: AnyObject {
     /// Plays the currently configured notification sound so the user
     /// can preview it from the Settings UI.
     func previewNotificationSound()
+
+    /// Returns the current number of saved browser-history entries, or
+    /// `nil` if the host hasn't loaded the history store yet. The
+    /// Browser section uses this to render a dynamic "N saved pages"
+    /// subtitle next to the Clear History button.
+    func browserHistoryEntryCount() -> Int?
+}
+
+public extension SettingsHostActions {
+    func browserHistoryEntryCount() -> Int? { nil }
 }
