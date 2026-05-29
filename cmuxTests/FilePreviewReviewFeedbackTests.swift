@@ -408,10 +408,24 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.string = text
         // Realize layout so hit-testing measures steady-state cost (as it would after the file is
-        // displayed and the user has scrolled), not first-layout cost.
+        // displayed and the user has scrolled), not first-layout cost. Deliberately do NOT touch
+        // `layoutManager`/`textLayoutManager` here: that would force a TextKit mode in the test view
+        // and the test could no longer detect a production regression back to TextKit 2.
         textView.sizeToFit()
 
-        let bottomY = max(textView.bounds.height - 5, 1)
+        // Geometry precondition: the hit-tests below must actually land deep in the document. If
+        // headless layout left the view collapsed, `bottomY` would sit at the top where even
+        // TextKit 2 is cheap, turning this into a silent false negative. Fail loudly instead.
+        let documentHeight = textView.bounds.height
+        XCTAssertGreaterThan(
+            documentHeight,
+            100_000,
+            "Test precondition failed: a \(lineCount)-line document laid out to only "
+                + "\(documentHeight)pt, so hit-tests would not reach the bottom. The timing "
+                + "assertion below would be meaningless."
+        )
+
+        let bottomY = max(documentHeight - 5, 1)
         let start = ProcessInfo.processInfo.systemUptime
         for offset in 0..<20 {
             _ = textView.characterIndexForInsertion(at: CGPoint(x: 200, y: bottomY - CGFloat(offset)))

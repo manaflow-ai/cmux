@@ -156,7 +156,18 @@ extension NSTextView {
     /// view, otherwise the first TextKit 2 access locks the view into TextKit 2 and
     /// `layoutManager` returns `nil`.
     func enableLargeDocumentSelectionPerformance() {
-        layoutManager?.allowsNonContiguousLayout = true
+        guard let layoutManager else {
+            // `layoutManager` is nil only when a TextKit 2 access already locked the view into
+            // TextKit 2, in which case non-contiguous layout was never enabled and large-document
+            // selection regresses to O(N). Release behavior is unchanged (no-op); DEBUG fails loudly
+            // so the call-order violation is caught at its source rather than as a future hang.
+            assertionFailure(
+                "enableLargeDocumentSelectionPerformance() ran after a TextKit 2 access; "
+                    + "call it before touching textContainer/textLayoutManager."
+            )
+            return
+        }
+        layoutManager.allowsNonContiguousLayout = true
     }
 
     func applyFilePreviewTextEditorInsets() {
