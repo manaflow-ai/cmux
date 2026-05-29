@@ -1,6 +1,19 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { subscribeToAgentEvents } from "../shared/bridge";
+import {
+  CODEX_BUTTON_BASE,
+  CODEX_BUTTON_COMPOSER,
+  CODEX_BUTTON_COMPOSER_SM,
+  CODEX_BUTTON_GHOST,
+  CODEX_BUTTON_PRIMARY,
+  CODEX_BUTTON_UNIFORM,
+  CODEX_COMPOSER_FOOTER_MULTILINE,
+  CODEX_COMPOSER_FRAME,
+  CODEX_COMPOSER_INNER,
+  CODEX_COMPOSER_STACK,
+  CODEX_COMPOSER_SURFACE,
+} from "../shared/codexClassNames";
 import { insertComposerToken } from "../shared/composerTokens";
 import { isComposingEnter } from "../shared/keyboard";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
@@ -28,17 +41,8 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
+import { applyCodexDocumentMetadata } from "../shared/theme";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
-
-const CODEX_BUTTON_BASE =
-  "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40";
-const CODEX_BUTTON_GHOST =
-  "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
-const CODEX_BUTTON_PRIMARY =
-  "bg-token-foreground enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80 text-token-dropdown-background";
-const CODEX_BUTTON_COMPOSER = "h-token-button-composer px-2 py-0 text-sm leading-[18px]";
-const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px]";
-const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
 
 function App() {
   const [state, setState] = createSignal<SessionState>(initialState("solid"));
@@ -106,6 +110,7 @@ function SessionSurface({
   const [isRateLimitOpen, setIsRateLimitOpen] = createSignal(false);
   const root = document.createElement("section");
   root.className = "agent-shell";
+  root.dataset.codexWindowType = "electron";
 
   const thread = document.createElement("div");
   thread.className = "agent-thread";
@@ -139,11 +144,11 @@ function SessionSurface({
   });
 
   const composerStack = document.createElement("div");
-  composerStack.className = "composer-stack";
+  composerStack.className = CODEX_COMPOSER_STACK;
   root.append(composerStack);
 
   const form = document.createElement("form");
-  form.className = "composer";
+  form.className = "w-full min-w-0";
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     void sendInput(state(), dispatch);
@@ -151,19 +156,23 @@ function SessionSurface({
   composerStack.append(form);
 
   const composerFrame = document.createElement("div");
-  composerFrame.className = "composer-frame";
+  composerFrame.className = CODEX_COMPOSER_FRAME;
   form.append(composerFrame);
 
   const composerSurface = document.createElement("div");
-  composerSurface.className = "composer-surface";
+  composerSurface.className = `${CODEX_COMPOSER_SURFACE} overflow-y-auto rounded-3xl`;
   composerFrame.append(composerSurface);
 
+  const composerInner = document.createElement("div");
+  composerInner.className = CODEX_COMPOSER_INNER;
+  composerSurface.append(composerInner);
+
   const composerBody = document.createElement("div");
-  composerBody.className = "composer-body";
-  composerSurface.append(composerBody);
+  composerBody.className = "mb-1 flex-grow overflow-y-auto px-3";
+  composerInner.append(composerBody);
 
   const textarea = document.createElement("textarea");
-  textarea.className = "prompt-input";
+  textarea.className = "prompt-input text-base";
   textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
   textarea.addEventListener("keydown", (event) => {
     if (isComposingEnter(event)) {
@@ -201,8 +210,8 @@ function SessionSurface({
   });
 
   const composerFooter = document.createElement("div");
-  composerFooter.className = "composer-footer";
-  composerSurface.append(composerFooter);
+  composerFooter.className = CODEX_COMPOSER_FOOTER_MULTILINE;
+  composerInner.append(composerFooter);
 
   const leftRail = document.createElement("div");
   leftRail.className = "codex-left-rail";
@@ -593,5 +602,6 @@ function codexIconButton(kind: string, text: string, onClick?: () => void): HTML
 
 const root = document.getElementById("root");
 if (root) {
+  applyCodexDocumentMetadata();
   render(App, root);
 }

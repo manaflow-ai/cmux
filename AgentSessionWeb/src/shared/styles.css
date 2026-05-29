@@ -2,6 +2,7 @@
 
 @source "../react/**/*.ts";
 @source "../solid/**/*.ts";
+@source "../shared/**/*.ts";
 
 @custom-variant electron (&:where([data-codex-window-type="electron"], [data-codex-window-type="electron"] *));
 @custom-variant extension (&:where([data-codex-window-type="extension"], [data-codex-window-type="extension"] *));
@@ -660,14 +661,6 @@ select {
   container-type: inline-size;
 }
 
-.composer-stack {
-  display: grid;
-  gap: 6px;
-  width: 100%;
-  max-width: var(--thread-content-max-width);
-  margin: 0 auto;
-}
-
 .codex-composer-frame {
   --composer-top-tray-inline-padding: 12px;
   --composer-top-tray-top-padding: 14px;
@@ -848,46 +841,23 @@ select {
   display: none;
 }
 
-.composer,
-.composer-frame {
-  width: 100%;
-  min-width: 0;
-  margin: 0;
-}
-
-.composer-surface {
-  display: grid;
-  min-height: 128px;
-  border: 0;
-  border-radius: var(--radius-3xl);
-  color: var(--agent-text);
-  background: color-mix(in srgb, var(--agent-input-bg) 90%, transparent);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.05);
-  backdrop-filter: blur(16px);
-}
-
-.composer-body {
-  min-width: 0;
-  padding: 16px 12px 4px;
-}
-
 .prompt-input {
   display: block;
   width: 100%;
-  min-height: 70px;
+  min-height: 2.75rem;
   max-height: 200px;
   resize: none;
   padding: 0;
   border: 0;
   outline: none;
-  color: var(--agent-text);
+  color: var(--color-token-foreground);
   background: transparent;
-  font-size: 14px;
-  line-height: 1.625;
+  font-size: var(--text-base);
+  line-height: 20px;
 }
 
 .prompt-input::placeholder {
-  color: color-mix(in srgb, var(--agent-muted) 35%, transparent);
+  color: color-mix(in srgb, var(--color-token-input-placeholder-foreground) 50%, transparent);
 }
 
 .ProseMirror {
@@ -1964,16 +1934,8 @@ img.ProseMirror-separator {
     padding: 10px;
   }
 
-  .composer-surface {
-    min-height: 132px;
-  }
-
-  .composer-body {
-    padding: 14px 12px 8px;
-  }
-
   .prompt-input {
-    min-height: 70px;
+    min-height: 2.75rem;
     font-size: 16px;
   }
 

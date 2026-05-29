@@ -1,6 +1,21 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
+import {
+  CODEX_BUTTON_BASE,
+  CODEX_BUTTON_COMPOSER,
+  CODEX_BUTTON_COMPOSER_SM,
+  CODEX_BUTTON_GHOST,
+  CODEX_BUTTON_ICON,
+  CODEX_BUTTON_UNIFORM,
+  CODEX_COMPOSER_FOOTER_MULTILINE,
+  CODEX_COMPOSER_FOOTER_SINGLE_LINE,
+  CODEX_COMPOSER_FRAME,
+  CODEX_COMPOSER_INNER,
+  CODEX_COMPOSER_STACK,
+  CODEX_COMPOSER_SURFACE,
+  CODEX_SUBMIT_BUTTON,
+} from "../shared/codexClassNames";
 import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
@@ -55,16 +70,6 @@ import {
 
 const h = React.createElement;
 
-const CODEX_BUTTON_BASE =
-  "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40";
-const CODEX_BUTTON_GHOST =
-  "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
-const CODEX_BUTTON_COMPOSER = "h-token-button-composer px-2 py-0 text-sm leading-[18px]";
-const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px]";
-const CODEX_BUTTON_ICON = "electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5";
-const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
-const CODEX_SUBMIT_BUTTON =
-  "focus-visible:outline-token-button-background cursor-interaction size-token-button-composer flex items-center justify-center rounded-full p-0.5 transition-opacity focus-visible:outline-2 bg-token-foreground";
 const USER_MESSAGE_COLLAPSED_LINE_COUNT = 20;
 const SHELL_OUTPUT_TOP_FADE_STYLE: React.CSSProperties = {
   background: "linear-gradient(to bottom, var(--color-token-editor-background), transparent)",
@@ -760,8 +765,7 @@ function SessionSurface({
     ? h(
         "div",
         {
-          className:
-            "composer-footer grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1",
+          className: CODEX_COMPOSER_FOOTER_SINGLE_LINE,
         },
         leftControls,
         composerInputWrapper,
@@ -787,8 +791,7 @@ function SessionSurface({
         h(
           "div",
           {
-            className:
-              "composer-footer grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] mb-2 px-2",
+            className: CODEX_COMPOSER_FOOTER_MULTILINE,
           },
           leftControls,
           h("div", { className: "flex items-center" }),
@@ -802,7 +805,7 @@ function SessionSurface({
       );
   const composerControls = h(
     "div",
-    { className: "codex-composer-inner relative z-10 flex min-h-0 flex-1 flex-col" },
+    { className: CODEX_COMPOSER_INNER },
     composerControlsContent,
   );
   const showPlanSuggestion =
@@ -814,7 +817,7 @@ function SessionSurface({
     h(TranscriptThread, { entries: state.transcript, copy: state.context?.copy }),
     h(
       "div",
-      { className: "agent-composer-stack" },
+      { className: CODEX_COMPOSER_STACK },
       h(
         "div",
         { className: "relative flex w-full flex-col gap-2" },
@@ -829,7 +832,7 @@ function SessionSurface({
           },
           h(
             "div",
-            { className: "codex-composer-frame relative" },
+            { className: CODEX_COMPOSER_FRAME },
             h("span", {
               ref: composerLayout.textMeasureRef,
               className: "composer-single-line-measure text-size-chat pointer-events-none invisible absolute h-0 w-max max-w-none overflow-hidden whitespace-pre",
@@ -856,7 +859,7 @@ function SessionSurface({
               "div",
               {
                 className:
-                  "codex-composer-surface relative flex flex-col bg-token-input-background/90 backdrop-blur-lg extension:border extension:border-token-border/50 electron:ring electron:ring-black/10 electron:shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] electron:dark:bg-token-dropdown-background " +
+                  CODEX_COMPOSER_SURFACE + " " +
                   (isSingleLineComposer ? "overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"),
               },
               composerControls,
