@@ -19,6 +19,12 @@ struct SidebarWorkspaceGroupHeaderView: View {
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
+    let rowSpacing: CGFloat
+    let isFirstRow: Bool
+    let isBeingDragged: Bool
+    let topDropIndicatorVisible: Bool
+    let onDragStart: () -> NSItemProvider
+    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -31,6 +37,7 @@ struct SidebarWorkspaceGroupHeaderView: View {
     let onOpenDocs: () -> Void
 
     @State private var isHovered = false
+    @State private var rowHeight: CGFloat = 1
 
     private var iconColor: Color {
         if let tintHex, let nsColor = NSColor(hex: tintHex) {
@@ -44,6 +51,18 @@ struct SidebarWorkspaceGroupHeaderView: View {
               let shortcutDigit,
               let shortcutModifierSymbol else { return nil }
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
+    }
+
+    private var rowHeightProbe: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    rowHeight = max(proxy.size.height, 1)
+                }
+                .onChange(of: proxy.size.height) { newHeight in
+                    rowHeight = max(newHeight, 1)
+                }
+        }
     }
 
     var body: some View {
@@ -165,7 +184,19 @@ struct SidebarWorkspaceGroupHeaderView: View {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, 6)
+        .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .opacity(isBeingDragged ? 0.6 : 1)
+        .overlay(alignment: .top) {
+            SidebarWorkspaceTopDropIndicator(
+                isVisible: topDropIndicatorVisible,
+                isFirstRow: isFirstRow,
+                rowSpacing: rowSpacing
+            )
+        }
+        .onDrag(onDragStart)
+        .internalOnlyTabDrag()
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onHover { hovering in
             isHovered = hovering
         }

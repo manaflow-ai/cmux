@@ -58,6 +58,58 @@ struct WorkspaceGroupTests {
         #expect(reorderedIds[4] == originalIds[3])
     }
 
+    @Test func draggingGroupHeaderReordersAmongTopLevelWorkspaces() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Middle", childWorkspaceIds: [originalIds[1]]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        #expect(manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: group.anchorWorkspaceId) == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[3],
+        ])
+
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: group.anchorWorkspaceId,
+            toIndex: 2,
+            isDragOperation: true
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            originalIds[2],
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[3],
+        ])
+    }
+
+    @Test func addingWorkspaceToGroupPreservesGroupTopLevelPosition() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Middle", childWorkspaceIds: [originalIds[1]]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.addWorkspaceToGroup(workspaceId: originalIds[3], groupId: groupId)
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[3],
+            originalIds[2],
+        ])
+    }
+
     @Test func removeNonAnchorPreservesGroup() {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)

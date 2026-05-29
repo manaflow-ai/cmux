@@ -32,6 +32,36 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
+        let sidebarReorderIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
+        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
+            forTabId: group.anchorWorkspaceId,
+            draggedTabId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            tabIds: sidebarReorderIds
+        )
+        let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
+            #if DEBUG
+            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
+            #endif
+            dragState.draggedTabId = anchorId
+            dragState.dropIndicator = nil
+            return SidebarTabDragPayload.provider(for: anchorId)
+        }
+        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
+            anchorId = group.anchorWorkspaceId,
+            selectedTabIds = $selectedTabIds,
+            lastSidebarSelectionIndex = $lastSidebarSelectionIndex
+        ] rowHeight in
+            SidebarTabDropDelegate(
+                targetTabId: anchorId,
+                tabManager: tabManager,
+                dragState: dragState,
+                selectedTabIds: selectedTabIds,
+                lastSidebarSelectionIndex: lastSidebarSelectionIndex,
+                targetRowHeight: rowHeight,
+                dragAutoScrollController: dragAutoScrollController
+            )
+        }
 
         SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
@@ -50,6 +80,12 @@ extension VerticalTabsSidebar {
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             cwdContextMenuItems: cwdContextMenuItems,
+            rowSpacing: tabRowSpacing,
+            isFirstRow: sidebarReorderIds.first == group.anchorWorkspaceId,
+            isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            onDragStart: onDragStart,
+            tabDropDelegateFactory: tabDropDelegateFactory,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -109,28 +145,6 @@ extension VerticalTabsSidebar {
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
             [anchorId: anchor]
-        }
-        .onDrag { [groupId = group.id] in
-            SidebarWorkspaceGroupDragPayload.provider(for: groupId)
-        }
-        .onDrop(
-            of: SidebarWorkspaceGroupDragPayload.dropContentTypes
-                + SidebarTabDragPayload.dropContentTypes,
-            isTargeted: nil
-        ) { [dragState, dragAutoScrollController] providers in
-            SidebarWorkspaceGroupDragPayload.loadGroupId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedId in
-                guard let draggedId, draggedId != targetGroupId, let tabManager else { return }
-                guard let targetIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == targetGroupId }) else { return }
-                tabManager.moveWorkspaceGroup(groupId: draggedId, toIndex: targetIndex)
-            }
-            SidebarTabDragPayload.loadTabId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedTabId in
-                guard let draggedTabId, let tabManager else { return }
-                tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
-            }
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
-            dragAutoScrollController.stop()
-            return true
         }
     }
 }
