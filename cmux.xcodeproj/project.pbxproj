@@ -145,6 +145,7 @@
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */ = {isa = PBXBuildFile; productRef = 3069F1D10000000000000006 /* CMUXPasteboardFidelity */; };
+		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
 		E7E000000000000000000009 /* CmuxSocketEventMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000A /* CmuxSocketEventMapper.swift */; };
 		A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CMUXSocketPathDomain */; };
@@ -331,6 +332,12 @@
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		C47110020000000000000001 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
 		C47110020000000000000003 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
+		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
+		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
+		A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B1 /* ProjectPanel.swift */; };
+		A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B3 /* ProjectPanelView.swift */; };
+		A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */; };
+		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
 		D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */; };
 		D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */; };
@@ -927,6 +934,12 @@
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		C47110020000000000000002 /* ProcessPipeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReader.swift; sourceTree = "<group>"; };
+		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
+		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
+		A5C0DE0000000000000000B1 /* ProjectPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectPanel.swift; sourceTree = "<group>"; };
+		A5C0DE0000000000000000B3 /* ProjectPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectPanelView.swift; sourceTree = "<group>"; };
+		A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectSchemesTabView.swift; sourceTree = "<group>"; };
+		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00002 /* RemoteLoopbackProxyAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackProxyAlias.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackRuntimeBridge.swift; sourceTree = "<group>"; };
@@ -1145,6 +1158,7 @@
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
+				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
 				A5354303A5354303A5354303 /* CMUXSocketPathDomain in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
@@ -1529,6 +1543,12 @@
 					A50014F8 /* MarkdownWebSupport.swift */,
 					A50014F1 /* MarkdownViewerAssets.swift */,
 					A5001423 /* FilePreviewPanel.swift */,
+					A5C0DE0000000000000000B1 /* ProjectPanel.swift */,
+					A5C0DE0000000000000000B3 /* ProjectPanelView.swift */,
+					A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */,
+					A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */,
+					A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */,
+					A5C0DE0000000000000000BB /* ProjectSchemesTabView.swift */,
 				CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */,
 				81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */,
 				D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */,
@@ -1824,6 +1844,7 @@
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
 				C0DE45000000000000000002 /* CmuxExtensionKit */,
 				3069F1D10000000000000006 /* CMUXPasteboardFidelity */,
+				A5C0DE0000000000000000A2 /* CMUXProjectModel */,
 				F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
@@ -1957,6 +1978,7 @@
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
 				C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
 				3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */,
+				A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */,
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
@@ -2263,6 +2285,12 @@
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 				C47110020000000000000001 /* ProcessPipeReader.swift in Sources */,
+					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
+					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
+					A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */,
+					A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */,
+					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
+					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00001 /* RemoteLoopbackProxyAlias.swift in Sources */,
 					D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */,
@@ -3027,6 +3055,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXPasteboardFidelity;
 		};
+		A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CMUXProjectModel;
+		};
 		F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXAgentVault;
@@ -3104,6 +3136,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3069F1D10000000000000007 /* XCLocalSwiftPackageReference "CMUXPasteboardFidelity" */;
 			productName = CMUXPasteboardFidelity;
+		};
+		A5C0DE0000000000000000A2 /* CMUXProjectModel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */;
+			productName = CMUXProjectModel;
 		};
 		F53000A2A1B2C3D4E5F60718 /* CMUXAgentVault */ = {
 			isa = XCSwiftPackageProductDependency;

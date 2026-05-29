@@ -322,6 +322,8 @@ final class PaneDropTargetView: NSView {
             return nil
         case .rightSidebarTool:
             return nil
+        case .project:
+            return nil
         }
     }
 

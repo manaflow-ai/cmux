@@ -53,3 +53,4 @@ web/public/pagefind/
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+.iter-logs/*.png
