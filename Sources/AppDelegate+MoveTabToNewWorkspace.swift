@@ -90,7 +90,7 @@ extension AppDelegate {
         let targetManager = destinationManager ?? source.tabManager
         let explicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let pinnedTitle = explicitTitle?.isEmpty == false ? explicitTitle : nil
-        let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasExplicitTitle = pinnedTitle != nil
         if !hasExplicitTitle {
             source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
         }
@@ -104,16 +104,17 @@ extension AppDelegate {
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
         let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
         guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
+        let destinationCustomTitle = pinnedTitle ?? detached.customTitle
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
             title: destinationTitle,
-            titleSource: hasExplicitTitle ? .user : .auto,
+            titleSource: destinationCustomTitle == nil ? .auto : .user,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,
             focusIntent: activationIntent,
-            customTitle: pinnedTitle
+            customTitle: destinationCustomTitle
         ) else {
             rollbackDetachedSurface(
                 detached,
