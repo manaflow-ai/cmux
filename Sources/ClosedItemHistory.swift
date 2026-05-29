@@ -1,6 +1,12 @@
 import Foundation
 import Combine
 import Bonsplit
+import OSLog
+
+private let closedItemHistoryLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ClosedItemHistory"
+)
 
 struct ClosedPanelSplitPlacement: Codable {
     let orientation: SplitOrientation
@@ -129,13 +135,25 @@ final class ClosedItemHistoryStore: ObservableObject {
     @Published private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int?
     private let fileURL: URL?
+    private let persistsRecordsSynchronously: Bool
 
-    init(capacity: Int? = nil, fileURL: URL? = nil, loadPersisted: Bool = true) {
+    init(
+        capacity: Int? = nil,
+        fileURL: URL? = nil,
+        loadPersisted: Bool = true,
+        loadsPersistedRecordsSynchronously: Bool = false,
+        persistsRecordsSynchronously: Bool = false
+    ) {
         self.capacity = capacity.map { max(1, $0) }
         self.fileURL = fileURL
+        self.persistsRecordsSynchronously = persistsRecordsSynchronously
         if loadPersisted, let fileURL {
-            records = Self.loadRecords(fileURL: fileURL)
-            trimToCapacityIfNeeded()
+            if loadsPersistedRecordsSynchronously {
+                records = Self.loadRecords(fileURL: fileURL)
+                trimToCapacityIfNeeded()
+            } else {
+                loadPersistedRecordsAsync(from: fileURL, expectedRevision: revision)
+            }
         }
     }
 
@@ -368,10 +386,33 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     private func persistRecords() {
         guard let fileURL else { return }
-        Self.saveRecords(records, fileURL: fileURL)
+        let recordsSnapshot = records
+        let revisionSnapshot = revision
+        if persistsRecordsSynchronously {
+            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
+        } else {
+            Task {
+                await ClosedItemHistoryPersistenceActor.shared.save(
+                    recordsSnapshot,
+                    fileURL: fileURL,
+                    revision: revisionSnapshot
+                )
+            }
+        }
     }
 
-    nonisolated private static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
+    private func loadPersistedRecordsAsync(from fileURL: URL, expectedRevision: UInt64) {
+        Task { @MainActor [weak self] in
+            let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
+            guard let self, self.revision == expectedRevision else { return }
+            guard !loadedRecords.isEmpty else { return }
+            records = loadedRecords
+            trimToCapacityIfNeeded()
+            revision &+= 1
+        }
+    }
+
+    nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
@@ -381,9 +422,17 @@ final class ClosedItemHistoryStore: ObservableObject {
         return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
     }
 
-    nonisolated private static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
+    nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
         guard !records.isEmpty else {
-            try? FileManager.default.removeItem(at: fileURL)
+            do {
+                try FileManager.default.removeItem(at: fileURL)
+            } catch {
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    closedItemHistoryLogger.debug(
+                        "closedItemHistory.remove.failed file=\(fileURL.path, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
             return
         }
         let directory = fileURL.deletingLastPathComponent()
@@ -402,6 +451,9 @@ final class ClosedItemHistoryStore: ObservableObject {
             }
             try data.write(to: fileURL, options: .atomic)
         } catch {
+            closedItemHistoryLogger.debug(
+                "closedItemHistory.save.failed file=\(fileURL.path, privacy: .public) records=\(records.count) error=\(error.localizedDescription, privacy: .public)"
+            )
             return
         }
     }
@@ -534,4 +586,23 @@ private struct ClosedItemHistoryPersistenceSnapshot: Codable {
 
     var version: Int = currentVersion
     var records: [ClosedItemHistoryRecord]
+}
+
+private actor ClosedItemHistoryPersistenceActor {
+    static let shared = ClosedItemHistoryPersistenceActor()
+
+    private var latestRevisionByPath: [String: UInt64] = [:]
+
+    func load(fileURL: URL) -> [ClosedItemHistoryRecord] {
+        ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
+    }
+
+    func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {
+        let path = fileURL.standardizedFileURL.path
+        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
+            return
+        }
+        latestRevisionByPath[path] = revision
+        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL)
+    }
 }

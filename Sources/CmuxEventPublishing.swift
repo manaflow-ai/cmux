@@ -293,6 +293,15 @@ extension CmuxEventBus {
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
         var oldById: [UUID: TerminalNotification] = [:]
         for notification in oldValue {
+#if DEBUG
+            if oldById[notification.id] != nil {
+                cmuxDebugLog(
+                    "notification.changes.duplicateOldId function=publishNotificationChanges " +
+                        "id=\(notification.id.uuidString) source=oldById " +
+                        "expectedUniqueBy=TerminalNotificationStore.restoreSessionNotifications.notificationWithUniqueId"
+                )
+            }
+#endif
             oldById[notification.id] = notification
         }
         let newIds = Set(newValue.map(\.id))

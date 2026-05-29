@@ -1057,7 +1057,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let store = ClosedItemHistoryStore(capacity: nil, fileURL: historyURL)
+        let store = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
 
         for index in 0..<3 {
             var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
@@ -1073,7 +1078,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ))
         }
 
-        let restoredStore = ClosedItemHistoryStore(capacity: nil, fileURL: historyURL)
+        let restoredStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
         let snapshot = restoredStore.menuSnapshot()
 
         XCTAssertEqual(snapshot.totalItemCount, 3)
