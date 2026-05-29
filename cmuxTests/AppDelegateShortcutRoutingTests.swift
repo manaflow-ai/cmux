@@ -3706,18 +3706,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            closeWindow(withId: windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView else {
-            XCTFail("Expected test window")
+        let window = context.window
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
             return
         }
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let overlayHost = contentView.superview ?? contentView
         let overlayContainer = NSView(frame: overlayHost.bounds)
@@ -3753,7 +3753,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(moveToken) }
 
-        window.displayIfNeeded()
         XCTAssertTrue(
             window.makeFirstResponder(fieldEditor),
             "Expected command palette field editor to own first responder"
@@ -3769,15 +3768,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-#if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
 
         wait(for: [moveExpectation], timeout: 1.0)
         XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
         XCTAssertEqual(observedDelta, 1)
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     func testControlKDoesNotRoutePaletteMoveSelectionWhenSearchFieldIsFocused() {
