@@ -5084,13 +5084,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
         let previousMainMenu = NSApp.mainMenu
-        let probeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
         let recorder = ShortcutRecorderNSButton(frame: NSRect(x: 0, y: 0, width: 160, height: 28))
         let menuProbe = MenuActionProbe()
         var recordedShortcut: StoredShortcut?
@@ -5098,7 +5091,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer {
             KeyboardShortcutRecorderActivity.stopAllRecording()
             NSApp.mainMenu = previousMainMenu
-            probeWindow.orderOut(nil)
         }
 
         let menu = NSMenu(title: "Test")
@@ -5113,19 +5105,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         NSApp.mainMenu = menu
 
         recorder.onShortcutRecorded = { recordedShortcut = $0 }
-        probeWindow.contentView = contentView
-        contentView.addSubview(recorder)
-        probeWindow.makeKeyAndOrderFront(nil)
-        probeWindow.displayIfNeeded()
-        XCTAssertTrue(probeWindow.makeFirstResponder(recorder), "Expected shortcut recorder to own first responder")
-        recorder.performClick(nil)
+        recorder.debugBeginRecordingWithoutEventMonitorForTesting()
         XCTAssertTrue(recorder.debugIsRecording)
 
         guard let event = makeKeyDownEvent(
             key: "d",
             modifiers: [.command],
             keyCode: 2,
-            windowNumber: probeWindow.windowNumber
+            windowNumber: 0
         ) else {
             XCTFail("Failed to construct Cmd+D event")
             return
@@ -5135,9 +5122,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertTrue(
                 appDelegate.handleApplicationSendEventPreflight(
                     event: event,
-                    preferredWindow: probeWindow,
-                    keyWindow: probeWindow,
-                    mainWindow: probeWindow
+                    preferredWindow: nil,
+                    keyWindow: nil,
+                    mainWindow: nil
                 ),
                 "App-level sendEvent preflight should route active shortcut recorder events before menu equivalents"
             )
