@@ -1796,14 +1796,129 @@ function composerMenuItems(kind: Exclude<ComposerMenuKind, null>, state: Session
 }
 
 function filterComposerMenuItems(items: ComposerMenuItem[], query: string): ComposerMenuItem[] {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = query.trim();
   if (!normalizedQuery) {
     return items;
   }
-  return items.filter((item) => {
-    const haystack = `${item.label} ${item.detail} ${item.mention.name}`.toLowerCase();
-    return haystack.includes(normalizedQuery);
-  });
+  return items
+    .map((item) => ({
+      item,
+      score: composerMenuFuzzyScore(item.label, normalizedQuery, [item.detail, item.mention.name]),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(({ item }) => item);
+}
+
+const COMPOSER_FUZZY_SCORE_CONTINUE_MATCH = 1;
+const COMPOSER_FUZZY_SCORE_SPACE_WORD_JUMP = 0.9;
+const COMPOSER_FUZZY_SCORE_NON_SPACE_WORD_JUMP = 0.8;
+const COMPOSER_FUZZY_SCORE_CHARACTER_JUMP = 0.17;
+const COMPOSER_FUZZY_SCORE_TRANSPOSITION = 0.1;
+const COMPOSER_FUZZY_SCORE_LONG_JUMP = 0.999;
+const COMPOSER_FUZZY_SCORE_CASE_MISMATCH = 0.9999;
+const COMPOSER_FUZZY_SCORE_TRAILING = 0.99;
+const COMPOSER_FUZZY_WORD_JUMP_PATTERN = /[\\/_+.#"@\[\({&]/;
+const COMPOSER_FUZZY_WORD_JUMP_GLOBAL_PATTERN = /[\\/_+.#"@\[\({&]/g;
+const COMPOSER_FUZZY_SPACE_PATTERN = /[\s-]/;
+const COMPOSER_FUZZY_SPACE_GLOBAL_PATTERN = /[\s-]/g;
+
+function composerMenuFuzzyScore(input: string, query: string, keywords: string[]): number {
+  const searchableInput = keywords.length > 0 ? `${input} ${keywords.join(" ")}` : input;
+  return composerMenuRecursiveFuzzyScore(
+    searchableInput,
+    query,
+    composerMenuNormalizeFuzzyText(searchableInput),
+    composerMenuNormalizeFuzzyText(query),
+    0,
+    0,
+    {},
+  );
+}
+
+function composerMenuNormalizeFuzzyText(value: string): string {
+  return value.toLowerCase().replace(COMPOSER_FUZZY_SPACE_GLOBAL_PATTERN, " ");
+}
+
+function composerMenuRecursiveFuzzyScore(
+  input: string,
+  query: string,
+  normalizedInput: string,
+  normalizedQuery: string,
+  inputIndex: number,
+  queryIndex: number,
+  cache: Record<string, number>,
+): number {
+  if (queryIndex === query.length) {
+    return inputIndex === input.length ? COMPOSER_FUZZY_SCORE_CONTINUE_MATCH : COMPOSER_FUZZY_SCORE_TRAILING;
+  }
+  const cacheKey = `${inputIndex},${queryIndex}`;
+  if (cache[cacheKey] !== undefined) {
+    return cache[cacheKey];
+  }
+  const queryCharacter = normalizedQuery.charAt(queryIndex);
+  let matchIndex = normalizedInput.indexOf(queryCharacter, inputIndex);
+  let bestScore = 0;
+  while (matchIndex >= 0) {
+    let score = composerMenuRecursiveFuzzyScore(
+      input,
+      query,
+      normalizedInput,
+      normalizedQuery,
+      matchIndex + 1,
+      queryIndex + 1,
+      cache,
+    );
+    if (score > bestScore) {
+      if (matchIndex === inputIndex) {
+        score *= COMPOSER_FUZZY_SCORE_CONTINUE_MATCH;
+      } else if (COMPOSER_FUZZY_WORD_JUMP_PATTERN.test(input.charAt(matchIndex - 1))) {
+        score *= COMPOSER_FUZZY_SCORE_NON_SPACE_WORD_JUMP;
+        const wordJumps = input.slice(inputIndex, matchIndex - 1).match(COMPOSER_FUZZY_WORD_JUMP_GLOBAL_PATTERN);
+        if (wordJumps && inputIndex > 0) {
+          score *= COMPOSER_FUZZY_SCORE_LONG_JUMP ** wordJumps.length;
+        }
+      } else if (COMPOSER_FUZZY_SPACE_PATTERN.test(input.charAt(matchIndex - 1))) {
+        score *= COMPOSER_FUZZY_SCORE_SPACE_WORD_JUMP;
+        const spaceJumps = input.slice(inputIndex, matchIndex - 1).match(COMPOSER_FUZZY_SPACE_GLOBAL_PATTERN);
+        if (spaceJumps && inputIndex > 0) {
+          score *= COMPOSER_FUZZY_SCORE_LONG_JUMP ** spaceJumps.length;
+        }
+      } else {
+        score *= COMPOSER_FUZZY_SCORE_CHARACTER_JUMP;
+        if (inputIndex > 0) {
+          score *= COMPOSER_FUZZY_SCORE_LONG_JUMP ** (matchIndex - inputIndex);
+        }
+      }
+      if (input.charAt(matchIndex) !== query.charAt(queryIndex)) {
+        score *= COMPOSER_FUZZY_SCORE_CASE_MISMATCH;
+      }
+    }
+    if (
+      (score < COMPOSER_FUZZY_SCORE_TRANSPOSITION && normalizedInput.charAt(matchIndex - 1) === normalizedQuery.charAt(queryIndex + 1)) ||
+      (normalizedQuery.charAt(queryIndex + 1) === normalizedQuery.charAt(queryIndex) &&
+        normalizedInput.charAt(matchIndex - 1) !== normalizedQuery.charAt(queryIndex))
+    ) {
+      const transposedScore = composerMenuRecursiveFuzzyScore(
+        input,
+        query,
+        normalizedInput,
+        normalizedQuery,
+        matchIndex + 1,
+        queryIndex + 2,
+        cache,
+      );
+      if (transposedScore * COMPOSER_FUZZY_SCORE_TRANSPOSITION > score) {
+        score = transposedScore * COMPOSER_FUZZY_SCORE_TRANSPOSITION;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+    }
+    matchIndex = normalizedInput.indexOf(queryCharacter, matchIndex + 1);
+  }
+  cache[cacheKey] = bestScore;
+  return bestScore;
 }
 
 function composerMenuTitleParts(title: string, query: string): Array<{ isMatch: boolean; text: string }> {
