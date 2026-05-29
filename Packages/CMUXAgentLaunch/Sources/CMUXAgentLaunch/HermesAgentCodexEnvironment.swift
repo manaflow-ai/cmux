@@ -1,11 +1,17 @@
 import Foundation
 
+/// Utilities for mapping Codex configuration into Hermes Agent's custom provider settings.
 public enum HermesAgentCodexEnvironment {
+    /// The Hermes provider name used for Codex-compatible custom endpoints.
     public static let defaultProvider = "custom"
+    /// The Hermes API mode used when talking to Codex-compatible responses endpoints.
     public static let codexResponsesAPIMode = "codex_responses"
+    /// Environment key that carries the ChatGPT Codex backend URL for Hermes.
     public static let codexBaseURLEnvironmentKey = "HERMES_CODEX_BASE_URL"
+    /// Environment key that carries the OpenAI-compatible custom base URL for Hermes.
     public static let customBaseURLEnvironmentKey = "CUSTOM_BASE_URL"
 
+    /// Rewrites stale `openai-codex` Hermes provider arguments to the current custom provider.
     public static func argumentsByReplacingOpenAICodexProvider(_ arguments: [String]) -> [String] {
         var result: [String] = []
         var index = 0
@@ -29,6 +35,7 @@ public enum HermesAgentCodexEnvironment {
         return result
     }
 
+    /// Returns arguments that include a Hermes provider, preserving an explicit provider when present.
     public static func argumentsWithDefaultProvider(_ arguments: [String]) -> [String] {
         let result = argumentsByReplacingOpenAICodexProvider(arguments)
         if hasProviderOverride(result) {
@@ -52,6 +59,7 @@ public enum HermesAgentCodexEnvironment {
         return false
     }
 
+    /// Adds default Hermes Codex endpoint environment values from the user's Codex config.
     public static func applyingDefaultCodexBaseURL(
         to environment: [String: String],
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
@@ -74,6 +82,7 @@ public enum HermesAgentCodexEnvironment {
         return result
     }
 
+    /// Reads the default Codex backend URL from the user's Codex config.
     public static func defaultCodexBaseURL(
         environment: [String: String],
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
@@ -85,6 +94,7 @@ public enum HermesAgentCodexEnvironment {
         return codexBaseURL(fromCodexConfigContent: content)
     }
 
+    /// Reads the default OpenAI-compatible custom URL from the user's Codex config.
     public static func defaultCustomBaseURL(
         environment: [String: String],
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
@@ -96,6 +106,7 @@ public enum HermesAgentCodexEnvironment {
         return customBaseURL(fromCodexConfigContent: content)
     }
 
+    /// Reads the default Codex model from the user's Codex config.
     public static func defaultCodexModel(
         environment: [String: String],
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
@@ -107,6 +118,7 @@ public enum HermesAgentCodexEnvironment {
         return codexModel(fromCodexConfigContent: content)
     }
 
+    /// Extracts a Hermes Codex backend URL from Codex TOML config content.
     public static func codexBaseURL(fromCodexConfigContent content: String) -> String? {
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine).trimmingCharacters(in: .whitespaces)
@@ -121,6 +133,7 @@ public enum HermesAgentCodexEnvironment {
         return nil
     }
 
+    /// Extracts a Hermes custom provider base URL from Codex TOML config content.
     public static func customBaseURL(fromCodexConfigContent content: String) -> String? {
         var fallbackChatGPTBaseURL: String?
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -140,6 +153,7 @@ public enum HermesAgentCodexEnvironment {
         return fallbackChatGPTBaseURL
     }
 
+    /// Extracts a Codex model name from Codex TOML config content.
     public static func codexModel(fromCodexConfigContent content: String) -> String? {
         for rawLine in content.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine).trimmingCharacters(in: .whitespaces)
@@ -154,6 +168,7 @@ public enum HermesAgentCodexEnvironment {
         return nil
     }
 
+    /// Converts a ChatGPT backend URL into the Hermes Codex backend URL.
     public static func codexBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
         guard var components = normalizedHTTPComponents(from: rawValue) else {
             return nil
@@ -165,6 +180,7 @@ public enum HermesAgentCodexEnvironment {
         return normalizedURLString(from: components)
     }
 
+    /// Returns a custom Hermes base URL from a non-OpenAI `openai_base_url` value.
     public static func customBaseURL(fromOpenAIBaseURL rawValue: String) -> String? {
         guard let components = normalizedHTTPComponents(from: rawValue) else {
             return nil
@@ -173,6 +189,7 @@ public enum HermesAgentCodexEnvironment {
         return normalizedURLString(from: components)
     }
 
+    /// Returns a custom Hermes base URL from a non-OpenAI ChatGPT backend URL.
     public static func customBaseURL(fromChatGPTBaseURL rawValue: String) -> String? {
         guard var components = normalizedHTTPComponents(from: rawValue) else {
             return nil
