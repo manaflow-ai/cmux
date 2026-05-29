@@ -2177,6 +2177,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
             "Managed subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
         )
+        let record = try readAgentHookSession(sessionId, agent: "codex", context: context)
+        XCTAssertEqual(record["isNestedAgentSession"] as? Bool, true)
+        XCTAssertEqual(record["isRestorable"] as? Bool, false)
     }
 
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
@@ -7592,6 +7595,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     private func readClaudeHookSession(_ sessionId: String, context: ClaudeHookContext) throws -> [String: Any] {
         let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+    }
+
+    private func readAgentHookSession(_ sessionId: String, agent: String, context: ClaudeHookContext) throws -> [String: Any] {
+        let stateURL = context.root.appendingPathComponent("\(agent)-hook-sessions.json")
         let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])

@@ -199,6 +199,56 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testNestedAgentHookRecordDoesNotWinPanelFallback() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-nested-agent-panel-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let parentCwd = root.appendingPathComponent("parent-repo", isDirectory: true)
+        let childCwd = root.appendingPathComponent("child-repo", isDirectory: true)
+        try fm.createDirectory(at: parentCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: childCwd, withIntermediateDirectories: true)
+
+        let parentSessionId = "codex-parent-session"
+        let childSessionId = "codex-child-session"
+        try writeHookStore(
+            root: root,
+            agent: "codex",
+            sessions: [
+                parentSessionId: codexHookRecord(
+                    sessionId: parentSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: parentCwd.path,
+                    isRestorable: nil,
+                    isNestedAgentSession: nil,
+                    updatedAt: 10
+                ),
+                childSessionId: codexHookRecord(
+                    sessionId: childSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: childCwd.path,
+                    isRestorable: true,
+                    isNestedAgentSession: true,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm
+        )
+
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(snapshot.sessionId, parentSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, parentCwd.path)
+    }
+
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,
@@ -291,6 +341,44 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     }
 
     private func writeClaudeHookStore(root: URL, sessions: [String: [String: Any]]) throws {
+        try writeHookStore(root: root, agent: "claude", sessions: sessions)
+    }
+
+    private func codexHookRecord(
+        sessionId: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        cwd: String,
+        isRestorable: Bool?,
+        isNestedAgentSession: Bool?,
+        updatedAt: TimeInterval
+    ) -> [String: Any] {
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": panelId.uuidString,
+            "cwd": cwd,
+            "pid": NSNull(),
+            "updatedAt": updatedAt,
+            "launchCommand": [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                "workingDirectory": cwd,
+                "capturedAt": updatedAt,
+                "source": "test",
+            ],
+        ]
+        if let isRestorable {
+            record["isRestorable"] = isRestorable
+        }
+        if let isNestedAgentSession {
+            record["isNestedAgentSession"] = isNestedAgentSession
+        }
+        return record
+    }
+
+    private func writeHookStore(root: URL, agent: String, sessions: [String: [String: Any]]) throws {
         let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(
@@ -301,7 +389,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(
-            to: stateDir.appendingPathComponent("claude-hook-sessions.json", isDirectory: false),
+            to: stateDir.appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false),
             options: .atomic
         )
     }
