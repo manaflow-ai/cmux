@@ -428,7 +428,12 @@ final class AuthManager: ObservableObject {
             return
         }
 
-        guard callbackState == activeBrowserSignInAttemptState else {
+        guard let activeState = activeBrowserSignInAttemptState else {
+            authLog("auth.browserSignIn ignored callback without active attempt state=\(callbackState ?? "nil")")
+            return
+        }
+
+        guard callbackState == activeState else {
             authLog("auth.browserSignIn ignored stale callback state=\(callbackState ?? "nil") activeState=\(activeBrowserSignInAttemptState ?? "nil")")
             return
         }
