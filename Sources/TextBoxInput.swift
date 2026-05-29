@@ -1566,7 +1566,7 @@ private enum TextBoxMentionMarkdown {
     }
 }
 
-private struct TextBoxMentionCandidate: Sendable {
+struct TextBoxMentionCandidate: Sendable {
     let title: String
     let subtitle: String
     let insertionText: String
@@ -1632,15 +1632,60 @@ private struct TextBoxMentionCandidateIndex: Sendable {
     }
 }
 
-actor TextBoxMentionIndexStore {
-    static let shared = TextBoxMentionIndexStore()
-
+struct TextBoxMentionFileIndexCache {
     private struct CachedIndex {
         let index: TextBoxMentionCandidateIndex
         let createdAt: Date
     }
 
     private static let fileIndexTTL: TimeInterval = 2
+    private static let suggestionLimit = 8
+
+    private var indexesByRoot: [String: CachedIndex] = [:]
+
+    mutating func suggestions(
+        for query: TextBoxMentionQuery,
+        rootDirectory: String,
+        now: Date = Date(),
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> [TextBoxMentionSuggestion] {
+        let index = fileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+        if matches.isEmpty, !query.query.isEmpty {
+            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+        }
+        return matches
+            .map { $0.suggestion(trigger: query.trigger) }
+    }
+
+    private mutating func fileIndex(
+        rootDirectory: String,
+        now: Date,
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> TextBoxMentionCandidateIndex {
+        if let cached = indexesByRoot[rootDirectory],
+           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
+            return cached.index
+        }
+        return refreshFileIndex(rootDirectory: rootDirectory, now: now, scanFiles: scanFiles)
+    }
+
+    private mutating func refreshFileIndex(
+        rootDirectory: String,
+        now: Date,
+        scanFiles: (URL) -> [TextBoxMentionCandidate]
+    ) -> TextBoxMentionCandidateIndex {
+        let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
+        let index = TextBoxMentionCandidateIndex(candidates: scanFiles(rootURL))
+        indexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
+        return index
+    }
+}
+
+actor TextBoxMentionIndexStore {
+    static let shared = TextBoxMentionIndexStore()
+
     private static let maxIndexedFiles = 6000
     private static let maxIndexedSkills = 800
     private static let suggestionLimit = 8
@@ -1657,7 +1702,7 @@ actor TextBoxMentionIndexStore {
         "vendor"
     ]
 
-    private var fileIndexesByRoot: [String: CachedIndex] = [:]
+    private var fileIndexCache = TextBoxMentionFileIndexCache()
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
     func suggestions(
@@ -1679,36 +1724,11 @@ actor TextBoxMentionIndexStore {
         for query: TextBoxMentionQuery,
         rootDirectory: String
     ) -> [TextBoxMentionSuggestion] {
-        let now = Date()
-        let index = fileIndex(rootDirectory: rootDirectory, now: now)
-        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        if matches.isEmpty, !query.query.isEmpty {
-            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now)
-            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        }
-        return matches
-            .map { $0.suggestion(trigger: query.trigger) }
-    }
-
-    private func fileIndex(
-        rootDirectory: String,
-        now: Date
-    ) -> TextBoxMentionCandidateIndex {
-        if let cached = fileIndexesByRoot[rootDirectory],
-           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
-            return cached.index
-        }
-        return refreshFileIndex(rootDirectory: rootDirectory, now: now)
-    }
-
-    private func refreshFileIndex(
-        rootDirectory: String,
-        now: Date
-    ) -> TextBoxMentionCandidateIndex {
-        let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
-        let index = TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
-        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
-        return index
+        fileIndexCache.suggestions(
+            for: query,
+            rootDirectory: rootDirectory,
+            scanFiles: Self.scanFiles
+        )
     }
 
     private func skillIndex(rootDirectory: String?) -> TextBoxMentionCandidateIndex {

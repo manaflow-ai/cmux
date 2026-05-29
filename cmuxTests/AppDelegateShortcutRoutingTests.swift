@@ -6058,49 +6058,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
     }
 
-    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
-        let mentionIndexStore = TextBoxMentionIndexStore()
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? fileManager.removeItem(at: root) }
+    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() {
+        var cache = TextBoxMentionFileIndexCache()
+        let root = "/tmp/cmux-textbox-mentions-refresh"
+        let rootURL = URL(fileURLWithPath: root, isDirectory: true)
+        let now = Date(timeIntervalSince1970: 100)
+        var scanCount = 0
 
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        try "old".write(
-            to: root.appendingPathComponent("old-file.txt"),
-            atomically: true,
-            encoding: .utf8
-        )
+        let scanFiles: (URL) -> [TextBoxMentionCandidate] = { scannedRootURL in
+            XCTAssertEqual(scannedRootURL.path, rootURL.path)
+            scanCount += 1
 
-        let oldSuggestions = await mentionIndexStore.suggestions(
+            var candidates = [
+                self.makeTextBoxMentionFileCandidate(relativePath: "old-file.txt", rootDirectory: root)
+            ]
+            if scanCount >= 2 {
+                candidates.append(self.makeTextBoxMentionFileCandidate(
+                    relativePath: "new-file.txt",
+                    rootDirectory: root
+                ))
+            }
+            return candidates
+        }
+
+        let oldSuggestions = cache.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 8),
                 query: "old-file",
                 trigger: "@"
             ),
-            rootDirectory: root.path
+            rootDirectory: root,
+            now: now,
+            scanFiles: scanFiles
         )
         XCTAssertEqual(oldSuggestions.first?.title, "@old-file.txt")
+        XCTAssertEqual(scanCount, 1)
 
-        try "new".write(
-            to: root.appendingPathComponent("new-file.txt"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let newSuggestions = await mentionIndexStore.suggestions(
+        let newSuggestions = cache.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 8),
                 query: "new-file",
                 trigger: "@"
             ),
-            rootDirectory: root.path
+            rootDirectory: root,
+            now: now.addingTimeInterval(0.1),
+            scanFiles: scanFiles
         )
         XCTAssertEqual(newSuggestions.first?.title, "@new-file.txt")
+        XCTAssertEqual(scanCount, 2)
+    }
+
+    private nonisolated func makeTextBoxMentionFileCandidate(
+        relativePath: String,
+        rootDirectory: String
+    ) -> TextBoxMentionCandidate {
+        let absolutePath = URL(fileURLWithPath: rootDirectory, isDirectory: true)
+            .appendingPathComponent(relativePath)
+            .path
+        return TextBoxMentionCandidate(
+            title: "@\(relativePath)",
+            subtitle: absolutePath,
+            insertionText: "[@\(relativePath)](\(absolutePath))",
+            systemImageName: "doc",
+            searchKey: "\(relativePath) \(URL(fileURLWithPath: relativePath).lastPathComponent)".lowercased(),
+            priority: min(relativePath.split(separator: "/").count, 20)
+        )
     }
 
     func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
