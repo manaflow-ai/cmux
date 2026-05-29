@@ -3235,7 +3235,7 @@ final class WindowBrowserPortal: NSObject {
         canvasSurfacePresentationFrozenWebViewIds.insert(webViewId)
         interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
         entry.containerView?.alphaValue = 0
-        entry.containerView?.isHidden = false
+        entry.containerView?.isHidden = true
     }
 
     func resumeCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier) {

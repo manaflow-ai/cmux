@@ -1345,8 +1345,11 @@ final class WindowTerminalPortal: NSObject {
         hostedView?.alphaValue = alpha
         canvasClipViewsByHostedId[hostedId]?.alphaValue = alpha
         if frozen {
-            hostedView?.isHidden = false
-            canvasClipViewsByHostedId[hostedId]?.isHidden = false
+            if let hostedView {
+                setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
+            } else {
+                canvasClipViewsByHostedId[hostedId]?.isHidden = true
+            }
         }
     }
 
