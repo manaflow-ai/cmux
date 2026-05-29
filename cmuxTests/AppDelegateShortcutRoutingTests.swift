@@ -1312,6 +1312,90 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(liveManager.tabs.contains { $0.customTitle == "Closed Previous Workspace" })
     }
 
+    func testFailedClosedWindowRestoreDoesNotRemapClosedPanelHistoryToDiscardedWindow() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let baselineWindowIds = mainWindowIds()
+        defer {
+            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
+                closeWindow(withId: windowId)
+            }
+        }
+
+        let sourceManager = TabManager(autoWelcomeIfNeeded: false)
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        let originalWorkspaceId = sourceWorkspace.id
+        var closedPanelSnapshot = try XCTUnwrap(sourceWorkspace.sessionSnapshot(includeScrollback: false).panels.first)
+        closedPanelSnapshot.customTitle = "Panel From Failed Window"
+        let closedPanelRecordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: closedPanelRecordId,
+            closedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: originalWorkspaceId,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: closedPanelSnapshot
+            ))
+        ))
+
+        var invalidWorkspaceSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        var invalidPanelSnapshot = try XCTUnwrap(invalidWorkspaceSnapshot.panels.first)
+        invalidPanelSnapshot.type = .markdown
+        invalidPanelSnapshot.title = "Broken Markdown"
+        invalidPanelSnapshot.customTitle = "Broken Markdown"
+        invalidPanelSnapshot.terminal = nil
+        invalidPanelSnapshot.browser = nil
+        invalidPanelSnapshot.markdown = nil
+        invalidPanelSnapshot.filePreview = nil
+        invalidPanelSnapshot.rightSidebarTool = nil
+        invalidWorkspaceSnapshot.panels = [invalidPanelSnapshot]
+        invalidWorkspaceSnapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [invalidPanelSnapshot.id],
+            selectedPanelId: invalidPanelSnapshot.id
+        ))
+
+        let originalWindowId = UUID()
+        let failedWindowRecordId = UUID()
+        let failedWindowSnapshot = SessionWindowSnapshot(
+            windowId: originalWindowId,
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [invalidWorkspaceSnapshot]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: failedWindowRecordId,
+            closedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            entry: .window(ClosedWindowHistoryEntry(
+                windowId: originalWindowId,
+                snapshot: failedWindowSnapshot,
+                workspaceIds: [originalWorkspaceId]
+            ))
+        ))
+
+        XCTAssertFalse(appDelegate.reopenClosedHistoryItem(
+            id: failedWindowRecordId,
+            shouldActivate: false
+        ))
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: closedPanelRecordId)?.record)
+        guard case .panel(let panelEntry) = record.entry else {
+            return XCTFail("Expected closed panel history")
+        }
+        XCTAssertEqual(panelEntry.workspaceId, originalWorkspaceId)
+        XCTAssertTrue(panelEntry.restoreInOriginalPane)
+    }
+
     func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

@@ -11054,7 +11054,10 @@ extension TabManager {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) -> [[UUID: UUID]] {
+    func restoreSessionSnapshot(
+        _ snapshot: SessionTabManagerSnapshot,
+        remapClosedPanelHistory: Bool = true
+    ) -> [[UUID: UUID]] {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
         let previousTabs = tabs
@@ -11197,10 +11200,12 @@ extension TabManager {
                 )
             }
         }
-        remapClosedPanelHistoryAfterSessionRestore(
-            originalWorkspaceIds: restoredOriginalWorkspaceIds,
-            restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
-        )
+        if remapClosedPanelHistory {
+            remapClosedPanelHistoryAfterSessionRestore(
+                originalWorkspaceIds: restoredOriginalWorkspaceIds,
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+            )
+        }
 
         if let selectedTabId {
             NotificationCenter.default.post(
@@ -11212,7 +11217,7 @@ extension TabManager {
         return restoredPanelIdsByWorkspaceIndex
     }
 
-    private func remapClosedPanelHistoryAfterSessionRestore(
+    func remapClosedPanelHistoryAfterSessionRestore(
         originalWorkspaceIds: [UUID?],
         restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
     ) {

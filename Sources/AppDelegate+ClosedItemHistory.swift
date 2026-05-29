@@ -119,10 +119,17 @@ extension AppDelegate {
                 windowSnapshot.windowId = windowEntry.windowId
             }
             let originalWindowId = windowSnapshot.windowId
+            let originalWorkspaceIdsByIndex = windowSnapshot.tabManager.workspaces.enumerated().map { index, workspaceSnapshot -> UUID? in
+                if let workspaceId = workspaceSnapshot.workspaceId {
+                    return workspaceId
+                }
+                guard windowEntry.workspaceIds.indices.contains(index) else { return nil }
+                return windowEntry.workspaceIds[index]
+            }
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: shouldActivate,
-                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds,
+                remapClosedPanelHistoryFromSessionSnapshot: false,
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager
@@ -141,6 +148,10 @@ extension AppDelegate {
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
                 return false
             }
+            restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
+                originalWorkspaceIds: originalWorkspaceIdsByIndex,
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+            )
             if let originalWindowId {
                 ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
