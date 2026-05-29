@@ -999,8 +999,22 @@ extension Workspace {
         if let model = HermesAgentCodexEnvironment.defaultCodexModel(environment: environment) {
             bootstrap.append("\(surfaceResumeShellQuote(hermesExecutable)) config set model.default \(surfaceResumeShellQuote(model)) >/dev/null")
         }
-        result.command = bootstrap.joined(separator: " && ") + " && " + result.command
+        result.command = hermesAgentCommandByInsertingBootstrap(bootstrap, into: result.command)
         return result
+    }
+
+    nonisolated private static func hermesAgentCommandByInsertingBootstrap(
+        _ bootstrap: [String],
+        into command: String
+    ) -> String {
+        let bootstrapCommand = bootstrap.joined(separator: " && ") + " && "
+        let words = surfaceResumeShellWords(in: command)
+        let commandStart = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        guard commandStart < words.endIndex else {
+            return bootstrapCommand + command
+        }
+        let insertIndex = words[commandStart].range.lowerBound
+        return String(command[..<insertIndex]) + bootstrapCommand + String(command[insertIndex...])
     }
 
     nonisolated private static func hermesAgentCommandByReplacingOpenAICodexProvider(_ command: String) -> String {

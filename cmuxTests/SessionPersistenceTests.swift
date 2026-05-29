@@ -4929,6 +4929,31 @@ extension SessionPersistenceTests {
         XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
     }
 
+    func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "{ cd -- '/tmp/hermes project' 2>/dev/null || [ ! -d '/tmp/hermes project' ]; } && './hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/hermes project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
+        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
+        XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
+        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
+        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+    }
+
     func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "hermes-agent",
