@@ -761,7 +761,7 @@ function SessionSurface({
         "div",
         {
           className:
-            "composer-footer composer-footer-single-line grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1",
+            "composer-footer grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-2 py-1",
         },
         leftControls,
         composerInputWrapper,
@@ -787,7 +787,8 @@ function SessionSurface({
         h(
           "div",
           {
-            className: "composer-footer composer-footer-codex mb-2",
+            className:
+              "composer-footer grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] mb-2 px-2",
           },
           leftControls,
           h("div", { className: "flex items-center" }),
