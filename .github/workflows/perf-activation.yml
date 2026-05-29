@@ -36,7 +36,7 @@ concurrency:
 
 jobs:
   activation-session:
-    runs-on: ${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 45
     env:
       PERF_TAG: perfci
@@ -91,8 +91,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'blacksmith-6vcpu-macos-15' }}-
+          key: spm-${{ inputs.runner || vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}-
 
       - name: Resolve Swift packages
         run: |
