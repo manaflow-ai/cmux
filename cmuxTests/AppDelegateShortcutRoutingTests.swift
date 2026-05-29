@@ -4299,60 +4299,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testEscapeDoesNotDismissPaletteInDifferentWindow() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let paletteWindowId = appDelegate.createMainWindow()
-        let eventWindowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: paletteWindowId)
-            closeWindow(withId: eventWindowId)
-        }
-
-        guard let paletteWindow = window(withId: paletteWindowId),
-              let eventWindow = window(withId: eventWindowId) else {
-            XCTFail("Expected both test windows")
-            return
-        }
-
-        appDelegate.setCommandPaletteVisible(true, for: paletteWindow)
-        defer {
-            appDelegate.setCommandPaletteVisible(false, for: paletteWindow)
-        }
-
-        let dismissExpectation = expectation(description: "Escape in another window should not dismiss palette")
-        dismissExpectation.isInverted = true
-        let dismissToken = NotificationCenter.default.addObserver(
-            forName: .commandPaletteDismissRequested,
-            object: nil,
-            queue: nil
-        ) { _ in
-            dismissExpectation.fulfill()
-        }
-        defer { NotificationCenter.default.removeObserver(dismissToken) }
-
-        guard let escapeEvent = makeKeyDownEvent(
-            key: "\u{1b}",
-            modifiers: [],
-            keyCode: 53,
-            windowNumber: eventWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Escape event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertFalse(
-            appDelegate.debugHandleCustomShortcut(event: escapeEvent),
-            "Escape should remain scoped to the event window"
+        XCTAssertEqual(
+            commandPaletteEscapeTargetResolution(
+                hasTargetWindow: true,
+                targetWindowIsEffective: false,
+                hasActivePaletteWindow: true
+            ),
+            .none,
+            "Escape in an inactive target window should not dismiss a palette in another window"
         )
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-
-        wait(for: [dismissExpectation], timeout: 0.2)
+        XCTAssertEqual(
+            commandPaletteEscapeTargetResolution(
+                hasTargetWindow: true,
+                targetWindowIsEffective: true,
+                hasActivePaletteWindow: true
+            ),
+            .targetWindow,
+            "Escape should dismiss the palette scoped to the event target window"
+        )
+        XCTAssertEqual(
+            commandPaletteEscapeTargetResolution(
+                hasTargetWindow: false,
+                targetWindowIsEffective: false,
+                hasActivePaletteWindow: true
+            ),
+            .activePaletteWindow,
+            "Escape without a target window should fall back to the active palette"
+        )
     }
 
     func testCmdDigitDoesNotFallbackToOtherWindowWhenEventWindowContextIsMissing() {

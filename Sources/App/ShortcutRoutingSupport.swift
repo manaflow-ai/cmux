@@ -237,6 +237,23 @@ func shouldBypassCommandPaletteEscapeForMarkedText(
     isCommandPaletteEffectivelyVisible && hasMarkedTextInput
 }
 
+enum CommandPaletteEscapeTargetResolution: Equatable {
+    case targetWindow
+    case activePaletteWindow
+    case none
+}
+
+func commandPaletteEscapeTargetResolution(
+    hasTargetWindow: Bool,
+    targetWindowIsEffective: Bool,
+    hasActivePaletteWindow: Bool
+) -> CommandPaletteEscapeTargetResolution {
+    if hasTargetWindow {
+        return targetWindowIsEffective ? .targetWindow : .none
+    }
+    return hasActivePaletteWindow ? .activePaletteWindow : .none
+}
+
 func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,

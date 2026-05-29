@@ -12028,15 +12028,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if isPlainEscape {
             let activePaletteWindow = activeCommandPaletteWindow()
-            let escapePaletteWindow: NSWindow? = {
-                if let targetWindow = commandPaletteTargetWindow {
-                    guard commandPaletteEffectiveInTargetWindow else {
-                        return nil
-                    }
-                    return targetWindow
-                }
-                return activePaletteWindow
-            }()
+            let escapeTargetResolution = commandPaletteEscapeTargetResolution(
+                hasTargetWindow: commandPaletteTargetWindow != nil,
+                targetWindowIsEffective: commandPaletteEffectiveInTargetWindow,
+                hasActivePaletteWindow: activePaletteWindow != nil
+            )
+            let escapePaletteWindow: NSWindow?
+            switch escapeTargetResolution {
+            case .targetWindow:
+                escapePaletteWindow = commandPaletteTargetWindow
+            case .activePaletteWindow:
+                escapePaletteWindow = activePaletteWindow
+            case .none:
+                escapePaletteWindow = nil
+            }
 #if DEBUG
             cmuxDebugLog(
                 "shortcut.escape route target={\(debugWindowToken(commandPaletteTargetWindow))} " +
