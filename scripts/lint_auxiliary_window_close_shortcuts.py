@@ -10,7 +10,7 @@ import sys
 
 
 DEFAULT_ROOTS = ("Sources",)
-OWNER_LIST_PATH = pathlib.Path("Sources/cmuxApp.swift")
+OWNER_LIST_PATH = pathlib.Path("Sources/App/MainWindowBootstrapView.swift")
 OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 
 # Hidden/internal bootstrap windows should not take Cmd+W away from the active
@@ -43,7 +43,7 @@ def load_close_owner_identifiers(repo_root: pathlib.Path) -> set[str]:
         raise ValueError(f"missing {OWNER_LIST_PATH}") from None
 
     parse_text = strip_line_comments(text)
-    marker = f"private let {OWNER_LIST_NAME}"
+    marker = f"let {OWNER_LIST_NAME}"
     marker_index = parse_text.find(marker)
     if marker_index < 0:
         raise ValueError(f"missing {OWNER_LIST_NAME} in {OWNER_LIST_PATH}")

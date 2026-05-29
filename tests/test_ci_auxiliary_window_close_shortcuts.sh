@@ -9,9 +9,9 @@ python3 scripts/lint_auxiliary_window_close_shortcuts.py
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-mkdir -p "$TMP_DIR/Sources"
+mkdir -p "$TMP_DIR/Sources/App"
 
-cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+cat > "$TMP_DIR/Sources/App/MainWindowBootstrapView.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
 ]
@@ -38,7 +38,7 @@ fi
 grep -q "cmux.newWindow" "$TMP_DIR/missing.out"
 grep -q "Sources/NewWindow.swift:9" "$TMP_DIR/missing.out"
 
-cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+cat > "$TMP_DIR/Sources/App/MainWindowBootstrapView.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     // "cmux.newWindow",
     /*
@@ -54,7 +54,7 @@ if python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DI
 fi
 grep -q "cmux.newWindow" "$TMP_DIR/commented-owner.out"
 
-cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+cat > "$TMP_DIR/Sources/App/MainWindowBootstrapView.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     // MARK: - Main Windows [user-closable]
     // This comment intentionally contains a lone ] bracket.
@@ -80,7 +80,7 @@ SWIFT
 
 python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"
 
-cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+cat > "$TMP_DIR/Sources/App/MainWindowBootstrapView.swift" <<'SWIFT'
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
 ]

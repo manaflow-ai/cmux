@@ -4,6 +4,9 @@
 1	CLI/cmux.swift	literal value is already handled by previous pattern; consider removing it
 2	CLI/cmux.swift	variable 'groups' was never mutated; consider changing to 'let' constant
 1	Sources/App/TerminalDirectoryOpenSupport.swift	'fullPath(forApplication:)' was deprecated in macOS 11.0: Use -[NSWorkspace URLForApplicationWithBundleIdentifier:] instead.
+2	Sources/App/BackgroundDebugWindowController.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+13	Sources/App/MenuBarExtraDebugWindowController.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/App/SidebarDebugWindowController.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/AppDelegate.swift	'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h)
 5	Sources/AppDelegate.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
 1	Sources/AppDelegate.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'Dispatch'
@@ -110,4 +113,5 @@
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldClosePane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
 1	Sources/Workspace.swift	main actor-isolated instance method 'splitTabBar(_:shouldCloseTab:inPane:)' cannot be used to satisfy nonisolated requirement from protocol 'BonsplitDelegate'
 1	Sources/Workspace.swift	switch must be exhaustive
-22	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+1	Sources/Settings/SettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
+5	Sources/cmuxApp.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
