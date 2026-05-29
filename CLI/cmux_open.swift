@@ -4812,6 +4812,10 @@ extension CMUXCLI {
         let treesModuleLiteral = try jsonStringLiteral(assets.treesModuleURL)
         let workerPoolModuleLiteral = try jsonStringLiteral(assets.workerPoolModuleURL)
         let workerModuleLiteral = try jsonStringLiteral(assets.workerModuleURL)
+        let diffsModuleHref = htmlEscaped(assets.diffsModuleURL)
+        let treesModuleHref = htmlEscaped(assets.treesModuleURL)
+        let workerPoolModuleHref = htmlEscaped(assets.workerPoolModuleURL)
+        let workerModuleHref = htmlEscaped(assets.workerModuleURL)
         let escapedTitle = htmlEscaped(title)
         let diffTargetLabel = htmlEscaped(labels["diffTarget"])
         let repoPathLabel = htmlEscaped(labels["repoPath"])
@@ -4837,6 +4841,10 @@ extension CMUXCLI {
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>\(escapedTitle)</title>
+          <link rel="modulepreload" href="\(diffsModuleHref)">
+          <link rel="modulepreload" href="\(treesModuleHref)">
+          <link rel="modulepreload" href="\(workerPoolModuleHref)">
+          <link rel="modulepreload" href="\(workerModuleHref)">
           <style>
             :root {
               color-scheme: light dark;
@@ -6286,18 +6294,24 @@ extension CMUXCLI {
               let patchMetadataIndex = 0;
               console.time("--     first streamed file");
               console.time("--     reading patch stream");
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                  const tail = decoder.decode();
-                  if (tail.length > 0) {
-                    splitter.push(tail);
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) {
+                    const tail = decoder.decode();
+                    if (tail.length > 0) {
+                      splitter.push(tail);
+                      await drainPatchFileSplitter(splitter);
+                    }
+                    break;
+                  }
+                  if (value.byteLength > 0) {
+                    splitter.push(decoder.decode(value, { stream: true }));
                     await drainPatchFileSplitter(splitter);
                   }
-                  break;
                 }
-                splitter.push(decoder.decode(value, { stream: true }));
-                await drainPatchFileSplitter(splitter);
+              } finally {
+                reader.releaseLock();
               }
               console.timeEnd("--     reading patch stream");
 
