@@ -321,10 +321,6 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
               group.anchorWorkspaceId == targetAnchorWorkspaceId else {
             return false
         }
-        let memberCount = tabManager.tabs.reduce(0) { count, tab in
-            tab.groupId == targetGroupId ? count + 1 : count
-        }
-        guard memberCount <= 1 else { return false }
         let rowHeight = max(targetRowHeight ?? 1, 1)
         let edgeBand = min(max(rowHeight * 0.25, 10), rowHeight / 2)
         let y = min(max(info.location.y, 0), rowHeight)

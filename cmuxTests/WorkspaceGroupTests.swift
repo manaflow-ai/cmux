@@ -155,6 +155,26 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func addingWorkspaceAboveGroupPreservesGroupTopLevelPosition() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: [originalIds[2]]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.addWorkspaceToGroup(workspaceId: originalIds[0], groupId: groupId)
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[1],
+            group.anchorWorkspaceId,
+            originalIds[0],
+            originalIds[2],
+            originalIds[3],
+        ])
+    }
+
     @Test func removeNonAnchorPreservesGroup() {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)

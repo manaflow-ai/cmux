@@ -6213,6 +6213,7 @@ class TabManager: ObservableObject {
             group.id != groupId && group.anchorWorkspaceId == workspaceId
         }
         if isAnchorOfOtherGroup { return }
+        let originalTopLevelIds = sidebarTopLevelWorkspaceIds()
         assignGroup(workspaceId: workspaceId, groupId: groupId)
         // selectedTabId may not change here (the workspace was already
         // selected), so the existing didSet hook won't fire. Expand manually
@@ -6223,7 +6224,9 @@ class TabManager: ObservableObject {
            workspaceGroups[groupIndex].isCollapsed {
             workspaceGroups[groupIndex].isCollapsed = false
         }
-        normalizeWorkspaceGroupContiguity()
+        normalizeWorkspaceGroupContiguity(
+            preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
+        )
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
@@ -6594,13 +6597,15 @@ class TabManager: ObservableObject {
     ///
     /// Within each group, members keep their relative order. A group anchor is
     /// the group's top-level row for ordering purposes.
-    private func normalizeWorkspaceGroupContiguity() {
+    private func normalizeWorkspaceGroupContiguity(
+        preservingTopLevelIds preferredTopLevelIds: [UUID]? = nil
+    ) {
         guard !tabs.isEmpty else { return }
         let knownGroupIds = Set(workspaceGroups.map(\.id))
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
-        let topLevelIds = sidebarTopLevelWorkspaceIds()
+        let topLevelIds = preferredTopLevelIds ?? sidebarTopLevelWorkspaceIds()
         let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
         let desiredIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
             + topLevelIds.filter { !pinnedTopLevelIds.contains($0) }
