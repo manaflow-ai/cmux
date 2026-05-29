@@ -1204,6 +1204,43 @@ button {
   background: var(--color-pane-warm);
 }
 
+.settings-search {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  background: var(--color-rail);
+}
+
+.settings-search-input {
+  width: 100%;
+}
+
+.settings-search-clear {
+  width: 28px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+}
+
+.settings-search-clear:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+  color: var(--color-text);
+}
+
+.settings-search-clear:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
 .settings-section {
   display: grid;
   gap: var(--space-2);
@@ -1212,7 +1249,7 @@ button {
 
 .settings-nav {
   position: sticky;
-  top: 0;
+  top: 38px;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
@@ -1243,6 +1280,16 @@ button {
   color: var(--color-text);
   font-weight: 760;
   font-size: 13px;
+}
+
+.settings-empty {
+  padding: var(--space-3);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-2);
+  color: var(--color-muted);
+  background: var(--color-pane);
+  font-size: 12px;
+  text-align: center;
 }
 
 .setting-row {

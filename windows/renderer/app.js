@@ -240,6 +240,7 @@ const state = {
   pendingRenderPrevious: null,
   settings: initialSettings,
   settingsCategory: "all",
+  settingsQuery: "",
   terminalFontSize: initialSettings.terminalFontSize
 };
 
@@ -1370,7 +1371,8 @@ function renderSettingsInspector() {
   elements.inspectorTitle.textContent = "Settings";
   elements.inspectorSubtitle.textContent = "Appearance and workspace controls";
   const workspace = activeWorkspace();
-  const nodes = [settingsCategoryNav()];
+  const nodes = [settingsSearch(), settingsCategoryNav()];
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
 
   const quickSection = settingsSection("Quick setup");
   quickSection.append(settingsPresetGrid());
@@ -1603,7 +1605,55 @@ function renderSettingsInspector() {
   actionsSection.append(actions);
   appendSettingsSection(nodes, "data", actionsSection);
 
+  const empty = document.createElement("div");
+  empty.className = "settings-empty";
+  empty.textContent = "No matching settings.";
+  empty.hidden = true;
+  nodes.push(empty);
+
   elements.inspectorBody.replaceChildren(...nodes);
+  if (searching) applySettingsFilter();
+}
+
+function settingsSearch() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "settings-search";
+  const input = document.createElement("input");
+  input.className = "setting-control settings-search-input";
+  input.type = "search";
+  input.placeholder = "Search settings";
+  input.value = state.settingsQuery;
+  input.addEventListener("input", () => {
+    const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+    state.settingsQuery = input.value;
+    const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+    if (wasSearching !== isSearching) {
+      renderSettingsInspector();
+      restoreSettingsSearchFocus();
+      return;
+    }
+    applySettingsFilter();
+  });
+  const clear = document.createElement("button");
+  clear.className = "settings-search-clear";
+  clear.type = "button";
+  clear.title = "Clear search";
+  clear.textContent = "x";
+  clear.disabled = !state.settingsQuery;
+  clear.onclick = () => {
+    state.settingsQuery = "";
+    renderSettingsInspector();
+    restoreSettingsSearchFocus();
+  };
+  wrapper.append(input, clear);
+  return wrapper;
+}
+
+function restoreSettingsSearchFocus() {
+  const input = elements.inspectorBody.querySelector(".settings-search-input");
+  if (!input) return;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
 }
 
 function settingsCategoryNav() {
@@ -1624,12 +1674,15 @@ function settingsCategoryNav() {
 }
 
 function appendSettingsSection(nodes, id, section) {
-  if (state.settingsCategory === "all" || state.settingsCategory === id) nodes.push(section);
+  if (state.settingsCategory === "all" || state.settingsCategory === id || normalizeSettingsQuery(state.settingsQuery)) {
+    nodes.push(section);
+  }
 }
 
-function settingsSection(title) {
+function settingsSection(title, searchTerms = "") {
   const section = document.createElement("section");
   section.className = "settings-section";
+  section.dataset.settingsSearch = normalizeSettingsQuery(`${title} ${searchTerms}`);
   const heading = document.createElement("div");
   heading.className = "settings-section-title";
   heading.textContent = title;
@@ -1637,14 +1690,39 @@ function settingsSection(title) {
   return section;
 }
 
-function settingRow(label, control, stacked = false) {
+function settingRow(label, control, stacked = false, searchTerms = "") {
   const row = document.createElement("label");
   row.className = `setting-row${stacked ? " stacked" : ""}`;
+  row.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
   const text = document.createElement("span");
   text.className = "setting-label";
   text.textContent = label;
   row.append(text, control);
   return row;
+}
+
+function normalizeSettingsQuery(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function applySettingsFilter() {
+  const query = normalizeSettingsQuery(state.settingsQuery);
+  let visibleSections = 0;
+  for (const section of elements.inspectorBody.querySelectorAll(".settings-section")) {
+    const items = [...section.querySelectorAll("[data-settings-search]")].filter((item) => item !== section);
+    let sectionVisible = !query || section.dataset.settingsSearch.includes(query);
+    for (const item of items) {
+      const visible = !query || item.dataset.settingsSearch.includes(query) || section.dataset.settingsSearch.includes(query);
+      item.hidden = !visible;
+      sectionVisible ||= visible;
+    }
+    section.hidden = !sectionVisible;
+    if (sectionVisible) visibleSections += 1;
+  }
+  const empty = elements.inspectorBody.querySelector(".settings-empty");
+  if (empty) empty.hidden = !query || visibleSections > 0;
+  const clear = elements.inspectorBody.querySelector(".settings-search-clear");
+  if (clear) clear.disabled = !query;
 }
 
 function toggleInput(checked, onChange) {
@@ -1690,6 +1768,7 @@ function backgroundPresetGrid() {
     button.className = `background-preset${preset.value === state.settings.backgroundImage ? " is-active" : ""}`;
     button.type = "button";
     button.title = preset.label;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`background image wallpaper ${preset.label}`);
     button.style.setProperty("--preset-background", preset.preview);
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
@@ -1707,6 +1786,7 @@ function settingsActionButton(label, onClick, tone = "") {
   button.className = `settings-action${tone ? ` ${tone}` : ""}`;
   button.type = "button";
   button.textContent = label;
+  button.dataset.settingsSearch = normalizeSettingsQuery(label);
   button.onclick = onClick;
   return button;
 }
@@ -1718,6 +1798,7 @@ function settingsPresetGrid() {
     const button = document.createElement("button");
     button.className = `settings-preset${isActiveSettingsPreset(preset) ? " is-active" : ""}`;
     button.type = "button";
+    button.dataset.settingsSearch = normalizeSettingsQuery(`preset ${preset.label} ${preset.body}`);
     button.innerHTML = `<span class="settings-preset-title"></span><span class="settings-preset-body"></span>`;
     button.querySelector(".settings-preset-title").textContent = preset.label;
     button.querySelector(".settings-preset-body").textContent = preset.body;
