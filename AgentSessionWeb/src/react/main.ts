@@ -956,9 +956,8 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
         "div",
         { className: "codex-user-turn group flex w-full flex-col items-end justify-end gap-1" },
         attachments.length > 0
-          ? h(ComposerAttachmentTray, {
+          ? h(UserMessageAttachmentTray, {
               attachments,
-              className: "codex-user-attachment-tray",
             })
           : null,
         hasText
@@ -1131,6 +1130,48 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
       onClick: copyOutput,
     },
     isCopied ? checkIcon("icon-2xs") : copyIcon("icon-2xs"),
+  );
+}
+
+function UserMessageAttachmentTray({ attachments }: { attachments: ComposerAttachment[] }) {
+  return h(
+    "div",
+    { className: "codex-user-message-attachments flex max-w-[77%] flex-row-reverse flex-wrap items-center gap-1" },
+    attachments.map((attachment) => h(UserMessageAttachmentCard, { attachment, key: attachment.id })),
+  );
+}
+
+function UserMessageAttachmentCard({ attachment }: { attachment: ComposerAttachment }) {
+  if (attachment.kind === "image" && attachment.dataUrl) {
+    return h(
+      "div",
+      {
+        className:
+          "user-message-image-attachment flex size-16 items-center justify-center rounded-lg border border-token-border",
+        title: attachment.label,
+      },
+      h("img", {
+        alt: attachment.label,
+        className: "h-full w-full rounded-md object-cover",
+        referrerPolicy: "no-referrer",
+        src: attachment.dataUrl,
+      }),
+    );
+  }
+
+  return h(
+    "div",
+    {
+      className:
+        "user-message-file-attachment bg-token-dropdown-background border-token-border inline-flex max-w-[320px] items-center gap-1 rounded-full border px-2 py-1.5 text-sm",
+      title: attachment.path,
+    },
+    h("span", { className: "text-token-input-placeholder-foreground flex-shrink-0", "aria-hidden": true }, paperclipIcon("icon-2xs")),
+    h(
+      "span",
+      { className: "flex max-w-full min-w-0 items-center gap-1" },
+      h("span", { className: "truncate" }, attachment.label),
+    ),
   );
 }
 
