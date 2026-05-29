@@ -47,7 +47,7 @@ printf 'args:%s\\n' "$*"
             """#!/usr/bin/env bash
 set -euo pipefail
 command -v opencode-node-helper
-opencode-node-helper "$@"
+exec opencode-node-helper "$@"
 """,
         )
 
@@ -102,7 +102,7 @@ printf 'args:%s\\n' "$*"
             """#!/usr/bin/env bash
 set -euo pipefail
 command -v opencode-node-helper
-opencode-node-helper "$@"
+exec opencode-node-helper "$@"
 """,
         )
         make_executable(
@@ -145,6 +145,74 @@ mkdir -p "$PWD/node_modules/oh-my-openagent"
         ]
         if lines != expected:
             print(f"FAIL: expected fallback install PATH to reach helper, got {lines!r}")
+            return 1
+
+    with tempfile.TemporaryDirectory(prefix="cmux-omo-skip-app-bundle-path-") as td:
+        root = Path(td)
+        fallback_bin = root / ".bun" / "bin"
+        stale_app_bin = root / "Older cmux.app" / "Contents" / "Resources" / "bin"
+        fallback_bin.mkdir(parents=True, exist_ok=True)
+        stale_app_bin.mkdir(parents=True, exist_ok=True)
+        user_config_dir = root / ".config" / "opencode"
+        plugin_dir = user_config_dir / "node_modules" / "oh-my-openagent"
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+
+        make_executable(
+            stale_app_bin / "opencode",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf 'FAIL: stale bundled opencode was executed\\n' >&2
+exit 42
+""",
+        )
+        make_executable(
+            fallback_bin / "opencode-node-helper",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf 'helper:%s\\n' "$0"
+printf 'args:%s\\n' "$*"
+""",
+        )
+        make_executable(
+            fallback_bin / "opencode",
+            """#!/usr/bin/env bash
+set -euo pipefail
+command -v opencode-node-helper
+exec opencode-node-helper "$@"
+""",
+        )
+
+        env = os.environ.copy()
+        env["HOME"] = str(root)
+        env["PATH"] = f"{stale_app_bin}:/usr/bin:/bin"
+        env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
+
+        proc = subprocess.run(
+            [cli_path, "omo", "--version", "--port", "19779"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=30,
+        )
+
+        if proc.returncode != 0:
+            print("FAIL: `cmux omo` failed when stale app-bundled OpenCode was first on PATH")
+            print(f"exit={proc.returncode}")
+            print(f"stdout={proc.stdout.strip()}")
+            print(f"stderr={proc.stderr.strip()}")
+            return 1
+
+        lines = proc.stdout.strip().splitlines()
+        expected_helper = str(fallback_bin / "opencode-node-helper")
+        expected = [
+            expected_helper,
+            f"helper:{expected_helper}",
+            "args:--version --port 19779",
+        ]
+        if lines != expected:
+            print(f"FAIL: expected app-bundled OpenCode to be skipped, got {lines!r}")
             return 1
 
     print("PASS: cmux omo preserves fallback OpenCode dirs in PATH")
