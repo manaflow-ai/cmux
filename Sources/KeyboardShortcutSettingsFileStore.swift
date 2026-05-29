@@ -404,6 +404,13 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let raw = jsonString(section["forkConversationDefaultDestination"]) {
+            if let destination = AgentConversationForkDestination(rawValue: raw) {
+                snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
+            } else {
+                logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
             snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
         } else if section.keys.contains("workspaceInheritWorkingDirectory") {

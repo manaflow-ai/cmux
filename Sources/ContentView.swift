@@ -1470,6 +1470,7 @@ struct ContentView: View {
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
+        static let panelBrowserOmnibarVisible = "panel.browser.omnibarVisible"
         static let panelIsTerminal = "panel.isTerminal"
         static let panelHasPane = "panel.hasPane"
         static let panelHasForkableAgent = "panel.hasForkableAgent"
@@ -5821,6 +5822,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
+        case .project:
+            return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         }
     }
 
@@ -5836,6 +5839,8 @@ struct ContentView: View {
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
+        case .project:
+            return ["project", "xcode", "build", "settings", "schemes", "targets"]
         }
     }
 
@@ -6440,6 +6445,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelBrowserOmnibarVisible,
+                (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
@@ -7099,6 +7108,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openDiffViewer",
+                title: constant(String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")),
+                subtitle: workspaceSubtitle,
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
                 title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
                 subtitle: browserPanelSubtitle,
@@ -7143,6 +7164,20 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.browserToggleOmnibar",
+                title: { context in
+                    if context.bool(CommandPaletteContextKeys.panelBrowserOmnibarVisible) {
+                        return String(localized: "command.browserHideOmnibar.title", defaultValue: "Hide Browser Omnibar")
+                    }
+                    return String(localized: "command.browserShowOmnibar.title", defaultValue: "Show Browser Omnibar")
+                },
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "address", "omnibar", "url", "toolbar", "chrome", "show", "hide"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7418,6 +7453,18 @@ struct ContentView: View {
                 title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationNewTab",
+                title: constant(String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "tab", "same", "pane"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
@@ -7936,6 +7983,11 @@ struct ContentView: View {
                 }
             }
         }
+        registry.register(commandId: "palette.openDiffViewer") {
+            if !openDiffViewerFromCommandPalette() {
+                NSSound.beep()
+            }
+        }
 
         registry.register(commandId: "palette.browserBack") {
             tabManager.focusedBrowserPanel?.goBack()
@@ -7953,6 +8005,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserFocusAddressBar") {
             if !focusFocusedBrowserAddressBar() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.browserToggleOmnibar") {
+            if !tabManager.toggleOmnibarFocusedBrowser() {
                 NSSound.beep()
             }
         }
@@ -8067,6 +8124,9 @@ struct ContentView: View {
         registry.register(commandId: "palette.forkAgentConversationBottom") {
             forkFocusedAgentConversationBottom()
         }
+        registry.register(commandId: "palette.forkAgentConversationNewTab") {
+            forkFocusedAgentConversationToNewTab()
+        }
         registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
             forkFocusedAgentConversationToNewWorkspace()
         }
@@ -8136,6 +8196,112 @@ struct ContentView: View {
             baseCwd: baseCwd,
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
+    }
+
+    @discardableResult
+    private func openDiffViewerFromCommandPalette() -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+
+        let preferredSocketPath = SocketControlSettings.socketPath()
+        let activeSocketPath = TerminalController.shared.activeSocketPath(preferredPath: preferredSocketPath)
+        return CommandPaletteDiffViewerLauncher.shared.start(
+            cliURL: cliURL,
+            socketPath: activeSocketPath,
+            cwd: configuredActionBaseCwd(),
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId
+        )
+    }
+
+    @MainActor
+    private final class CommandPaletteDiffViewerLauncher {
+        static let shared = CommandPaletteDiffViewerLauncher()
+
+        private var processes: [Int32: Process] = [:]
+
+        private init() {}
+
+        @discardableResult
+        func start(
+            cliURL: URL,
+            socketPath: String,
+            cwd: String,
+            workspaceId: UUID,
+            surfaceId: UUID?
+        ) -> Bool {
+            let process = Process()
+            process.executableURL = cliURL
+            var arguments = [
+                "--socket", socketPath,
+                "diff",
+                "--unstaged",
+                "--cwd", cwd,
+                "--workspace", workspaceId.uuidString,
+                "--focus", "true",
+            ]
+            if let surfaceId {
+                arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+            }
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+            environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+            if let surfaceId {
+                environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+            }
+            environment.removeValue(forKey: "CMUX_SOCKET")
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
+            outputCollector.start()
+            process.terminationHandler = { terminatedProcess in
+                let output = outputCollector.finish()
+                let processIdentifier = terminatedProcess.processIdentifier
+                let terminationStatus = terminatedProcess.terminationStatus
+                Task { @MainActor in
+                    Self.shared.processes.removeValue(forKey: processIdentifier)
+                    guard terminationStatus != 0 else { return }
+                    let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let limitedDetail = detail.isEmpty
+                        ? "status=\(terminationStatus)"
+                        : String(detail.prefix(240))
+#if DEBUG
+                    cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminationStatus) detail=\(limitedDetail)")
+#endif
+                    NSSound.beep()
+                }
+            }
+
+            do {
+                try process.run()
+                let processIdentifier = process.processIdentifier
+                processes[processIdentifier] = process
+                if !process.isRunning {
+                    processes.removeValue(forKey: processIdentifier)
+                }
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
+#endif
+                return true
+            } catch {
+                outputCollector.cancel()
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
+#endif
+                return false
+            }
+        }
     }
 
     private func configuredActionBaseCwd() -> String {
@@ -8699,6 +8865,7 @@ struct ContentView: View {
              "palette.forkAgentConversationLeft",
              "palette.forkAgentConversationTop",
              "palette.forkAgentConversationBottom",
+             "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace":
             return true
         default:
@@ -9067,6 +9234,10 @@ struct ContentView: View {
             return "filePreview.mediaPlayer"
         case .filePreview(.quickLook):
             return "filePreview.quickLook"
+        case .project(.navigator):
+            return "project.navigator"
+        case .project(.detail):
+            return "project.detail"
         }
     }
 
@@ -9573,7 +9744,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
-private struct SidebarTabItemSettingsSnapshot: Equatable {
+struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
     let showsWorkspaceDescription: Bool
@@ -9908,15 +10079,16 @@ struct VerticalTabsSidebar: View {
     let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var dragState = SidebarDragState()
+    @State var dragState = SidebarDragState()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -9929,6 +10101,14 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    /// Bumped whenever any workspace's currentDirectory changes; the group
+    /// header's resolved cwd-based config (color/icon/context menu /
+    /// newWorkspacePlacement) reads it through the body, so a state
+    /// invalidation here forces SwiftUI to re-call
+    /// `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`. The anchor
+    /// has no TabItemView, so no implicit per-row publisher subscription
+    /// would otherwise fire on `cd` while it's not selected.
+    @State private var anchorCwdRevision: Int = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
@@ -10081,7 +10261,7 @@ struct VerticalTabsSidebar: View {
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
-    private struct WorkspaceListRenderContext {
+    struct WorkspaceListRenderContext {
         let tabs: [Workspace]
         /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
         /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
@@ -10097,6 +10277,9 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let workspaceGroups: [WorkspaceGroup]
+        let workspaceGroupById: [UUID: WorkspaceGroup]
+        let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10124,6 +10307,11 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        let workspaceGroups = tabManager.workspaceGroups
+        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+        )
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabs.map(\.id),
@@ -10136,7 +10324,10 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            workspaceGroups: workspaceGroups,
+            workspaceGroupById: workspaceGroupById,
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -10357,6 +10548,51 @@ struct VerticalTabsSidebar: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
+                    // Drive a revision counter that the group-header resolver
+                    // reads. Forces SwiftUI to re-invoke `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`
+                    // when the anchor's cwd changes while the anchor is not
+                    // the selected workspace — otherwise group color/icon/menu
+                    // and `+` placement reflect the previous cwd until some
+                    // unrelated sidebar event fires.
+                    anchorCwdRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
+                    // Group collapse hides some workspaces without changing
+                    // focus or wiping the rest of the multi-selection. Strip
+                    // only the hidden ids; if focus moved, make sure the new
+                    // focused id is still represented.
+                    guard let manager = notification.object as? TabManager,
+                          manager === tabManager,
+                          let hidden = notification.userInfo?[SidebarMultiSelectionHideKey.hiddenWorkspaceIds] as? Set<UUID> else { return }
+                    var next = selectedTabIds.subtracting(hidden)
+                    if let movedFocus = notification.userInfo?[SidebarMultiSelectionHideKey.focusedWorkspaceId] as? UUID {
+                        next.insert(movedFocus)
+                        if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
+                            lastSidebarSelectionIndex = index
+                        }
+                    }
+                    if next != selectedTabIds {
+                        selectedTabIds = next
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionShouldCollapse)) { notification in
+                    // Keyboard nav (selectNextTab/selectPreviousTab) posts
+                    // this so any stale Shift-click range in the sidebar's
+                    // SwiftUI selectedTabIds collapses to just the newly-
+                    // focused workspace. Without this, batch context-menu /
+                    // shortcut actions would still target the stale range.
+                    guard let manager = notification.object as? TabManager,
+                          manager === tabManager,
+                          let focusedId = notification.userInfo?[SidebarMultiSelectionCollapseKey.focusedWorkspaceId] as? UUID else { return }
+                    let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
+                    if selectedTabIds != next {
+                        selectedTabIds = next
+                    }
+                    if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
+                        lastSidebarSelectionIndex = index
+                    }
                 }
                 .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
                     laidOutWorkspaceRowIds = rowIds
@@ -11180,13 +11416,22 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let renderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: renderContext.tabs,
+            groupsById: renderContext.workspaceGroupById
+        )
         // LazyVStack is safe here because `dragState` is @Observable:
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderContext.tabs, id: \.id) { tab in
-                workspaceRow(tab, renderContext: renderContext)
+        return LazyVStack(spacing: tabRowSpacing) {
+            ForEach(renderItems, id: \.id) { item in
+                switch item {
+                case .groupHeader(let group, let memberCount):
+                    sidebarWorkspaceGroupHeader(group: group, memberCount: memberCount, renderContext: renderContext)
+                case .workspace(let tab):
+                    workspaceRow(tab, renderContext: renderContext)
+                }
             }
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
@@ -11376,6 +11621,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
+            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -11387,6 +11633,7 @@ struct VerticalTabsSidebar: View {
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
+        .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -11395,7 +11642,7 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
+struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     static let defaultValue: Set<UUID> = []
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
@@ -11403,7 +11650,7 @@ private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     }
 }
 
-private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
+struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     static let defaultValue: [UUID: Anchor<CGRect>] = [:]
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
@@ -13796,7 +14043,7 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
-private struct TabItemView: View, Equatable {
+struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
@@ -13821,6 +14068,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
@@ -13867,6 +14115,7 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
@@ -14468,16 +14717,15 @@ private struct TabItemView: View, Equatable {
                     }
                 }
         )
+        .sidebarShortcutHintOverlay(
+            text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
+            emphasis: shortcutHintEmphasis,
+            offsetX: sidebarShortcutHintXOffset,
+            offsetY: sidebarShortcutHintYOffset
+        )
         .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                    .offset(
-                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                    )
-                    .padding(.top, 6)
-                    .padding(.trailing, 10)
-                    .shortcutHintTransition()
+            if showsWorkspaceShortcutHint {
+                EmptyView()
             } else if showCloseButton {
                 Button(action: {
                     #if DEBUG
@@ -14718,6 +14966,8 @@ private struct TabItemView: View, Equatable {
             syncSelectionAfterMutation()
         }
         .disabled(contextMenuPinState == nil)
+
+        workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
@@ -15003,7 +15253,27 @@ private struct TabItemView: View, Equatable {
         if isShift, let lastIndex = lastSidebarSelectionIndex {
             let lower = min(lastIndex, index)
             let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
+            // Filter out workspaces hidden inside collapsed groups so a
+            // Shift-click range never silently includes rows the user
+            // can't see (e.g. clicking a collapsed group's anchor and
+            // then Shift-clicking a row below would otherwise sweep
+            // every collapsed child between them).
+            let collapsedGroupIds: Set<UUID> = Set(
+                tabManager.workspaceGroups
+                    .filter { $0.isCollapsed }
+                    .map(\.id)
+            )
+            let anchorIdsByGroup: [UUID: UUID] = Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
+            )
+            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+                if let gid = tab.groupId,
+                   collapsedGroupIds.contains(gid),
+                   anchorIdsByGroup[gid] != tab.id {
+                    return nil
+                }
+                return tab.id
+            }
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
@@ -16008,7 +16278,7 @@ enum SidebarDragAutoScrollPlanner {
 }
 
 @MainActor
-private final class SidebarDragAutoScrollController: ObservableObject {
+final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
@@ -16141,11 +16411,16 @@ private final class SidebarDragAutoScrollController: ObservableObject {
     }
 }
 
+/// Immutable, equatable snapshot of the group list a row's "Move to Group"
+/// submenu can offer. Computed once per parent body eval and passed into
+/// each TabItemView so the row's `==` covers group changes (renames, adds,
+/// deletes) — the row's snapshot-boundary rule forbids reading
+/// `tabManager.workspaceGroups` from inside the contextMenu builder.
 enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
-    private static let prefix = "cmux.sidebar-tab."
+    static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
         let provider = NSItemProvider()
@@ -16159,6 +16434,7 @@ enum SidebarTabDragPayload {
         }
         return provider
     }
+
 }
 
 enum BonsplitTabDragPayload {
@@ -16313,7 +16589,7 @@ enum SidebarWorkspaceSelectionSyncPolicy {
 }
 
 @MainActor
-private struct SidebarTabDropDelegate: DropDelegate {
+struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
     let dragState: SidebarDragState
@@ -16410,7 +16686,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         let selectionBeforeReorder = selectedTabIds
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex, isDragOperation: true)
         syncSidebarSelection(preserving: selectionBeforeReorder)
         return true
     }
