@@ -290,6 +290,36 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         )
     }
 
+    @Test("Move surface to new workspace ignores whitespace-only caller title pin")
+    func moveSurfaceToNewWorkspaceIgnoresWhitespaceOnlyCallerTitlePin() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "user@host:~/git/repo")
+
+        let result = try #require(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            title: " \t\n ",
+            focus: false,
+            focusWindow: false
+        ))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+
+        #expect(destinationWorkspace.customTitle == nil)
+
+        destinationWorkspace.applyProcessTitle("claude investigation")
+        #expect(
+            destinationWorkspace.title == "claude investigation",
+            "Whitespace-only caller titles must not pin the workspace title."
+        )
+    }
+
     @Test("Move surface to existing workspace closes emptied source workspace and focuses destination")
     func moveSurfaceToExistingWorkspaceClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
         let app = AppDelegate()

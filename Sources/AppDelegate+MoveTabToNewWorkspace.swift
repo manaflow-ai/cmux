@@ -92,6 +92,7 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
+        let hasCallerTitleArgument = title != nil
         let explicitTitle = normalizedDetachedWorkspaceTitle(title)
         let destinationTitle = titleForDetachedWorkspace(
             explicitTitle: explicitTitle,
@@ -103,7 +104,9 @@ extension AppDelegate {
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
         let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
         guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
-        let destinationCustomTitle = explicitTitle ?? normalizedDetachedWorkspaceTitle(detached.customTitle)
+        let destinationCustomTitle = hasCallerTitleArgument
+            ? explicitTitle
+            : normalizedDetachedWorkspaceTitle(detached.customTitle)
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
