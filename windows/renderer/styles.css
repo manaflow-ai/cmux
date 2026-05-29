@@ -1219,6 +1219,7 @@ button {
 }
 
 .inspector {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -1226,6 +1227,36 @@ button {
   overflow: hidden;
   border-left: 1px solid var(--color-line);
   background: var(--color-rail);
+}
+
+.inspector::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  width: 8px;
+  transform: translateX(-4px);
+  cursor: col-resize;
+  background: transparent;
+}
+
+.inspector::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  width: 1px;
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.inspector:hover::after,
+.shell.inspector-resizing .inspector::after {
+  background: var(--color-accent);
 }
 
 .inspector-head {

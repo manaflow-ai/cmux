@@ -39,6 +39,7 @@ const state = {
   zoomedPanelId: null,
   contextMenu: null,
   resizing: null,
+  inspectorResizing: null,
   renderFrame: 0,
   scheduledRenderPrevious: null,
   pendingRender: false,
@@ -797,6 +798,47 @@ function finishPaneResize(event) {
   state.resizing.splitter.classList.remove("is-dragging");
   state.resizing = null;
   flushPendingRender();
+}
+
+function startInspectorResize(event) {
+  if (!state.inspectorMode || event.button !== 0) return;
+  const rect = elements.inspector.getBoundingClientRect();
+  if (event.clientX - rect.left > 8) return;
+  event.preventDefault();
+  elements.inspector.setPointerCapture?.(event.pointerId);
+  elements.shell.classList.add("inspector-resizing");
+  state.inspectorResizing = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startWidth: rect.width,
+    width: rect.width
+  };
+}
+
+function continueInspectorResize(event) {
+  if (!state.inspectorResizing) return;
+  const nextWidth = Math.round(clamp(
+    state.inspectorResizing.startWidth + state.inspectorResizing.startX - event.clientX,
+    300,
+    480
+  ));
+  state.inspectorResizing.width = nextWidth;
+  state.settings.inspectorWidth = nextWidth;
+  elements.shell.style.setProperty("--inspector-width", `${nextWidth}px`);
+}
+
+function finishInspectorResize(event) {
+  if (!state.inspectorResizing) return;
+  if (event.pointerId === state.inspectorResizing.pointerId) {
+    elements.inspector.releasePointerCapture?.(event.pointerId);
+  }
+  state.inspectorResizing = null;
+  elements.shell.classList.remove("inspector-resizing");
+  saveSettings();
+  applySettings();
+  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
+    renderSettingsInspector();
+  }
 }
 
 function createPane(panel) {
@@ -2800,9 +2842,19 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-window.addEventListener("pointermove", continuePaneResize);
-window.addEventListener("pointerup", finishPaneResize);
-window.addEventListener("pointercancel", finishPaneResize);
+elements.inspector.addEventListener("pointerdown", startInspectorResize);
+window.addEventListener("pointermove", (event) => {
+  continuePaneResize(event);
+  continueInspectorResize(event);
+});
+window.addEventListener("pointerup", (event) => {
+  finishPaneResize(event);
+  finishInspectorResize(event);
+});
+window.addEventListener("pointercancel", (event) => {
+  finishPaneResize(event);
+  finishInspectorResize(event);
+});
 document.addEventListener("click", (event) => {
   if (state.contextMenu && !state.contextMenu.hidden && !state.contextMenu.contains(event.target)) {
     hideContextMenu();
