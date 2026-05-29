@@ -1083,16 +1083,18 @@ function createEmptyWorkspace(workspace) {
     <div class="empty-workspace-inner">
       <img src="/assets/cmux-empty.svg" alt="cmux Windows">
       <div class="empty-workspace-title"></div>
-      <div class="empty-workspace-body">No panels are open in this workspace.</div>
+      <div class="empty-workspace-body">Start with a pane or build a ready workspace layout.</div>
       <div class="empty-workspace-actions">
         <button class="tool-button primary new-terminal">+ Term</button>
         <button class="tool-button new-browser">Web</button>
       </div>
+      <div class="empty-workspace-starters"></div>
     </div>
   `;
   node.querySelector(".empty-workspace-title").textContent = workspace?.title || "cmux Windows";
   node.querySelector(".new-terminal").onclick = () => createPanel("terminal", "right");
   node.querySelector(".new-browser").onclick = () => openBrowserPrompt();
+  renderEmptyWorkspaceStarters(node, workspace);
   return node;
 }
 
@@ -1102,8 +1104,31 @@ function renderEmptyWorkspace(workspace) {
     node = createEmptyWorkspace(workspace);
   } else {
     node.querySelector(".empty-workspace-title").textContent = workspace?.title || "cmux Windows";
+    renderEmptyWorkspaceStarters(node, workspace);
   }
   replaceChildrenIfChanged(elements.paneGrid, [node]);
+}
+
+function renderEmptyWorkspaceStarters(node, workspace) {
+  const host = node.querySelector(".empty-workspace-starters");
+  if (!host) return;
+  const cards = workspaceStarters.map((starter) => {
+    const button = document.createElement("button");
+    button.className = "empty-workspace-starter";
+    button.type = "button";
+    button.dataset.workspaceStarter = starter.id;
+    button.innerHTML = `
+      <span class="empty-workspace-starter-label"></span>
+      <span class="empty-workspace-starter-meta"></span>
+    `;
+    button.querySelector(".empty-workspace-starter-label").textContent = starter.label;
+    button.querySelector(".empty-workspace-starter-meta").textContent = starter.panels
+      .map((type) => type === "browser" ? "web" : "term")
+      .join(" + ");
+    button.onclick = () => applyWorkspaceStarter(starter.id, workspace?.id);
+    return button;
+  });
+  replaceChildrenIfChanged(host, cards);
 }
 
 function getPaneSplitter(workspace, beforePanel, afterPanel) {

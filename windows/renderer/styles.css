@@ -320,6 +320,7 @@ button {
 .settings-nav-button,
 .settings-preset,
 .workspace-starter,
+.empty-workspace-starter,
 .background-preset,
 .context-action,
 .context-color,
@@ -403,6 +404,7 @@ button {
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
 .workspace-starter:focus-visible,
+.empty-workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
 .background-preset:focus-visible,
 .context-action:focus-visible,
@@ -425,6 +427,7 @@ button {
 .settings-nav-button:active,
 .settings-preset:active,
 .workspace-starter:active,
+.empty-workspace-starter:active,
 .settings-command-run:active,
 .background-preset:active,
 .context-action:active,
@@ -1240,7 +1243,68 @@ button {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
   gap: var(--space-2);
+}
+
+.empty-workspace-actions .tool-button {
+  width: auto;
+  min-width: 82px;
+  padding: 0 var(--space-3);
+  gap: 6px;
+}
+
+.empty-workspace-starters {
+  width: min(560px, 100%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.empty-workspace-starter {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane-warm) 72%, transparent);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.empty-workspace-starter:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.empty-workspace-starter-label,
+.empty-workspace-starter-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.empty-workspace-starter-label {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.empty-workspace-starter-meta {
+  justify-self: start;
+  max-width: 100%;
+  padding: 3px 5px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
 }
 
 .statusbar {
@@ -2359,6 +2423,10 @@ textarea.dialog-input {
 
   .pane-grid {
     flex-direction: column;
+  }
+
+  .empty-workspace-starters {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
