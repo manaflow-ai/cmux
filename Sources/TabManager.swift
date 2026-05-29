@@ -6655,6 +6655,7 @@ class TabManager: ObservableObject {
         // depend on `Workspace.groupId` even when the array contents are
         // unchanged.
         normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
+        syncWorkspaceGroupsOrderToAnchorOrder()
     }
 
     /// Ensure the group containing the newly-selected workspace is expanded, so the

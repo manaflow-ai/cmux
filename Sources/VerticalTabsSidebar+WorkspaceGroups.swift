@@ -32,15 +32,11 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
-        let sidebarReorderIds = tabManager.sidebarReorderWorkspaceIds(
-            forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: group.anchorWorkspaceId
-        )
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds
+            tabIds: renderContext.sidebarGroupHeaderReorderIds
         )
         let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
             #if DEBUG

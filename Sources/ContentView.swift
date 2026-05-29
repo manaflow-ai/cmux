@@ -10278,6 +10278,8 @@ struct VerticalTabsSidebar: View {
         let tabIds: [UUID]
         /// Drag-scope row ids shared by every visible row for this render pass.
         let sidebarReorderIds: [UUID]
+        /// Drag-scope row ids for group-header drop targets. Empty when idle.
+        let sidebarGroupHeaderReorderIds: [UUID]
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
@@ -10323,11 +10325,25 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
-        let sidebarReorderIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
+        let draggedSidebarTabId = dragState.draggedTabId
+        let sidebarReorderIds = draggedSidebarTabId.map {
+            tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: $0)
+        } ?? []
+        let sidebarGroupHeaderReorderIds: [UUID] = {
+            guard let draggedSidebarTabId,
+                  let groupAnchorId = workspaceGroups.first?.anchorWorkspaceId else {
+                return []
+            }
+            return tabManager.sidebarReorderWorkspaceIds(
+                forDraggedWorkspaceId: draggedSidebarTabId,
+                targetWorkspaceId: groupAnchorId
+            )
+        }()
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabs.map(\.id),
             sidebarReorderIds: sidebarReorderIds,
+            sidebarGroupHeaderReorderIds: sidebarGroupHeaderReorderIds,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,

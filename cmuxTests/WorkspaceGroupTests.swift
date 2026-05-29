@@ -205,6 +205,31 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let firstGroupId = try #require(manager.createWorkspaceGroup(name: "First", childWorkspaceIds: [originalIds[0]]))
+        let firstGroup = try #require(manager.workspaceGroups.first { $0.id == firstGroupId })
+        let secondGroupId = try #require(manager.createWorkspaceGroup(name: "Second", childWorkspaceIds: [originalIds[2]]))
+        let secondGroup = try #require(manager.workspaceGroups.first { $0.id == secondGroupId })
+
+        manager.moveTabToTopForNotification(originalIds[2])
+
+        #expect(manager.tabs.map(\.id).prefix(4) == [
+            secondGroup.anchorWorkspaceId,
+            originalIds[2],
+            firstGroup.anchorWorkspaceId,
+            originalIds[0],
+        ])
+        #expect(Array(manager.workspaceGroups.map(\.id).prefix(2)) == [
+            secondGroupId,
+            firstGroupId,
+        ])
+    }
+
     @Test func addingWorkspaceToGroupPreservesGroupTopLevelPosition() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
