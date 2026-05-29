@@ -7652,6 +7652,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.forkAgentConversationNewTab",
+                title: constant(String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "tab", "same", "pane"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.forkAgentConversationNewWorkspace",
                 title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
                 subtitle: workspaceSubtitle,
@@ -8318,6 +8330,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.forkAgentConversationBottom") {
             forkFocusedAgentConversationBottom()
+        }
+        registry.register(commandId: "palette.forkAgentConversationNewTab") {
+            forkFocusedAgentConversationToNewTab()
         }
         registry.register(commandId: "palette.forkAgentConversationNewWorkspace") {
             forkFocusedAgentConversationToNewWorkspace()
@@ -9078,6 +9093,7 @@ struct ContentView: View {
              "palette.forkAgentConversationLeft",
              "palette.forkAgentConversationTop",
              "palette.forkAgentConversationBottom",
+             "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace":
             return true
         default:
@@ -9952,7 +9968,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
-private struct SidebarTabItemSettingsSnapshot: Equatable {
+struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
     let showsWorkspaceDescription: Bool
@@ -10287,15 +10303,16 @@ struct VerticalTabsSidebar: View {
     let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var dragState = SidebarDragState()
+    @State var dragState = SidebarDragState()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -10308,6 +10325,14 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    /// Bumped whenever any workspace's currentDirectory changes; the group
+    /// header's resolved cwd-based config (color/icon/context menu /
+    /// newWorkspacePlacement) reads it through the body, so a state
+    /// invalidation here forces SwiftUI to re-call
+    /// `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`. The anchor
+    /// has no TabItemView, so no implicit per-row publisher subscription
+    /// would otherwise fire on `cd` while it's not selected.
+    @State private var anchorCwdRevision: Int = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
@@ -10460,7 +10485,7 @@ struct VerticalTabsSidebar: View {
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
-    private struct WorkspaceListRenderContext {
+    struct WorkspaceListRenderContext {
         let tabs: [Workspace]
         /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
         /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
@@ -10476,6 +10501,9 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsConnecting: Bool
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceTerminalScrollBarHiddenById: [UUID: Bool]
+        let workspaceGroups: [WorkspaceGroup]
+        let workspaceGroupById: [UUID: WorkspaceGroup]
+        let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10503,6 +10531,11 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+        let workspaceGroups = tabManager.workspaceGroups
+        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+        )
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabs.map(\.id),
@@ -10515,7 +10548,10 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById
+            workspaceTerminalScrollBarHiddenById: workspaceTerminalScrollBarHiddenById,
+            workspaceGroups: workspaceGroups,
+            workspaceGroupById: workspaceGroupById,
+            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -10736,6 +10772,51 @@ struct VerticalTabsSidebar: View {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
+                    // Drive a revision counter that the group-header resolver
+                    // reads. Forces SwiftUI to re-invoke `cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)`
+                    // when the anchor's cwd changes while the anchor is not
+                    // the selected workspace — otherwise group color/icon/menu
+                    // and `+` placement reflect the previous cwd until some
+                    // unrelated sidebar event fires.
+                    anchorCwdRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
+                    // Group collapse hides some workspaces without changing
+                    // focus or wiping the rest of the multi-selection. Strip
+                    // only the hidden ids; if focus moved, make sure the new
+                    // focused id is still represented.
+                    guard let manager = notification.object as? TabManager,
+                          manager === tabManager,
+                          let hidden = notification.userInfo?[SidebarMultiSelectionHideKey.hiddenWorkspaceIds] as? Set<UUID> else { return }
+                    var next = selectedTabIds.subtracting(hidden)
+                    if let movedFocus = notification.userInfo?[SidebarMultiSelectionHideKey.focusedWorkspaceId] as? UUID {
+                        next.insert(movedFocus)
+                        if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
+                            lastSidebarSelectionIndex = index
+                        }
+                    }
+                    if next != selectedTabIds {
+                        selectedTabIds = next
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionShouldCollapse)) { notification in
+                    // Keyboard nav (selectNextTab/selectPreviousTab) posts
+                    // this so any stale Shift-click range in the sidebar's
+                    // SwiftUI selectedTabIds collapses to just the newly-
+                    // focused workspace. Without this, batch context-menu /
+                    // shortcut actions would still target the stale range.
+                    guard let manager = notification.object as? TabManager,
+                          manager === tabManager,
+                          let focusedId = notification.userInfo?[SidebarMultiSelectionCollapseKey.focusedWorkspaceId] as? UUID else { return }
+                    let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
+                    if selectedTabIds != next {
+                        selectedTabIds = next
+                    }
+                    if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
+                        lastSidebarSelectionIndex = index
+                    }
                 }
                 .onPreferenceChange(SidebarWorkspaceRowIdsPreferenceKey.self) { rowIds in
                     laidOutWorkspaceRowIds = rowIds
@@ -11559,13 +11640,22 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
+        let renderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: renderContext.tabs,
+            groupsById: renderContext.workspaceGroupById
+        )
         // LazyVStack is safe here because `dragState` is @Observable:
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderContext.tabs, id: \.id) { tab in
-                workspaceRow(tab, renderContext: renderContext)
+        return LazyVStack(spacing: tabRowSpacing) {
+            ForEach(renderItems, id: \.id) { item in
+                switch item {
+                case .groupHeader(let group, let memberCount):
+                    sidebarWorkspaceGroupHeader(group: group, memberCount: memberCount, renderContext: renderContext)
+                case .workspace(let tab):
+                    workspaceRow(tab, renderContext: renderContext)
+                }
             }
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
@@ -11753,6 +11843,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
             contextMenuPinState: contextMenuPinState,
+            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -11764,6 +11855,7 @@ struct VerticalTabsSidebar: View {
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
+        .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -11772,7 +11864,7 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
+struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     static let defaultValue: Set<UUID> = []
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
@@ -11780,7 +11872,7 @@ private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     }
 }
 
-private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
+struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     static let defaultValue: [UUID: Anchor<CGRect>] = [:]
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
@@ -14173,7 +14265,7 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
-private struct TabItemView: View, Equatable {
+struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
@@ -14197,6 +14289,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
@@ -14242,6 +14335,7 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
+    let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
@@ -14832,16 +14926,15 @@ private struct TabItemView: View, Equatable {
                     }
                 }
         )
+        .sidebarShortcutHintOverlay(
+            text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
+            emphasis: shortcutHintEmphasis,
+            offsetX: sidebarShortcutHintXOffset,
+            offsetY: sidebarShortcutHintYOffset
+        )
         .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                    .offset(
-                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                    )
-                    .padding(.top, 6)
-                    .padding(.trailing, 10)
-                    .shortcutHintTransition()
+            if showsWorkspaceShortcutHint {
+                EmptyView()
             } else if showCloseButton {
                 Button(action: {
                     #if DEBUG
@@ -15082,6 +15175,8 @@ private struct TabItemView: View, Equatable {
             syncSelectionAfterMutation()
         }
         .disabled(contextMenuPinState == nil)
+
+        workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
@@ -15367,7 +15462,27 @@ private struct TabItemView: View, Equatable {
         if isShift, let lastIndex = lastSidebarSelectionIndex {
             let lower = min(lastIndex, index)
             let upper = max(lastIndex, index)
-            let rangeIds = tabManager.tabs[lower...upper].map { $0.id }
+            // Filter out workspaces hidden inside collapsed groups so a
+            // Shift-click range never silently includes rows the user
+            // can't see (e.g. clicking a collapsed group's anchor and
+            // then Shift-clicking a row below would otherwise sweep
+            // every collapsed child between them).
+            let collapsedGroupIds: Set<UUID> = Set(
+                tabManager.workspaceGroups
+                    .filter { $0.isCollapsed }
+                    .map(\.id)
+            )
+            let anchorIdsByGroup: [UUID: UUID] = Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
+            )
+            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+                if let gid = tab.groupId,
+                   collapsedGroupIds.contains(gid),
+                   anchorIdsByGroup[gid] != tab.id {
+                    return nil
+                }
+                return tab.id
+            }
             if isCommand {
                 selectedTabIds.formUnion(rangeIds)
             } else {
@@ -16372,7 +16487,7 @@ enum SidebarDragAutoScrollPlanner {
 }
 
 @MainActor
-private final class SidebarDragAutoScrollController: ObservableObject {
+final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
@@ -16505,11 +16620,16 @@ private final class SidebarDragAutoScrollController: ObservableObject {
     }
 }
 
+/// Immutable, equatable snapshot of the group list a row's "Move to Group"
+/// submenu can offer. Computed once per parent body eval and passed into
+/// each TabItemView so the row's `==` covers group changes (renames, adds,
+/// deletes) — the row's snapshot-boundary rule forbids reading
+/// `tabManager.workspaceGroups` from inside the contextMenu builder.
 enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
-    private static let prefix = "cmux.sidebar-tab."
+    static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
         let provider = NSItemProvider()
@@ -16523,6 +16643,7 @@ enum SidebarTabDragPayload {
         }
         return provider
     }
+
 }
 
 enum SurfaceTabDragPayload {
@@ -16677,7 +16798,7 @@ enum SidebarWorkspaceSelectionSyncPolicy {
 }
 
 @MainActor
-private struct SidebarTabDropDelegate: DropDelegate {
+struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
     let dragState: SidebarDragState
@@ -16774,7 +16895,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         let selectionBeforeReorder = selectedTabIds
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex, isDragOperation: true)
         syncSidebarSelection(preserving: selectionBeforeReorder)
         return true
     }

@@ -129,7 +129,8 @@ public enum AgentLaunchSanitizer {
                       !command.hasPrefix("-") {
                 return nil
             }
-            return preserveOptions(tail, policy: hermesAgentPolicy)
+            guard let preserved = preserveOptions(tail, policy: hermesAgentPolicy) else { return nil }
+            return HermesAgentCodexEnvironment.argumentsByReplacingOpenAICodexProvider(preserved)
         case "copilot":
             return preserveOptions(args, policy: copilotPolicy)
         case "codebuddy":

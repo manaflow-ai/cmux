@@ -5279,6 +5279,30 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(CanvasCameraInteractionEvent.ended.requiresUnifiedCanvasPresentation)
     }
 
+    func testCanvasNativeSurfaceParkingPolicyFreezesDuringCameraMotion() {
+        XCTAssertEqual(
+            CanvasNativeSurfaceParkingPolicy.mode(
+                usesUnifiedTexturePresentation: true,
+                hasParkedNativeSurfacesForCamera: false
+            ),
+            .freezeInPlace
+        )
+        XCTAssertEqual(
+            CanvasNativeSurfaceParkingPolicy.mode(
+                usesUnifiedTexturePresentation: false,
+                hasParkedNativeSurfacesForCamera: true
+            ),
+            .freezeInPlace
+        )
+        XCTAssertEqual(
+            CanvasNativeSurfaceParkingPolicy.mode(
+                usesUnifiedTexturePresentation: false,
+                hasParkedNativeSurfacesForCamera: false
+            ),
+            .unmount
+        )
+    }
+
     @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()

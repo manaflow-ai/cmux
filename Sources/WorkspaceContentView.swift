@@ -2860,6 +2860,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 CanvasSurfacePortalLayer(
                     requests: nativePresentationRequests,
                     onPreparePublish: { requests in
+                        let parkingMode = CanvasNativeSurfaceParkingPolicy.mode(
+                            usesUnifiedTexturePresentation: usesUnifiedTexturePresentation,
+                            hasParkedNativeSurfacesForCamera: canvasCameraNativeSurfacesParked
+                        )
                         let mountedPanelIDs = Set(
                             requests.compactMap { request -> UUID? in
                                 selectedTab(for: request.item).flatMap { workspace.panelIdFromSurfaceId($0.id) }
@@ -2870,7 +2874,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         }
                         WorkspaceCanvasSurfaceMountManager.parkNativeSurfaces(
                             in: workspace,
-                            excludingPanelIDs: mountedPanelIDs
+                            excludingPanelIDs: mountedPanelIDs,
+                            preserveGeometry: parkingMode == .freezeInPlace
                         )
                     },
                     onApply: { request, frameInWindow in

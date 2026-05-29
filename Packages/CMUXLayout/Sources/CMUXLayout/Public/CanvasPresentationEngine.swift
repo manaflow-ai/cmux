@@ -233,6 +233,23 @@ public enum CanvasSurfaceRenderMode: String, Codable, Sendable, Equatable {
     case placeholder
 }
 
+public enum CanvasNativeSurfaceParkingMode: String, Codable, Sendable, Equatable {
+    case unmount
+    case freezeInPlace
+}
+
+public enum CanvasNativeSurfaceParkingPolicy {
+    public static func mode(
+        usesUnifiedTexturePresentation: Bool,
+        hasParkedNativeSurfacesForCamera: Bool
+    ) -> CanvasNativeSurfaceParkingMode {
+        if usesUnifiedTexturePresentation || hasParkedNativeSurfacesForCamera {
+            return .freezeInPlace
+        }
+        return .unmount
+    }
+}
+
 public struct CanvasSurfaceDescriptor: Identifiable, Codable, Sendable, Equatable {
     public var id: LayoutItemID
     public var kind: CanvasSurfaceKind

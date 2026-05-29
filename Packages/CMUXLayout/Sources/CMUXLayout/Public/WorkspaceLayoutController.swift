@@ -106,6 +106,9 @@ public final class WorkspaceLayoutController {
     /// Host-provided availability check for the tab context menu's Fork Conversation item.
     @ObservationIgnored public var tabContextForkConversationAvailabilityProvider: ((SurfaceID, PaneID) -> Bool)?
 
+    /// Host-provided default action for the tab context menu's primary Fork Conversation item.
+    @ObservationIgnored public var tabContextForkConversationDefaultActionProvider: ((SurfaceID, PaneID) -> SurfaceContextAction)?
+
     /// Called when the user explicitly requests to close a tab from the tab strip UI.
     /// Internal host-driven closes should not use this hook.
     @ObservationIgnored public var onTabCloseRequest: ((_ tabId: SurfaceID, _ paneId: PaneID, _ source: SurfaceCloseRequestSource) -> Void)?

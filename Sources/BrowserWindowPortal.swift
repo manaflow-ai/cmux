@@ -3159,7 +3159,7 @@ final class WindowBrowserPortal: NSObject {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         if !visibleInUI, canvasSurfacePresentationFrozenWebViewIds.contains(webViewId) {
             entry.containerView?.alphaValue = 0
-            entry.containerView?.isHidden = true
+            entry.containerView?.isHidden = false
             return
         }
         let effectiveVisibleInUI = visibleInUI && !canvasSurfacePresentationSuppressedWebViewIds.contains(webViewId)
@@ -3235,7 +3235,7 @@ final class WindowBrowserPortal: NSObject {
         canvasSurfacePresentationFrozenWebViewIds.insert(webViewId)
         interactiveFrameOverridesInWindowByWebViewId.removeValue(forKey: webViewId)
         entry.containerView?.alphaValue = 0
-        entry.containerView?.isHidden = true
+        entry.containerView?.isHidden = false
     }
 
     func resumeCanvasSurfacePresentation(forWebViewId webViewId: ObjectIdentifier) {

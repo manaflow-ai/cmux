@@ -495,7 +495,8 @@
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
-          "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。"
+          "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
+          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。"
         },
         "terminal": {
           "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。"
