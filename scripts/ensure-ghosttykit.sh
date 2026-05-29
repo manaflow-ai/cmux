@@ -108,6 +108,7 @@ LEGACY_LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
 LOCK_DIR="$CACHE_ROOT/$GHOSTTY_KEY.lock"
 GHOSTTYKIT_CHECKSUMS_FILE="${CMUX_GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
 GHOSTTYKIT_ARCHIVE_VALIDATOR="${CMUX_GHOSTTYKIT_ARCHIVE_VALIDATOR:-$SCRIPT_DIR/validate-xcframework-archive.py}"
+GHOSTTYKIT_XCFRAMEWORK_NORMALIZER="${CMUX_GHOSTTYKIT_XCFRAMEWORK_NORMALIZER:-$SCRIPT_DIR/normalize-ghosttykit-xcframework.py}"
 
 mkdir -p "$CACHE_ROOT"
 
@@ -242,11 +243,24 @@ else
   echo "==> Cached GhosttyKit.xcframework at $CACHE_XCFRAMEWORK"
 fi
 
-MACOS_ARCHIVE="$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
-if [[ -f "$MACOS_ARCHIVE" ]]; then
+python3 "$GHOSTTYKIT_XCFRAMEWORK_NORMALIZER" "$CACHE_XCFRAMEWORK"
+
+MACOS_ARCHIVES=(
+  "$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
+  "$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty-internal.a"
+)
+NEEDS_RANLIB=0
+for archive in "${MACOS_ARCHIVES[@]}"; do
+  if [[ -f "$archive" ]]; then
+    NEEDS_RANLIB=1
+    break
+  fi
+done
+
+if [[ "$NEEDS_RANLIB" == "1" ]]; then
   # Xcode 26 can fail to resolve symbols from Ghostty's universal static archive
   # until its ranlib index is refreshed after reuse or copy.
-  echo "==> Refreshing libghostty archive index..."
+  echo "==> Refreshing GhosttyKit archive indexes..."
   if ! command -v xcrun >/dev/null 2>&1; then
     echo "error: xcrun is required to refresh libghostty archive index." >&2
     exit 1
@@ -255,7 +269,11 @@ if [[ -f "$MACOS_ARCHIVE" ]]; then
     echo "error: could not locate ranlib via xcrun." >&2
     exit 1
   fi
-  "$XCODE_RANLIB" "$MACOS_ARCHIVE"
+  for archive in "${MACOS_ARCHIVES[@]}"; do
+    if [[ -f "$archive" ]]; then
+      "$XCODE_RANLIB" "$archive"
+    fi
+  done
 fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."

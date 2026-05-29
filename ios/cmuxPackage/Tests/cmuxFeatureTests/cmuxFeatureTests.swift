@@ -2087,6 +2087,96 @@ import UIKit
     #expect(gate.finishReplay(replayEndSeq: UInt64(oversizedLiveTail.count), replayData: Data("replay".utf8)).isEmpty)
 }
 
+@Test func mobileGhosttyMirrorSuppressesOnlyMirroredOutputGeneratedWrites() {
+    let oscColorReply = Data("\u{1B}]11;rgb:2727/2828/2222\u{07}".utf8)
+    let deviceStatusReply = Data("\u{1B}[0n".utf8)
+    let cursorPositionReply = Data("\u{1B}[42;12R".utf8)
+    let primaryDeviceAttributesReply = Data("\u{1B}[?62;22;52c".utf8)
+    let primaryDeviceAttributesRequest = Data("\u{1B}[c".utf8)
+    let parameterizedDeviceAttributesRequest = Data("\u{1B}[0c".utf8)
+    let upArrowKey = Data("\u{1B}[A".utf8)
+    let focusGained = Data("\u{1B}[I".utf8)
+    let plainBytes = Data("not user input".utf8)
+
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: oscColorReply,
+            isProcessingMirroredOutput: true,
+            callbackOrigin: .mirroredOutputQueue
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: deviceStatusReply,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: cursorPositionReply,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: primaryDeviceAttributesReply,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: upArrowKey,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: primaryDeviceAttributesRequest,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: parameterizedDeviceAttributesRequest,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: focusGained,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: plainBytes,
+            isProcessingMirroredOutput: true,
+            callbackOrigin: .mirroredOutputQueue
+        ) == .suppressMirroredOutputReply
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: plainBytes,
+            isProcessingMirroredOutput: false,
+            callbackOrigin: .mirroredOutputQueue
+        ) == .forwardToRemote
+    )
+    #expect(
+        MobileGhosttyMirrorOutputPolicy.decision(
+            for: upArrowKey,
+            isProcessingMirroredOutput: true,
+            callbackOrigin: .other
+        ) == .forwardToRemote
+    )
+}
+
 @Test func mobileEventBufferDeliversBufferedEventsInOrder() async {
     let buffer = MobileEventBuffer(maxBufferedEventCount: 4, maxBufferedByteCount: 128)
     let first = MobileEventEnvelope(topic: "workspace.updated", payloadJSON: Data("one".utf8), streamID: nil)

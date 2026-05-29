@@ -34,6 +34,22 @@ enum TerminalInputDebugLog {
     }
 }
 
+private enum GhosttySurfaceOutputQueue {
+    private static let specificKey = DispatchSpecificKey<Bool>()
+    static let queue: DispatchQueue = {
+        let queue = DispatchQueue(
+            label: "dev.cmux.GhosttySurfaceView.output",
+            qos: .userInitiated
+        )
+        queue.setSpecific(key: specificKey, value: true)
+        return queue
+    }()
+
+    static var isCurrent: Bool {
+        DispatchQueue.getSpecific(key: specificKey) == true
+    }
+}
+
 @MainActor
 protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
@@ -80,6 +96,7 @@ extension TerminalSurfaceHosting {
 final class GhosttySurfaceBridge: @unchecked Sendable {
     private let lock = NSLock()
     private weak var _surfaceView: GhosttySurfaceView?
+    private var mirroredOutputDepth = 0
 
     var surfaceView: GhosttySurfaceView? {
         get {
@@ -102,7 +119,35 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         surfaceView = nil
     }
 
+    func withMirroredOutputWriteSuppression<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        mirroredOutputDepth += 1
+        lock.unlock()
+        defer {
+            lock.lock()
+            mirroredOutputDepth = max(0, mirroredOutputDepth - 1)
+            lock.unlock()
+        }
+        return try body()
+    }
+
     func handleWrite(_ bytes: Data) {
+        let isProcessingMirroredOutput: Bool = {
+            lock.lock()
+            defer { lock.unlock() }
+            return mirroredOutputDepth > 0
+        }()
+        switch MobileGhosttyMirrorOutputPolicy.decision(
+            for: bytes,
+            isProcessingMirroredOutput: isProcessingMirroredOutput,
+            callbackOrigin: GhosttySurfaceOutputQueue.isCurrent ? .mirroredOutputQueue : .other
+        ) {
+        case .suppressMirroredOutputReply:
+            TerminalInputDebugLog.log("bridge.suppressedEmulatorWrite data=\(TerminalInputDebugLog.dataSummary(bytes))")
+            return
+        case .forwardToRemote:
+            break
+        }
         Task { @MainActor [weak self] in
             guard let surfaceView = self?.surfaceView else { return }
             surfaceView.handleOutboundBytes(bytes)
@@ -129,7 +174,7 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 private enum GhosttySurfaceDisposer {
     static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        GhosttySurfaceView.outputQueue.async {
+        GhosttySurfaceOutputQueue.queue.async {
             ghostty_surface_free(surface)
             retainedBridge.release()
         }
@@ -520,14 +565,6 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var needsDraw: Bool = false
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
-    // Serial background queue for feeding bytes into Ghostty. Keeps
-    // `ghostty_surface_process_output` off the main thread so a potential
-    // Ghostty internal mutex/futex wait can't freeze the UI. Ordering is
-    // preserved because the queue is serial.
-    fileprivate static let outputQueue = DispatchQueue(
-        label: "dev.cmux.GhosttySurfaceView.output",
-        qos: .userInitiated
-    )
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
@@ -873,11 +910,14 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // mutex / mailbox, and running it on main would freeze the UI
         // (see TerminalSidebarStore deadlock notes). Ordering is preserved
         // because the queue is serial.
-        Self.outputQueue.async { [weak self] in
+        let bridge = self.bridge
+        GhosttySurfaceOutputQueue.queue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
-                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+                bridge.withMirroredOutputWriteSuppression {
+                    ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+                }
             }
             // Hop back to main for Swift-side state updates and diagnostics.
             DispatchQueue.main.async {
@@ -1462,9 +1502,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let userdata, let buf, len > 0 else { return }
             let data = Data(bytes: buf, count: Int(len))
             let bridge = Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
-            DispatchQueue.main.async {
-                bridge.surfaceView?.handleOutboundBytes(data)
-            }
+            bridge.handleWrite(data)
         }
         surfaceConfig.io_write_userdata = bridgePointer
         return ghostty_surface_new(app, &surfaceConfig)
