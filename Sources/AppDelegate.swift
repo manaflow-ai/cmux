@@ -1001,6 +1001,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
+    private var isUpdateRelaunchInProgress = false
+    private var didPersistUpdateRelaunchSnapshot = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
@@ -1763,7 +1765,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        saveSessionSnapshotForAppTermination()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1792,7 +1794,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        isUpdateRelaunchInProgress = true
+        stopSessionAutosaveTimer()
+        didPersistUpdateRelaunchSnapshot = saveSessionSnapshot(
+            includeScrollback: false,
+            removeWhenEmpty: false,
+            forceSynchronousWrite: true
+        )
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
@@ -3687,7 +3695,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        forceSynchronousWrite: Bool = false
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
@@ -3700,7 +3709,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
             isTerminatingApp: isTerminatingApp,
-            includeScrollback: includeScrollback
+            includeScrollback: includeScrollback,
+            forceSynchronousWrite: forceSynchronousWrite
         )
         if writeSynchronously {
             TextBoxInputTextView.flushPendingSessionDraftAttachmentCopies()
@@ -3958,14 +3968,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     private func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
+        removeWhenEmpty: Bool = false,
+        forceSynchronousWrite: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+            forceSynchronousWrite: forceSynchronousWrite
+        )
+    }
+
+    private func saveSessionSnapshotForAppTermination() {
+        guard Self.shouldSaveSessionSnapshotOnApplicationTerminate(
+            didPersistUpdateRelaunchSnapshot: didPersistUpdateRelaunchSnapshot
+        ) else {
+            StartupBreadcrumbLog.append("appDelegate.willTerminate.snapshotSkipped.updateRelaunch")
+            return
+        }
+
+        if Self.shouldUseFastSessionSnapshotForUpdateRelaunch(
+            isUpdateRelaunchInProgress: isUpdateRelaunchInProgress
+        ) {
+            _ = saveSessionSnapshot(
+                includeScrollback: false,
+                removeWhenEmpty: false,
+                forceSynchronousWrite: true
+            )
+            return
+        }
+
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(
+            includeScrollback: true,
+            removeWhenEmpty: false
         )
     }
 
@@ -4004,9 +4041,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(
         isTerminatingApp: Bool,
-        includeScrollback: Bool
+        includeScrollback: Bool,
+        forceSynchronousWrite: Bool = false
     ) -> Bool {
-        isTerminatingApp && includeScrollback
+        if forceSynchronousWrite { return true }
+        return isTerminatingApp && includeScrollback
+    }
+
+    nonisolated static func shouldSaveSessionSnapshotOnApplicationTerminate(
+        didPersistUpdateRelaunchSnapshot: Bool
+    ) -> Bool {
+        !didPersistUpdateRelaunchSnapshot
+    }
+
+    nonisolated static func shouldUseFastSessionSnapshotForUpdateRelaunch(
+        isUpdateRelaunchInProgress: Bool
+    ) -> Bool {
+        isUpdateRelaunchInProgress
     }
 
     nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(

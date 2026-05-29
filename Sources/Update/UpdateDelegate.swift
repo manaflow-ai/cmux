@@ -108,13 +108,21 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        Task { @MainActor in
-            AppDelegate.shared?.persistSessionForUpdateRelaunch()
-            TerminalController.shared.stop()
-            NSApp.invalidateRestorableState()
-            for window in NSApp.windows {
-                window.invalidateRestorableState()
+        let prepareForRelaunch = {
+            MainActor.assumeIsolated {
+                AppDelegate.shared?.persistSessionForUpdateRelaunch()
+                TerminalController.shared.stop()
+                NSApp.invalidateRestorableState()
+                for window in NSApp.windows {
+                    window.invalidateRestorableState()
+                }
             }
+        }
+
+        if Thread.isMainThread {
+            prepareForRelaunch()
+        } else {
+            DispatchQueue.main.sync(execute: prepareForRelaunch)
         }
     }
 }
