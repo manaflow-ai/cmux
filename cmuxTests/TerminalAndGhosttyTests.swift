@@ -1395,7 +1395,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
-    func testMobileTerminalPendingEchoSharesPostInputStyledCacheOnly() {
+    func testMobileTerminalPendingEchoBypassesSnapshotCache() {
         let inputAt = Date(timeIntervalSince1970: 6_000)
         XCTAssertFalse(
             TerminalController.debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
@@ -1405,13 +1405,13 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             ),
             "pending echo must reject any cache entry created before the input invalidation"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TerminalController.debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
                 cachedCreatedAt: inputAt.addingTimeInterval(0.01),
                 pendingEcho: true,
                 pendingEchoStartedAt: inputAt
             ),
-            "pending echo must share a fresh post-input styled snapshot across attached mobile clients"
+            "pending echo must not cache or reuse snapshots created before the PTY echo reaches the grid"
         )
         XCTAssertTrue(
             TerminalController.debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(

@@ -3400,8 +3400,16 @@ class TerminalController {
             return v2Result(id: id, self.v2MobileHostStatus(params: params))
         case "mobile.workspace.list":
             return v2Result(id: id, self.v2MobileWorkspaceList(params: params))
+        case "mobile.terminal.create", "terminal.create":
+            return v2Result(id: id, self.v2MobileTerminalCreate(params: params))
         case "mobile.terminal.snapshot":
             return v2Result(id: id, self.v2MobileTerminalSnapshot(params: params))
+        case "terminal.snapshot":
+            return v2Result(id: id, self.v2MobileTerminalSnapshot(params: params))
+        case "mobile.terminal.input", "terminal.input":
+            return v2Result(id: id, self.v2MobileTerminalInput(params: params))
+        case "mobile.terminal.key", "terminal.key":
+            return v2Result(id: id, self.v2MobileTerminalKey(params: params))
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
@@ -3881,13 +3889,10 @@ class TerminalController {
             "mobile.terminal.snapshot",
             "mobile.terminal.input",
             "mobile.terminal.key",
-            "mobile.events.subscribe",
-            "mobile.events.unsubscribe",
             "terminal.create",
             "terminal.snapshot",
             "terminal.input",
             "terminal.key",
-            "events.stream",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -21932,14 +21937,7 @@ class TerminalController {
             if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
                 payload["viewport_fit"] = viewportFit
             }
-            if viewportText.fidelity != "plain_text" {
-                // `mobile.terminal.input` clears the old cache before arming
-                // the pending-echo window. A styled entry created while that
-                // window is active is therefore a fresh post-input read, and
-                // should be shared with other attached clients. Without this,
-                // the first device can consume the VT export and a second
-                // device immediately falls through to plain text because of
-                // the VT-export throttle.
+            if viewportText.fidelity != "plain_text", !pendingEcho {
                 mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
                     columns: columns,
                     rows: rows,
@@ -21977,17 +21975,11 @@ class TerminalController {
     }
 
     private static func canReuseMobileTerminalSnapshotCache(
-        cached: MobileTerminalSnapshotCacheEntry,
+        cached _: MobileTerminalSnapshotCacheEntry,
         pendingEcho: Bool,
-        pendingEchoStartedAt: Date?
+        pendingEchoStartedAt _: Date?
     ) -> Bool {
-        guard pendingEcho else {
-            return true
-        }
-        guard let pendingEchoStartedAt else {
-            return false
-        }
-        return cached.createdAt >= pendingEchoStartedAt
+        !pendingEcho
     }
 
 #if DEBUG
