@@ -40,6 +40,24 @@ struct WorkspaceGroupTests {
         }
     }
 
+    @Test func createGroupKeepsFirstChildPosition() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let children = Array(originalIds.suffix(2))
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: children))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let reorderedIds = manager.tabs.map(\.id)
+
+        #expect(reorderedIds[0] == originalIds[0])
+        #expect(reorderedIds[1] == originalIds[1])
+        #expect(reorderedIds[2] == group.anchorWorkspaceId)
+        #expect(reorderedIds[3] == originalIds[2])
+        #expect(reorderedIds[4] == originalIds[3])
+    }
+
     @Test func removeNonAnchorPreservesGroup() {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
