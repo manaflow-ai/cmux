@@ -237,6 +237,12 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
         XCTAssertEqual(compact.width, 128, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+
+        let classicWithShortcutHints = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.classic.config,
+            reservesShortcutHintOverflow: true
+        )
+        XCTAssertEqual(classicWithShortcutHints.width, 186, accuracy: 0.001)
     }
 
     func testTitlebarControlStylesKeepReleaseIconMetrics() {

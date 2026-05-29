@@ -35,7 +35,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         switch self {
         case .classic:
             return TitlebarControlsStyleConfig(
-                spacing: 3,
+                spacing: 10,
                 iconSize: HeaderChromeControlMetrics.iconSize,
                 buttonSize: HeaderChromeControlMetrics.buttonSize,
                 badgeSize: 12,
@@ -436,14 +436,18 @@ enum TitlebarControlsLayoutMetrics {
 
     static func contentSize(
         config: TitlebarControlsStyleConfig,
-        titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
+        titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX,
+        reservesShortcutHintOverflow: Bool = false
     ) -> NSSize {
+        let shortcutHintOverflow = reservesShortcutHintOverflow
+            ? hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
+            : 0
         NSSize(
             width: outerLeadingPadding
                 + config.groupPadding.leading
                 + buttonRowWidth(config: config)
                 + config.groupPadding.trailing
-                + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset),
+                + shortcutHintOverflow,
             height: max(
                 WindowChromeMetrics.appTitlebarHeight,
                 config.groupPadding.top + config.buttonSize + config.groupPadding.bottom
@@ -750,16 +754,18 @@ struct TitlebarControlsView: View {
         let _ = appearanceRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
+        let reservesShortcutHintOverflow = shouldShowTitlebarShortcutHints
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
-            titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
+            titlebarShortcutHintXOffset: titlebarShortcutHintXOffset,
+            reservesShortcutHintOverflow: reservesShortcutHintOverflow
         )
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
         controlsGroup(config: config, foregroundColor: foregroundColor)
             .padding(.top, -1)
             .padding(.bottom, 1)
             .padding(.leading, 4)
-            .padding(.trailing, titlebarHintTrailingInset)
+            .padding(.trailing, reservesShortcutHintOverflow ? titlebarHintTrailingInset : 0)
             .frame(width: contentSize.width, height: contentSize.height, alignment: .leading)
             .fixedSize()
             .contentShape(Rectangle())
