@@ -2,11 +2,9 @@ import Foundation
 
 public struct CanvasRenderLoopConfiguration: Sendable, Equatable {
     public var preferredFramesPerSecond: Int
-    public var minimumFramesPerSecond: Int
 
-    public init(preferredFramesPerSecond: Int = 120, minimumFramesPerSecond: Int = 60) {
+    public init(preferredFramesPerSecond: Int = 120) {
         self.preferredFramesPerSecond = min(max(preferredFramesPerSecond, 1), 240)
-        self.minimumFramesPerSecond = min(max(minimumFramesPerSecond, 1), self.preferredFramesPerSecond)
     }
 }
 
@@ -34,10 +32,7 @@ public struct CanvasFrameScheduler: Sendable, Equatable {
     }
 
     public mutating func setPreferredFramesPerSecond(_ framesPerSecond: Int) {
-        configuration = CanvasRenderLoopConfiguration(
-            preferredFramesPerSecond: framesPerSecond,
-            minimumFramesPerSecond: configuration.minimumFramesPerSecond
-        )
+        configuration = CanvasRenderLoopConfiguration(preferredFramesPerSecond: framesPerSecond)
         markNeedsRender()
     }
 }

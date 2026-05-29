@@ -700,8 +700,8 @@ public final class WorkspaceLayoutController {
     /// - Returns: true if the pane was closed, false if vetoed by delegate
     @discardableResult
     public func closePane(_ paneId: PaneID) -> Bool {
-        // Don't close if it's the last pane and not allowed
-        if !configuration.allowCloseLastPane && internalController.rootNode.allPaneIds.count <= 1 {
+        let paneCount = internalController.rootNode.allPaneIds.count
+        if paneCount <= 1 {
             return false
         }
 
@@ -1581,11 +1581,4 @@ public final class WorkspaceLayoutController {
         let tab = SurfaceTab(from: tabItem)
         delegate?.workspaceLayout(self, didSelectSurface: tab, inPane: pane.id)
     }
-}
-
-private extension PixelRect {
-    var minX: Double { x }
-    var maxX: Double { x + width }
-    var minY: Double { y }
-    var maxY: Double { y + height }
 }

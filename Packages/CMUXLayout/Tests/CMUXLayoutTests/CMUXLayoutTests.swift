@@ -1914,6 +1914,21 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCloseLastPaneReportsFalseWhenRootPaneCannotBeRemoved() throws {
+        let controller = WorkspaceLayoutController(
+            configuration: WorkspaceLayoutConfiguration(allowCloseLastPane: true)
+        )
+        let paneId = try XCTUnwrap(controller.focusedPaneId)
+        let delegate = PaneLifecycleDelegateSpy()
+        controller.delegate = delegate
+
+        XCTAssertFalse(controller.closePane(paneId))
+        XCTAssertEqual(controller.allPaneIds, [paneId])
+        XCTAssertEqual(delegate.shouldClosePaneIds, [])
+        XCTAssertEqual(delegate.didClosePaneIds, [])
+    }
+
+    @MainActor
     func testRequestSurfaceContextActionForwardsToDelegate() {
         let controller = WorkspaceLayoutController()
         let pane = controller.focusedPaneId!

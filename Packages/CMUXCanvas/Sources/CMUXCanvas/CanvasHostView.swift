@@ -50,7 +50,6 @@ public final class CanvasHostView: NSView {
     private let metalView: MTKView
     private let renderer: CanvasMetalRenderer
     private var scene: CanvasScene
-    private var style: CanvasShellStyle
 
     public init(
         scene: CanvasScene = CanvasScene(),
@@ -61,7 +60,6 @@ public final class CanvasHostView: NSView {
         forceContinuousRender: Bool = false
     ) {
         self.scene = scene
-        self.style = style
         let device = MTLCreateSystemDefaultDevice()
         self.metalView = MTKView(frame: .zero, device: device)
         self.renderer = CanvasMetalRenderer(
@@ -113,7 +111,6 @@ public final class CanvasHostView: NSView {
         forceContinuousRender: Bool = false
     ) {
         self.scene = scene
-        self.style = style
         renderer.update(
             scene: scene,
             backgroundColor: backgroundColor,
@@ -317,7 +314,8 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
                 minimumSurfaceDisplaySize: state.scene.minimumSurfaceDisplaySize,
                 grid: state.scene.grid,
                 surfaces: state.scene.surfaces,
-                alignmentGuides: state.scene.alignmentGuides
+                alignmentGuides: state.scene.alignmentGuides,
+                cullsSurfacesToViewport: state.scene.cullsSurfacesToViewport
             )
             state.scheduler.markNeedsRender()
         }
@@ -390,18 +388,18 @@ private final class CanvasMetalRenderer: NSObject, MTKViewDelegate {
 
         encoder.endEncoding()
         if didUseShellVertexBuffer {
-            commandBuffer.addCompletedHandler { [weak self] _ in
-                self?.shellVertexBufferRing.signalCompleted()
+            commandBuffer.addCompletedHandler { [self] _ in
+                shellVertexBufferRing.signalCompleted()
             }
         }
         if didUseOverlayVertexBuffer {
-            commandBuffer.addCompletedHandler { [weak self] _ in
-                self?.overlayVertexBufferRing.signalCompleted()
+            commandBuffer.addCompletedHandler { [self] _ in
+                overlayVertexBufferRing.signalCompleted()
             }
         }
         if didUseTextureVertexBuffer {
-            commandBuffer.addCompletedHandler { [weak self] _ in
-                self?.textureVertexBufferRing.signalCompleted()
+            commandBuffer.addCompletedHandler { [self] _ in
+                textureVertexBufferRing.signalCompleted()
             }
         }
         commandBuffer.present(drawable)

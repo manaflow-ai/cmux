@@ -914,7 +914,7 @@ public enum CanvasGeometryEngine {
     }
 }
 
-private extension PixelRect {
+extension PixelRect {
     var minX: Double { x }
     var maxX: Double { x + width }
     var midX: Double { x + (width / 2) }
