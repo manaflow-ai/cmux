@@ -515,6 +515,9 @@ class CmuxWindowsRuntime {
       const color = String(updates.color || "").trim();
       found.panel.color = workspaceColors.includes(color) ? color : "";
     }
+    if (updates.direction === "down" || updates.direction === "right") {
+      found.workspace.splitDirection = updates.direction;
+    }
     if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
       const url = String(updates.url || "").trim();
       if (/^https?:\/\//i.test(url)) found.panel.url = url.slice(0, 2048);

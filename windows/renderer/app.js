@@ -152,6 +152,16 @@ const settingsPresets = [
   }
 ];
 
+const settingsCategories = [
+  ["all", "All"],
+  ["quick", "Quick"],
+  ["workspace", "Workspace"],
+  ["appearance", "Look"],
+  ["layout", "Layout"],
+  ["terminal", "Terminal"],
+  ["data", "Data"]
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -174,6 +184,7 @@ const state = {
   pendingRender: false,
   pendingRenderPrevious: null,
   settings: initialSettings,
+  settingsCategory: "all",
   terminalFontSize: initialSettings.terminalFontSize
 };
 
@@ -532,6 +543,10 @@ function createWorkspaceRow() {
     </span>
   `;
   button.addEventListener("click", () => focusWorkspace(button.dataset.workspaceId));
+  button.addEventListener("contextmenu", (event) => {
+    const workspace = state.data?.workspaces.find((candidate) => candidate.id === button.dataset.workspaceId);
+    if (workspace) showWorkspaceContextMenu(event, workspace);
+  });
   button.addEventListener("dragover", (event) => {
     if (!state.dragPanelId) return;
     event.preventDefault();
@@ -621,6 +636,7 @@ function createSurfaceTab() {
   button.addEventListener("dragend", () => {
     button.classList.remove("is-dragging");
     state.dragPanelId = null;
+    clearAllDropTargets();
   });
   button.querySelector(".surface-close").addEventListener("click", (event) => {
     event.stopPropagation();
@@ -831,6 +847,7 @@ function createPane(panel) {
   `;
   const header = pane.querySelector(".pane-header");
   header.draggable = true;
+  header.addEventListener("click", () => focusPanel(pane.dataset.panelId));
   header.addEventListener("dragstart", (event) => {
     state.dragPanelId = pane.dataset.panelId;
     pane.classList.add("is-dragging");
@@ -840,6 +857,7 @@ function createPane(panel) {
   header.addEventListener("dragend", () => {
     pane.classList.remove("is-dragging");
     state.dragPanelId = null;
+    clearAllDropTargets();
   });
   pane.querySelector(".split-right").onclick = (event) => {
     event.stopPropagation();
@@ -859,28 +877,54 @@ function createPane(panel) {
   };
   pane.querySelector(".restart").onclick = (event) => {
     event.stopPropagation();
-    restartPanel(panel.id);
+    restartPanel(pane.dataset.panelId);
   };
   pane.querySelector(".close").onclick = (event) => {
     event.stopPropagation();
-    closePanel(panel.id);
+    closePanel(pane.dataset.panelId);
   };
   pane.addEventListener("dragover", (event) => {
     if (!state.dragPanelId || state.dragPanelId === pane.dataset.panelId) return;
     event.preventDefault();
-    pane.classList.add("is-drop-before");
+    pane.dataset.dropPosition = paneDropPosition(event, pane);
+    pane.classList.add("is-drop-target");
   });
-  pane.addEventListener("dragleave", () => pane.classList.remove("is-drop-before"));
+  pane.addEventListener("dragleave", () => clearPaneDropTarget(pane));
   pane.addEventListener("drop", (event) => {
     event.preventDefault();
-    pane.classList.remove("is-drop-before");
+    const placement = pane.dataset.dropPosition || paneDropPosition(event, pane);
+    clearPaneDropTarget(pane);
     if (state.dragPanelId && state.dragPanelId !== pane.dataset.panelId) {
-      movePanelBefore(state.dragPanelId, pane.dataset.panelId);
+      movePanelRelative(state.dragPanelId, pane.dataset.panelId, placement);
     }
   });
-  pane.addEventListener("pointerdown", () => focusPanel(panel.id));
+  pane.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest(".pane-header")) return;
+    focusPanel(pane.dataset.panelId);
+  });
   state.paneCache.set(panel.id, pane);
   return pane;
+}
+
+function paneDropPosition(event, pane) {
+  const rect = pane.getBoundingClientRect();
+  const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
+  const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
+  if (y < 0.28) return "top";
+  if (y > 0.72) return "bottom";
+  return x < 0.5 ? "left" : "right";
+}
+
+function clearPaneDropTarget(pane) {
+  pane.classList.remove("is-drop-target");
+  pane.removeAttribute("data-drop-position");
+}
+
+function clearAllDropTargets() {
+  for (const pane of document.querySelectorAll(".pane.is-drop-target")) clearPaneDropTarget(pane);
+  for (const node of document.querySelectorAll(".is-drop-before, .workspace-row.is-drop-target")) {
+    node.classList.remove("is-drop-before", "is-drop-target");
+  }
 }
 
 function cleanupPanel(panelId) {
@@ -1149,11 +1193,11 @@ function renderSettingsInspector() {
   elements.inspectorTitle.textContent = "Settings";
   elements.inspectorSubtitle.textContent = "Appearance and workspace controls";
   const workspace = activeWorkspace();
-  const nodes = [];
+  const nodes = [settingsCategoryNav()];
 
   const quickSection = settingsSection("Quick setup");
   quickSection.append(settingsPresetGrid());
-  nodes.push(quickSection);
+  appendSettingsSection(nodes, "quick", quickSection);
 
   const workspaceSection = settingsSection("Workspace");
   const titleInput = document.createElement("input");
@@ -1166,7 +1210,7 @@ function renderSettingsInspector() {
   titleInput.addEventListener("blur", () => renameWorkspaceTo(titleInput.value));
   workspaceSection.append(settingRow("Name", titleInput));
   workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
-  nodes.push(workspaceSection);
+  appendSettingsSection(nodes, "workspace", workspaceSection);
 
   const appearanceSection = settingsSection("Appearance");
   const themeSelect = document.createElement("select");
@@ -1207,7 +1251,7 @@ function renderSettingsInspector() {
   opacityInput.value = String(state.settings.backgroundOpacity);
   opacityInput.oninput = () => updateSettings({ backgroundOpacity: Number(opacityInput.value) });
   appearanceSection.append(settingRow("Image strength", opacityInput));
-  nodes.push(appearanceSection);
+  appendSettingsSection(nodes, "appearance", appearanceSection);
 
   const layoutSection = settingsSection("Layout");
   const densitySelect = document.createElement("select");
@@ -1238,7 +1282,7 @@ function renderSettingsInspector() {
   layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
   layoutSection.append(settingRow("Toolbar shortcuts", toggleInput(state.settings.showAdvanced, (checked) => updateSettings({ showAdvanced: checked }))));
   layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
-  nodes.push(layoutSection);
+  appendSettingsSection(nodes, "layout", layoutSection);
 
   const terminalSection = settingsSection("Terminal");
   const fontRange = document.createElement("input");
@@ -1283,7 +1327,7 @@ function renderSettingsInspector() {
   restart.textContent = "Restart active terminal";
   restart.onclick = () => restartActiveTerminal();
   terminalSection.append(restart);
-  nodes.push(terminalSection);
+  appendSettingsSection(nodes, "terminal", terminalSection);
 
   const actionsSection = settingsSection("Settings data");
   const actions = document.createElement("div");
@@ -1294,9 +1338,30 @@ function renderSettingsInspector() {
     settingsActionButton("Reset", resetSettings, "danger")
   );
   actionsSection.append(actions);
-  nodes.push(actionsSection);
+  appendSettingsSection(nodes, "data", actionsSection);
 
   elements.inspectorBody.replaceChildren(...nodes);
+}
+
+function settingsCategoryNav() {
+  const nav = document.createElement("div");
+  nav.className = "settings-nav";
+  for (const [id, label] of settingsCategories) {
+    const button = document.createElement("button");
+    button.className = `settings-nav-button${state.settingsCategory === id ? " is-active" : ""}`;
+    button.type = "button";
+    button.textContent = label;
+    button.onclick = () => {
+      state.settingsCategory = id;
+      renderSettingsInspector();
+    };
+    nav.append(button);
+  }
+  return nav;
+}
+
+function appendSettingsSection(nodes, id, section) {
+  if (state.settingsCategory === "all" || state.settingsCategory === id) nodes.push(section);
 }
 
 function settingsSection(title) {
@@ -1467,6 +1532,49 @@ function showPanelContextMenu(event, panel) {
   menu.style.top = `${Math.max(8, y)}px`;
 }
 
+function showWorkspaceContextMenu(event, workspace) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = ensureContextMenu();
+  const isActive = workspace.id === state.data?.activeWorkspaceId;
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = workspace.title || "Workspace";
+  const meta = document.createElement("div");
+  meta.className = "context-meta";
+  meta.textContent = `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`;
+  const actions = document.createElement("div");
+  actions.className = "context-actions";
+  actions.append(
+    contextMenuButton(isActive ? "Focused" : "Focus", () => focusWorkspace(workspace.id), isActive),
+    contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title)),
+    contextMenuButton("New terminal here", () => createPanel("terminal", "right", { workspaceId: workspace.id })),
+    contextMenuButton("Open browser here", () => openBrowserPrompt(workspace.id)),
+    contextMenuButton("New workspace", () => createWorkspace()),
+    contextMenuButton("Close workspace", () => closeWorkspaceById(workspace.id), false, "danger")
+  );
+  const colors = document.createElement("div");
+  colors.className = "context-colors";
+  for (const color of state.data?.palette || accentOptions) {
+    const button = document.createElement("button");
+    button.className = `context-color${workspace.color === color ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = color;
+    button.style.setProperty("--context-color", color);
+    button.onclick = () => {
+      setWorkspaceColor(color, workspace.id);
+      hideContextMenu();
+    };
+    colors.append(button);
+  }
+  menu.replaceChildren(title, meta, actions, colors);
+  menu.hidden = false;
+  const x = Math.min(event.clientX, window.innerWidth - 238);
+  const y = Math.min(event.clientY, window.innerHeight - 326);
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+}
+
 function showToolbarMenu(event) {
   event.preventDefault();
   event.stopPropagation();
@@ -1575,14 +1683,18 @@ async function createWorkspace() {
 async function renameActiveWorkspace() {
   const workspace = activeWorkspace();
   if (!workspace) return;
-  const title = prompt("Workspace name", workspace.title);
-  if (!title) return;
-  await renameWorkspaceTo(title);
+  await renameWorkspaceById(workspace.id, workspace.title);
 }
 
-async function renameWorkspaceTo(title) {
-  const workspace = activeWorkspace();
+async function renameWorkspaceById(workspaceId, currentTitle = "") {
+  const title = prompt("Workspace name", currentTitle);
+  if (!title) return;
+  await renameWorkspaceTo(title, workspaceId);
+}
+
+async function renameWorkspaceTo(title, workspaceId = activeWorkspace()?.id) {
   const trimmed = String(title || "").trim();
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace || !trimmed || trimmed === workspace.title) return;
   await api(`/api/workspaces/${workspace.id}`, {
     method: "PATCH",
@@ -1590,8 +1702,8 @@ async function renameWorkspaceTo(title) {
   });
 }
 
-async function cycleWorkspaceColor() {
-  const workspace = activeWorkspace();
+async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   const palette = state.data?.palette || [];
   if (!workspace || palette.length === 0) return;
   const currentIndex = Math.max(0, palette.indexOf(workspace.color));
@@ -1602,8 +1714,8 @@ async function cycleWorkspaceColor() {
   });
 }
 
-async function setWorkspaceColor(color) {
-  const workspace = activeWorkspace();
+async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
   await api(`/api/workspaces/${workspace.id}`, {
     method: "PATCH",
@@ -1614,11 +1726,18 @@ async function setWorkspaceColor(color) {
 async function closeActiveWorkspace() {
   const workspace = activeWorkspace();
   if (!workspace) return;
-  await api(`/api/workspaces/${workspace.id}`, { method: "DELETE" });
+  await closeWorkspaceById(workspace.id);
+}
+
+async function closeWorkspaceById(workspaceId) {
+  if (!workspaceId) return;
+  await api(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
 }
 
 async function createPanel(type, direction = "right", options = {}) {
-  const workspace = activeWorkspace();
+  const workspace = options.workspaceId
+    ? state.data?.workspaces.find((candidate) => candidate.id === options.workspaceId)
+    : activeWorkspace();
   if (!workspace) return;
   await api("/api/panels", {
     method: "POST",
@@ -1629,12 +1748,15 @@ async function createPanel(type, direction = "right", options = {}) {
       url: type === "browser" ? normalizeUrl(options.url || "https://example.com") : undefined
     })
   });
+  if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
+    await focusWorkspace(workspace.id);
+  }
 }
 
-async function openBrowserPrompt() {
+async function openBrowserPrompt(workspaceId = null) {
   const url = prompt("Open URL", "https://www.bing.com");
   if (url === null) return;
-  await createPanel("browser", "right", { url });
+  await createPanel("browser", "right", { url, workspaceId });
 }
 
 async function closePanel(panelId) {
@@ -1662,6 +1784,24 @@ async function movePanelBefore(panelId, beforePanelId) {
   await updatePanel(panelId, { workspaceId: workspace.id, beforePanelId });
 }
 
+async function movePanelRelative(panelId, targetPanelId, placement) {
+  const found = findPanelState(targetPanelId);
+  if (!found || !panelId || !targetPanelId || panelId === targetPanelId) return;
+  const direction = placement === "top" || placement === "bottom" ? "down" : "right";
+  const targetIndex = found.workspace.panels.findIndex((candidate) => candidate.id === targetPanelId);
+  const beforeTarget = placement === "left" || placement === "top";
+  if (beforeTarget) {
+    await updatePanel(panelId, { workspaceId: found.workspace.id, beforePanelId: targetPanelId, direction });
+    return;
+  }
+  const nextPanel = found.workspace.panels[targetIndex + 1];
+  if (nextPanel && nextPanel.id !== panelId) {
+    await updatePanel(panelId, { workspaceId: found.workspace.id, beforePanelId: nextPanel.id, direction });
+  } else {
+    await updatePanel(panelId, { workspaceId: found.workspace.id, moveToEnd: true, direction });
+  }
+}
+
 async function movePanelToWorkspace(panelId, workspaceId) {
   if (!panelId || !workspaceId) return;
   await updatePanel(panelId, { workspaceId, moveToEnd: true });
@@ -1676,12 +1816,21 @@ async function focusWorkspace(workspaceId) {
 }
 
 async function focusPanel(panelId) {
+  const found = findPanelState(panelId);
+  if (found && state.data?.activeWorkspaceId === found.workspace.id && found.workspace.activePanelId === panelId) {
+    focusTerminalSession(panelId);
+    return;
+  }
   try {
     await api(`/api/panels/${panelId}/focus`, { method: "POST" });
   } catch {
     await loadState();
     return;
   }
+  focusTerminalSession(panelId);
+}
+
+function focusTerminalSession(panelId) {
   const terminal = state.terminals.get(panelId);
   if (terminal) setTimeout(() => terminal.term.focus(), 20);
 }
@@ -1946,6 +2095,8 @@ document.addEventListener("click", (event) => {
     hideContextMenu();
   }
 });
+document.addEventListener("dragend", clearAllDropTargets);
+document.addEventListener("drop", clearAllDropTargets);
 
 function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;
