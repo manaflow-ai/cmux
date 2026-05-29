@@ -21,6 +21,8 @@ const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
 const terminalOutputChunkSize = 32768;
 const terminalOutputPerformanceChunkSize = 16384;
 const paneLayoutStorageKey = "cmux.paneLayout";
+const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
+const recentFoldersLimit = 8;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -36,6 +38,7 @@ const state = {
   browserViews: new Map(),
   paneCache: new Map(),
   paneLayouts: loadPaneLayouts(),
+  recentFolders: loadRecentFolders(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -242,6 +245,60 @@ function formatLineHeight(value) {
 function folderName(folderPath) {
   const parts = String(folderPath || "").split(/[\\/]+/).filter(Boolean);
   return parts.at(-1) || "Workspace";
+}
+
+function folderKey(folderPath) {
+  return String(folderPath || "").trim().toLowerCase();
+}
+
+function shortFolderPath(folderPath) {
+  const raw = String(folderPath || "").trim();
+  if (!raw) return "";
+  const parts = raw.split(/[\\/]+/).filter(Boolean);
+  if (parts.length <= 3) return raw;
+  return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
+}
+
+function loadRecentFolders() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentFoldersStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const unique = [];
+    const seen = new Set();
+    for (const entry of parsed) {
+      const folder = String(entry || "").trim();
+      const key = folderKey(folder);
+      if (!folder || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(folder);
+      if (unique.length >= recentFoldersLimit) break;
+    }
+    return unique;
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentFolders() {
+  localStorage.setItem(recentFoldersStorageKey, JSON.stringify(state.recentFolders));
+}
+
+function rememberRecentFolder(folderPath) {
+  const folder = String(folderPath || "").trim();
+  if (!folder) return;
+  const key = folderKey(folder);
+  state.recentFolders = [
+    folder,
+    ...state.recentFolders.filter((candidate) => folderKey(candidate) !== key)
+  ].slice(0, recentFoldersLimit);
+  saveRecentFolders();
+}
+
+function clearRecentFolders() {
+  state.recentFolders = [];
+  saveRecentFolders();
+  renderSettingsInspector();
+  toast("Recent folders cleared.");
 }
 
 function settingsRenderSignature(settings = state.settings) {
@@ -1736,6 +1793,7 @@ function renderSettingsInspector() {
       settingsActionButton("New from folder", () => createWorkspaceFromFolder(), "", "workspace folder new directory")
     );
     workspaceSection.append(folderActions);
+    workspaceSection.append(recentFoldersSettings());
     workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
     workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
     nodes.push(workspaceSection);
@@ -2471,6 +2529,59 @@ function backgroundPresetGrid() {
   return grid;
 }
 
+function recentFoldersSettings() {
+  const section = document.createElement("div");
+  section.className = "recent-folder-list";
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent folders recent workspace folder history directory cwd quick reopen");
+
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Recent folders";
+  const clear = settingsActionButton("Clear", clearRecentFolders, "danger", "recent folders clear history");
+  clear.disabled = state.recentFolders.length === 0;
+  header.append(title, clear);
+  section.append(header);
+
+  if (state.recentFolders.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Chosen workspace folders will appear here.";
+    section.append(empty);
+    return section;
+  }
+
+  for (const folder of state.recentFolders) {
+    const card = document.createElement("div");
+    card.className = "recent-folder-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`recent folder workspace directory cwd ${folderName(folder)} ${folder}`);
+    const text = document.createElement("div");
+    text.className = "recent-folder-text";
+    const name = document.createElement("div");
+    name.className = "recent-folder-name";
+    name.textContent = folderName(folder);
+    const path = document.createElement("div");
+    path.className = "recent-folder-path";
+    path.textContent = shortFolderPath(folder);
+    path.title = folder;
+    text.append(name, path);
+
+    const actions = document.createElement("div");
+    actions.className = "recent-folder-actions";
+    const create = settingsActionButton("New", () => createWorkspaceFromFolderPath(folder), "", `recent folder new workspace ${folder}`);
+    create.dataset.recentFolderAction = "new";
+    const use = settingsActionButton("Use", () => setWorkspaceFolderFromRecent(folder), "", `recent folder use current workspace ${folder}`);
+    use.dataset.recentFolderAction = "use";
+    const open = settingsActionButton("Open", () => openFolderPath(folder), "", `recent folder open explorer ${folder}`);
+    open.dataset.recentFolderAction = "open";
+    actions.append(create, use, open);
+    card.append(text, actions);
+    section.append(card);
+  }
+
+  return section;
+}
+
 function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   const button = document.createElement("button");
   button.className = `settings-action${tone ? ` ${tone}` : ""}`;
@@ -2987,6 +3098,26 @@ function paletteEntries() {
       });
     }
   }
+  for (const [folderIndex, folder] of state.recentFolders.entries()) {
+    const name = folderName(folder);
+    const shortPath = shortFolderPath(folder);
+    entries.push({
+      id: `recentFolder.new.${folderIndex}`,
+      label: `New workspace: ${name}`,
+      meta: shortPath,
+      shortcut: "Recent",
+      search: normalizeSettingsQuery(`recent folder workspace new reopen ${folderIndex + 1} ${name} ${shortPath} ${folder}`),
+      run: () => createWorkspaceFromFolderPath(folder)
+    });
+    entries.push({
+      id: `recentFolder.use.${folderIndex}`,
+      label: `Use folder: ${name}`,
+      meta: shortPath,
+      shortcut: "Recent",
+      search: normalizeSettingsQuery(`recent folder workspace use current change choose ${folderIndex + 1} ${name} ${shortPath} ${folder}`),
+      run: () => setWorkspaceFolderFromRecent(folder)
+    });
+  }
   for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
     entries.push({
       id: `settings.${id}`,
@@ -3008,24 +3139,34 @@ function runPaletteCommand(entry) {
 }
 
 async function createWorkspace(options = {}) {
-  await api("/api/workspaces", {
+  const workspace = await api("/api/workspaces", {
     method: "POST",
     body: JSON.stringify({
       title: options.title || `Workspace ${state.data.workspaces.length + 1}`,
       cwd: options.cwd
     })
   });
+  if (options.cwd) rememberRecentFolder(workspace.cwd || options.cwd);
   await loadState();
+  return workspace;
 }
 
 async function createWorkspaceFromFolder() {
   const folder = await pickWorkspaceFolder();
   if (!folder) return;
-  await createWorkspace({
-    title: folderName(folder),
-    cwd: folder
-  });
-  toast("Workspace created from folder.");
+  await createWorkspaceFromFolderPath(folder);
+}
+
+async function createWorkspaceFromFolderPath(folder) {
+  try {
+    await createWorkspace({
+      title: folderName(folder),
+      cwd: folder
+    });
+    toast("Workspace created from folder.");
+  } catch {
+    toast("Folder could not be opened as a workspace.");
+  }
 }
 
 async function pickWorkspaceFolder() {
@@ -3080,13 +3221,21 @@ async function openWorkspaceFolder(workspace = activeWorkspace()) {
     toast("No workspace folder to open.");
     return;
   }
+  await openFolderPath(workspace.cwd, "Workspace folder opened.");
+}
+
+async function openFolderPath(folderPath, successMessage = "Folder opened.") {
+  if (!folderPath) {
+    toast("No folder to open.");
+    return;
+  }
   if (!window.cmuxNative?.openPath) {
     toast("Open folder is available in the desktop app.");
     return;
   }
-  const result = await window.cmuxNative.openPath(workspace.cwd);
+  const result = await window.cmuxNative.openPath(folderPath);
   const ok = result === true || result?.ok;
-  toast(ok ? "Workspace folder opened." : "Workspace folder could not be opened.");
+  toast(ok ? successMessage : "Folder could not be opened.");
 }
 
 async function chooseWorkspaceFolder(workspace = activeWorkspace()) {
@@ -3103,8 +3252,17 @@ async function setWorkspaceFolder(cwd, workspaceId = activeWorkspace()?.id) {
     method: "PATCH",
     body: JSON.stringify({ cwd })
   });
+  rememberRecentFolder(cwd);
   await loadState();
   toast("Workspace folder updated.");
+}
+
+async function setWorkspaceFolderFromRecent(folder) {
+  try {
+    await setWorkspaceFolder(folder);
+  } catch {
+    toast("Folder could not be used for this workspace.");
+  }
 }
 
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {

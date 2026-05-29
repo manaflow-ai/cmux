@@ -1501,6 +1501,87 @@ button {
   gap: var(--space-2);
 }
 
+.recent-folder-list {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+}
+
+.recent-folder-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 68px;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.recent-folder-header .settings-action {
+  height: 26px;
+}
+
+.recent-folder-empty {
+  padding: var(--space-2);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.recent-folder-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.recent-folder-card:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.recent-folder-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.recent-folder-name,
+.recent-folder-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.recent-folder-name {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.recent-folder-path {
+  color: var(--color-faint);
+  font: 10px/1.2 var(--font-mono);
+}
+
+.recent-folder-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.recent-folder-actions .settings-action {
+  height: 26px;
+}
+
 .settings-metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1631,9 +1712,14 @@ button {
   cursor: pointer;
 }
 
-.settings-action:hover {
+.settings-action:hover:not(:disabled) {
   border-color: var(--color-line-strong);
   background: var(--color-pane-active);
+}
+
+.settings-action:disabled {
+  opacity: .46;
+  cursor: default;
 }
 
 .settings-action.danger {
