@@ -10072,6 +10072,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
     @State private var laidOutWorkspaceRowIds: Set<UUID> = []
+    @State private var workspaceRowsMeasurement: SidebarWorkspaceRowsMeasurement<UUID>?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -10398,18 +10399,42 @@ struct VerticalTabsSidebar: View {
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
         return GeometryReader { geometryProxy in
+            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
+                viewportHeight: geometryProxy.size.height,
+                insets: scrollInsets
+            )
+            let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
+                for: renderContext.workspaceIds
+            )
+            let workspaceRowsLayoutCompleteness = SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: laidOutWorkspaceRowIds,
+                workspaceIds: renderContext.workspaceIds
+            )
+            let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: measuredWorkspaceRowsHeight,
+                rowsLayoutCompleteness: workspaceRowsLayoutCompleteness
+            )
+            let workspaceContentOverflows = SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: measuredWorkspaceRowsHeight,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: workspaceRowsLayoutCompleteness
+            )
+
             ScrollViewReader { scrollProxy in
-                ScrollView {
+                ScrollView(.vertical) {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
-                            viewportHeight: geometryProxy.size.height,
-                            insets: scrollInsets
-                        )
+                        minHeight: contentMinHeight,
+                        emptyAreaHeight: emptyAreaHeight
                     )
                 }
                 .background(
                     SidebarScrollViewResolver { scrollView in
+                        configureSidebarScrollView(
+                            scrollView,
+                            hasVerticalScroller: workspaceContentOverflows
+                        )
                         dragAutoScrollController.attach(scrollView: scrollView)
                     }
                     .frame(width: 0, height: 0)
@@ -10493,6 +10518,8 @@ struct VerticalTabsSidebar: View {
                     requestSelectedWorkspaceScroll(scrollProxy, workspaceIds: renderContext.workspaceIds)
                 }
                 .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
+                    laidOutWorkspaceRowIds = []
+                    workspaceRowsMeasurement = nil
                     guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
                         from: oldWorkspaceIds,
                         to: newWorkspaceIds
@@ -10509,8 +10536,45 @@ struct VerticalTabsSidebar: View {
                     laidOutWorkspaceRowIds = rowIds
                     flushPendingSelectedWorkspaceScroll(scrollProxy, laidOutWorkspaceRowIds: rowIds)
                 }
+                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
+                    guard let measurement else {
+                        workspaceRowsMeasurement = nil
+                        return
+                    }
+                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
+                        workspaceIds: measurement.workspaceIds,
+                        rowsHeight: max(0, measurement.rowsHeight)
+                    )
+                    if let workspaceRowsMeasurement,
+                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
+                        return
+                    }
+                    workspaceRowsMeasurement = nextMeasurement
+                }
             }
         }
+    }
+
+    private func configureSidebarScrollView(
+        _ scrollView: NSScrollView?,
+        hasVerticalScroller: Bool
+    ) {
+        guard let scrollView else { return }
+
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.hasVerticalScroller = hasVerticalScroller
+    }
+
+    private func configureSidebarScrollViewFromDocument(_ scrollView: NSScrollView?) {
+        configureSidebarScrollView(
+            scrollView,
+            hasVerticalScroller: SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: scrollView?.documentView?.bounds.height ?? 0,
+                viewportHeight: scrollView?.contentView.bounds.height ?? 0
+            )
+        )
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -10568,7 +10632,8 @@ struct VerticalTabsSidebar: View {
                 }
             }
             .background(
-                SidebarScrollViewResolver { scrollView in
+                SidebarScrollViewResolver(observesLayoutChanges: true) { scrollView in
+                    configureSidebarScrollViewFromDocument(scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)
@@ -11306,7 +11371,8 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollContent(
         renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat
+        minHeight: CGFloat,
+        emptyAreaHeight: CGFloat
     ) -> some View {
         VStack(spacing: 0) {
             workspaceRows(renderContext: renderContext)
@@ -11319,9 +11385,10 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController,
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(),
-                bonsplitDropIndicator: dropIndicatorBinding
+                bonsplitDropIndicator: dropIndicatorBinding,
+                expandsVertically: false,
+                minimumHeight: emptyAreaHeight
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minHeight: minHeight, alignment: .top)
     }
@@ -11338,6 +11405,17 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SidebarWorkspaceRowsHeightPreferenceKey.self,
+                    value: SidebarWorkspaceRowsMeasurement(
+                        workspaceIds: renderContext.workspaceIds,
+                        rowsHeight: proxy.size.height
+                    )
+                )
+            }
+        }
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
             GeometryReader { proxy in
                 SidebarBonsplitTabWorkspaceDropOverlay(
@@ -11553,6 +11631,22 @@ private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
+    }
+}
+
+private struct SidebarWorkspaceRowsHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: SidebarWorkspaceRowsMeasurement<UUID>? = nil
+
+    static func reduce(
+        value: inout SidebarWorkspaceRowsMeasurement<UUID>?,
+        nextValue: () -> SidebarWorkspaceRowsMeasurement<UUID>?
+    ) {
+        guard let next = nextValue() else { return }
+        guard let current = value else {
+            value = next
+            return
+        }
+        value = current.rowsHeight >= next.rowsHeight ? current : next
     }
 }
 
@@ -13692,22 +13786,40 @@ private struct SidebarDevFooter: View {
 #endif
 
 private struct SidebarScrollViewResolver: NSViewRepresentable {
+    var observesLayoutChanges = false
     let onResolve: (NSScrollView?) -> Void
 
     func makeNSView(context: Context) -> SidebarScrollViewResolverView {
         let view = SidebarScrollViewResolverView()
+        view.observesLayoutChanges = observesLayoutChanges
         view.onResolve = onResolve
         return view
     }
 
     func updateNSView(_ nsView: SidebarScrollViewResolverView, context: Context) {
+        nsView.observesLayoutChanges = observesLayoutChanges
         nsView.onResolve = onResolve
         nsView.resolveScrollView()
     }
 }
 
 private final class SidebarScrollViewResolverView: NSView {
+    var observesLayoutChanges = false {
+        didSet {
+            if !observesLayoutChanges {
+                clearLayoutObservers()
+            }
+        }
+    }
     var onResolve: ((NSScrollView?) -> Void)?
+    private weak var observedScrollView: NSScrollView?
+    private weak var observedDocumentView: NSView?
+    private var layoutObserverTokens: [NSObjectProtocol] = []
+    private var resolveScheduled = false
+
+    deinit {
+        clearLayoutObservers()
+    }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
@@ -13720,10 +13832,71 @@ private final class SidebarScrollViewResolverView: NSView {
     }
 
     func resolveScrollView() {
+        guard !resolveScheduled else { return }
+        resolveScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            onResolve?(self.enclosingScrollView)
+            self.resolveScheduled = false
+            let scrollView = self.enclosingScrollView
+            self.onResolve?(scrollView)
+            self.updateLayoutObservers(scrollView)
         }
+    }
+
+    private func updateLayoutObservers(_ scrollView: NSScrollView?) {
+        guard observesLayoutChanges, let scrollView else {
+            clearLayoutObservers()
+            return
+        }
+
+        let documentView = scrollView.documentView
+        if observedScrollView === scrollView, observedDocumentView === documentView {
+            return
+        }
+
+        clearLayoutObservers()
+        observedScrollView = scrollView
+        observedDocumentView = documentView
+
+        observeLayoutChanges(in: scrollView.contentView)
+        if let documentView {
+            observeLayoutChanges(in: documentView)
+        }
+    }
+
+    private func observeLayoutChanges(in view: NSView) {
+        view.postsFrameChangedNotifications = true
+        view.postsBoundsChangedNotifications = true
+
+        let center = NotificationCenter.default
+        layoutObserverTokens.append(
+            center.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: view,
+                queue: .main
+            ) { [weak self] _ in
+                self?.resolveScrollView()
+            }
+        )
+        layoutObserverTokens.append(
+            center.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: view,
+                queue: .main
+            ) { [weak self] _ in
+                self?.resolveScrollView()
+            }
+        )
+    }
+
+    private func clearLayoutObservers() {
+        let center = NotificationCenter.default
+        for token in layoutObserverTokens {
+            center.removeObserver(token)
+        }
+        layoutObserverTokens = []
+        observedScrollView = nil
+        observedDocumentView = nil
     }
 }
 
@@ -13739,11 +13912,11 @@ private struct SidebarEmptyArea: View {
     let topDropIndicatorVisible: Bool
     let tabDropDelegate: SidebarTabDropDelegate
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
+    var expandsVertically = true
+    var minimumHeight: CGFloat? = nil
 
     var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        hitTarget
             .onTapGesture(count: 2) {
                 tabManager.addWorkspace(placementOverride: .end)
                 if let selectedId = tabManager.selectedTabId {
@@ -13771,6 +13944,19 @@ private struct SidebarEmptyArea: View {
                         .offset(y: -(rowSpacing / 2))
                 }
             }
+    }
+
+    @ViewBuilder
+    private var hitTarget: some View {
+        if expandsVertically {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
+                .contentShape(Rectangle())
+        }
     }
 }
 

@@ -208,6 +208,179 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarWorkspaceScrollLayoutTests: XCTestCase {
+    func testUnmeasuredRowsDoNotCreateInitialOverflow() {
+        let contentMinHeight: CGFloat = 480
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+            contentMinHeight: contentMinHeight,
+            rowsHeight: nil,
+            rowsLayoutCompleteness: .unmeasured
+        )
+
+        XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: nil,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .unmeasured
+            )
+        )
+    }
+
+    func testRowsMeasurementIgnoresStaleWorkspaceIds() {
+        let measurement = SidebarWorkspaceRowsMeasurement(
+            workspaceIds: ["a", "b"],
+            rowsHeight: 240
+        )
+
+        XCTAssertNil(measurement.rowsHeight(for: ["b", "c"]))
+        XCTAssertEqual(measurement.rowsHeight(for: ["a", "b"]) ?? -1, 240, accuracy: 0.001)
+    }
+
+    func testPartialLazyRowsForceOverflowAfterRowsMeasure() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: 240,
+                rowsLayoutCompleteness: .partial
+            ),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: 240,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .partial
+            )
+        )
+    }
+
+    func testRowsLayoutCompletenessTracksUnmeasuredPartialAndCompleteRows() {
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set<String>(),
+                workspaceIds: []
+            ),
+            .empty
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set<String>(),
+                workspaceIds: ["a"]
+            ),
+            .unmeasured
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set(["a", "b"]),
+                workspaceIds: ["a", "b", "c"]
+            ),
+            .partial
+        )
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.rowsLayoutCompleteness(
+                laidOutRowIds: Set(["a", "b", "c"]),
+                workspaceIds: ["a", "b"]
+            ),
+            .complete
+        )
+    }
+
+    func testZeroHeightCompleteRowsCollapseEmptyAreaAndShowScroller() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: 0,
+                rowsLayoutCompleteness: .complete
+            ),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: 0,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .complete
+            )
+        )
+    }
+
+    func testCompleteRowsWithoutHeightDoNotShowTransientScroller() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: nil,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .complete
+            )
+        )
+    }
+
+    func testEmptyWorkspaceRowsCanFillAvailableSidebarSpace() {
+        let contentMinHeight: CGFloat = 480
+
+        XCTAssertEqual(
+            SidebarWorkspaceScrollLayout.emptyAreaHeight(
+                contentMinHeight: contentMinHeight,
+                rowsHeight: 0,
+                rowsLayoutCompleteness: .empty
+            ),
+            contentMinHeight,
+            accuracy: 0.001
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.rowsOverflow(
+                rowsHeight: 0,
+                contentMinHeight: contentMinHeight,
+                rowsLayoutCompleteness: .empty
+            )
+        )
+    }
+
+    func testEmptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
+        let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
+            viewportHeight: 720,
+            insets: SidebarWorkspaceScrollInsets(top: 28, bottom: 48)
+        )
+        let rowsHeight: CGFloat = 96
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+            contentMinHeight: contentMinHeight,
+            rowsHeight: rowsHeight
+        )
+
+        XCTAssertEqual(emptyAreaHeight, contentMinHeight - rowsHeight, accuracy: 0.001)
+        XCTAssertFalse(
+            SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: rowsHeight + emptyAreaHeight,
+                viewportHeight: contentMinHeight
+            )
+        )
+    }
+
+    func testEmptyAreaCollapsesWhenRowsAlreadyOverflowViewport() {
+        let contentMinHeight: CGFloat = 300
+        let rowsHeight: CGFloat = 420
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
+            contentMinHeight: contentMinHeight,
+            rowsHeight: rowsHeight
+        )
+
+        XCTAssertEqual(emptyAreaHeight, 0, accuracy: 0.001)
+        XCTAssertTrue(
+            SidebarWorkspaceScrollLayout.contentOverflows(
+                contentHeight: rowsHeight + emptyAreaHeight,
+                viewportHeight: contentMinHeight
+            )
+        )
+    }
+}
+
 final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
     func testHoverRevealIsIndependentFromStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
