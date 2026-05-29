@@ -536,7 +536,7 @@ function SessionSurface({
     h(PermissionsDropdown, {
       copy: state.context?.copy,
       hideLabel,
-      isEnabled: false,
+      isEnabled: true,
       isOpen: permissionsMenuOpen,
       mode: permissionMode,
       onModeChange: setPermissionMode,
@@ -1165,6 +1165,7 @@ function PermissionsDropdown({
   const triggerLabel = copy?.changePermissions ?? "Change permissions";
   const selectedLabel = permissionModeLabel(copy, mode);
   const options: ComposerPermissionMode[] = isEnabled ? ["default", "auto-review", "full-access", "custom"] : [];
+  const triggerSizeClass = hideLabel ? CODEX_BUTTON_COMPOSER : CODEX_BUTTON_COMPOSER_SM;
   const selectMode = (nextMode: ComposerPermissionMode) => {
     onModeChange(nextMode);
     onOpenChange(false);
@@ -1184,7 +1185,7 @@ function PermissionsDropdown({
       "button",
       {
         className:
-          `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${hideLabel ? CODEX_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
+          `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${triggerSizeClass} ${hideLabel ? CODEX_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
         type: "button",
         "aria-label": triggerLabel,
         "aria-haspopup": isEnabled ? "menu" : undefined,
