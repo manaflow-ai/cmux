@@ -1,64 +1,14 @@
-# CmuxExtensionKit
+# CMUX Extension Kit
 
-`CmuxExtensionKit` is the prototype API for custom cmux sidebars. A sidebar
-provider is pure Swift code that receives a `CmuxExtensionSidebarSnapshot` and
-returns a `CmuxExtensionSidebarRenderModel`. The host owns selection, popovers,
-window presentation, and mutation dispatch.
+`CmuxExtensionKit` is the zero-dependency public contract for CMUX sidebar extensions.
 
-State sync has two parts:
+Version 1 only supports sidebar extensions. The API exposes a stable workspace snapshot and a small action channel:
 
-1. Bootstrap with `extension.sidebar.snapshot`.
-2. Subscribe to `cmux events`.
-3. If `CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after:)` returns
-   `true`, fetch a fresh `extension.sidebar.snapshot`. Otherwise reduce frames
-   with `CmuxExtensionSidebarReducer.reduce(_:event:)`.
+- read the current sidebar snapshot
+- select a workspace
+- close a workspace
+- ask CMUX to open a URL
 
-That keeps virtualized rows cheap: rows receive immutable render values and
-closures, not workspace stores.
+The snapshot intentionally starts small: workspace identity, title, detail text, paths, git branch, unread state, listening ports, and pull request URLs. It does not expose terminal buffers, shell history, environment variables, secrets, or arbitrary filesystem access.
 
-```swift
-import CmuxExtensionKit
-
-struct MySidebar: CmuxExtensionSidebarProvider {
-    let descriptor = CmuxExtensionSidebarProviderDescriptor(
-        id: "local.example.sidebar",
-        title: .init(key: "local.example.sidebar.title", defaultValue: "Example"),
-        subtitle: .init(key: "local.example.sidebar.subtitle", defaultValue: "Local"),
-        systemImageName: "folder",
-        isHostProvided: false
-    )
-
-    func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
-        let rows = snapshot.workspaces.map { workspace in
-            CmuxExtensionSidebarRenderRow(
-                id: workspace.id,
-                title: workspace.title,
-                workspaceId: workspace.id,
-                accessory: .inspector
-            )
-        }
-        let section = CmuxExtensionSidebarRenderSection(
-            id: "workspaces",
-            treeSection: CmuxExtensionWorkspaceTreeSection(
-                id: "workspaces",
-                title: "Workspaces",
-                subtitle: nil,
-                systemImageName: "folder",
-                projectRootPath: nil,
-                workspaceIds: rows.map(\.workspaceId)
-            ),
-            rows: rows
-        )
-        return CmuxExtensionSidebarRenderModel(
-            providerId: descriptor.id,
-            snapshotSequence: snapshot.sequence,
-            sections: [section]
-        )
-    }
-}
-```
-
-Rows can request host actions through `CmuxExtensionSidebarMutation`, including
-workspace selection, worktree creation, persistent section reordering, and
-opening popovers or windows. Extension-owned grouping state should be persisted
-by the extension, for example in `~/.config/cmux/extensions/<extension>/state.json`.
+Host-side lifecycle, discovery, and display belong in `Packages/CMUXExtensionClient`.
