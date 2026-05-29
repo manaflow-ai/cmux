@@ -90,22 +90,6 @@ function shortPath(rawPath) {
   return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
 }
 
-function gitBranchFor(cwd) {
-  if (!cwd || !fs.existsSync(cwd)) return "";
-  const directGitPath = path.join(cwd, ".git");
-  if (!fs.existsSync(directGitPath)) return "";
-  try {
-    const result = spawnSync("git", ["-C", cwd, "branch", "--show-current"], {
-      encoding: "utf8",
-      timeout: 1200,
-      windowsHide: true
-    });
-    return result.status === 0 ? result.stdout.trim() : "";
-  } catch {
-    return "";
-  }
-}
-
 function cleanTerminalTitleSegment(segment) {
   const raw = String(segment || "").trim();
   if (!raw) return "";
@@ -400,7 +384,6 @@ class CmuxWindowsRuntime {
     const terminalPanels = workspace.panels.filter((panel) => panel.type === "terminal");
     const browserPanels = workspace.panels.filter((panel) => panel.type === "browser");
     const primaryTerminal = terminalPanels[0];
-    const branch = gitBranchFor(primaryTerminal?.cwd);
     const latestNotification = workspace.panels.find((panel) => panel.needsAttention)?.notificationText || "";
     const cwd = primaryTerminal?.cwd || workspace.cwd || process.cwd();
     return {
@@ -413,7 +396,7 @@ class CmuxWindowsRuntime {
       browserCount: browserPanels.length,
       cwd,
       cwdShort: shortPath(cwd),
-      branch,
+      branch: "",
       latestNotification,
       panels: workspace.panels.map((panel) => this.serializePanel(panel))
     };
@@ -427,7 +410,7 @@ class CmuxWindowsRuntime {
       title: panel.title,
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
-      branch: panel.type === "terminal" ? gitBranchFor(panel.cwd) : "",
+      branch: "",
       url: panel.url,
       needsAttention: panel.needsAttention,
       notificationText: panel.notificationText

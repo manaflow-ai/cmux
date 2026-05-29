@@ -95,6 +95,8 @@ function buildMenu() {
         { label: "Close Active Pane", accelerator: "Ctrl+W", click: () => mainWindow?.webContents.send("cmux-command", "terminal.close") },
         { label: "Open Browser", accelerator: "Ctrl+Shift+L", click: () => mainWindow?.webContents.send("cmux-command", "browser.new") },
         { type: "separator" },
+        { label: "Settings", accelerator: "Ctrl+,", click: () => mainWindow?.webContents.send("cmux-command", "settings.open") },
+        { type: "separator" },
         { role: "quit" }
       ]
     },

@@ -1,3 +1,33 @@
+const defaultSettings = {
+  theme: "cmux",
+  accent: "oklch(61% 0.22 255)",
+  backgroundImage: "",
+  backgroundOpacity: 16,
+  density: "comfortable",
+  showTabs: true,
+  showStatusbar: true,
+  showAdvanced: false,
+  terminalFontSize: 13
+};
+
+const themeOptions = [
+  ["cmux", "cmux"],
+  ["graphite", "Graphite"],
+  ["forest", "Forest"],
+  ["blueprint", "Blueprint"]
+];
+
+const accentOptions = [
+  "oklch(61% 0.22 255)",
+  "oklch(70% 0.16 145)",
+  "oklch(78% 0.15 82)",
+  "oklch(68% 0.18 330)",
+  "oklch(70% 0.14 195)",
+  "oklch(64% 0.17 28)"
+];
+
+const initialSettings = loadSettings();
+
 const state = {
   data: null,
   sidebarCollapsed: false,
@@ -7,7 +37,8 @@ const state = {
   paletteOpen: false,
   paletteIndex: 0,
   resizing: null,
-  terminalFontSize: Number(localStorage.getItem("cmux.terminalFontSize") || 13)
+  settings: initialSettings,
+  terminalFontSize: initialSettings.terminalFontSize
 };
 
 window.addEventListener("error", (event) => {
@@ -39,6 +70,109 @@ const elements = {
   maximizeWindowButton: document.getElementById("maximizeWindowButton")
 };
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, Number(value) || min));
+}
+
+function loadSettings() {
+  let parsed = {};
+  try {
+    parsed = JSON.parse(localStorage.getItem("cmux.settings") || "{}");
+  } catch {
+    parsed = {};
+  }
+  const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
+  const next = {
+    ...defaultSettings,
+    ...parsed
+  };
+  if (legacyFontSize && !parsed.terminalFontSize) next.terminalFontSize = legacyFontSize;
+  next.terminalFontSize = clamp(next.terminalFontSize, 10, 22);
+  next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
+  if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
+  if (!accentOptions.includes(next.accent)) next.accent = defaultSettings.accent;
+  return next;
+}
+
+function saveSettings() {
+  localStorage.setItem("cmux.settings", JSON.stringify(state.settings));
+  localStorage.setItem("cmux.terminalFontSize", String(state.settings.terminalFontSize));
+}
+
+function normalizedImageUrl(value) {
+  let url = String(value || "").trim();
+  if (!url) return "";
+  if (!/^(https?:|data:image\/|\/)/i.test(url)) url = `https://${url}`;
+  return url;
+}
+
+function cssUrl(value) {
+  const url = normalizedImageUrl(value);
+  return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
+}
+
+function applySettings() {
+  document.body.classList.remove("theme-graphite", "theme-forest", "theme-blueprint");
+  if (state.settings.theme !== "cmux") document.body.classList.add(`theme-${state.settings.theme}`);
+  document.documentElement.style.setProperty("--color-accent", state.settings.accent);
+  document.documentElement.style.setProperty("--color-accent-hover", state.settings.accent);
+  elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
+  elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
+  elements.shell.classList.toggle("hide-status", !state.settings.showStatusbar);
+  elements.shell.classList.toggle("show-advanced", state.settings.showAdvanced);
+  elements.shell.classList.toggle("has-background", Boolean(normalizedImageUrl(state.settings.backgroundImage)));
+  elements.shell.style.setProperty("--background-image", cssUrl(state.settings.backgroundImage));
+  elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
+}
+
+function updateSettings(updates) {
+  state.settings = {
+    ...state.settings,
+    ...updates
+  };
+  state.settings.terminalFontSize = clamp(state.settings.terminalFontSize, 10, 22);
+  state.settings.backgroundOpacity = clamp(state.settings.backgroundOpacity, 0, 42);
+  state.terminalFontSize = state.settings.terminalFontSize;
+  saveSettings();
+  applySettings();
+  refreshTerminalAppearance();
+}
+
+function terminalTheme() {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || "#72a4ff";
+  return {
+    background: "#20221d",
+    foreground: "#d9d7c9",
+    cursor: accent,
+    cursorAccent: "#111316",
+    selectionBackground: "#315a92",
+    black: "#20221d",
+    red: "#f07178",
+    green: "#88c070",
+    yellow: "#d9c77f",
+    blue: "#72a4ff",
+    magenta: "#c792ea",
+    cyan: "#75c7c6",
+    white: "#d9d7c9",
+    brightBlack: "#63675d",
+    brightRed: "#ff8f8f",
+    brightGreen: "#9bd980",
+    brightYellow: "#ffe08a",
+    brightBlue: "#9ec2ff",
+    brightMagenta: "#d7a9ff",
+    brightCyan: "#9ce0df",
+    brightWhite: "#f3f1e7"
+  };
+}
+
+function refreshTerminalAppearance() {
+  for (const session of state.terminals.values()) {
+    session.term.options.fontSize = state.terminalFontSize;
+    session.term.options.theme = terminalTheme();
+    scheduleFitTerminal(session);
+  }
+}
+
 const commands = [
   { id: "workspace.new", label: "New Workspace", shortcut: "Ctrl+N", run: () => createWorkspace() },
   { id: "workspace.rename", label: "Rename Workspace", shortcut: "", run: () => renameActiveWorkspace() },
@@ -55,6 +189,7 @@ const commands = [
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserPrompt() },
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
+  { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -119,6 +254,7 @@ function render(previousState) {
 
   elements.shell.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
   elements.shell.classList.toggle("inspector-open", Boolean(state.inspectorMode));
+  applySettings();
   renderWorkspaces();
   renderSurfaceTabs(workspace);
   renderPanes(workspace);
@@ -402,29 +538,7 @@ function ensureTerminal(panel, body) {
     fontSize: state.terminalFontSize,
     lineHeight: 1.22,
     scrollback: 12000,
-    theme: {
-      background: "#20221d",
-      foreground: "#d9d7c9",
-      cursor: "#72a4ff",
-      cursorAccent: "#111316",
-      selectionBackground: "#315a92",
-      black: "#20221d",
-      red: "#f07178",
-      green: "#88c070",
-      yellow: "#d9c77f",
-      blue: "#72a4ff",
-      magenta: "#c792ea",
-      cyan: "#75c7c6",
-      white: "#d9d7c9",
-      brightBlack: "#63675d",
-      brightRed: "#ff8f8f",
-      brightGreen: "#9bd980",
-      brightYellow: "#ffe08a",
-      brightBlue: "#9ec2ff",
-      brightMagenta: "#d7a9ff",
-      brightCyan: "#9ce0df",
-      brightWhite: "#f3f1e7"
-    }
+    theme: terminalTheme()
   });
   const fitAddon = new FitAddon.FitAddon();
   const webLinksAddon = new WebLinksAddon.WebLinksAddon();
@@ -616,6 +730,8 @@ function renderInspector() {
       };
       return card;
     }));
+  } else if (state.inspectorMode === "settings") {
+    renderSettingsInspector();
   } else {
     elements.inspectorTitle.textContent = "Session";
     elements.inspectorSubtitle.textContent = "Local Windows runtime";
@@ -640,6 +756,146 @@ function renderInspector() {
     reset.onclick = () => resetSession();
     elements.inspectorBody.replaceChildren(...nodes, reset);
   }
+}
+
+function renderSettingsInspector() {
+  elements.inspectorTitle.textContent = "Settings";
+  elements.inspectorSubtitle.textContent = "Appearance and workspace controls";
+  const workspace = activeWorkspace();
+  const nodes = [];
+
+  const workspaceSection = settingsSection("Workspace");
+  const titleInput = document.createElement("input");
+  titleInput.className = "setting-control";
+  titleInput.value = workspace?.title || "";
+  titleInput.placeholder = "Workspace name";
+  titleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") titleInput.blur();
+  });
+  titleInput.addEventListener("blur", () => renameWorkspaceTo(titleInput.value));
+  workspaceSection.append(settingRow("Name", titleInput));
+  workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
+  nodes.push(workspaceSection);
+
+  const appearanceSection = settingsSection("Appearance");
+  const themeSelect = document.createElement("select");
+  themeSelect.className = "setting-select";
+  for (const [value, label] of themeOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    themeSelect.append(option);
+  }
+  themeSelect.value = state.settings.theme;
+  themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
+  appearanceSection.append(settingRow("Theme", themeSelect));
+  appearanceSection.append(settingRow("Accent", swatchGrid(accentOptions, state.settings.accent, (accent) => updateSettings({ accent }))));
+
+  const imageInput = document.createElement("input");
+  imageInput.className = "setting-control";
+  imageInput.value = state.settings.backgroundImage;
+  imageInput.placeholder = "https://image-url";
+  imageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") imageInput.blur();
+  });
+  imageInput.addEventListener("blur", () => updateSettings({ backgroundImage: imageInput.value.trim() }));
+  appearanceSection.append(settingRow("Background", imageInput, true));
+
+  const opacityInput = document.createElement("input");
+  opacityInput.className = "setting-control";
+  opacityInput.type = "range";
+  opacityInput.min = "0";
+  opacityInput.max = "42";
+  opacityInput.value = String(state.settings.backgroundOpacity);
+  opacityInput.oninput = () => updateSettings({ backgroundOpacity: Number(opacityInput.value) });
+  appearanceSection.append(settingRow("Image strength", opacityInput));
+  nodes.push(appearanceSection);
+
+  const layoutSection = settingsSection("Layout");
+  const densitySelect = document.createElement("select");
+  densitySelect.className = "setting-select";
+  for (const value of ["comfortable", "compact"]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value[0].toUpperCase() + value.slice(1);
+    densitySelect.append(option);
+  }
+  densitySelect.value = state.settings.density;
+  densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
+  layoutSection.append(settingRow("Density", densitySelect));
+  layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
+  layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
+  layoutSection.append(settingRow("Advanced toolbar", toggleInput(state.settings.showAdvanced, (checked) => updateSettings({ showAdvanced: checked }))));
+  nodes.push(layoutSection);
+
+  const terminalSection = settingsSection("Terminal");
+  const fontRange = document.createElement("input");
+  fontRange.className = "setting-control";
+  fontRange.type = "range";
+  fontRange.min = "10";
+  fontRange.max = "22";
+  fontRange.value = String(state.terminalFontSize);
+  fontRange.oninput = () => updateSettings({ terminalFontSize: Number(fontRange.value) });
+  terminalSection.append(settingRow(`Text size ${state.terminalFontSize}px`, fontRange));
+  const restart = document.createElement("button");
+  restart.className = "notification-action";
+  restart.textContent = "Restart active terminal";
+  restart.onclick = () => restartActiveTerminal();
+  terminalSection.append(restart);
+  nodes.push(terminalSection);
+
+  elements.inspectorBody.replaceChildren(...nodes);
+}
+
+function settingsSection(title) {
+  const section = document.createElement("section");
+  section.className = "settings-section";
+  const heading = document.createElement("div");
+  heading.className = "settings-section-title";
+  heading.textContent = title;
+  section.append(heading);
+  return section;
+}
+
+function settingRow(label, control, stacked = false) {
+  const row = document.createElement("label");
+  row.className = `setting-row${stacked ? " stacked" : ""}`;
+  const text = document.createElement("span");
+  text.className = "setting-label";
+  text.textContent = label;
+  row.append(text, control);
+  return row;
+}
+
+function toggleInput(checked, onChange) {
+  const label = document.createElement("label");
+  label.className = "setting-toggle";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = Boolean(checked);
+  input.onchange = () => onChange(input.checked);
+  const text = document.createElement("span");
+  text.textContent = checked ? "On" : "Off";
+  input.addEventListener("change", () => {
+    text.textContent = input.checked ? "On" : "Off";
+  });
+  label.append(input, text);
+  return label;
+}
+
+function swatchGrid(colors, activeColor, onPick) {
+  const grid = document.createElement("div");
+  grid.className = "swatch-grid";
+  for (const color of colors) {
+    const button = document.createElement("button");
+    button.className = `swatch-button${color === activeColor ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = color;
+    button.style.setProperty("--swatch-color", color);
+    button.onclick = () => onPick(color);
+    grid.append(button);
+  }
+  return grid;
 }
 
 function renderPalette() {
@@ -680,9 +936,16 @@ async function renameActiveWorkspace() {
   if (!workspace) return;
   const title = prompt("Workspace name", workspace.title);
   if (!title) return;
+  await renameWorkspaceTo(title);
+}
+
+async function renameWorkspaceTo(title) {
+  const workspace = activeWorkspace();
+  const trimmed = String(title || "").trim();
+  if (!workspace || !trimmed || trimmed === workspace.title) return;
   await api(`/api/workspaces/${workspace.id}`, {
     method: "PATCH",
-    body: JSON.stringify({ title })
+    body: JSON.stringify({ title: trimmed })
   });
 }
 
@@ -692,6 +955,15 @@ async function cycleWorkspaceColor() {
   if (!workspace || palette.length === 0) return;
   const currentIndex = Math.max(0, palette.indexOf(workspace.color));
   const color = palette[(currentIndex + 1) % palette.length];
+  await api(`/api/workspaces/${workspace.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ color })
+  });
+}
+
+async function setWorkspaceColor(color) {
+  const workspace = activeWorkspace();
+  if (!workspace) return;
   await api(`/api/workspaces/${workspace.id}`, {
     method: "PATCH",
     body: JSON.stringify({ color })
@@ -777,6 +1049,7 @@ function updateRailButtons() {
   document.getElementById("workspacesRailButton").classList.toggle("is-active", !state.inspectorMode);
   document.getElementById("notificationsRailButton").classList.toggle("is-active", state.inspectorMode === "notifications");
   document.getElementById("sessionsRailButton").classList.toggle("is-active", state.inspectorMode === "session");
+  document.getElementById("settingsRailButton").classList.toggle("is-active", state.inspectorMode === "settings");
 }
 
 async function resetSession() {
@@ -799,12 +1072,7 @@ function clearActiveTerminal() {
 }
 
 function changeTerminalFontSize(delta) {
-  state.terminalFontSize = Math.min(22, Math.max(10, state.terminalFontSize + delta));
-  localStorage.setItem("cmux.terminalFontSize", String(state.terminalFontSize));
-  for (const session of state.terminals.values()) {
-    session.term.options.fontSize = state.terminalFontSize;
-    scheduleFitTerminal(session);
-  }
+  updateSettings({ terminalFontSize: state.terminalFontSize + delta });
   toast(`Terminal text ${state.terminalFontSize}px`);
 }
 
@@ -852,6 +1120,7 @@ document.getElementById("newTerminalButton").onclick = () => createPanel("termin
 document.getElementById("splitRightButton").onclick = () => createPanel("terminal", "right");
 document.getElementById("splitDownButton").onclick = () => createPanel("terminal", "down");
 document.getElementById("newBrowserButton").onclick = () => openBrowserPrompt();
+document.getElementById("settingsButton").onclick = () => openInspector("settings");
 document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWorkspace();
 document.getElementById("colorWorkspaceButton").onclick = () => cycleWorkspaceColor();
 document.getElementById("notifyButton").onclick = () => simulateNotification();
@@ -863,6 +1132,7 @@ document.getElementById("paletteButton").onclick = () => {
 };
 document.getElementById("notificationsRailButton").onclick = () => openInspector("notifications");
 document.getElementById("sessionsRailButton").onclick = () => openInspector("session");
+document.getElementById("settingsRailButton").onclick = () => openInspector("settings");
 document.getElementById("workspacesRailButton").onclick = () => {
   state.inspectorMode = null;
   updateRailButtons();
@@ -925,6 +1195,9 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && key === "b") {
     event.preventDefault();
     toggleSidebar();
+  } else if (event.ctrlKey && event.key === ",") {
+    event.preventDefault();
+    openInspector("settings");
   } else if (event.ctrlKey && key === "k") {
     event.preventDefault();
     clearActiveTerminal();
@@ -976,5 +1249,6 @@ if (window.cmuxNative?.onCommand) {
   });
 }
 
+applySettings();
 loadState();
 connectEvents();

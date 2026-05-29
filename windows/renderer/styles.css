@@ -50,6 +50,36 @@ body {
   font-family: var(--font-ui);
 }
 
+body.theme-graphite {
+  --color-canvas: oklch(12% 0.008 260);
+  --color-chrome: oklch(17% 0.01 260);
+  --color-rail: oklch(15% 0.01 260);
+  --color-pane: oklch(16% 0.01 260);
+  --color-pane-warm: oklch(20% 0.012 260);
+  --color-pane-active: oklch(24% 0.014 260);
+  --color-line: oklch(32% 0.015 260);
+}
+
+body.theme-forest {
+  --color-canvas: oklch(13% 0.018 150);
+  --color-chrome: oklch(18% 0.02 150);
+  --color-rail: oklch(16% 0.02 150);
+  --color-pane: oklch(17% 0.018 150);
+  --color-pane-warm: oklch(21% 0.025 150);
+  --color-pane-active: oklch(24% 0.03 150);
+  --color-line: oklch(32% 0.03 150);
+}
+
+body.theme-blueprint {
+  --color-canvas: oklch(13% 0.026 245);
+  --color-chrome: oklch(18% 0.03 245);
+  --color-rail: oklch(16% 0.03 245);
+  --color-pane: oklch(17% 0.026 245);
+  --color-pane-warm: oklch(21% 0.034 245);
+  --color-pane-active: oklch(24% 0.04 245);
+  --color-line: oklch(32% 0.04 245);
+}
+
 button,
 input {
   font: inherit;
@@ -60,11 +90,34 @@ button {
 }
 
 .shell {
+  position: relative;
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr) 0;
   width: 100vw;
   height: 100vh;
   background: var(--color-canvas);
+}
+
+.shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--background-image, none);
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity var(--dur-med) var(--ease-out);
+}
+
+.shell.has-background::before {
+  opacity: var(--background-opacity, .16);
+}
+
+.shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 .shell.sidebar-collapsed {
@@ -77,6 +130,34 @@ button {
 
 .shell.sidebar-collapsed.inspector-open {
   grid-template-columns: 0 minmax(0, 1fr) 318px;
+}
+
+.shell.density-compact {
+  grid-template-columns: 204px minmax(0, 1fr) 0;
+}
+
+.shell.density-compact.inspector-open {
+  grid-template-columns: 204px minmax(0, 1fr) 318px;
+}
+
+.shell.hide-tabs .surface-tabs {
+  display: none;
+}
+
+.shell.hide-status .statusbar {
+  display: none;
+}
+
+.shell.hide-tabs.hide-status .main {
+  grid-template-rows: 44px minmax(0, 1fr);
+}
+
+.shell.hide-tabs:not(.hide-status) .main {
+  grid-template-rows: 44px minmax(0, 1fr) 24px;
+}
+
+.shell.hide-status:not(.hide-tabs) .main {
+  grid-template-rows: 44px 34px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -128,7 +209,7 @@ button {
 
 .sidebar-tools {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-line);
@@ -432,6 +513,14 @@ button {
   scrollbar-width: none;
   flex: 0 0 auto;
   margin-left: auto;
+}
+
+.advanced-tool {
+  display: none;
+}
+
+.shell.show-advanced .advanced-tool {
+  display: inline-flex;
 }
 
 .command-strip::-webkit-scrollbar {
@@ -899,6 +988,84 @@ button {
   padding: 0 var(--space-2);
   border-color: var(--color-line);
   background: var(--color-pane-warm);
+}
+
+.settings-section {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.settings-section-title {
+  color: var(--color-text);
+  font-weight: 760;
+  font-size: 13px;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 34px;
+}
+
+.setting-row.stacked {
+  grid-template-columns: 1fr;
+}
+
+.setting-label {
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.setting-control,
+.setting-select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: oklch(12% 0.01 110);
+  color: var(--color-text);
+  padding: 0 var(--space-2);
+}
+
+.setting-control[type="range"] {
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.setting-toggle input {
+  accent-color: var(--color-accent);
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-1);
+}
+
+.swatch-button {
+  height: 28px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--swatch-color);
+  cursor: pointer;
+}
+
+.swatch-button.is-active {
+  border-color: var(--color-text);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--swatch-color) 34%, transparent);
 }
 
 .empty-state {
