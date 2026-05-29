@@ -1115,6 +1115,45 @@ img.ProseMirror-separator {
   text-overflow: ellipsis;
 }
 
+.composer-context-indicator {
+  color: var(--color-token-text-link-foreground);
+  flex: 0 1 auto;
+}
+
+.composer-context-divider {
+  margin: 0 1px;
+  background: color-mix(in srgb, var(--color-token-border) 70%, transparent);
+}
+
+.composer-context-button {
+  color: var(--color-token-text-link-foreground);
+}
+
+.composer-context-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-context-icon-hover {
+  display: none;
+}
+
+.composer-context-button:hover .composer-context-icon-default,
+.composer-context-button:focus-visible .composer-context-icon-default {
+  display: none;
+}
+
+.composer-context-button:hover .composer-context-icon-hover,
+.composer-context-button:focus-visible .composer-context-icon-hover {
+  display: inline-flex;
+}
+
+.composer-context-label {
+  color: currentColor;
+  font-weight: 500;
+}
+
 .codex-secondary-controls {
   flex: 0 1 auto;
   justify-content: flex-end;

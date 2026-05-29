@@ -57,6 +57,7 @@ const context: AppContext = {
     browseWeb: "Browse web",
     autoContext: "Context",
     includeIdeContext: "Include IDE context",
+    ideContext: "IDE context",
     tools: "Tools",
     changePermissions: "Change permissions",
     permissionsDefault: "Default permissions",

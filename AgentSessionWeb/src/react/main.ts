@@ -279,16 +279,30 @@ function SessionSurface({
   const reasoningEffortLabel =
     provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
   const [permissionMode, setPermissionMode] = useState<ComposerPermissionMode>("default");
+  const [autoContextSetting, setAutoContextSetting] = useState<boolean | null>(null);
+  const workspaceContextItem = currentWorkspaceMenuItem(state);
+  const isAutoContextOn = autoContextSetting ?? (workspaceContextItem != null);
+  const shouldShowIdeContextIndicator = workspaceContextItem != null && isAutoContextOn;
   const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
   const isSingleLineComposer = composerLayout.isSingleLine;
-  const footerCollapse = useMeasuredFooterControlCollapse([{
-    canHideLabel: reasoningEffortLabel != null,
-    enabled: provider != null,
-    id: "intelligence",
-  }]);
+  const footerCollapse = useMeasuredFooterControlCollapse([
+    {
+      canHideLabel: reasoningEffortLabel != null,
+      enabled: provider != null,
+      id: "intelligence",
+    },
+    {
+      canHideLabel: true,
+      enabled: shouldShowIdeContextIndicator,
+      id: "ide-context",
+    },
+  ]);
   const intelligenceCollapse = isSingleLineComposer
     ? { hideControl: false, hideLabel: false }
     : (footerCollapse.state.intelligence ?? { hideControl: false, hideLabel: false });
+  const ideContextCollapse = isSingleLineComposer
+    ? { hideControl: false, hideLabel: false }
+    : (footerCollapse.state["ide-context"] ?? { hideControl: false, hideLabel: false });
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
@@ -296,14 +310,11 @@ function SessionSurface({
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const [isPickingFiles, setIsPickingFiles] = useState(false);
-  const [autoContextSetting, setAutoContextSetting] = useState<boolean | null>(null);
   const [isPlanMode, setIsPlanMode] = useState(false);
   const [isPlanSuggestionDismissed, setIsPlanSuggestionDismissed] = useState(false);
   const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
-  const workspaceContextItem = currentWorkspaceMenuItem(state);
-  const isAutoContextOn = autoContextSetting ?? (workspaceContextItem != null);
   const submit = () => {
     if (!canSend) {
       return;
@@ -354,6 +365,14 @@ function SessionSurface({
   };
   const toggleAutoContext = () => {
     setAutoContextSetting((value) => !(value ?? (workspaceContextItem != null)));
+    setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
+    setProviderMenuOpen(false);
+    setMenuKind(null);
+    editorRef.current?.focus();
+  };
+  const clearAutoContext = () => {
+    setAutoContextSetting(false);
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
     setProviderMenuOpen(false);
@@ -629,6 +648,21 @@ function SessionSurface({
     "div",
     { className: "codex-secondary-controls flex min-w-0 items-center gap-1", ref: footerCollapse.setContainerRef },
     modelPicker,
+    shouldShowIdeContextIndicator && !ideContextCollapse.hideControl
+      ? h(
+          "span",
+          {
+            className: "composer-context-indicator flex min-w-0 items-center gap-1",
+            ref: (node: HTMLSpanElement | null) => footerCollapse.setItemRef("ide-context", node),
+          },
+          h("div", { className: "composer-context-divider h-4 w-px bg-token-border/70", "aria-hidden": true }),
+          h(ComposerIdeContextIndicator, {
+            hideLabel: ideContextCollapse.hideLabel,
+            label: state.context?.copy.ideContext ?? "IDE context",
+            onClear: clearAutoContext,
+          }),
+        )
+      : null,
   );
   const actionCluster = h(
     "div",
@@ -1303,6 +1337,45 @@ function ComposerModeIndicator({
       h("span", { className: "composer-mode-icon", "aria-hidden": true }, icon),
       h("span", { className: "composer-mode-label" }, label),
     ),
+  );
+}
+
+function ComposerIdeContextIndicator({
+  hideLabel,
+  label,
+  onClear,
+}: {
+  hideLabel: boolean;
+  label: string;
+  onClear: () => void;
+}) {
+  return h(
+    "button",
+    {
+      className:
+        `composer-context-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
+      type: "button",
+      "aria-label": label,
+      title: label,
+      onClick: onClear,
+    },
+    h(
+      "span",
+      { className: "composer-context-icon composer-context-icon-default icon-xs shrink-0", "aria-hidden": true },
+      ideContextIcon("icon-xs"),
+    ),
+    h(
+      "span",
+      { className: "composer-context-icon composer-context-icon-hover icon-xs shrink-0", "aria-hidden": true },
+      xIcon("icon-xs"),
+    ),
+    hideLabel
+      ? null
+      : h(
+          "span",
+          { className: "composer-footer__label--sm composer-context-label max-w-20 truncate" },
+          label,
+        ),
   );
 }
 
