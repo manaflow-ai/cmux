@@ -6157,13 +6157,19 @@ extension BrowserPanel {
         return windowContainsInspectorViews(contentView)
     }
 
+    private func isDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
+        if let mainWindow = webView.window, window === mainWindow {
+            return false
+        }
+        if detachedDeveloperToolsWindowBelongsToPanel(window) {
+            return true
+        }
+        return Self.isDetachedInspectorWindow(window)
+    }
+
     private func detachedDeveloperToolsWindows() -> [NSWindow] {
-        let mainWindow = webView.window
         return NSApp.windows.filter { candidate in
-            if let mainWindow, candidate === mainWindow {
-                return false
-            }
-            return Self.isDetachedInspectorWindow(candidate)
+            isDetachedDeveloperToolsWindow(candidate)
         }
     }
 
@@ -6211,7 +6217,7 @@ extension BrowserPanel {
                   let window = notification.object as? NSWindow else { return }
             guard Thread.isMainThread else { return }
             let handledDetachedInspector = MainActor.assumeIsolated {
-                guard Self.isDetachedInspectorWindow(window) else { return false }
+                guard self.isDetachedDeveloperToolsWindow(window) else { return false }
                 return self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
             }
             guard handledDetachedInspector else { return }
@@ -6264,6 +6270,9 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
+        if let mainWindow = webView.window, window === mainWindow {
+            return false
+        }
         guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
               let contentView = window.contentView else {
             return false
@@ -6277,9 +6286,8 @@ extension BrowserPanel {
 
     private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
-              let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        for window in detachedDeveloperToolsWindows() {
 #if DEBUG
             cmuxDebugLog(
                 "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
@@ -6582,6 +6590,36 @@ extension BrowserPanel {
         developerToolsLastAttachedHostAt = Date()
         if isDeveloperToolsVisible() {
             developerToolsLastKnownVisibleAt = Date()
+        }
+    }
+
+    func reconcileDeveloperToolsAfterHostUpdate(
+        wasVisibleBeforeHostUpdate: Bool,
+        didAttachHost: Bool,
+        didChangeHostVisibility: Bool,
+        preserveVisibleIntentWhileDetached: Bool = false
+    ) {
+        guard webView.superview != nil, webView.window != nil else {
+            syncDeveloperToolsPreferenceFromInspector(
+                preserveVisibleIntent: preserveVisibleIntentWhileDetached ||
+                    shouldPreserveDeveloperToolsIntentWhileDetached()
+            )
+            return
+        }
+
+        noteDeveloperToolsHostAttached()
+
+        let hasPendingRestore =
+            forceDeveloperToolsRefreshOnNextAttach ||
+            developerToolsRestoreRetryWorkItem != nil
+        let shouldRestore =
+            hasPendingRestore ||
+            (wasVisibleBeforeHostUpdate && (didAttachHost || didChangeHostVisibility))
+
+        if shouldRestore {
+            restoreDeveloperToolsAfterAttachIfNeeded()
+        } else {
+            syncDeveloperToolsPreferenceFromInspector()
         }
     }
 
