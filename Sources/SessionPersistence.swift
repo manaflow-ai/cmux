@@ -1721,6 +1721,7 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
+    var windowId: UUID? = nil
     var frame: SessionRectSnapshot?
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot

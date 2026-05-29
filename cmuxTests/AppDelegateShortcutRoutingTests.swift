@@ -1248,6 +1248,70 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(restoredWindowManager.selectedWorkspace?.customTitle, "Previous Work")
     }
 
+    func testRestorePreviousSessionSnapshotRemapsClosedWorkspaceWindowIds() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let baselineWindowIds = mainWindowIds()
+        let liveWindowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer {
+            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
+                closeWindow(withId: windowId)
+            }
+        }
+
+        let liveManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: liveWindowId))
+        let oldRestoredWindowId = UUID()
+
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
+        restoredWorkspace.setCustomTitle("Previous Work")
+
+        let closedWorkspaceManager = TabManager(autoWelcomeIfNeeded: false)
+        let closedWorkspace = try XCTUnwrap(closedWorkspaceManager.selectedWorkspace)
+        closedWorkspace.setCustomTitle("Closed Previous Workspace")
+        let closedRecordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: closedRecordId,
+            closedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: closedWorkspace.id,
+                windowId: oldRestoredWindowId,
+                workspaceIndex: 1,
+                snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
+            ))
+        ))
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 1_700_000_001,
+            windows: [sessionWindowSnapshot(tabManager: restoredManager, windowId: oldRestoredWindowId)]
+        )
+
+        XCTAssertTrue(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let restoredWindowIds = mainWindowIds().subtracting(baselineWindowIds).subtracting([liveWindowId])
+        XCTAssertEqual(restoredWindowIds.count, 1)
+        let restoredWindowId = try XCTUnwrap(restoredWindowIds.first)
+        let restoredWindowManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: restoredWindowId))
+
+        XCTAssertTrue(
+            appDelegate.reopenClosedHistoryItem(
+                id: closedRecordId,
+                preferredTabManager: liveManager,
+                shouldActivate: false
+            )
+        )
+        XCTAssertTrue(restoredWindowManager.tabs.contains { $0.customTitle == "Closed Previous Workspace" })
+        XCTAssertFalse(liveManager.tabs.contains { $0.customTitle == "Closed Previous Workspace" })
+    }
+
     func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -10634,8 +10698,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    private func sessionWindowSnapshot(tabManager: TabManager) -> SessionWindowSnapshot {
+    private func sessionWindowSnapshot(tabManager: TabManager, windowId: UUID? = nil) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
+            windowId: windowId,
             frame: nil,
             display: nil,
             tabManager: tabManager.sessionSnapshot(includeScrollback: false),
