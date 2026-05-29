@@ -5079,6 +5079,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testApplicationSendEventRoutesCmdDMenuEquivalentToActiveShortcutRecorder() {
 #if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -5128,7 +5132,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         withTemporaryShortcut(action: .splitRight) {
-            NSApp.sendEvent(event)
+            XCTAssertTrue(
+                appDelegate.handleApplicationSendEventPreflight(
+                    event: event,
+                    preferredWindow: probeWindow,
+                    keyWindow: probeWindow,
+                    mainWindow: probeWindow
+                ),
+                "App-level sendEvent preflight should route active shortcut recorder events before menu equivalents"
+            )
         }
 
         XCTAssertEqual(

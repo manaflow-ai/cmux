@@ -13830,6 +13830,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    @discardableResult
+    func handleApplicationSendEventPreflight(
+        event: NSEvent,
+        preferredWindow: NSWindow?,
+        keyWindow: NSWindow?,
+        mainWindow: NSWindow?
+    ) -> Bool {
+        if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
+            event,
+            preferredWindow: preferredWindow
+        ) {
+            return true
+        }
+        if shouldSuppressStaleCmuxMenuShortcut(event: event) {
+            if handleConfiguredShortcutKeyEquivalent(event) {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
+#endif
+                return true
+            }
+            let responder = event.window?.firstResponder
+                ?? keyWindow?.firstResponder
+                ?? mainWindow?.firstResponder
+            if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
+                ghosttyView.keyDown(with: event)
+#if DEBUG
+                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
+#endif
+            } else {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut")
+#endif
+            }
+            return true
+        }
+        return false
+    }
+
     /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
@@ -15627,32 +15665,12 @@ private extension NSApplication {
            AppDelegate.shared?.handleMinimalModeTitlebarDoubleClickMouseDown(event: event) == true {
             return
         }
-        if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
-            event,
-            preferredWindow: event.window ?? keyWindow ?? mainWindow
-        ) {
-            return
-        }
-        if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
-            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
-#if DEBUG
-                cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
-#endif
-                return
-            }
-            let responder = event.window?.firstResponder
-                ?? keyWindow?.firstResponder
-                ?? mainWindow?.firstResponder
-            if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
-                ghosttyView.keyDown(with: event)
-#if DEBUG
-                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
-#endif
-            } else {
-#if DEBUG
-                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut")
-#endif
-            }
+        if AppDelegate.shared?.handleApplicationSendEventPreflight(
+            event: event,
+            preferredWindow: event.window ?? keyWindow ?? mainWindow,
+            keyWindow: keyWindow,
+            mainWindow: mainWindow
+        ) == true {
             return
         }
         cmux_applicationSendEvent(event)
