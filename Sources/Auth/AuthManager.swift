@@ -435,8 +435,9 @@ final class AuthManager: ObservableObject {
             return
         }
         defer {
-            guard let browserSignInAttemptID else { return }
-            finishBrowserSignInAttempt(browserSignInAttemptID)
+            if let browserSignInAttemptID {
+                finishBrowserSignInAttempt(browserSignInAttemptID)
+            }
         }
         let mutationGeneration = beginAuthMutation(.signIn)
 
@@ -809,7 +810,7 @@ final class AuthManager: ObservableObject {
 
     // ISO8601DateFormatter is expensive to construct (calendar + locale +
     // time zone). Reuse one instance across the high-frequency authLog path.
-    private static let logTimestampFormatter: ISO8601DateFormatter = {
+    private nonisolated static let logTimestampFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
