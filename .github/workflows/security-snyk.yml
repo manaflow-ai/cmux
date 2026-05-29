@@ -58,6 +58,11 @@ jobs:
             --severity-threshold=high \
             --sarif-file-output=snyk-code.sarif
 
+      - name: Warn when Snyk Code SARIF is missing
+        if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') == ''
+        run: |
+          echo "::warning::Snyk Code did not produce snyk-code.sarif; check the scan step logs before relying on SAST findings."
+
       - name: Upload Snyk Code SARIF
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') != ''
         uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
