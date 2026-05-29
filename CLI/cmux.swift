@@ -872,6 +872,53 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func markNotificationResolved(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        pid: Int? = nil,
+        launchCommand: AgentHookLaunchCommandRecord? = nil,
+        agentLifecycle: AgentHibernationLifecycleState? = nil,
+        runtimeStatus: AgentHookRuntimeStatus? = nil
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: nil,
+                agentLifecycle: agentLifecycle,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: true,
+                runtimeStatus: runtimeStatus,
+                updateRuntimeStatus: runtimeStatus != nil,
+                now: now
+            )
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastNotificationStatus = nil
+            state.sessions[normalized] = record
+        }
+    }
+
     private func makeSessionRecord(
         state: ClaudeHookSessionStoreFile,
         sessionId: String,
@@ -21532,7 +21579,7 @@ struct CMUXCLI {
 
         for key in [
             "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
-            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
+            "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
@@ -21606,6 +21653,23 @@ struct CMUXCLI {
             }
         }
 
+        if let extra = object["extra"] as? [String: Any] {
+            var compactExtra: [String: Any] = [:]
+            for extraKey in [
+                "assistant_response", "assistantResponse", "last_assistant_message", "lastAssistantMessage",
+                "assistantPreamble", "assistant_preamble", "user_message", "userMessage",
+                "title", "command", "description", "pattern_key", "patternKey",
+                "surface", "choice", "message", "body", "text", "prompt", "summary", "error",
+            ] {
+                if let value = compactClaudeHookValue(extra[extraKey], key: extraKey) {
+                    compactExtra[extraKey] = value
+                }
+            }
+            if !compactExtra.isEmpty {
+                compact["extra"] = compactExtra
+            }
+        }
+
         return compact
     }
 
@@ -21615,7 +21679,7 @@ struct CMUXCLI {
             return 80
         case "transcript_path", "transcriptPath":
             return 240
-        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason":
+        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason", "user_message", "userMessage", "command":
             return 240
         default:
             return 160
@@ -21826,15 +21890,17 @@ struct CMUXCLI {
 
     private func claudeAssistantMessageFromHookPayload(_ object: [String: Any]?) -> String? {
         guard let object else { return nil }
-        let message = firstString(
-            in: object,
-            keys: [
-                "last_assistant_message",
-                "lastAssistantMessage",
-                "assistantPreamble",
-                "assistant_preamble",
-            ]
-        )
+        let keys = [
+            "last_assistant_message",
+            "lastAssistantMessage",
+            "assistantPreamble",
+            "assistant_preamble",
+            "assistant_response",
+            "assistantResponse",
+        ]
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
+        let message = firstString(in: object, keys: keys)
+            ?? firstString(in: extra, keys: keys)
         guard let message else { return nil }
         let normalized = normalizedSingleLine(message)
         return normalized.isEmpty ? nil : normalized
@@ -23123,6 +23189,7 @@ struct CMUXCLI {
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
         let signalParts = [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "hookEventName", "type", "kind"]),
             firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
@@ -23131,6 +23198,7 @@ struct CMUXCLI {
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
         let fallbackBody = String.localizedStringWithFormat(
             String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
@@ -23139,6 +23207,14 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = normalizedSingleLine(message)
+        if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
+            return classifyAgentHookNotification(
+                def: def,
+                signal: signal,
+                message: normalizedSingleLine(hermesApprovalMessage),
+                isFallback: false
+            )
+        }
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
@@ -23190,14 +23266,43 @@ struct CMUXCLI {
         )
     }
 
+    private func hermesAgentApprovalNotificationMessage(def: AgentHookDef, object: [String: Any]) -> String? {
+        guard def.name == "hermes-agent" else { return nil }
+        let event = firstString(in: object, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+        guard event == "pre_approval_request" else { return nil }
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
+        let command = firstString(in: extra, keys: ["command"])
+        let description = firstString(in: extra, keys: ["description", "pattern_key", "patternKey"])
+
+        switch (description, command) {
+        case let (description?, command?):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "agent.hermes.notification.body.approvalCommand",
+                    defaultValue: "%1$@: %2$@"
+                ),
+                description,
+                command
+            )
+        case let (description?, nil):
+            return description
+        case let (nil, command?):
+            return command
+        default:
+            return nil
+        }
+    }
+
     private func normalizedAgentHookNotificationMessage(parsedInput: ClaudeHookParsedInput) -> String? {
         guard let object = parsedInput.object else {
             return parsedInput.rawFallback.map(normalizedSingleLine)
         }
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let extra = (object["extra"] as? [String: Any]) ?? [:]
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
+            firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
         return messageCandidates.compactMap { $0 }.first.map(normalizedSingleLine)
     }
@@ -23907,7 +24012,7 @@ struct CMUXCLI {
             return nil
         }
         let source = envArguments == nil ? "process" : "environment"
-        let environment = selectedAgentLaunchEnvironment(from: env)
+        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
 
         return AgentHookLaunchCommandRecord(
             launcher: launcher,
@@ -23930,11 +24035,13 @@ struct CMUXCLI {
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
+        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
         guard let command = agentSurfaceResumeCommand(
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: cwd
+            workingDirectory: cwd,
+            environment: resumeEnvironment
         ) else {
             clearAgentSurfaceResumeBinding(
                 client: client,
@@ -23956,9 +24063,8 @@ struct CMUXCLI {
         if let cwd = normalizedHookValue(cwd) ?? normalizedHookValue(launchCommand?.workingDirectory) {
             params["cwd"] = cwd
         }
-        if let environment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment),
-           !environment.isEmpty {
-            params["environment"] = environment
+        if let resumeEnvironment, !resumeEnvironment.isEmpty {
+            params["environment"] = resumeEnvironment
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -23984,7 +24090,8 @@ struct CMUXCLI {
         kind: String,
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        environment: [String: String]?
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
@@ -24035,7 +24142,9 @@ struct CMUXCLI {
         guard let argv, !argv.isEmpty else { return nil }
         return agentSurfaceResumeShellCommand(
             argv: argv,
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            kind: kind,
+            environment: environment
         )
     }
 
@@ -24132,7 +24241,9 @@ struct CMUXCLI {
 
     private func agentSurfaceResumeShellCommand(
         argv: [String],
-        workingDirectory: String?
+        workingDirectory: String?,
+        kind: String,
+        environment: [String: String]?
     ) -> String {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
@@ -24142,7 +24253,17 @@ struct CMUXCLI {
             from: commandParts,
             workingDirectory: cwd
         )
-        let command = sanitizedCommandParts.map(cliShellQuote).joined(separator: " ")
+        let resumeCommandParts = kind == "hermes-agent"
+            ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
+            : sanitizedCommandParts
+        var command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        if kind == "hermes-agent" {
+            command = hermesAgentSubrouterResumeCommand(
+                command,
+                arguments: resumeCommandParts,
+                environment: environment
+            )
+        }
         if let cwd {
             let quotedCwd = cliShellQuote(cwd)
             return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
@@ -24150,12 +24271,87 @@ struct CMUXCLI {
         return command
     }
 
+    private func hermesAgentSubrouterResumeCommand(
+        _ command: String,
+        arguments: [String],
+        environment: [String: String]?
+    ) -> String {
+        guard !hermesAgentArgumentsSetModelAPIMode(arguments),
+              hermesAgentArgumentsAllowCodexBootstrap(arguments),
+              let environment,
+              let baseURL = normalizedHookValue(environment[HermesAgentCodexEnvironment.customBaseURLEnvironmentKey]) else {
+            return command
+        }
+        let hermesExecutable = normalizedHookValue(arguments.first) ?? "hermes"
+
+        var bootstrap = [
+            "\(cliShellQuote(hermesExecutable)) config set model.provider \(cliShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
+            "\(cliShellQuote(hermesExecutable)) config set model.base_url \(cliShellQuote(baseURL)) >/dev/null",
+            "\(cliShellQuote(hermesExecutable)) config set model.api_mode \(cliShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+        ]
+        if let model = HermesAgentCodexEnvironment.defaultCodexModel(
+            environment: environment,
+            ambientEnvironment: ProcessInfo.processInfo.environment
+        ) {
+            bootstrap.append("\(cliShellQuote(hermesExecutable)) config set model.default \(cliShellQuote(model)) >/dev/null")
+        }
+        return bootstrap.joined(separator: " && ") + " && " + command
+    }
+
+    private func hermesAgentArgumentsByReplacingOpenAICodexProvider(_ arguments: [String]) -> [String] {
+        var result: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--provider", index + 1 < arguments.count {
+                result.append(argument)
+                let provider = arguments[index + 1]
+                result.append(provider == "openai-codex" ? HermesAgentCodexEnvironment.defaultProvider : provider)
+                index += 2
+                continue
+            }
+            if argument == "--provider=openai-codex" {
+                result.append("--provider=\(HermesAgentCodexEnvironment.defaultProvider)")
+            } else {
+                result.append(argument)
+            }
+            index += 1
+        }
+        return result
+    }
+
+    private func hermesAgentArgumentsSetModelAPIMode(_ arguments: [String]) -> Bool {
+        arguments.contains { $0.contains("model.api_mode") }
+    }
+
+    private func hermesAgentArgumentsAllowCodexBootstrap(_ arguments: [String]) -> Bool {
+        guard let provider = hermesAgentProviderArgument(arguments) else {
+            return true
+        }
+        return provider == HermesAgentCodexEnvironment.defaultProvider || provider == "openai-codex"
+    }
+
+    private func hermesAgentProviderArgument(_ arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--provider", index + 1 < arguments.count {
+                return arguments[index + 1]
+            }
+            if argument.hasPrefix("--provider=") {
+                return String(argument.dropFirst("--provider=".count))
+            }
+            index += 1
+        }
+        return nil
+    }
+
     private func agentSurfaceResumeEnvironment(
         kind: String,
         environment: [String: String]?
     ) -> [String: String]? {
         guard let environment else { return nil }
-        let selected = selectedAgentLaunchEnvironment(from: environment)
+        let selected = selectedAgentLaunchEnvironment(from: environment, kind: kind)
         guard !selected.isEmpty else { return nil }
 
         let claudeAuthKeys: Set<String> = [
@@ -24209,8 +24405,15 @@ struct CMUXCLI {
         return parts.isEmpty ? nil : parts
     }
 
-    private func selectedAgentLaunchEnvironment(from env: [String: String]) -> [String: String] {
-        AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env)
+    private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
+        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env, kind: kind)
+        if kind == "hermes-agent" {
+            selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
+                to: selected,
+                ambientEnvironment: env
+            )
+        }
+        return selected
     }
 
     private func normalizedHookValue(_ value: String?) -> String? {
@@ -26610,6 +26813,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
+        func shouldSuppressGenericFeedTelemetry() -> Bool {
+            guard def.name == "hermes-agent",
+                  let event = input.object.flatMap({
+                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+                  }) ?? input.rawObject.flatMap({
+                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+                  })
+            else {
+                return false
+            }
+            return def.feedHookEvents.contains(event)
+        }
+        func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil) {
+            if shouldSuppressGenericFeedTelemetry() {
+                didSendFeedTelemetry = true
+            } else {
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+            }
+        }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
             guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
                 return nil
@@ -26711,7 +26933,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return target
         }
         defer {
-            if !didSendFeedTelemetry {
+            if !didSendFeedTelemetry, !shouldSuppressGenericFeedTelemetry() {
                 sendAgentFeedTelemetry()
             }
         }
@@ -26726,7 +26948,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -26799,7 +27021,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -27008,8 +27230,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
             }()
-            let lastMsg = input.object?["last_assistant_message"] as? String
-                ?? input.object?["lastAssistantMessage"] as? String
+            let lastMsg = claudeAssistantMessageFromHookPayload(input.object)
             let projectName: String? = {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
@@ -27248,6 +27469,74 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
 
+        case .approvalResponse:
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+            let pid = mapped?.pid ?? inferredPID
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            if !sessionId.isEmpty, !suppressVisibleMutations {
+                try? store.markNotificationResolved(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    agentLifecycle: .running,
+                    runtimeStatus: .running
+                )
+                publishAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    kind: def.name,
+                    displayName: def.displayName,
+                    sessionId: sessionId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    launchCommand: launchCommand ?? mapped?.launchCommand
+                )
+            }
+            if let pid, !suppressVisibleMutations {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
+            if !suppressVisibleMutations {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .running,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            } else {
+                telemetry.breadcrumb("\(def.name)-hook.approval-response.nested-suppressed")
+            }
+
         case .notification:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -27330,7 +27619,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
                 print("{}")
                 return
             }
@@ -27345,7 +27634,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
                 print("{}")
                 return
             }
@@ -27486,7 +27775,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case nil:
                 break
             }
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
 
         case .sessionEnd:
             if def.name == "codex", !sessionId.isEmpty {
