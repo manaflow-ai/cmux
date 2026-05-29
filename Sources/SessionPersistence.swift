@@ -1679,11 +1679,16 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    /// Original workspace ID captured when the snapshot comes from a live workspace.
+    /// Restore uses this to remap closed-panel history onto the new workspace IDs;
+    /// legacy or externally-created snapshots can leave it nil.
+    var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
+    var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
@@ -1697,6 +1702,26 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+}
+
+struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var isCollapsed: Bool
+    /// The workspace whose close dissolves the group. Only meaningful within
+    /// a single app run; on restore, each workspace gets a fresh UUID. The
+    /// loader prefers `anchorMemberIndex` (restore-stable) and treats this
+    /// field as a hint for in-process round-trips.
+    var anchorWorkspaceId: UUID? = nil
+    /// 0-based index of the anchor among the group's members in tab order.
+    /// Restore-stable: tab order is preserved across restore, so the same
+    /// index resolves to the same logical anchor even though workspace UUIDs
+    /// change. Older snapshots that omit this field fall back to "first
+    /// member by tab order".
+    var anchorMemberIndex: Int? = nil
+    var isPinned: Bool? = nil
+    var customColor: String? = nil
+    var iconSymbol: String? = nil
 }
 
 extension SessionWorkspaceSnapshot {
@@ -1714,9 +1739,11 @@ extension SessionWindowSnapshot {
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
+    var windowId: UUID? = nil
     var frame: SessionRectSnapshot?
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot

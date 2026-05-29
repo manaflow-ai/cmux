@@ -28,7 +28,7 @@ on:
 
 jobs:
   tests:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
