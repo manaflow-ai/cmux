@@ -18,6 +18,8 @@ const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [i
 const TerminalConstructor = window.Terminal;
 const FitAddonConstructor = window.FitAddon?.FitAddon;
 const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
+const terminalOutputChunkSize = 32768;
+const terminalOutputPerformanceChunkSize = 16384;
 
 const initialSettings = loadSettings();
 
@@ -948,15 +950,7 @@ function ensureTerminal(panel, body) {
     if (session.disposed) return;
     const message = JSON.parse(event.data);
     if (message.type === "output") {
-      session.queue += message.data;
-      if (!session.scheduled) {
-        session.scheduled = true;
-        requestAnimationFrame(() => {
-          term.write(session.queue);
-          session.queue = "";
-          session.scheduled = false;
-        });
-      }
+      enqueueTerminalOutput(session, message.data);
     }
   });
 
@@ -973,6 +967,27 @@ function ensureTerminal(panel, body) {
     if (panel.id === activeWorkspace()?.activePanelId) term.focus();
   }, 60);
   state.terminals.set(panel.id, session);
+}
+
+function enqueueTerminalOutput(session, data) {
+  session.queue += data;
+  scheduleTerminalOutputFlush(session);
+}
+
+function scheduleTerminalOutputFlush(session) {
+  if (session.disposed || session.scheduled) return;
+  session.scheduled = true;
+  requestAnimationFrame(() => flushTerminalOutput(session));
+}
+
+function flushTerminalOutput(session) {
+  session.scheduled = false;
+  if (session.disposed || !session.queue) return;
+  const chunkSize = state.settings.performanceMode ? terminalOutputPerformanceChunkSize : terminalOutputChunkSize;
+  const chunk = session.queue.length > chunkSize ? session.queue.slice(0, chunkSize) : session.queue;
+  session.queue = session.queue.slice(chunk.length);
+  session.term.write(chunk);
+  if (session.queue) scheduleTerminalOutputFlush(session);
 }
 
 function scheduleFitTerminal(session) {
