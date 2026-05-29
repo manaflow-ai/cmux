@@ -761,7 +761,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before testing zoom indicator. data=\(loadData() ?? [:])"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 20.0),
+            "Expected debug socket at \(socketPath). diagnostics=\(loadDiagnostics() ?? [:])"
+        )
         guard let setup = loadData(),
               let terminalPaneId = setup["terminalPaneId"] else {
             XCTFail("Missing terminal pane id. data=\(loadData() ?? [:])")
@@ -868,7 +871,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before opening canvas from command palette. data=\(loadData() ?? [:])"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 20.0),
+            "Expected debug socket at \(socketPath). diagnostics=\(loadDiagnostics() ?? [:])"
+        )
         XCTAssertFalse(
             canvasLayout()?["canvasOverviewActive"] as? Bool ?? true,
             "Expected split view to start outside canvas overview. layout=\(String(describing: canvasLayout()))"
@@ -1103,7 +1109,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before testing rapid canvas trackpad pan. data=\(loadData() ?? [:])"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 20.0), "Expected debug socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 20.0),
+            "Expected debug socket at \(socketPath). diagnostics=\(loadDiagnostics() ?? [:])"
+        )
         XCTAssertTrue(
             waitForCondition(timeout: 8.0) {
                 self.canvasLayout()?["canvasOverviewActive"] as? Bool == true
@@ -2263,12 +2272,35 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if socketCommand("ping")?.trimmingCharacters(in: .whitespacesAndNewlines) == "PONG" {
+            if pingSocketCandidates() {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return socketCommand("ping")?.trimmingCharacters(in: .whitespacesAndNewlines) == "PONG"
+        return pingSocketCandidates()
+    }
+
+    private func pingSocketCandidates() -> Bool {
+        let originalPath = socketPath
+        for candidate in socketPathCandidates() {
+            socketPath = candidate
+            if socketCommand("ping")?.trimmingCharacters(in: .whitespacesAndNewlines) == "PONG" {
+                return true
+            }
+        }
+        socketPath = originalPath
+        return false
+    }
+
+    private func socketPathCandidates() -> [String] {
+        var candidates = [socketPath]
+        if let diagnostics = loadDiagnostics(),
+           let expectedPath = diagnostics["socketExpectedPath"],
+           !expectedPath.isEmpty,
+           !candidates.contains(expectedPath) {
+            candidates.append(expectedPath)
+        }
+        return candidates
     }
 
     private func loadDiagnostics() -> [String: String]? {
@@ -3095,6 +3127,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
             app.launchEnvironment["CMUX_SOCKET_ENABLE"] = app.launchEnvironment["CMUX_SOCKET_ENABLE"] ?? "1"
             app.launchEnvironment["CMUX_SOCKET_MODE"] = app.launchEnvironment["CMUX_SOCKET_MODE"] ?? "allowAll"
+            app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] ?? "1"
+            app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] =
+                app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] ?? diagnosticsPath
         }
 
         // On headless CI runners (no GUI session), XCUIApplication.launch()
