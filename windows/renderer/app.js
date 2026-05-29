@@ -664,6 +664,8 @@ const commands = [
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => createPanel("terminal", "down") },
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
+  { id: "terminal.copySelection", label: "Copy Terminal Selection", shortcut: "Ctrl+Shift+C", run: () => copyActiveTerminalSelection() },
+  { id: "terminal.pasteClipboard", label: "Paste Clipboard to Terminal", shortcut: "Ctrl+Shift+V", run: () => pasteClipboardToTerminal() },
   { id: "terminal.clear", label: "Clear Active Terminal", shortcut: "Ctrl+K", run: () => clearActiveTerminal() },
   { id: "terminal.restart", label: "Restart Active Terminal", shortcut: "Ctrl+Shift+R", run: () => restartActiveTerminal() },
   { id: "terminal.close", label: "Close Active Pane", shortcut: "Ctrl+W", run: () => closeActivePanel() },
@@ -2752,9 +2754,14 @@ function showPanelContextMenu(event, panel) {
   title.textContent = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
   const actions = document.createElement("div");
   actions.className = "context-actions";
+  const isTerminal = panel.type === "terminal";
   actions.append(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
+    contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), !isTerminal),
+    contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), !isTerminal),
+    contextMenuButton("Restart terminal", () => restartPanel(panel.id), !isTerminal),
     contextMenuButton(panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
@@ -2855,6 +2862,8 @@ function showToolbarMenu(event) {
     contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !activeWorkspace()),
     contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
     contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
+    contextMenuButton("Copy terminal selection", copyActiveTerminalSelection, panel?.type !== "terminal"),
+    contextMenuButton("Paste to terminal", pasteClipboardToTerminal, panel?.type !== "terminal"),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
@@ -3740,10 +3749,22 @@ async function simulateNotification() {
   openInspector("notifications");
 }
 
+function resolveTerminalPanel(panel = activePanel()) {
+  const found = panel?.id ? findPanelState(panel.id) : null;
+  const candidate = found?.panel || panel;
+  return candidate?.type === "terminal" ? candidate : null;
+}
+
+function clearTerminalPanel(panel = activePanel()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  const terminal = terminalPanel ? state.terminals.get(terminalPanel.id) : null;
+  if (!terminal) return false;
+  terminal.term.clear();
+  return true;
+}
+
 function clearActiveTerminal() {
-  const panel = activePanel();
-  const terminal = panel ? state.terminals.get(panel.id) : null;
-  if (terminal) terminal.term.clear();
+  clearTerminalPanel();
 }
 
 function resetActivePaneLayout() {
@@ -3791,6 +3812,67 @@ async function readClipboardText() {
   }
   if (window.cmuxNative?.readClipboard) return await window.cmuxNative.readClipboard();
   return "";
+}
+
+async function sendTerminalInput(panelId, text) {
+  const payload = String(text ?? "");
+  if (!payload) return false;
+  const session = state.terminals.get(panelId);
+  if (session?.socket?.readyState === WebSocket.OPEN) {
+    session.socket.send(JSON.stringify({ type: "input", data: payload }));
+    return true;
+  }
+  try {
+    const result = await api("/api/input", {
+      method: "POST",
+      body: JSON.stringify({ panelId, text: payload })
+    });
+    return Boolean(result.ok);
+  } catch {
+    return false;
+  }
+}
+
+async function copyActiveTerminalSelection(panel = activePanel()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Focus a terminal pane first.");
+    return false;
+  }
+  const selection = state.terminals.get(terminalPanel.id)?.term?.getSelection?.() || "";
+  if (!selection) {
+    toast("Select terminal text first.");
+    focusTerminalSession(terminalPanel.id);
+    return false;
+  }
+  if (await writeClipboardText(selection)) {
+    toast("Terminal selection copied.");
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
+}
+
+async function pasteClipboardToTerminal(panel = activePanel()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Focus a terminal pane first.");
+    return false;
+  }
+  const clipboard = await readClipboardText();
+  if (!clipboard) {
+    toast("Clipboard is empty.");
+    focusTerminalSession(terminalPanel.id);
+    return false;
+  }
+  const ok = await sendTerminalInput(terminalPanel.id, clipboard);
+  if (!ok) {
+    toast("Terminal is not ready.");
+    return false;
+  }
+  focusPanel(terminalPanel.id);
+  focusTerminalSession(terminalPanel.id);
+  return true;
 }
 
 async function exportSettings() {
@@ -3874,6 +3956,15 @@ function toast(message) {
   setTimeout(() => node.remove(), 3200);
 }
 
+function isFormEditableTarget(target) {
+  const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
+  if (!element || element.closest(".terminal-host")) return false;
+  return Boolean(
+    element.isContentEditable
+    || element.closest("input, textarea, select, [contenteditable='true'], [contenteditable='plaintext-only']")
+  );
+}
+
 function announceNewAttention(previous, next) {
   if (!previous || !next) return;
   const oldAttention = new Set(previous.workspaces.flatMap((workspace) =>
@@ -3951,8 +4042,15 @@ elements.paletteInput.addEventListener("keydown", (event) => {
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (state.activeDialog) return;
+  const editingText = isFormEditableTarget(event.target);
   if (event.key === "Escape" && state.contextMenu && !state.contextMenu.hidden) {
     hideContextMenu();
+  } else if (!editingText && event.ctrlKey && event.shiftKey && key === "c") {
+    event.preventDefault();
+    copyActiveTerminalSelection();
+  } else if (!editingText && event.ctrlKey && event.shiftKey && key === "v") {
+    event.preventDefault();
+    pasteClipboardToTerminal();
   } else if (event.ctrlKey && event.shiftKey && key === "p") {
     event.preventDefault();
     state.paletteOpen = !state.paletteOpen;

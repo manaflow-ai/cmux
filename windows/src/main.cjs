@@ -93,6 +93,8 @@ function buildMenu() {
         { label: "Rename Workspace", click: () => mainWindow?.webContents.send("cmux-command", "workspace.rename") },
         { label: "New Terminal", accelerator: "Ctrl+T", click: () => mainWindow?.webContents.send("cmux-command", "terminal.new") },
         { label: "Reopen Closed Pane", accelerator: "Ctrl+Shift+T", click: () => mainWindow?.webContents.send("cmux-command", "terminal.reopenClosed") },
+        { label: "Copy Terminal Selection", accelerator: "Ctrl+Shift+C", click: () => mainWindow?.webContents.send("cmux-command", "terminal.copySelection") },
+        { label: "Paste Clipboard to Terminal", accelerator: "Ctrl+Shift+V", click: () => mainWindow?.webContents.send("cmux-command", "terminal.pasteClipboard") },
         { label: "Restart Active Terminal", accelerator: "Ctrl+Shift+R", click: () => mainWindow?.webContents.send("cmux-command", "terminal.restart") },
         { label: "Close Active Pane", accelerator: "Ctrl+W", click: () => mainWindow?.webContents.send("cmux-command", "terminal.close") },
         { label: "Open Browser", accelerator: "Ctrl+Shift+L", click: () => mainWindow?.webContents.send("cmux-command", "browser.new") },
@@ -100,6 +102,18 @@ function buildMenu() {
         { label: "Settings", accelerator: "Ctrl+,", click: () => mainWindow?.webContents.send("cmux-command", "settings.open") },
         { type: "separator" },
         { role: "quit" }
+      ]
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" }
       ]
     },
     {
