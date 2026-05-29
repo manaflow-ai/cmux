@@ -1106,6 +1106,61 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
     }
 
+    func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
+        let defaults = UserDefaults.standard
+        let forkKey = AgentConversationForkDefaultSettings.key
+        let inheritanceKey = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let previousForkValue = defaults.object(forKey: forkKey)
+        let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousForkValue {
+                defaults.set(previousForkValue, forKey: forkKey)
+            } else {
+                defaults.removeObject(forKey: forkKey)
+            }
+            if let previousInheritanceValue {
+                defaults.set(previousInheritanceValue, forKey: inheritanceKey)
+            } else {
+                defaults.removeObject(forKey: inheritanceKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: forkKey)
+        defaults.removeObject(forKey: inheritanceKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "forkConversationDefaultDestination": "sideways",
+                "workspaceInheritWorkingDirectory": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
+        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+    }
+
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SidebarWorkspaceTitleWrapSettings.key
@@ -6443,10 +6498,42 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(workspace.canForkAgentConversationFromPanel(UUID()))
     }
 
-    func testForkConversationContextMenuActionWorksForCodexSnapshot() throws {
+    func testForkConversationDefaultSettingFallsBackToRight() throws {
+        let suiteName = "cmux.forkConversationDefault.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            AgentConversationForkDefaultSettings.current(defaults: defaults),
+            .right,
+            "Missing setting should use the product default"
+        )
+
+        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .newTab)
+
+        defaults.set("unsupported", forKey: AgentConversationForkDefaultSettings.key)
+        XCTAssertEqual(
+            AgentConversationForkDefaultSettings.current(defaults: defaults),
+            .right,
+            "Invalid settings file values should fall back to the product default"
+        )
+    }
+
+    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() throws {
         // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
-        // and should reach the same forkAgentConversationToNewTab path through the context-menu
-        // dispatcher (PR #4888 review).
+        // and should reach the default right-split path through the context-menu dispatcher.
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: AgentConversationForkDefaultSettings.key)
+            } else {
+                defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+            }
+        }
+        defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
         let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
@@ -6467,19 +6554,24 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
-        let tabsAfter = workspace.bonsplitController.tabs(inPane: sourcePaneId)
-        XCTAssertEqual(tabsAfter.count, 2, "Codex fork should also spawn a sibling tab")
         let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new tab")
+        XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
         let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
         XCTAssertEqual(
             forkPanel.surface.initialInput,
             snapshot.forkCommand.map { $0 + "\n" },
-            "Codex fork tab should boot with the Codex --fork-session command"
+            "Codex fork split should boot with the Codex --fork-session command"
         )
+        let split = try rootSplit(in: workspace)
+        let sourcePaneUUID = sourcePaneId.id.uuidString
+        let forkPaneUUID = try XCTUnwrap(workspace.paneId(forPanelId: forkPanelId)).id.uuidString
+        XCTAssertEqual(split.orientation, "horizontal")
+        XCTAssertEqual(try paneId(in: split.first), sourcePaneUUID)
+        XCTAssertEqual(try paneId(in: split.second), forkPaneUUID)
     }
 
-    func testForkConversationContextMenuActionCreatesSiblingTab() throws {
+    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() throws {
         // Drive the same code path the bonsplit context menu triggers, end-to-end,
         // to lock in that the menu wiring stays connected.
         let workspace = Workspace()
@@ -6493,6 +6585,47 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         workspace.splitTabBar(
             workspace.bonsplitController,
+            didRequestTabContextAction: .forkConversationNewTab,
+            for: anchorTab,
+            inPane: sourcePaneId
+        )
+
+        XCTAssertEqual(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            2,
+            "Fork Conversation New Tab context action should spawn a sibling tab"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            1,
+            "Fork Conversation New Tab should not create a split pane"
+        )
+    }
+
+    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() throws {
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: AgentConversationForkDefaultSettings.key)
+            } else {
+                defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+            }
+        }
+        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
+
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
+
+        let anchorTab = try XCTUnwrap(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
+        )
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
             didRequestTabContextAction: .forkConversation,
             for: anchorTab,
             inPane: sourcePaneId
@@ -6501,7 +6634,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
             2,
-            "Fork Conversation context action should spawn a sibling tab"
+            "Configured default should control the primary Fork Conversation context action"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            1,
+            "Configured New Tab default should keep the fork in the source pane"
         )
     }
 }

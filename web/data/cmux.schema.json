@@ -269,6 +269,13 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "forkConversationDefaultDestination": {
+          "type": "string",
+          "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
+          "default": "right",
+          "descriptionKey": "schemaDescriptions.app.forkConversationDefaultDestination",
+          "description": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
+        },
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
           "default": true,
