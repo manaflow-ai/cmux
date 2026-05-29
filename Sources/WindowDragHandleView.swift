@@ -303,6 +303,8 @@ func isWindowDragSuppressed(window: NSWindow?) -> Bool {
     windowDragSuppressionDepth(window: window) > 0
 }
 
+/// Returns the reason for the active window-move suppression sequence, if one exists.
+@MainActor
 func activeWindowMoveSuppressionSequenceReason(window: NSWindow?) -> WindowMoveSuppressionReason? {
     guard let window,
           let state = objc_getAssociatedObject(
@@ -314,6 +316,8 @@ func activeWindowMoveSuppressionSequenceReason(window: NSWindow?) -> WindowMoveS
     return state.reason
 }
 
+/// Starts a window-move suppression sequence and records the window's restore baseline.
+@MainActor
 @discardableResult
 func beginWindowMoveSuppressionSequence(
     window: NSWindow?,
@@ -372,6 +376,8 @@ func updateActiveWindowMoveSuppressionSequencePreviousMovableState(
     )
 }
 
+/// Keeps a window immovable while its move-suppression sequence is active.
+@MainActor
 func ensureWindowMoveSuppressionSequenceIsImmovable(window: NSWindow?) {
     guard let window,
           activeWindowMoveSuppressionSequenceReason(window: window) != nil,
@@ -381,6 +387,8 @@ func ensureWindowMoveSuppressionSequenceIsImmovable(window: NSWindow?) {
     window.isMovable = false
 }
 
+/// Finishes the active move-suppression sequence and restores the recorded baseline.
+@MainActor
 @discardableResult
 func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppressionReason? {
     guard let window,
@@ -406,6 +414,7 @@ func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppres
 ///
 /// This lets a specific drag source clean up after itself without accidentally
 /// ending another source's still-active suppression sequence.
+@MainActor
 @discardableResult
 func finishWindowMoveSuppressionSequence(
     window: NSWindow?,
@@ -417,6 +426,8 @@ func finishWindowMoveSuppressionSequence(
     return finishWindowMoveSuppressionSequence(window: window)
 }
 
+/// Restores AppKit window dragging to a previously captured value.
+@MainActor
 func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
     guard let window,
           let previousMovableState else { return }
@@ -425,6 +436,8 @@ func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
     }
 }
 
+/// Clears all drag-suppression state attached to a window.
+@MainActor
 @discardableResult
 func clearWindowDragSuppression(window: NSWindow?) -> Int {
     guard let window else { return 0 }
@@ -1118,6 +1131,7 @@ private func windowDragHandleSiblingHitResolutionScope(
 /// Returns whether the titlebar drag handle should capture a hit at `point`.
 /// We only claim the hit when no sibling view already handles it, so interactive
 /// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
+@MainActor
 func windowDragHandleShouldCaptureHit(
     _ point: NSPoint,
     in dragHandleView: NSView,
