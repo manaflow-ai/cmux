@@ -496,8 +496,10 @@ public struct CanvasPresentationState: Sendable, Equatable {
 
     public var usesUnifiedTexturePresentation: Bool {
         switch interactionPhase {
-        case .panning, .zooming:
+        case .zooming:
             return true
+        case .panning:
+            return nativeOverlays.isEmpty
         case .idle, .draggingSurface, .resizingSurface:
             return false
         }
@@ -731,8 +733,10 @@ public enum CanvasPresentationEngine {
             return .snapshotTexture
         }
         switch interactionPhase {
-        case .panning, .zooming:
+        case .zooming:
             return .snapshotTexture
+        case .panning:
+            break
         case .idle, .draggingSurface, .resizingSurface:
             break
         }

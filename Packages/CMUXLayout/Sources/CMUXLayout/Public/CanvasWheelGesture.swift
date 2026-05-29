@@ -48,7 +48,7 @@ public enum CanvasCameraInteractionEvent: Sendable, Equatable {
     public var requiresUnifiedCanvasPresentation: Bool {
         switch self {
         case .began(let phase), .changed(let phase), .unphasedUpdate(let phase):
-            return phase == .panning || phase == .zooming
+            return phase == .zooming
         case .ended:
             return false
         }

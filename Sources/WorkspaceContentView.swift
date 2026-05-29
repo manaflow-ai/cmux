@@ -2762,11 +2762,26 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         presentation: CanvasPresentationState,
         activeItemID: LayoutItemID?
     ) {
-        guard event.requiresUnifiedCanvasPresentation else { return }
+        guard shouldParkNativeSurfacesForCameraMutation(event, presentation: presentation) else { return }
         parkCanvasNativeSurfacesForCameraMutation(
             presentation: presentation,
             activeItemID: activeItemID
         )
+    }
+
+    private func shouldParkNativeSurfacesForCameraMutation(
+        _ event: CanvasCameraInteractionEvent,
+        presentation: CanvasPresentationState?
+    ) -> Bool {
+        switch event {
+        case .began(.zooming), .changed(.zooming), .unphasedUpdate(.zooming):
+            return true
+        case .began(.panning), .changed(.panning), .unphasedUpdate(.panning):
+            let scale = presentation?.scale ?? CGFloat(CanvasViewportZoom.presentationScale(for: controller.canvasViewport))
+            return scale < CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale)
+        case .began, .changed, .unphasedUpdate, .ended:
+            return false
+        }
     }
 
     private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
@@ -2912,10 +2927,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                         applyCanvasCameraInteraction(event)
                     },
                     onPan: { delta in
-                        parkCanvasNativeSurfacesForCameraMutation(
-                            presentation: presentation,
-                            activeItemID: activeItemID
-                        )
+                        if shouldParkNativeSurfacesForCameraMutation(.changed(.panning), presentation: presentation) {
+                            parkCanvasNativeSurfacesForCameraMutation(
+                                presentation: presentation,
+                                activeItemID: activeItemID
+                            )
+                        }
                         let baseViewport = displayedCanvasViewport()
                         cancelCanvasViewportAnimation(stableViewport: baseViewport)
                         controller.setCanvasViewport(baseViewport)

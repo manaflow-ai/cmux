@@ -5270,10 +5270,10 @@ final class CMUXLayoutTests: XCTestCase {
         )
     }
 
-    func testCanvasCameraInteractionMarksCameraEventsForUnifiedPresentation() {
-        XCTAssertTrue(CanvasCameraInteractionEvent.began(.panning).requiresUnifiedCanvasPresentation)
+    func testCanvasCameraInteractionMarksZoomEventsForUnifiedPresentation() {
+        XCTAssertFalse(CanvasCameraInteractionEvent.began(.panning).requiresUnifiedCanvasPresentation)
         XCTAssertTrue(CanvasCameraInteractionEvent.changed(.zooming).requiresUnifiedCanvasPresentation)
-        XCTAssertTrue(CanvasCameraInteractionEvent.unphasedUpdate(.panning).requiresUnifiedCanvasPresentation)
+        XCTAssertFalse(CanvasCameraInteractionEvent.unphasedUpdate(.panning).requiresUnifiedCanvasPresentation)
         XCTAssertFalse(CanvasCameraInteractionEvent.began(.draggingSurface).requiresUnifiedCanvasPresentation)
         XCTAssertFalse(CanvasCameraInteractionEvent.changed(.resizingSurface).requiresUnifiedCanvasPresentation)
         XCTAssertFalse(CanvasCameraInteractionEvent.ended.requiresUnifiedCanvasPresentation)
@@ -5571,7 +5571,7 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(presentation.nativeOverlays.first?.nativeContentSize, CGSize(width: 400, height: 280))
     }
 
-    func testCanvasPresentationEngineUsesTexturePathDuringCameraInteraction() {
+    func testCanvasPresentationEngineKeepsNativeOverlayDuringNativeScalePan() {
         let activeID = LayoutItemID()
         let document = CanvasDocument(
             policy: .freeform,
@@ -5610,19 +5610,43 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(idle.textureSurfaces.map(\.id), [])
 
         let panning = presentation(phase: .panning)
-        XCTAssertTrue(panning.usesUnifiedTexturePresentation)
-        XCTAssertTrue(panning.nativeOverlays.isEmpty)
-        XCTAssertEqual(panning.textureSurfaces.map(\.id), [activeID])
-        XCTAssertEqual(panning.surfaces.first?.renderMode, .snapshotTexture)
+        XCTAssertFalse(panning.usesUnifiedTexturePresentation)
+        XCTAssertEqual(panning.nativeOverlays.map(\.id), [activeID])
+        XCTAssertEqual(panning.textureSurfaces.map(\.id), [])
+        XCTAssertEqual(panning.surfaces.first?.renderMode, .nativeOverlay)
 
         let zooming = presentation(phase: .zooming)
         XCTAssertTrue(zooming.usesUnifiedTexturePresentation)
         XCTAssertTrue(zooming.nativeOverlays.isEmpty)
         XCTAssertEqual(zooming.textureSurfaces.map(\.id), [activeID])
         XCTAssertEqual(zooming.surfaces.first?.renderMode, .snapshotTexture)
+
+        var zoomedOutDocument = document
+        zoomedOutDocument.viewport = CanvasViewport(
+            visibleRect: PixelRect(x: 0, y: 0, width: 2_000, height: 1_400),
+            scale: CanvasViewportZoom.nativeOverlayMinimumScale - 0.001
+        )
+        let zoomedOutPanning = CanvasPresentationEngine.presentation(
+            document: zoomedOutDocument,
+            viewportSize: CGSize(width: 1_000, height: 700),
+            focusedItemID: activeID,
+            activeItemID: activeID,
+            contentKinds: [activeID: .terminal],
+            interactionPhase: .panning,
+            configuration: CanvasPresentationConfiguration(
+                padding: 24,
+                headerHeight: 20,
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(activeSurfaceID: activeID),
+                overscanScreenPoints: 0
+            )
+        )
+        XCTAssertTrue(zoomedOutPanning.usesUnifiedTexturePresentation)
+        XCTAssertTrue(zoomedOutPanning.nativeOverlays.isEmpty)
+        XCTAssertEqual(zoomedOutPanning.textureSurfaces.map(\.id), [activeID])
+        XCTAssertEqual(zoomedOutPanning.surfaces.first?.renderMode, .snapshotTexture)
     }
 
-    func testCanvasPresentationEngineParksTerminalAndBrowserDuringAnimatedPan() {
+    func testCanvasPresentationEngineKeepsActiveNativeOverlayDuringAnimatedNativeScalePan() {
         let terminalID = LayoutItemID()
         let browserID = LayoutItemID()
         let document = CanvasDocument(
@@ -5664,10 +5688,11 @@ final class CMUXLayoutTests: XCTestCase {
         )
 
         XCTAssertEqual(interactionPhase, .panning)
-        XCTAssertTrue(presentation.usesUnifiedTexturePresentation)
-        XCTAssertTrue(presentation.nativeOverlays.isEmpty)
-        XCTAssertEqual(Set(presentation.textureSurfaces.map(\.id)), Set([terminalID, browserID]))
-        XCTAssertTrue(presentation.surfaces.allSatisfy { $0.renderMode == .snapshotTexture })
+        XCTAssertFalse(presentation.usesUnifiedTexturePresentation)
+        XCTAssertEqual(presentation.nativeOverlays.map(\.id), [terminalID])
+        XCTAssertEqual(presentation.textureSurfaces.map(\.id), [browserID])
+        XCTAssertEqual(presentation.surfaces.first(where: { $0.id == terminalID })?.renderMode, .nativeOverlay)
+        XCTAssertEqual(presentation.surfaces.first(where: { $0.id == browserID })?.renderMode, .snapshotTexture)
     }
 
     func testCanvasPresentationResolverKeepsUnifiedTextureWhileNativeSurfacesAreParked() {
@@ -5760,9 +5785,9 @@ final class CMUXLayoutTests: XCTestCase {
         ] {
             let panned = presentation(camera: baseCamera.panned(screenDelta: delta))
 
-            XCTAssertTrue(panned.usesUnifiedTexturePresentation)
-            XCTAssertTrue(panned.nativeOverlays.isEmpty)
-            XCTAssertEqual(Set(panned.textureSurfaces.map(\.id)), Set([terminalID, browserID]))
+            XCTAssertFalse(panned.usesUnifiedTexturePresentation)
+            XCTAssertEqual(panned.nativeOverlays.map(\.id), [terminalID])
+            XCTAssertEqual(panned.textureSurfaces.map(\.id), [browserID])
 
             for surface in panned.presentationSurfaces {
                 let baseFrame = try XCTUnwrap(baseFrames[surface.id])
@@ -5842,9 +5867,9 @@ final class CMUXLayoutTests: XCTestCase {
             let afterPresentation = presentation(camera: camera)
             let afterSurfaces = Dictionary(uniqueKeysWithValues: afterPresentation.presentationSurfaces.map { ($0.id, $0) })
 
-            XCTAssertTrue(afterPresentation.usesUnifiedTexturePresentation)
-            XCTAssertTrue(afterPresentation.nativeOverlays.isEmpty)
-            XCTAssertEqual(Set(afterPresentation.textureSurfaces.map(\.id)), surfaceIDs)
+            XCTAssertFalse(afterPresentation.usesUnifiedTexturePresentation)
+            XCTAssertEqual(afterPresentation.nativeOverlays.map(\.id), [terminalID])
+            XCTAssertEqual(afterPresentation.textureSurfaces.map(\.id), [browserID])
 
             for surfaceID in surfaceIDs {
                 let before = try XCTUnwrap(beforeSurfaces[surfaceID])

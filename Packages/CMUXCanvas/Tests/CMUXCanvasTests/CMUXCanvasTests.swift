@@ -857,9 +857,9 @@ final class CMUXCanvasTests: XCTestCase {
             let plan = CanvasShellRenderPlan(scene: scene, style: style)
             let shellByID = Dictionary(uniqueKeysWithValues: plan.surfaces.map { ($0.id, $0) })
 
-            XCTAssertTrue(presentation.usesUnifiedTexturePresentation)
-            XCTAssertTrue(presentation.nativeOverlays.isEmpty)
-            XCTAssertEqual(Set(presentation.textureSurfaces.map(\.id)), itemIDs)
+            XCTAssertFalse(presentation.usesUnifiedTexturePresentation)
+            XCTAssertEqual(presentation.nativeOverlays.map(\.id), [terminalID])
+            XCTAssertEqual(presentation.textureSurfaces.map(\.id), [browserID])
 
             for itemID in itemIDs {
                 let surface = try XCTUnwrap(presentation.presentationsByID[itemID])
@@ -879,7 +879,7 @@ final class CMUXCanvasTests: XCTestCase {
         }
     }
 
-    func testTrackpadPanSettleRemountsNativeOverlayAtLastTextureFrame() throws {
+    func testTrackpadPanAtNativeScaleKeepsNativeOverlayAtMovingFrame() throws {
         let activeID = LayoutItemID(id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000503")))
         let viewportSize = CGSize(width: 1_200, height: 800)
         var document = CanvasDocument(
@@ -933,13 +933,15 @@ final class CMUXCanvasTests: XCTestCase {
         )
 
         let movingSurface = try XCTUnwrap(moving.presentationsByID[activeID])
+        let movingOverlay = try XCTUnwrap(moving.nativeOverlays.first)
         let settledOverlay = try XCTUnwrap(settled.nativeOverlays.first)
 
-        XCTAssertTrue(moving.usesUnifiedTexturePresentation)
-        XCTAssertTrue(moving.nativeOverlays.isEmpty)
-        XCTAssertEqual(moving.textureSurfaces.map(\.id), [activeID])
+        XCTAssertFalse(moving.usesUnifiedTexturePresentation)
+        XCTAssertEqual(moving.nativeOverlays.map(\.id), [activeID])
+        XCTAssertTrue(moving.textureSurfaces.isEmpty)
         XCTAssertFalse(settled.usesUnifiedTexturePresentation)
         XCTAssertEqual(settled.nativeOverlays.map(\.id), [activeID])
+        assertRectEqual(movingOverlay.contentFrameInCanvas, movingSurface.contentFrameInCanvas)
         assertRectEqual(settledOverlay.contentFrameInCanvas, movingSurface.contentFrameInCanvas)
         XCTAssertEqual(settledOverlay.nativeContentSize, movingSurface.nativeContentSize)
         XCTAssertEqual(settledOverlay.scale, movingSurface.presentationScale, accuracy: 0.0001)

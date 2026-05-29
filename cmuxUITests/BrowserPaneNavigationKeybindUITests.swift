@@ -2787,38 +2787,33 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         XCTAssertTrue(
             waitForCondition(timeout: timeout) {
                 guard let layout = self.canvasLayout() else { return false }
-                let count = (layout["canvasRecentUnifiedTexturePresentationCount"] as? NSNumber)?.intValue ?? 0
                 let records = layout["canvasRecentPresentationRecords"] as? [[String: Any]] ?? []
                 let panningRecords = records.filter { $0["interactionPhase"] as? String == "panning" }
-                let allPanningFramesParkedNativeSurfaces = panningRecords.allSatisfy { record in
+                let allPanningFramesStayCoherent = panningRecords.allSatisfy { record in
                     let nativeOverlayCount = (record["nativeOverlayCount"] as? NSNumber)?.intValue ?? -1
                     let visibleNativePortalCount = (record["visibleNativePortalCount"] as? NSNumber)?.intValue ?? -1
+                    let textureSurfaceCount = (record["textureSurfaceCount"] as? NSNumber)?.intValue ?? 0
                     let shellDrift = CGFloat((record["maxShellPresentationDrift"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude)
-                    return record["usesUnifiedTexturePresentation"] as? Bool == true &&
-                        nativeOverlayCount == 0 &&
-                        visibleNativePortalCount == 0 &&
-                        shellDrift <= maximumShellPresentationDrift
-                }
-                let sawAllTexturePanFrame = records.contains { record in
-                    guard record["interactionPhase"] as? String == "panning",
-                          record["usesUnifiedTexturePresentation"] as? Bool == true else {
+                    guard shellDrift <= maximumShellPresentationDrift else {
                         return false
                     }
-                    let nativeOverlayCount = (record["nativeOverlayCount"] as? NSNumber)?.intValue ?? -1
-                    let textureSurfaceCount = (record["textureSurfaceCount"] as? NSNumber)?.intValue ?? 0
-                    let visibleNativePortalCount = (record["visibleNativePortalCount"] as? NSNumber)?.intValue ?? -1
+                    if record["usesUnifiedTexturePresentation"] as? Bool == true {
+                        return nativeOverlayCount == 0 &&
+                            visibleNativePortalCount == 0 &&
+                            textureSurfaceCount >= minimumTextureSurfaceCount
+                    }
+                    return nativeOverlayCount > 0 &&
+                        visibleNativePortalCount > 0
+                }
+                let sawCoherentPanFrame = panningRecords.contains { record in
                     let shellDrift = CGFloat((record["maxShellPresentationDrift"] as? NSNumber)?.doubleValue ?? .greatestFiniteMagnitude)
-                    return nativeOverlayCount == 0 &&
-                        visibleNativePortalCount == 0 &&
-                        textureSurfaceCount >= minimumTextureSurfaceCount &&
-                        shellDrift <= maximumShellPresentationDrift
+                    return shellDrift <= maximumShellPresentationDrift
                 }
                 return panningRecords.count >= minimumPanningRecordCount &&
-                    count > 0 &&
-                    allPanningFramesParkedNativeSurfaces &&
-                    sawAllTexturePanFrame
+                    allPanningFramesStayCoherent &&
+                    sawCoherentPanFrame
             },
-            "Expected trackpad pan to hide native portals and keep Metal shell/presentation frames in lockstep before remounting. layout=\(String(describing: canvasLayout()))",
+            "Expected trackpad pan to keep native-scale portals or texture presentation in lockstep. layout=\(String(describing: canvasLayout()))",
             file: file,
             line: line
         )
