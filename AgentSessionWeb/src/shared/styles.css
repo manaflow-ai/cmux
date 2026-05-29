@@ -70,7 +70,7 @@
   --radius-3xl: calc(var(--radius-3xl-base) * var(--corner-radius-scale));
   --radius-4xl: calc(var(--radius-4xl-base) * var(--corner-radius-scale));
   --spacing-token-button-composer: calc(var(--spacing) * 7);
-  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
   --spacing-token-button-composer-gap: var(--spacing);
 }
 
@@ -220,9 +220,9 @@
   --markdown-wide-block-max-height: 80vh;
   --conversation-block-gap: 12px;
   --conversation-tool-assistant-gap: 16px;
-  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
   --text-heading-md: 18px;
-  --cursor-interaction: default;
+  --cursor-interaction: pointer;
   --vscode-editor-font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --vscode-font-size: var(--text-base);
   --vscode-editor-font-size: var(--text-sm);
@@ -313,17 +313,18 @@ select {
 
 .text-size-chat {
   font-size: var(--codex-chat-font-size);
-  line-height: calc(var(--codex-chat-font-size) + 8px);
 }
 
 .text-size-chat-sm {
   font-size: calc(var(--codex-chat-font-size) - 1px);
-  line-height: calc(var(--codex-chat-font-size) + 5px);
+}
+
+.text-size-code {
+  font-size: var(--codex-chat-code-font-size);
 }
 
 .text-size-code-sm {
   font-size: calc(var(--codex-chat-code-font-size) - 1px);
-  line-height: calc(var(--codex-chat-code-font-size) + 5px);
 }
 
 .font-vscode-editor {
@@ -755,7 +756,7 @@ select {
 }
 
 .cursor-interaction {
-  cursor: default;
+  cursor: var(--cursor-interaction);
 }
 
 .no-drag {
