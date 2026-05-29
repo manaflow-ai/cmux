@@ -2673,7 +2673,8 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        normalizeWorkspaceGroupsAfterInsert: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -2745,7 +2746,7 @@ class TabManager: ObservableObject {
             // The global insertion-index rules don't know about group sections.
             // Re-run the group-aware normalize so a freshly-added workspace
             // can't land inside another group's contiguous section.
-            if !workspaceGroups.isEmpty {
+            if normalizeWorkspaceGroupsAfterInsert, !workspaceGroups.isEmpty {
                 normalizeWorkspaceGroupContiguity()
             }
             if let terminalPanel = newWorkspace.focusedTerminalPanel {
@@ -6025,6 +6026,7 @@ class TabManager: ObservableObject {
         }
         let inferredCwd: String? = anchorWorkingDirectory
             ?? firstChildTab?.currentDirectory
+        let originalTabOrder = tabs.map(\.id)
 
         let anchor = addWorkspace(
             title: resolvedName,
@@ -6032,7 +6034,8 @@ class TabManager: ObservableObject {
             inheritWorkingDirectory: inferredCwd == nil,
             select: selectAnchor,
             placementOverride: .top,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            normalizeWorkspaceGroupsAfterInsert: false
         )
 
         let group = WorkspaceGroup(
@@ -6049,25 +6052,12 @@ class TabManager: ObservableObject {
         for id in eligibleChildren {
             assignGroup(workspaceId: id, groupId: group.id)
         }
-        // Move the anchor immediately before its first child in tabs[] so the
-        // model order matches the visual order (header first, then children).
-        // Workspace-number shortcuts and next/previous navigation index into
-        // tabs[] directly, so an anchor sitting after its children would yield
-        // a higher number than its visible header position.
-        if let firstChildId = eligibleChildren.first,
-           let firstChildIndex = tabs.firstIndex(where: { $0.id == firstChildId }),
-           let anchorIndex = tabs.firstIndex(where: { $0.id == anchor.id }),
-           anchorIndex != firstChildIndex {
-            let moved = tabs.remove(at: anchorIndex)
-            let insertAt: Int
-            if anchorIndex < firstChildIndex {
-                insertAt = max(0, firstChildIndex - 1)
-            } else {
-                insertAt = firstChildIndex
-            }
-            tabs.insert(moved, at: min(insertAt, tabs.count))
-        }
-        normalizeWorkspaceGroupContiguity()
+        placeNewWorkspaceGroupAtCreationPosition(
+            groupId: group.id,
+            anchorId: anchor.id,
+            childWorkspaceIds: eligibleChildren,
+            originalTabOrder: originalTabOrder
+        )
         // Collapse the sidebar multi-selection so a second ⌘⇧G press doesn't
         // immediately reuse the same child ids and create a duplicate group
         // around them. The new anchor is the only sensible "current"
@@ -6432,6 +6422,87 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
         guard tab.groupId != groupId else { return }
         tab.groupId = groupId
+    }
+
+    /// Place a freshly-created group where its first child already was.
+    /// This keeps "New Group from Selection" visually stable while still
+    /// making every affected group contiguous and anchor-first.
+    private func placeNewWorkspaceGroupAtCreationPosition(
+        groupId: UUID,
+        anchorId: UUID,
+        childWorkspaceIds: [UUID],
+        originalTabOrder: [UUID]
+    ) {
+        let childIdSet = Set(childWorkspaceIds)
+        let orderedChildIds = originalTabOrder.filter { childIdSet.contains($0) }
+        guard let insertionIndex = originalTabOrder.firstIndex(where: { childIdSet.contains($0) }),
+              !orderedChildIds.isEmpty else {
+            normalizeWorkspaceGroupContiguity()
+            return
+        }
+
+        var desiredIds: [UUID] = []
+        desiredIds.reserveCapacity(tabs.count)
+        for (index, id) in originalTabOrder.enumerated() {
+            if index == insertionIndex {
+                desiredIds.append(anchorId)
+                desiredIds.append(contentsOf: orderedChildIds)
+            }
+            if !childIdSet.contains(id) {
+                desiredIds.append(id)
+            }
+        }
+        normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
+        if workspaceGroups.contains(where: { $0.id == groupId }) {
+            syncWorkspaceGroupsOrderToAnchorOrder()
+        }
+    }
+
+    /// Rebuild `tabs` by walking a desired workspace order and emitting each
+    /// workspace group as one contiguous run at its first encountered member.
+    private func normalizeWorkspaceGroupRunsPreservingOrder(_ desiredIds: [UUID]) {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let knownGroupIds = Set(groupsById.keys)
+        for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
+            tab.groupId = nil
+        }
+
+        var groupedByGroupId: [UUID: [Workspace]] = [:]
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        for tab in tabs {
+            if let groupId = tab.groupId {
+                groupedByGroupId[groupId, default: []].append(tab)
+            }
+        }
+
+        var emittedWorkspaceIds = Set<UUID>()
+        var emittedGroupIds = Set<UUID>()
+        var reordered: [Workspace] = []
+        reordered.reserveCapacity(tabs.count)
+
+        func appendWorkspaceOrGroup(for id: UUID) {
+            guard let tab = tabsById[id] else { return }
+            if let groupId = tab.groupId,
+               let group = groupsById[groupId],
+               emittedGroupIds.insert(groupId).inserted {
+                let members = anchorFirst(groupedByGroupId[groupId] ?? [], anchorId: group.anchorWorkspaceId)
+                for member in members where emittedWorkspaceIds.insert(member.id).inserted {
+                    reordered.append(member)
+                }
+            } else if tab.groupId == nil,
+                      emittedWorkspaceIds.insert(tab.id).inserted {
+                reordered.append(tab)
+            }
+        }
+
+        for id in desiredIds {
+            appendWorkspaceOrGroup(for: id)
+        }
+        for tab in tabs where !emittedWorkspaceIds.contains(tab.id) {
+            appendWorkspaceOrGroup(for: tab.id)
+        }
+
+        tabs = reordered
     }
 
     /// Reorder `tabs` so each section is contiguous in this order:
