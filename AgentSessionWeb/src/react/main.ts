@@ -64,6 +64,12 @@ const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
 const CODEX_SUBMIT_BUTTON =
   "focus-visible:outline-token-button-background cursor-interaction size-token-button-composer flex items-center justify-center rounded-full p-0.5 transition-opacity focus-visible:outline-2 bg-token-foreground";
 const USER_MESSAGE_COLLAPSED_LINE_COUNT = 20;
+const SHELL_OUTPUT_TOP_FADE_STYLE: React.CSSProperties = {
+  background: "linear-gradient(to bottom, var(--color-token-editor-background), transparent)",
+};
+const SHELL_OUTPUT_BOTTOM_FADE_STYLE: React.CSSProperties = {
+  background: "linear-gradient(to top, var(--color-token-editor-background), transparent)",
+};
 
 type ComposerMenuKind = "mention" | "skill" | null;
 type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
@@ -84,6 +90,10 @@ type PickedLocalFile = {
 };
 
 type ComposerAttachment = AgentSessionAttachment;
+type ScrollFadeEdges = {
+  bottom: boolean;
+  top: boolean;
+};
 
 function useMeasuredComposerLayout(input: string, hasVisibleAttachments: boolean) {
   const [inputWidth, setInputWidth] = useState<number | null>(null);
@@ -1007,6 +1017,8 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
 
 function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
+  const [outputFadeEdges, setOutputFadeEdges] = useState<ScrollFadeEdges>({ bottom: false, top: false });
+  const outputObserverRef = useRef<{ mutation?: MutationObserver; resize?: ResizeObserver } | null>(null);
   const copyOutputLabel = copy?.copyOutput ?? "Copy output";
   const shellLabel = copy?.shellLabel ?? "";
   const copyShellContentsLabel = copy?.copyShellContents ?? copyOutputLabel;
@@ -1022,6 +1034,47 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
   const collapseOutput = useCallback(() => {
     setIsOutputExpanded(false);
   }, []);
+  const updateOutputFadeEdges = useCallback((node: HTMLDivElement | null) => {
+    const next =
+      node === null
+        ? { bottom: false, top: false }
+        : {
+            bottom: node.scrollTop + node.clientHeight < node.scrollHeight - 1,
+            top: node.scrollTop > 1,
+          };
+    setOutputFadeEdges((current) =>
+      current.bottom === next.bottom && current.top === next.top ? current : next,
+    );
+  }, []);
+  const disconnectOutputObservers = useCallback(() => {
+    outputObserverRef.current?.mutation?.disconnect();
+    outputObserverRef.current?.resize?.disconnect();
+    outputObserverRef.current = null;
+  }, []);
+  const outputRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      disconnectOutputObservers();
+      if (node === null) {
+        updateOutputFadeEdges(null);
+        return;
+      }
+
+      const update = () => updateOutputFadeEdges(node);
+      update();
+      const resize = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+      resize?.observe(node);
+      const mutation = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(update);
+      mutation?.observe(node, { characterData: true, childList: true, subtree: true });
+      outputObserverRef.current = { mutation, resize };
+    },
+    [disconnectOutputObservers, updateOutputFadeEdges],
+  );
+  const handleOutputScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      updateOutputFadeEdges(event.currentTarget);
+    },
+    [updateOutputFadeEdges],
+  );
   const shellCopyText = shellCopyTextForEntry(entry);
   const summaryContent = h(
     React.Fragment,
@@ -1130,8 +1183,24 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
                 h("div", {
                   className:
                     "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
+                  onScroll: handleOutputScroll,
+                  ref: outputRef,
                   dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
                 }),
+                outputFadeEdges.top
+                  ? h("div", {
+                      "aria-hidden": true,
+                      className: "pointer-events-none absolute inset-x-0 top-0 h-6",
+                      style: SHELL_OUTPUT_TOP_FADE_STYLE,
+                    })
+                  : null,
+                outputFadeEdges.bottom
+                  ? h("div", {
+                      "aria-hidden": true,
+                      className: "pointer-events-none absolute inset-x-0 bottom-0 h-6",
+                      style: SHELL_OUTPUT_BOTTOM_FADE_STYLE,
+                    })
+                  : null,
               ),
               h(ShellFooter, {
                 failedLabel: shellFailedLabel,
