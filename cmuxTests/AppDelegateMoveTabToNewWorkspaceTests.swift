@@ -227,6 +227,37 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         )
     }
 
+    @Test("Move surface to new workspace pins explicit caller title")
+    func moveSurfaceToNewWorkspacePinsExplicitCallerTitle() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "user@host:~/git/repo")
+
+        let result = try #require(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            title: "Deploy logs",
+            focus: false,
+            focusWindow: false
+        ))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+
+        #expect(destinationWorkspace.title == "Deploy logs")
+        #expect(destinationWorkspace.customTitle == "Deploy logs")
+
+        destinationWorkspace.applyProcessTitle("✳ Investigate workspace title bug")
+        #expect(
+            destinationWorkspace.title == "Deploy logs",
+            "Explicit caller title should remain pinned until the user or caller changes it."
+        )
+    }
+
     @Test("Move surface to existing workspace closes emptied source workspace and focuses destination")
     func moveSurfaceToExistingWorkspaceClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
         let app = AppDelegate()
