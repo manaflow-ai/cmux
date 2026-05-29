@@ -347,18 +347,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+        let window = context.window
+        let manager = context.tabManager
         let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(
             key: "b",
@@ -390,22 +387,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
             XCTAssertEqual(manager.tabs.count, initialCount, "Chord prefix must not fire the action early")
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord second key should dispatch the configured shortcut")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testSettingsFileChordDispatchesNewWorkspaceShortcut() throws {
@@ -414,13 +405,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and tab manager")
-            return
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
         let directoryURL = FileManager.default.temporaryDirectory
@@ -442,13 +431,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
-        #if DEBUG
         appDelegate.debugResetShortcutRoutingStateForTesting()
-        #endif
 
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+        let window = context.window
+        let manager = context.tabManager
         let initialCount = manager.tabs.count
 
         guard let prefixEvent = makeKeyDownEvent(
@@ -471,16 +457,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-#if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
         XCTAssertEqual(manager.tabs.count, initialCount, "Chord prefix must not fire the action early")
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "cmux.json chord should dispatch the configured shortcut")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testConfiguredChordPrefixIsClearedWhenAppResignsActive() {
@@ -489,18 +473,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+        let window = context.window
+        let manager = context.tabManager
         let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(
             key: "b",
@@ -532,17 +513,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
             appDelegate.applicationWillResignActive(Notification(name: NSApplication.willResignActiveNotification))
             XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: actionEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialCount, "Chord suffix should not fire after the app resigns active")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testConfiguredChordPrefixBeatsConflictingSingleStrokeShortcut() {
@@ -551,20 +530,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            closeWindow(withId: windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+        let window = context.window
+        let manager = context.tabManager
         let initialCount = manager.tabs.count
         let shortcut = StoredShortcut(
             key: ",",
@@ -596,16 +570,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord prefix should arm instead of firing Settings")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey() {
@@ -614,19 +586,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
+        }
 
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
+        let window = context.window
+        let manager = context.tabManager
+        guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
             return
         }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let initialWorkspaceCount = manager.tabs.count
         let initialPanelCount = workspace.panels.count
@@ -660,17 +632,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
             XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialWorkspaceCount, "Pending chord should block unrelated single-stroke actions")
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Mismatched second key should not split the workspace")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testConfiguredChordDoesNotCrossWindowBoundary() {
@@ -679,24 +649,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+#if DEBUG
+        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
+            closeTestWindow(firstContext.window)
+            closeTestWindow(secondContext.window)
         }
 
-        guard let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId) else {
-            XCTFail("Expected both test windows and managers")
-            return
-        }
-
-        firstWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+        let firstWindow = firstContext.window
+        let secondWindow = secondContext.window
+        let firstManager = firstContext.tabManager
+        let secondManager = secondContext.tabManager
         let initialFirstCount = firstManager.tabs.count
         let initialSecondCount = secondManager.tabs.count
         let shortcut = StoredShortcut(
@@ -729,17 +695,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
             XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: actionEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(firstManager.tabs.count, initialFirstCount, "Prefix window should not change without a matching suffix")
         XCTAssertEqual(secondManager.tabs.count, initialSecondCount, "Chord suffix in another window must not trigger the action")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testShortcutChangeClearsPendingConfiguredChord() {
@@ -748,18 +712,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
+        }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
+        let window = context.window
+        let manager = context.tabManager
+        guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
             return
         }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let initialPanelCount = workspace.panels.count
         let chordShortcut = StoredShortcut(
@@ -792,26 +757,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-            return
-#endif
 
             KeyboardShortcutSettings.setShortcut(
                 StoredShortcut(key: "d", command: true, shift: false, option: false, control: false),
                 for: .splitRight
             )
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-#if DEBUG
             XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Changing shortcuts should discard any pending chord prefix")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testChordedShortcutMismatchDoesNotConsumeSecondKey() {
@@ -820,18 +779,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+#if DEBUG
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
+        }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
+        let window = context.window
+        let manager = context.tabManager
+        guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
             return
         }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let initialPanelCount = workspace.panels.count
         let shortcut = StoredShortcut(
@@ -864,16 +824,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 
-#if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
             XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: mismatchEvent))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
+#else
+        XCTFail("Lightweight shortcut routing context is only available in DEBUG")
+#endif
     }
 
     func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
