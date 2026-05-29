@@ -4861,6 +4861,22 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.append(fullscreenObserver)
 
+        let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor in
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+            }
+        }
+        webViewObservers.append(cameraCaptureObserver)
+
+        let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
+            Task { @MainActor in
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+            }
+        }
+        webViewObservers.append(microphoneCaptureObserver)
+
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
@@ -5748,7 +5764,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
-            hasPopups: !popupControllers.isEmpty
+            hasPopups: !popupControllers.isEmpty,
+            isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none
         )
     }
 

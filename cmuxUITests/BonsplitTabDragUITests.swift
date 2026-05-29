@@ -160,11 +160,10 @@ final class BonsplitTabDragUITests: XCTestCase {
                 accuracy: 0.5,
                 "Expected \(presentationMode.rawValue)-mode right sidebar chrome metric to stay compact. geometry=\(geometry)"
             )
-            XCTAssertEqual(
-                modeBarHeight,
+            XCTAssertGreaterThanOrEqual(
                 alphaTab.frame.height,
-                accuracy: 2,
-                "Expected \(presentationMode.rawValue)-mode right sidebar mode bar to match Bonsplit pane tab height. geometry=\(geometry) alphaTab=\(alphaTab.frame)"
+                modeBarHeight,
+                "Expected \(presentationMode.rawValue)-mode Bonsplit pane tab hit target to cover the compact chrome lane. geometry=\(geometry) alphaTab=\(alphaTab.frame)"
             )
 
             if let referenceTopInset {

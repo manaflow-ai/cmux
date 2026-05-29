@@ -40,6 +40,25 @@ jobs:
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
+      - name: Validate Depot runner identity
+        if: ${{ startsWith(inputs.runner || 'depot-macos-latest', 'depot-macos-') }}
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runner || 'depot-macos-latest' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$RUNNER_CONTEXT_NAME" in
+            depot-*)
+              echo "Resolved runner matches depot-*? yes"
+              ;;
+            *)
+              echo "Resolved runner matches depot-*? no"
+              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
+              exit 1
+              ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
