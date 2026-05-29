@@ -59,6 +59,7 @@ const CODEX_BUTTON_GHOST =
   "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 const CODEX_BUTTON_COMPOSER = "h-token-button-composer px-2 py-0 text-sm leading-[18px]";
 const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm leading-[18px]";
+const CODEX_BUTTON_ICON = "electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5";
 const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
 const CODEX_SUBMIT_BUTTON =
   "focus-visible:outline-token-button-background cursor-interaction size-token-button-composer flex items-center justify-center rounded-full p-0.5 transition-opacity focus-visible:outline-2 bg-token-foreground";
@@ -1185,7 +1186,7 @@ function UserMessageActions({
           ref: buttonRef,
           type: "button",
           className:
-            `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+            `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
           "aria-label": activeLabel,
           title: activeLabel,
           onClick: copyMessage,
@@ -1228,23 +1229,22 @@ function AssistantMessageActions({ copy, text }: { copy?: AgentSessionCopy; text
 
   return h(
     "div",
-    { className: "codex-assistant-message-actions flex items-center gap-1" },
+    {
+      className:
+        "codex-assistant-message-actions mt-1.5 flex h-5 items-center justify-start gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+    },
     h(
-      "div",
-      { className: "ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" },
-      h(
-        "button",
-        {
-          ref: buttonRef,
-          type: "button",
-          className:
-            `codex-assistant-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
-          "aria-label": activeLabel,
-          title: activeLabel,
-          onClick: copyMessage,
-        },
-        isCopied ? checkIcon("icon-xs") : copyIcon("icon-xs"),
-      ),
+      "button",
+      {
+        ref: buttonRef,
+        type: "button",
+        className:
+          `codex-assistant-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
+        "aria-label": activeLabel,
+        title: activeLabel,
+        onClick: copyMessage,
+      },
+      isCopied ? checkIcon("icon-xs") : copyIcon("icon-xs"),
     ),
   );
 }
