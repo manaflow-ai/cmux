@@ -12301,8 +12301,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // is a terminal surface, the address bar can't be focused.
         let addressBarShortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow
         let addressBarShortcutResponder = addressBarShortcutWindow?.firstResponder
+        let trackedAddressBarHasActiveEditor = browserAddressBarFocusedPanelId.map { panelId in
+            browserAddressBarHasActiveEditor(panelId: panelId, in: addressBarShortcutWindow)
+        } ?? false
         if browserAddressBarFocusedPanelId != nil,
            !isBrowserOmnibarResponder(addressBarShortcutResponder),
+           !trackedAddressBarHasActiveEditor,
            cmuxOwningGhosttyView(for: addressBarShortcutResponder) != nil {
 #if DEBUG
             let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
@@ -13382,10 +13386,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let responderPanelId = isBrowserOmnibarResponder(shortcutResponder)
             ? browserOmnibarPanelId(for: shortcutResponder)
             : nil
+        let activeEditorPanelId = browserAddressBarFocusedPanelId.flatMap { panelId in
+            browserAddressBarHasActiveEditor(panelId: panelId, in: shortcutWindow) ? panelId : nil
+        }
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
-            let candidatePanelId = responderPanelId ?? browserAddressBarFocusedPanelId
+            let candidatePanelId = responderPanelId ?? activeEditorPanelId ?? browserAddressBarFocusedPanelId
             guard let candidatePanelId else { return nil }
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(candidatePanelId.uuidString.prefix(5)) " +
@@ -13396,7 +13403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let intentPanelId = browserAddressBarIntentPanelId(in: context, window: shortcutWindow)
-        guard let panelId = responderPanelId ?? browserAddressBarFocusedPanelId ?? intentPanelId else { return nil }
+        guard let panelId = responderPanelId ?? activeEditorPanelId ?? browserAddressBarFocusedPanelId ?? intentPanelId else { return nil }
 
         guard let workspace = context.tabManager.selectedWorkspace else {
 #if DEBUG
@@ -13428,6 +13435,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return responderPanelId
+        }
+
+        if activeEditorPanelId == panelId {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=active_omnibar_editor workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return panelId
         }
 
         if intentPanelId == panelId, browserAddressBarFocusedPanelId == nil {
@@ -13581,6 +13599,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let ownerView = keyRoutingOwnerView(for: responder)
         guard ownerView?.identifier == browserOmnibarTextFieldIdentifier else { return nil }
         return ownerView
+    }
+
+    private func browserAddressBarHasActiveEditor(panelId: UUID, in window: NSWindow?) -> Bool {
+        guard let field = browserOmnibarField(panelId: panelId, in: window),
+              let editor = field.currentEditor() else {
+            return false
+        }
+        guard let window else { return true }
+        return editor.window === window || field.window === window
     }
 
     private func isBrowserOmnibarResponder(_ responder: NSResponder?) -> Bool {
