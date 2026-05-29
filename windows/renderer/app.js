@@ -43,6 +43,7 @@ const state = {
   scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
+  terminalAppearanceFrame: 0,
   settings: initialSettings,
   settingsCategory: "quick",
   settingsQuery: "",
@@ -224,7 +225,7 @@ function updateSettings(updates) {
   saveSettings();
   applySettings();
   if (Object.keys(updates).some((key) => terminalAppearanceKeys.has(key) && previous[key] !== state.settings[key])) {
-    refreshTerminalAppearance();
+    scheduleTerminalAppearanceRefresh();
   }
 }
 
@@ -277,6 +278,14 @@ function refreshTerminalAppearance() {
     session.term.options.theme = terminalTheme();
     scheduleFitTerminal(session);
   }
+}
+
+function scheduleTerminalAppearanceRefresh() {
+  if (state.terminalAppearanceFrame) return;
+  state.terminalAppearanceFrame = requestAnimationFrame(() => {
+    state.terminalAppearanceFrame = 0;
+    refreshTerminalAppearance();
+  });
 }
 
 const commands = [
@@ -2556,7 +2565,7 @@ async function importSettings() {
     state.terminalFontSize = state.settings.terminalFontSize;
     saveSettings();
     applySettings();
-    refreshTerminalAppearance();
+    scheduleTerminalAppearanceRefresh();
     renderSettingsInspector();
     toast("Settings imported.");
   } catch {
@@ -2570,7 +2579,7 @@ function resetSettings() {
   state.terminalFontSize = state.settings.terminalFontSize;
   saveSettings();
   applySettings();
-  refreshTerminalAppearance();
+  scheduleTerminalAppearanceRefresh();
   renderSettingsInspector();
   toast("Settings reset.");
 }

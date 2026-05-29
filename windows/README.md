@@ -47,6 +47,7 @@ Implemented in this milestone:
 - Workspace right-click menus for focus, rename, color, new terminal/browser, new workspace, and close actions.
 - Pane drag/drop docking hints for left, right, top, and bottom terminal placement, active-pane focus mode, and optimistic workspace/tab updates so moves, closes, and focus changes feel immediate.
 - Large terminal output is flushed incrementally across animation frames so heavy command output does not monopolize the renderer.
+- Terminal appearance updates from Settings are coalesced per animation frame so dragging font and layout sliders does not repeatedly refresh every terminal.
 - Renderer settings/theme/profile data is split into `renderer/config.js`, with the app loaded as an ES module so the frontend can keep moving away from one monolithic file.
 - Settings search and page navigation are rendered through a small Vite/React bundle under `renderer/react`, with the existing vanilla controls kept as a fallback.
 - Notification drawer, session tools, active focus rings, workspace colors, and pane attention indicators.
