@@ -124,6 +124,9 @@
   --color-token-bg-fog: var(--color-background-elevated-secondary);
   --color-token-bg-tertiary: var(--agent-control);
   --color-token-list-hover-background: var(--agent-control-hover);
+  --markdown-wide-block-max-height: 80vh;
+  --conversation-block-gap: 12px;
+  --conversation-tool-assistant-gap: 16px;
   --color-token-terminal-ansi-black: var(--vscode-terminal-ansiBlack, #000000);
   --color-token-terminal-ansi-red: var(--vscode-terminal-ansiRed, #ff6666);
   --color-token-terminal-ansi-green: var(--vscode-terminal-ansiGreen, #94f494);
@@ -159,6 +162,9 @@
   --padding-panel: var(--padding-panel-base);
   --thread-content-max-width: 48rem;
   --markdown-wide-block-max-width: 56rem;
+  --markdown-wide-block-max-height: 80vh;
+  --conversation-block-gap: 12px;
+  --conversation-tool-assistant-gap: 16px;
   --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
   --text-heading-md: 18px;
   --cursor-interaction: default;
@@ -235,7 +241,7 @@ select {
 .agent-thread {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--conversation-block-gap, 12px);
   padding-top: 10px;
   padding-bottom: 24px;
   overflow-x: hidden;
