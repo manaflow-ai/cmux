@@ -3557,6 +3557,62 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
     }
 
+    func testAttachedPanelDismissDoesNotCloseOtherDetachedInspectorWindow() {
+        let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let mainWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        mainWindow.isReleasedWhenClosed = false
+        let otherInspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        otherInspectorWindow.isReleasedWhenClosed = false
+        defer {
+            closeWindow(otherInspectorWindow)
+            closeWindow(mainWindow)
+        }
+        guard let mainContentView = mainWindow.contentView,
+              let otherContentView = otherInspectorWindow.contentView else {
+            XCTFail("Expected test windows to have content views")
+            return
+        }
+
+        let attachedHost = NSView(frame: mainContentView.bounds)
+        mainContentView.addSubview(attachedHost)
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 260, height: attachedHost.bounds.height)
+        attachedHost.addSubview(panel.webView)
+        let attachedInspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
+        )
+        attachedHost.addSubview(attachedInspectorView)
+
+        otherInspectorWindow.title = "Web Inspector — other panel"
+        otherContentView.addSubview(WKInspectorProbeView(frame: otherContentView.bounds))
+
+        mainWindow.makeKeyAndOrderFront(nil)
+        otherInspectorWindow.makeKeyAndOrderFront(nil)
+        mainWindow.displayIfNeeded()
+        otherInspectorWindow.displayIfNeeded()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(otherInspectorWindow.isVisible)
+
+        panel.debugDismissDetachedDeveloperToolsWindowsForTesting()
+
+        XCTAssertTrue(
+            otherInspectorWindow.isVisible,
+            "Attached DevTools cleanup must not close a detached inspector window that is not owned by this panel"
+        )
+    }
+
     func testNilTargetControllerCloseActionDoesNotCloseDetachedInspector() {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         guard let appDelegate = AppDelegate.shared else {

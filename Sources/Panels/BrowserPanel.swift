@@ -6171,30 +6171,8 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
     }
 
-    private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if cmuxIsWebInspectorObject(root) {
-            return true
-        }
-        for subview in root.subviews where windowContainsInspectorViews(subview) {
-            return true
-        }
-        return false
-    }
-
-    static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
-        guard window.title.hasPrefix("Web Inspector") else { return false }
-        guard let contentView = window.contentView else { return false }
-        return windowContainsInspectorViews(contentView)
-    }
-
     private func isDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
-        if let mainWindow = webView.window, window === mainWindow {
-            return false
-        }
-        if detachedDeveloperToolsWindowBelongsToPanel(window) {
-            return true
-        }
-        return Self.isDetachedInspectorWindow(window)
+        detachedDeveloperToolsWindowBelongsToPanel(window)
     }
 
     private func detachedDeveloperToolsWindows() -> [NSWindow] {
@@ -6727,6 +6705,7 @@ extension BrowserPanel {
            !didAttachHost,
            !didChangeHostVisibility,
            developerToolsLifecyclePhase.allowsHostHiddenManualClose,
+           !isDeveloperToolsTransitionInFlight,
            !hasPendingRestore {
             recordDeveloperToolsManualCloseDuringStableHostUpdate()
             return
@@ -7709,6 +7688,10 @@ extension BrowserPanel {
             }
             return browserFallbackInteractiveModalHostWindow()
         }
+    }
+
+    func debugDismissDetachedDeveloperToolsWindowsForTesting() {
+        dismissDetachedDeveloperToolsWindowsIfNeeded()
     }
 
     func presentInsecureHTTPAlertForTesting(
