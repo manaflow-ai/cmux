@@ -1026,7 +1026,7 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
         ),
         entry.output
           ? h("pre", {
-              className: "codex-tool-activity-output text-size-chat-sm",
+              className: "codex-tool-activity-output text-size-code-sm font-vscode-editor",
               dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
             })
           : null,

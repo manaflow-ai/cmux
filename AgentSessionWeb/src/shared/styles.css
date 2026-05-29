@@ -266,6 +266,15 @@ select {
   line-height: calc(var(--codex-chat-font-size) + 5px);
 }
 
+.text-size-code-sm {
+  font-size: calc(var(--codex-chat-code-font-size) - 1px);
+  line-height: calc(var(--codex-chat-code-font-size) + 5px);
+}
+
+.font-vscode-editor {
+  font-family: var(--vscode-editor-font-family, var(--font-mono));
+}
+
 .codex-user-turn,
 .codex-assistant-turn,
 .codex-notice-turn {
@@ -449,16 +458,19 @@ select {
 
 .codex-tool-activity-output {
   max-width: min(100%, var(--markdown-wide-block-max-width));
-  max-height: 180px;
-  margin: 0 0 0 20px;
-  padding: 8px 10px;
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-token-border) 62%, transparent);
-  border-radius: var(--radius-md);
-  color: color-mix(in srgb, var(--color-token-description-foreground) 86%, transparent);
-  background: color-mix(in srgb, var(--agent-input-bg) 74%, transparent);
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
+  max-height: 140px;
+  min-height: 1.25rem;
+  margin: 0;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 0;
+  border-radius: 0;
+  color: var(--color-token-description-foreground);
+  background: transparent;
+  font-weight: 500;
+  white-space: pre;
+  --edge-fade-distance: 2rem;
 }
 
 @keyframes codex-tool-activity-pulse {
