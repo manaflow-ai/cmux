@@ -5322,7 +5322,7 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(parked.origin, CGPoint(x: -100_001, y: -100_001))
     }
 
-    func testCanvasScrollPassthroughPolicyUsesLiveNativeContentFrames() {
+    func testCanvasScrollPassthroughPolicyKeepsWheelInputOnCanvasCamera() {
         let itemID = LayoutItemID()
         let overlay = CanvasNativeOverlay(
             id: itemID,
@@ -5334,10 +5334,7 @@ final class CMUXLayoutTests: XCTestCase {
             scale: 1
         )
 
-        XCTAssertEqual(
-            CanvasScrollPassthroughPolicy.frames(nativeOverlays: [overlay]),
-            [CGRect(x: 10, y: 40, width: 300, height: 200)]
-        )
+        XCTAssertTrue(CanvasScrollPassthroughPolicy.frames(nativeOverlays: [overlay]).isEmpty)
         XCTAssertTrue(CanvasScrollPassthroughPolicy.frames(nativeOverlays: []).isEmpty)
     }
 
