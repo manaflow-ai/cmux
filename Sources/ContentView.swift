@@ -1470,6 +1470,7 @@ struct ContentView: View {
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
+        static let panelBrowserOmnibarVisible = "panel.browser.omnibarVisible"
         static let panelIsTerminal = "panel.isTerminal"
         static let panelHasPane = "panel.hasPane"
         static let panelHasForkableAgent = "panel.hasForkableAgent"
@@ -6440,6 +6441,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelBrowserOmnibarVisible,
+                (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasPane, workspace.paneId(forPanelId: panelId) != nil)
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
@@ -7099,6 +7104,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openDiffViewer",
+                title: constant(String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")),
+                subtitle: workspaceSubtitle,
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
                 title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
                 subtitle: browserPanelSubtitle,
@@ -7143,6 +7160,20 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.browserToggleOmnibar",
+                title: { context in
+                    if context.bool(CommandPaletteContextKeys.panelBrowserOmnibarVisible) {
+                        return String(localized: "command.browserHideOmnibar.title", defaultValue: "Hide Browser Omnibar")
+                    }
+                    return String(localized: "command.browserShowOmnibar.title", defaultValue: "Show Browser Omnibar")
+                },
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "address", "omnibar", "url", "toolbar", "chrome", "show", "hide"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
@@ -7936,6 +7967,11 @@ struct ContentView: View {
                 }
             }
         }
+        registry.register(commandId: "palette.openDiffViewer") {
+            if !openDiffViewerFromCommandPalette() {
+                NSSound.beep()
+            }
+        }
 
         registry.register(commandId: "palette.browserBack") {
             tabManager.focusedBrowserPanel?.goBack()
@@ -7953,6 +7989,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserFocusAddressBar") {
             if !focusFocusedBrowserAddressBar() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.browserToggleOmnibar") {
+            if !tabManager.toggleOmnibarFocusedBrowser() {
                 NSSound.beep()
             }
         }
@@ -8136,6 +8177,112 @@ struct ContentView: View {
             baseCwd: baseCwd,
             globalConfigPath: cmuxConfigStore.globalConfigPath
         )
+    }
+
+    @discardableResult
+    private func openDiffViewerFromCommandPalette() -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+
+        let preferredSocketPath = SocketControlSettings.socketPath()
+        let activeSocketPath = TerminalController.shared.activeSocketPath(preferredPath: preferredSocketPath)
+        return CommandPaletteDiffViewerLauncher.shared.start(
+            cliURL: cliURL,
+            socketPath: activeSocketPath,
+            cwd: configuredActionBaseCwd(),
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId
+        )
+    }
+
+    @MainActor
+    private final class CommandPaletteDiffViewerLauncher {
+        static let shared = CommandPaletteDiffViewerLauncher()
+
+        private var processes: [Int32: Process] = [:]
+
+        private init() {}
+
+        @discardableResult
+        func start(
+            cliURL: URL,
+            socketPath: String,
+            cwd: String,
+            workspaceId: UUID,
+            surfaceId: UUID?
+        ) -> Bool {
+            let process = Process()
+            process.executableURL = cliURL
+            var arguments = [
+                "--socket", socketPath,
+                "diff",
+                "--unstaged",
+                "--cwd", cwd,
+                "--workspace", workspaceId.uuidString,
+                "--focus", "true",
+            ]
+            if let surfaceId {
+                arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+            }
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+            environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+            if let surfaceId {
+                environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+            }
+            environment.removeValue(forKey: "CMUX_SOCKET")
+            process.environment = environment
+            process.standardInput = FileHandle.nullDevice
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
+            outputCollector.start()
+            process.terminationHandler = { terminatedProcess in
+                let output = outputCollector.finish()
+                let processIdentifier = terminatedProcess.processIdentifier
+                let terminationStatus = terminatedProcess.terminationStatus
+                Task { @MainActor in
+                    Self.shared.processes.removeValue(forKey: processIdentifier)
+                    guard terminationStatus != 0 else { return }
+                    let detail = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let limitedDetail = detail.isEmpty
+                        ? "status=\(terminationStatus)"
+                        : String(detail.prefix(240))
+#if DEBUG
+                    cmuxDebugLog("commandPalette.openDiffViewer exited status=\(terminationStatus) detail=\(limitedDetail)")
+#endif
+                    NSSound.beep()
+                }
+            }
+
+            do {
+                try process.run()
+                let processIdentifier = process.processIdentifier
+                processes[processIdentifier] = process
+                if !process.isRunning {
+                    processes.removeValue(forKey: processIdentifier)
+                }
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer pid=\(process.processIdentifier) cwd=\(cwd)")
+#endif
+                return true
+            } catch {
+                outputCollector.cancel()
+#if DEBUG
+                cmuxDebugLog("commandPalette.openDiffViewer failed cwd=\(cwd) error=\(error.localizedDescription)")
+#endif
+                return false
+            }
+        }
     }
 
     private func configuredActionBaseCwd() -> String {
@@ -11698,403 +11845,9 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func presentSidebarWorkspaceGroupRenamePrompt(
-        tabManager: TabManager,
-        groupId: UUID,
-        currentName: String
-    ) {
-        let alert = NSAlert()
-        alert.messageText = String(
-            localized: "workspaceGroup.rename.title",
-            defaultValue: "Rename Group"
-        )
-        alert.informativeText = String(
-            localized: "workspaceGroup.rename.message",
-            defaultValue: "Enter a new name for this group."
-        )
-        alert.addButton(
-            withTitle: String(localized: "workspaceGroup.rename.confirm", defaultValue: "Rename")
-        )
-        alert.addButton(
-            withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
-        )
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        input.stringValue = currentName
-        input.placeholderString = String(
-            localized: "workspaceGroup.rename.placeholder",
-            defaultValue: "Group name"
-        )
-        alert.accessoryView = input
-        DispatchQueue.main.async { input.becomeFirstResponder() }
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-        tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
-    }
-
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
-    }
-}
-
-private enum SidebarWorkspaceGroupingMetrics {
-    /// Leading inset applied to workspace rows that belong to a group, so members
-    /// visually nest under the group header.
-    static let memberIndent: CGFloat = 12
-}
-
-/// Collapsible group header that doubles as the anchor workspace's
-/// representation. Anatomy: chevron (collapse), folder icon + name (focus
-/// anchor), trailing + (visible on hover; creates a new workspace in this
-/// group). Conforms to the snapshot-boundary rule: receives values + closures
-/// only, no observable references.
-private struct SidebarWorkspaceGroupHeaderView: View {
-    let groupId: UUID
-    let anchorWorkspaceId: UUID
-    let name: String
-    let iconSymbol: String
-    let tintHex: String?
-    let isCollapsed: Bool
-    let isPinned: Bool
-    let isAnchorActive: Bool
-    let memberCount: Int
-    let anchorUnreadCount: Int
-    let shortcutDigit: Int?
-    let shortcutModifierSymbol: String?
-    let showsShortcutHint: Bool
-    let shortcutHintXOffset: Double
-    let shortcutHintYOffset: Double
-    let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
-    let onToggleCollapsed: () -> Void
-    let onFocusAnchor: () -> Void
-    let onTapPlus: () -> Void
-    let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
-    let onRename: () -> Void
-    let onTogglePinned: () -> Void
-    let onUngroup: () -> Void
-    let onDelete: () -> Void
-    let onEditConfig: () -> Void
-    let onOpenDocs: () -> Void
-
-    @State private var isHovered: Bool = false
-
-    private var iconColor: Color {
-        if let tintHex, let nsColor = NSColor(hex: tintHex) {
-            return Color(nsColor: nsColor)
-        }
-        return .secondary
-    }
-
-    /// Pill text when the cmd-hold hint is visible (e.g. "⌃⌘1"), nil
-    /// otherwise. Same shape `TabItemView.workspaceShortcutLabel` produces
-    /// for regular rows so both render through the shared
-    /// `sidebarShortcutHintOverlay` modifier.
-    private var shortcutHintPillText: String? {
-        guard showsShortcutHint,
-              let shortcutDigit,
-              let shortcutModifierSymbol else { return nil }
-        return "\(shortcutModifierSymbol)\(shortcutDigit)"
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            // Chevron + folder/name are plain Views (not Buttons) so the
-            // header's outer .onDrag can begin from anywhere on the row.
-            // SwiftUI Buttons swallow mouse-down, which used to make the
-            // entire header undraggable (no free area existed between the
-            // chevron, name, and + buttons). Tap gestures preserve click
-            // behavior; drag-then-release still routes to the tap.
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 14, height: 14)
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleCollapsed() }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(
-                    Text(
-                        isCollapsed
-                            ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
-                            : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
-                    )
-                )
-
-            HStack(spacing: 6) {
-                Image(systemName: iconSymbol)
-                    .font(.system(size: 11))
-                    .foregroundStyle(iconColor)
-                Text(name)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
-                    Text("\(anchorUnreadCount)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(
-                            Capsule().fill(Color.accentColor)
-                        )
-                        .accessibilityLabel(Text(String.localizedStringWithFormat(
-                            String(localized: "workspaceGroup.unread.a11y",
-                                   defaultValue: "%lld unread"),
-                            anchorUnreadCount
-                        )))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture { onFocusAnchor() }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(Text(name))
-            .accessibilityHint(Text(String(
-                localized: "workspaceGroup.focusAnchor.a11y",
-                defaultValue: "Focus the group's anchor workspace"
-            )))
-
-            // Reserve the `+` slot whether hovered or not so the header
-            // never reflows / changes height on mouse-enter. Hide it when
-            // the cmd-hold hint pill is shown so the trailing accessory
-            // matches the workspace-row "pill replaces close button" rule.
-            let plusVisible = isHovered && !showsShortcutHint
-            Button(action: onTapPlus) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-                    .opacity(plusVisible ? 1 : 0)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 18, height: 18)
-            .allowsHitTesting(plusVisible)
-            .accessibilityHidden(!plusVisible)
-            .accessibilityLabel(Text(String(
-                localized: "workspaceGroup.newWorkspaceInGroup.a11y",
-                defaultValue: "New workspace in group"
-            )))
-            .contextMenu {
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                        defaultValue: "New Workspace in Group"
-                    ),
-                    action: onTapPlus
-                )
-                if !cwdContextMenuItems.isEmpty {
-                    Divider()
-                    ForEach(cwdContextMenuItems) { item in
-                        switch item {
-                        case .separator:
-                            Divider()
-                        case .action(let action):
-                            Button(action.title) {
-                                onRunResolvedItem(action)
-                            }
-                        }
-                    }
-                }
-                Divider()
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.editConfig",
-                        defaultValue: "Edit Group Config…"
-                    ),
-                    action: onEditConfig
-                )
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.openDocs",
-                        defaultValue: "Open Workspace Groups Docs"
-                    ),
-                    action: onOpenDocs
-                )
-            }
-        }
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
-        .background(
-            isAnchorActive
-                ? Color.primary.opacity(0.08)
-                : Color.clear
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-        // The pill sits on the inner (pre-horizontal-padding) frame so it
-        // aligns with TabItemView's chip — the row applies
-        // `.padding(.horizontal, 6)` AFTER its overlay, and so do we here.
-        .sidebarShortcutHintOverlay(
-            text: shortcutHintPillText,
-            emphasis: isAnchorActive ? 1.0 : 0.9,
-            offsetX: shortcutHintXOffset,
-            offsetY: shortcutHintYOffset
-        )
-        .padding(.horizontal, 6)
-        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .contextMenu {
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.rename",
-                    defaultValue: "Rename Group…"
-                ),
-                action: onRename
-            )
-            Button(
-                isPinned
-                    ? String(
-                        localized: "workspaceGroup.contextMenu.unpin",
-                        defaultValue: "Unpin Group"
-                    )
-                    : String(
-                        localized: "workspaceGroup.contextMenu.pin",
-                        defaultValue: "Pin Group"
-                    ),
-                action: onTogglePinned
-            )
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.editConfig",
-                    defaultValue: "Edit Group Config…"
-                ),
-                action: onEditConfig
-            )
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.openDocs",
-                    defaultValue: "Open Workspace Groups Docs"
-                ),
-                action: onOpenDocs
-            )
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup (Keep Workspaces)"
-                ),
-                action: onUngroup
-            )
-            Button(
-                role: .destructive,
-                action: onDelete
-            ) {
-                Text(
-                    String(
-                        localized: "workspaceGroup.contextMenu.delete",
-                        defaultValue: "Delete Group (Close Workspaces)"
-                    )
-                )
-            }
-        }
-    }
-}
-
-/// Confirmation dialog for destructive group delete. Returns true if the user
-/// chose to proceed. Always prompts (no Don't-ask-again suppression) because
-/// deleting workspaces is irreversible.
-@MainActor
-private func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bool {
-    let title = String(
-        localized: "dialog.deleteGroup.title",
-        defaultValue: "Delete this group?"
-    )
-    let message: String
-    if otherMemberCount == 0 {
-        let format = String(
-            localized: "dialog.deleteGroup.message.lone",
-            defaultValue: "Delete the group \u{201C}%@\u{201D} and close its workspace?"
-        )
-        message = String.localizedStringWithFormat(format, groupName)
-    } else if otherMemberCount == 1 {
-        let format = String(
-            localized: "dialog.deleteGroup.message.one",
-            defaultValue: "Delete the group \u{201C}%@\u{201D} and close its 2 workspaces?"
-        )
-        message = String.localizedStringWithFormat(format, groupName)
-    } else {
-        let format = String(
-            localized: "dialog.deleteGroup.message.many",
-            defaultValue: "Delete the group \u{201C}%1$@\u{201D} and close its %2$lld workspaces?"
-        )
-        message = String.localizedStringWithFormat(format, groupName, otherMemberCount + 1)
-    }
-    let alert = NSAlert()
-    alert.messageText = title
-    alert.informativeText = message
-    alert.alertStyle = .warning
-    alert.addButton(
-        withTitle: String(
-            localized: "dialog.deleteGroup.confirm",
-            defaultValue: "Delete"
-        )
-    )
-    alert.addButton(
-        withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
-    )
-    if let confirmButton = alert.buttons.first {
-        confirmButton.keyEquivalent = "\r"
-        confirmButton.keyEquivalentModifierMask = []
-        alert.window.defaultButtonCell = confirmButton.cell as? NSButtonCell
-        alert.window.initialFirstResponder = confirmButton
-    }
-    if let cancelButton = alert.buttons.dropFirst().first {
-        cancelButton.keyEquivalent = "\u{1b}"
-    }
-    return alert.runModal() == .alertFirstButtonReturn
-}
-
-/// Dispatcher for cwd-driven context-menu items invoked from the sidebar
-/// group header's `+` button. Calls AppDelegate's configured-action runner
-/// and, on success, joins the newly-created workspace to the group.
-@MainActor
-enum SidebarWorkspaceGroupContextMenuRunner {
-    static func run(
-        item: CmuxResolvedConfigMenuAction,
-        tabManager: TabManager,
-        groupId: UUID
-    ) {
-        guard let appDelegate = AppDelegate.shared else { return }
-        _ = appDelegate.runWorkspaceGroupConfiguredAction(
-            item.action,
-            tabManager: tabManager,
-            groupId: groupId
-        )
-    }
-}
-
-/// Static helpers for opening external surfaces from the group header's
-/// context menu. Lives at file scope so the header view stays pure.
-enum SidebarWorkspaceGroupConfigOpener {
-    static func openCmuxConfigInEditor() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let configURL = home
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("cmux.json", isDirectory: false)
-        if !FileManager.default.fileExists(atPath: configURL.path) {
-            try? FileManager.default.createDirectory(
-                at: configURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try? Data("{}\n".utf8).write(to: configURL, options: .atomic)
-        }
-        NSWorkspace.shared.open(configURL)
-    }
-
-    static func openWorkspaceGroupsDocs() {
-        // Point at the canonical reference shipped in this repo. The
-        // /docs/workspace-groups web route isn't shipped yet (deferred to a
-        // separate PR that adds the localized Next.js page under
-        // web/app/[locale]/docs); swap this URL when that route lands.
-        guard let url = URL(
-            string: "https://github.com/manaflow-ai/cmux/blob/main/docs/workspace-groups.md"
-        ) else { return }
-        NSWorkspace.shared.open(url)
     }
 }
 
@@ -17288,7 +17041,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
         let selectionBeforeReorder = selectedTabIds
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex, isDragOperation: true)
         syncSidebarSelection(preserving: selectionBeforeReorder)
         return true
     }

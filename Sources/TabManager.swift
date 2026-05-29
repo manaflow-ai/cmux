@@ -5606,7 +5606,7 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
+    func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
         // No-op reorders (single workspace, clamped to current index, etc.)
         // must not run group inference. Otherwise socket calls like
@@ -5619,7 +5619,14 @@ class TabManager: ObservableObject {
 
         let workspace = tabs.remove(at: plan.fromIndex)
         tabs.insert(workspace, at: plan.toIndex)
-        applyDragInferredGroupMembership(workspaceId: tabId)
+        if isDragOperation {
+            applyDragInferredGroupMembership(workspaceId: tabId)
+        } else if !workspaceGroups.isEmpty {
+            if workspaceGroups.contains(where: { $0.anchorWorkspaceId == tabId }) {
+                syncWorkspaceGroupsOrderToAnchorOrder()
+            }
+            normalizeWorkspaceGroupContiguity()
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
         return true
     }
@@ -5716,9 +5723,9 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
+    func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else { return false }
-        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex)
+        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
     func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
@@ -7632,6 +7639,13 @@ class TabManager: ObservableObject {
     @discardableResult
     func showJavaScriptConsoleFocusedBrowser() -> Bool {
         focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
+    }
+
+    @discardableResult
+    func toggleOmnibarFocusedBrowser() -> Bool {
+        guard let panel = focusedBrowserPanel else { return false }
+        panel.toggleOmnibarVisibility()
+        return true
     }
 
     @discardableResult
