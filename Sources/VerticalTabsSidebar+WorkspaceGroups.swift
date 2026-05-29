@@ -90,7 +90,7 @@ extension VerticalTabsSidebar {
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             cwdContextMenuItems: cwdContextMenuItems,
             rowSpacing: tabRowSpacing,
-            isFirstRow: sidebarReorderIds.first == group.anchorWorkspaceId,
+            isFirstRow: renderContext.sidebarGroupHeaderReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
             onDragStart: onDragStart,
