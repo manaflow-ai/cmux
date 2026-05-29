@@ -1,6 +1,7 @@
 import CMUXExtensionClient
 import CmuxExtensionKit
 import ExtensionFoundation
+import Observation
 import SwiftUI
 
 struct CMUXInstalledExtensionSidebarHostView: View {
@@ -89,25 +90,24 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         .task {
             xpcHost.update(snapshotProvider: snapshotProvider, actionHandler: actionHandler)
-            await loadExtension()
+            await observeExtensionAvailability()
         }
         .onChange(of: snapshotProvider().sequence) { _, _ in
             xpcHost.sendSnapshotDidChange()
         }
     }
 
-    private func loadExtension() async {
+    private func observeExtensionAvailability() async {
         isLoading = true
         errorText = nil
         do {
-            let update = try await loadEnabledExtensionIdentities(
+            try await observeEnabledExtensionIdentities(
                 extensionPointIdentifier: CMUXSidebarExtensionPoint.identifier,
                 staticExtensionPointIdentifier: CMUXSidebarExtensionPoint.staticIdentifier
             )
-            identity = update.sorted { $0.localizedName < $1.localizedName }.first
-            isLoading = false
         } catch {
             identity = nil
+            xpcHost.invalidate()
             isLoading = false
             errorText = String(
                 localized: "sidebar.extensions.error",
@@ -129,35 +129,67 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
-    private func loadEnabledExtensionIdentities(
+    private func observeEnabledExtensionIdentities(
         extensionPointIdentifier: String,
         staticExtensionPointIdentifier: StaticString
-    ) async throws -> [AppExtensionIdentity] {
+    ) async throws {
         if #available(macOS 26.0, *) {
             let extensionPoint = try AppExtensionPoint(identifier: staticExtensionPointIdentifier)
             let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
-            let state = monitor.state
-            disabledExtensionCount = state.disabledCount
-            unapprovedExtensionCount = state.unapprovedCount
-            return state.identities
+            observeModernExtensionMonitor(monitor)
+            while !Task.isCancelled {
+                await waitForModernExtensionMonitorChange(monitor)
+                observeModernExtensionMonitor(monitor)
+            }
+            return
         }
 
-        let availabilityTask = Task.detached(priority: .utility) {
-            var updates = AppExtensionIdentity.availabilityUpdates.makeAsyncIterator()
-            return await updates.next()
-        }
-        let update = try await Task.detached(priority: .userInitiated) {
-            var identities = try AppExtensionIdentity.matching(
-                appExtensionPointIDs: extensionPointIdentifier
-            )
+        var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
             .makeAsyncIterator()
-            return await identities.next() ?? []
-        }.value
-        if let availability = await availabilityTask.value {
-            disabledExtensionCount = availability.disabledCount
-            unapprovedExtensionCount = availability.unapprovedCount
+        let availabilityTask = Task {
+            var availabilityUpdates = AppExtensionIdentity.availabilityUpdates.makeAsyncIterator()
+            while !Task.isCancelled {
+                guard let availability = await availabilityUpdates.next() else { break }
+                disabledExtensionCount = availability.disabledCount
+                unapprovedExtensionCount = availability.unapprovedCount
+            }
         }
-        return update
+        defer {
+            availabilityTask.cancel()
+        }
+        while !Task.isCancelled {
+            guard let update = await identities.next() else { break }
+            applyEnabledExtensionIdentities(update)
+        }
+    }
+
+    private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
+        let nextIdentity = identities.sorted { $0.localizedName < $1.localizedName }.first
+        if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
+            xpcHost.invalidate()
+            identity = nextIdentity
+        }
+        isLoading = false
+        errorText = nil
+    }
+
+    @available(macOS 26.0, *)
+    private func observeModernExtensionMonitor(_ monitor: AppExtensionPoint.Monitor) {
+        let state = monitor.state
+        disabledExtensionCount = state.disabledCount
+        unapprovedExtensionCount = state.unapprovedCount
+        applyEnabledExtensionIdentities(state.identities)
+    }
+
+    @available(macOS 26.0, *)
+    private func waitForModernExtensionMonitorChange(_ monitor: AppExtensionPoint.Monitor) async {
+        await withCheckedContinuation { continuation in
+            withObservationTracking {
+                _ = monitor.state
+            } onChange: {
+                continuation.resume()
+            }
+        }
     }
 }
 
