@@ -39,9 +39,14 @@ func configureCmuxMainWindowDragBehavior(
     // there is no native titlebar: app-owned chrome must explicitly call
     // performDrag so Bonsplit pane tabs cannot be stolen by AppKit window moves.
     window.isMovableByWindowBackground = false
+    let baselineIsMovable = !WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
     if activeWindowMoveSuppressionSequenceReason(window: window) == nil {
-        window.isMovable = !WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+        window.isMovable = baselineIsMovable
     } else {
+        updateActiveWindowMoveSuppressionSequencePreviousMovableState(
+            window: window,
+            previousMovableState: baselineIsMovable
+        )
         ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
     }
 }

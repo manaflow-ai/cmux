@@ -1943,6 +1943,70 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
         XCTAssertTrue(window.isMovable)
     }
+
+    func testMainWindowDragBehaviorRestoresMinimalBaselineAfterModeChangeDuringSuppression() {
+        let suiteName = "cmuxTests.suppressedDragBehavior.standardToMinimal.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+        XCTAssertTrue(window.isMovable)
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertFalse(
+            window.isMovable,
+            "A mode change during suppression must update the post-drag baseline instead of restoring stale standard-mode movability"
+        )
+    }
+
+    func testMainWindowDragBehaviorRestoresStandardBaselineAfterModeChangeDuringSuppression() {
+        let suiteName = "cmuxTests.suppressedDragBehavior.minimalToStandard.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+        XCTAssertFalse(window.isMovable)
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        configureCmuxMainWindowDragBehavior(window, defaults: defaults)
+
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(
+            window.isMovable,
+            "A mode change during suppression must restore the current standard-mode baseline once the protected drag ends"
+        )
+    }
 }
 
 

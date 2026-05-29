@@ -240,7 +240,7 @@ private enum WindowDragHandleAssociatedObjectKeys {
 // main-thread mouse-event dispatch path.
 private final class WindowMoveSuppressionSequenceState: @unchecked Sendable {
     let reason: WindowMoveSuppressionReason
-    let previousMovableState: Bool
+    var previousMovableState: Bool
 
     init(reason: WindowMoveSuppressionReason, previousMovableState: Bool) {
         self.reason = reason
@@ -334,6 +334,20 @@ func beginWindowMoveSuppressionSequence(
         .OBJC_ASSOCIATION_RETAIN_NONATOMIC
     )
     return reason
+}
+
+func updateActiveWindowMoveSuppressionSequencePreviousMovableState(
+    window: NSWindow?,
+    previousMovableState: Bool
+) {
+    guard let window,
+          let state = objc_getAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence
+          ) as? WindowMoveSuppressionSequenceState else {
+        return
+    }
+    state.previousMovableState = previousMovableState
 }
 
 func ensureWindowMoveSuppressionSequenceIsImmovable(window: NSWindow?) {
