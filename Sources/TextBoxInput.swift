@@ -2469,7 +2469,7 @@ private final class TextBoxSubmitEventRunner {
     private var filePasteFallbackSatisfiedClipboardRead = false
     private var confirmedClaudeImageSubmissionTexts: [String: Int] = [:]
     private var observers: [NSObjectProtocol] = []
-    private var waitTimeoutTimer: DispatchSourceTimer?
+    private var waitTimeoutTask: Task<Void, Never>?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
@@ -2966,23 +2966,28 @@ private final class TextBoxSubmitEventRunner {
         timeoutSeconds: TimeInterval,
         onExhausted: (@MainActor () -> Void)?
     ) {
-        waitTimeoutTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        waitTimeoutTimer = timer
-        timer.schedule(deadline: .now() + timeoutSeconds)
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.observationToken == token else {
-                    return
-                }
-#if DEBUG
-                cmuxDebugLog("textbox.submit.wait.timeout id=\(self.id.uuidString.prefix(5))")
-#endif
-                onExhausted?()
+        waitTimeoutTask?.cancel()
+        let nanoseconds = UInt64(max(0, timeoutSeconds) * 1_000_000_000)
+        // Single-deadline wait-exhausted guard: sleep once, then verify the
+        // observation is still current before declaring the wait timed out.
+        // Inherits @MainActor isolation from the enclosing type; cancelled in
+        // removeObservers().
+        waitTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: nanoseconds)
+            } catch {
+                return
             }
+            guard let self,
+                  !Task.isCancelled,
+                  self.observationToken == token else {
+                return
+            }
+#if DEBUG
+            cmuxDebugLog("textbox.submit.wait.timeout id=\(self.id.uuidString.prefix(5))")
+#endif
+            onExhausted?()
         }
-        timer.resume()
     }
 
     private func pasteFilePath(_ path: String) -> Bool {
@@ -3129,8 +3134,8 @@ private final class TextBoxSubmitEventRunner {
 
     private func removeObservers() {
         observationToken = UUID()
-        waitTimeoutTimer?.cancel()
-        waitTimeoutTimer = nil
+        waitTimeoutTask?.cancel()
+        waitTimeoutTask = nil
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }

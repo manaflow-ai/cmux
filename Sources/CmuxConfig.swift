@@ -1909,7 +1909,9 @@ final class CmuxConfigStore: ObservableObject {
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
-    private var lifetimeCancellables = Set<AnyCancellable>()
+    private var trustObservationTask: Task<Void, Never>?
+    private var localReattachTask: Task<Void, Never>?
+    private var globalReattachTask: Task<Void, Never>?
     private var trackingCancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
@@ -1946,13 +1948,18 @@ final class CmuxConfigStore: ObservableObject {
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
-        NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+        // The store is @MainActor, so this task inherits main-actor isolation and
+        // loadAll() runs on main without an explicit dispatch hop. The handle is
+        // cancelled in deinit so the observer lives exactly as long as the store.
+        trustObservationTask = Task { [weak self] in
+            let notifications = NotificationCenter.default.notifications(
+                named: CmuxActionTrust.didChangeNotification
+            )
+            for await _ in notifications {
                 guard let self else { return }
                 self.loadAll()
             }
-            .store(in: &lifetimeCancellables)
+        }
         if startFileWatchers {
             if localConfigPath != nil {
                 startLocalFileWatcher()
@@ -1962,6 +1969,9 @@ final class CmuxConfigStore: ObservableObject {
     }
 
     deinit {
+        trustObservationTask?.cancel()
+        localReattachTask?.cancel()
+        globalReattachTask?.cancel()
         localFileWatchSource?.cancel()
         for source in localHookFileWatchSources.values {
             source.cancel()
@@ -2961,7 +2971,7 @@ final class CmuxConfigStore: ObservableObject {
                 DispatchQueue.main.async {
                     self.stopLocalFileWatcher()
                     self.loadAll()
-                    self.scheduleLocalReattach(attempt: 1)
+                    self.scheduleLocalReattach()
                 }
             } else {
                 DispatchQueue.main.async {
@@ -3102,18 +3112,20 @@ final class CmuxConfigStore: ObservableObject {
         startLocalFileWatcher()
     }
 
-    private func scheduleLocalReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else { return }
-        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                guard let path = self.localConfigPath else { return }
-                if FileManager.default.fileExists(atPath: path) {
-                    self.loadAll()
-                    self.startLocalFileWatcher()
-                } else {
-                    self.startLocalDirectoryWatcher()
-                }
+    private func scheduleLocalReattach() {
+        // A deleted config has no inode to attach a DispatchSource to, so this is a
+        // genuine poll for the file's reappearance, not a timing hack. A superseding
+        // event or deinit cancels the pending retry via the stored handle.
+        localReattachTask?.cancel()
+        localReattachTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.reattachDelay))
+            if Task.isCancelled { return }
+            guard let self, let path = self.localConfigPath else { return }
+            if FileManager.default.fileExists(atPath: path) {
+                self.loadAll()
+                self.startLocalFileWatcher()
+            } else {
+                self.startLocalDirectoryWatcher()
             }
         }
     }
@@ -3155,7 +3167,7 @@ final class CmuxConfigStore: ObservableObject {
                 DispatchQueue.main.async {
                     self.stopGlobalFileWatcher()
                     self.loadAll()
-                    self.scheduleGlobalReattach(attempt: 1)
+                    self.scheduleGlobalReattach()
                 }
             } else {
                 DispatchQueue.main.async {
@@ -3172,21 +3184,24 @@ final class CmuxConfigStore: ObservableObject {
         globalFileWatchSource = source
     }
 
-    private func scheduleGlobalReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
+    private func scheduleGlobalReattach() {
+        // A deleted config has no inode to watch, so poll for reappearance with an
+        // explicit bounded retry count instead of recursing through the call stack.
+        // The stored handle lets a superseding event or deinit cancel the loop.
+        globalReattachTask?.cancel()
+        globalReattachTask = Task { @MainActor [weak self] in
+            for _ in 0..<Self.maxReattachAttempts {
+                try? await Task.sleep(for: .seconds(Self.reattachDelay))
+                if Task.isCancelled { return }
+                guard let self else { return }
                 if FileManager.default.fileExists(atPath: self.globalConfigPath) {
                     self.loadAll()
                     self.startGlobalFileWatcher()
-                } else {
-                    self.scheduleGlobalReattach(attempt: attempt + 1)
+                    return
                 }
             }
+            guard let self else { return }
+            self.startGlobalDirectoryWatcher()
         }
     }
 

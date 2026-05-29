@@ -262,7 +262,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                   let self,
                   let waiter,
                   let tabManager else { return }
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
         }
@@ -278,7 +278,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                   let self,
                   let waiter,
                   let tabManager else { return }
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
         }
@@ -286,12 +286,13 @@ final class BackgroundWorkspacePrimeCoordinator {
 
         let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self, weak waiter, weak tabManager] pendingIds in
                 guard !pendingIds.contains(workspaceId),
                       let self,
                       let waiter,
                       let tabManager else { return }
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
                 }
             }
@@ -299,12 +300,13 @@ final class BackgroundWorkspacePrimeCoordinator {
 
         let tabsObserver = tabManager.$tabs
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self, weak waiter, weak tabManager] tabs in
                 guard !tabs.contains(where: { $0.id == workspaceId }),
                       let self,
                       let waiter,
                       let tabManager else { return }
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
                 }
             }

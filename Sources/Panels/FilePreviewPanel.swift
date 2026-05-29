@@ -3,6 +3,7 @@ import AVKit
 import Bonsplit
 import Combine
 import Foundation
+import os
 import PDFKit
 import Quartz
 import SwiftUI
@@ -430,72 +431,77 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
     }
 }
 
-struct FilePreviewDragEntry {
+struct FilePreviewDragEntry: Sendable {
     let filePath: String
     let displayTitle: String
 }
 
-final class FilePreviewDragRegistry {
+final class FilePreviewDragRegistry: Sendable {
     static let shared = FilePreviewDragRegistry()
 
-    private let lock = NSLock()
-    private var pending: [UUID: PendingEntry] = [:]
     private static let entryTTL: TimeInterval = 60
 
-    private struct PendingEntry {
+    private struct PendingEntry: Sendable {
         let entry: FilePreviewDragEntry
         let registeredAt: Date
     }
 
+    // Callers (NSPasteboardWriting requirements, AppKit drag teardown, and the
+    // main-actor drop handlers in Workspace / DragOverlayRoutingPolicy /
+    // BrowserPaneDropTargetView) all invoke these synchronously, so an actor
+    // would force every call site async and break the synchronous pasteboard
+    // contract. Serialize the pending map with a lock-protected state instead.
+    private let state = OSAllocatedUnfairLock<[UUID: PendingEntry]>(initialState: [:])
+
     func register(_ entry: FilePreviewDragEntry, id: UUID = UUID(), now: Date = Date()) -> UUID {
-        lock.lock()
-        sweepExpiredLocked(now: now)
-        pending[id] = PendingEntry(entry: entry, registeredAt: now)
-        lock.unlock()
+        state.withLock { pending in
+            Self.sweepExpired(&pending, now: now)
+            pending[id] = PendingEntry(entry: entry, registeredAt: now)
+        }
         return id
     }
 
     func consume(id: UUID, now: Date = Date()) -> FilePreviewDragEntry? {
-        lock.lock()
-        defer { lock.unlock() }
-        sweepExpiredLocked(now: now)
-        return pending.removeValue(forKey: id)?.entry
+        state.withLock { pending in
+            Self.sweepExpired(&pending, now: now)
+            return pending.removeValue(forKey: id)?.entry
+        }
     }
 
     func contains(id: UUID, now: Date = Date()) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        sweepExpiredLocked(now: now)
-        return pending[id] != nil
+        state.withLock { pending in
+            Self.sweepExpired(&pending, now: now)
+            return pending[id] != nil
+        }
     }
 
     func entry(id: UUID, now: Date = Date()) -> FilePreviewDragEntry? {
-        lock.lock()
-        defer { lock.unlock() }
-        sweepExpiredLocked(now: now)
-        return pending[id]?.entry
+        state.withLock { pending in
+            Self.sweepExpired(&pending, now: now)
+            return pending[id]?.entry
+        }
     }
 
     func discard(id: UUID) {
-        lock.lock()
-        pending.removeValue(forKey: id)
-        lock.unlock()
+        state.withLock { pending in
+            pending.removeValue(forKey: id)
+        }
     }
 
     func discardExpired(now: Date = Date()) {
-        lock.lock()
-        sweepExpiredLocked(now: now)
-        lock.unlock()
+        state.withLock { pending in
+            Self.sweepExpired(&pending, now: now)
+        }
     }
 
     func discardAll() {
-        lock.lock()
-        pending.removeAll()
-        lock.unlock()
+        state.withLock { pending in
+            pending.removeAll()
+        }
     }
 
-    private func sweepExpiredLocked(now: Date) {
-        let cutoff = now.addingTimeInterval(-Self.entryTTL)
+    private static func sweepExpired(_ pending: inout [UUID: PendingEntry], now: Date) {
+        let cutoff = now.addingTimeInterval(-entryTTL)
         pending = pending.filter { _, value in
             value.registeredAt >= cutoff
         }
@@ -2423,10 +2429,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
-    private static let documentLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.pdf-document-load",
-        qos: .userInitiated
-    )
+    private var documentLoadTask: Task<Void, Never>?
 
     private struct PDFScrollBackgroundAppearance {
         let hostIdentifiers: Set<ObjectIdentifier>
@@ -2488,6 +2491,8 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     func close() {
+        documentLoadTask?.cancel()
+        documentLoadTask = nil
         removeFromSuperview()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
@@ -2531,9 +2536,13 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         refreshPDFSmartFitWithoutViewportRestore()
 
         let loadURL = url
-        Self.documentLoadQueue.async { [weak self] in
-            let document = PDFDocument(url: loadURL)
-            DispatchQueue.main.async { [weak self] in
+        documentLoadTask?.cancel()
+        documentLoadTask = Task { [weak self, loadURL] in
+            let document = await Task.detached(priority: .userInitiated) {
+                PDFDocument(url: loadURL)
+            }.value
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
                 guard let self, self.currentURL == loadURL else { return }
                 self.applyLoadedPDFDocument(document, for: loadURL)
             }
@@ -3665,10 +3674,7 @@ final class FilePreviewImageContainerView: NSView {
     private var rotationAccumulator: CGFloat = 0
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
-    private static let imageLoadQueue = DispatchQueue(
-        label: "com.cmux.file-preview.image-load",
-        qos: .userInitiated
-    )
+    private var imageLoadTask: Task<Void, Never>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3715,6 +3721,8 @@ final class FilePreviewImageContainerView: NSView {
     }
 
     func close() {
+        imageLoadTask?.cancel()
+        imageLoadTask = nil
         removeFromSuperview()
         documentView.imageView.image = nil
         currentURL = nil
@@ -3741,9 +3749,13 @@ final class FilePreviewImageContainerView: NSView {
         applyScale()
 
         let loadURL = url
-        Self.imageLoadQueue.async { [weak self] in
-            let image = NSImage(contentsOf: loadURL)
-            DispatchQueue.main.async { [weak self] in
+        imageLoadTask?.cancel()
+        imageLoadTask = Task { [weak self, loadURL] in
+            let image = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOf: loadURL)
+            }.value
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
                 guard let self, self.currentURL == loadURL else { return }
                 self.applyLoadedImage(image)
             }

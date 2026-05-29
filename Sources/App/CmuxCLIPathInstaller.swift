@@ -261,48 +261,24 @@ struct CmuxCLIPathInstaller {
         ]
         let stdout = Pipe()
         let stderr = Pipe()
-        let stdoutBuffer = PrivilegedCommandOutputBuffer()
-        let stderrBuffer = PrivilegedCommandOutputBuffer()
         process.standardOutput = stdout
         process.standardError = stderr
-        let outputGroup = DispatchGroup()
-        startDraining(stdout, into: stdoutBuffer, group: outputGroup)
-        startDraining(stderr, into: stderrBuffer, group: outputGroup)
-        defer {
-            stdout.fileHandleForReading.readabilityHandler = nil
-            stderr.fileHandleForReading.readabilityHandler = nil
-        }
         try process.run()
+        // Drain both pipes synchronously to EOF before waiting on exit so a child
+        // that fills a pipe buffer (>64KB) cannot block, then wait for termination.
+        // Avoids blocking the calling thread on async readabilityHandler callbacks.
+        let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderr.fileHandleForReading)
         process.waitUntilExit()
-        outputGroup.wait()
 
         guard process.terminationStatus == 0 else {
-            let stderrText = stderrBuffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let stdoutText = stdoutBuffer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stderrText = (String(data: stderrData, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let stdoutText = (String(data: stdoutData, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let details = stderrText.isEmpty ? stdoutText : stderrText
             let message = details.isEmpty
                 ? "osascript exited with status \(process.terminationStatus)."
                 : details
             throw InstallerError.privilegedCommandFailed(message: message)
-        }
-    }
-
-    private static func startDraining(
-        _ pipe: Pipe,
-        into buffer: PrivilegedCommandOutputBuffer,
-        group: DispatchGroup
-    ) {
-        group.enter()
-        pipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
-            case .data(let data):
-                buffer.append(data)
-            case .wouldBlock:
-                return
-            case .endOfFile:
-                fileHandle.readabilityHandler = nil
-                group.leave()
-            }
         }
     }
 
@@ -335,23 +311,5 @@ struct CmuxCLIPathInstaller {
         }
 
         return false
-    }
-}
-
-private final class PrivilegedCommandOutputBuffer {
-    private let lock = NSLock()
-    private var data = Data()
-
-    var text: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: data, encoding: .utf8) ?? ""
-    }
-
-    func append(_ chunk: Data) {
-        guard !chunk.isEmpty else { return }
-        lock.lock()
-        data.append(chunk)
-        lock.unlock()
     }
 }

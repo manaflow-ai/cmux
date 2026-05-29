@@ -3,6 +3,7 @@ import Combine
 import Foundation
 import QuartzCore
 import SwiftUI
+import os
 
 // MARK: - Explorer Visual Style
 
@@ -310,7 +311,11 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
 
 // MARK: - SSH Provider
 
-// Captured by async SSH tasks; mutable availability/root state is guarded by stateLock.
+// Captured by async SSH tasks; mutable availability/root state is owned by an
+// OSAllocatedUnfairLock so the synchronous FileExplorerProvider getters
+// (homePath/isAvailable) stay non-blocking. `@unchecked` remains because the
+// stored `transport` is a non-Sendable AnyObject protocol whose thread safety
+// this type guarantees; an actor cannot satisfy the synchronous getters.
 final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
     private struct State: Sendable {
         var homePath: String
@@ -320,19 +325,14 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
     let connection: SSHFileExplorerConnection
     let displayTarget: String
     private let transport: SSHFileExplorerTransport
-    private let stateLock = NSLock()
-    private var state: State
+    private let state: OSAllocatedUnfairLock<State>
 
     var homePath: String {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return state.homePath
+        state.withLock { $0.homePath }
     }
 
     var isAvailable: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return state.isAvailable
+        state.withLock { $0.isAvailable }
     }
 
     var destination: String { connection.destination }
@@ -361,7 +361,7 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
             return "\(destination):\(port)"
         }()
         self.transport = transport
-        self.state = State(homePath: homePath, isAvailable: isAvailable)
+        self.state = OSAllocatedUnfairLock(initialState: State(homePath: homePath, isAvailable: isAvailable))
     }
 
     init(
@@ -374,15 +374,15 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
         self.connection = connection
         self.displayTarget = displayTarget
         self.transport = transport
-        self.state = State(homePath: homePath, isAvailable: isAvailable)
+        self.state = OSAllocatedUnfairLock(initialState: State(homePath: homePath, isAvailable: isAvailable))
     }
 
     func updateAvailability(_ available: Bool, homePath: String?) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        state.isAvailable = available
-        if let homePath {
-            state.homePath = homePath
+        state.withLock { state in
+            state.isAvailable = available
+            if let homePath {
+                state.homePath = homePath
+            }
         }
     }
 
@@ -436,9 +436,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let process = Process()
         private let outPipe = Pipe()
         private let errPipe = Pipe()
-        private let lock = NSLock()
         private let terminationGate = ProcessTerminationGate()
-        private var cancelled = false
+        // run() blocks on process.waitUntilExit() off the cooperative executor, so
+        // this stays a synchronous class rather than an actor; only the cancellation
+        // flag is shared, and it is owned by the lock instead of a bare NSLock + var.
+        private let cancelled = OSAllocatedUnfairLock(initialState: false)
 
         init(connection: SSHFileExplorerConnection, command: String) {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
@@ -448,9 +450,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         func run() throws -> SSHCommandResult {
-            lock.lock()
-            let wasCancelled = cancelled
-            lock.unlock()
+            let wasCancelled = cancelled.withLock { $0 }
             if wasCancelled {
                 throw CancellationError()
             }
@@ -462,9 +462,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 throw error
             }
 
-            lock.lock()
-            let shouldTerminate = cancelled
-            lock.unlock()
+            let shouldTerminate = cancelled.withLock { $0 }
             if terminationGate.markLaunched() || shouldTerminate {
                 guard process.isRunning else {
                     process.waitUntilExit()
@@ -478,9 +476,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errPipe.fileHandleForReading)
             process.waitUntilExit()
             terminationGate.markFinished()
-            lock.lock()
-            let cancelledAfterExit = cancelled
-            lock.unlock()
+            let cancelledAfterExit = cancelled.withLock { $0 }
             if cancelledAfterExit {
                 throw CancellationError()
             }
@@ -493,9 +489,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
 
         func terminate() {
-            lock.lock()
-            cancelled = true
-            lock.unlock()
+            cancelled.withLock { $0 = true }
 
             guard terminationGate.requestTermination() else {
                 return
