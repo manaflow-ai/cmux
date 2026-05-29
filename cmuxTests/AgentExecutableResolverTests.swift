@@ -368,7 +368,7 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
-    func testOpenCodeLaunchPlanAssignsConcreteRuntimePort() throws {
+    func testOpenCodeLaunchPlanLetsProviderBindEphemeralPort() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
@@ -387,8 +387,8 @@ struct AgentExecutableResolverTests {
 
         let plan = try resolver.resolve(.opencode)
         expectEqual(
-            plan.arguments(assigningOpenCodePort: 54321),
-            ["serve", "--hostname", "localhost", "--port", "54321", "--print-logs"]
+            plan.arguments,
+            ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]
         )
     }
 

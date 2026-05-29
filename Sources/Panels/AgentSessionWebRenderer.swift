@@ -404,6 +404,9 @@ extension AgentSessionWebRenderer {
                         "rateLimitSecondary": String(localized: "agentSession.web.rateLimit.secondary", defaultValue: "Secondary"),
                         "rateLimitWeekly": String(localized: "agentSession.web.rateLimit.weekly", defaultValue: "Weekly"),
                         "rateLimitMonthly": String(localized: "agentSession.web.rateLimit.monthly", defaultValue: "Monthly"),
+                        "rateLimitDaysFormat": String(localized: "agentSession.web.rateLimit.daysFormat", defaultValue: "%@d"),
+                        "rateLimitHoursFormat": String(localized: "agentSession.web.rateLimit.hoursFormat", defaultValue: "%@h"),
+                        "rateLimitMinutesFormat": String(localized: "agentSession.web.rateLimit.minutesFormat", defaultValue: "%@m"),
                         "rateLimitResets": String(localized: "agentSession.web.rateLimit.resets", defaultValue: "resets"),
                         "voiceInput": String(localized: "agentSession.web.voiceInput", defaultValue: "Voice input"),
                         "promptPlaceholder": String(

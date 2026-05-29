@@ -499,6 +499,9 @@ function rateLimitInlineSegmentElement(
   label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: state.context?.copy.rateLimitWeekly ?? "Weekly",
     monthly: state.context?.copy.rateLimitMonthly ?? "Monthly",
+    daysFormat: state.context?.copy.rateLimitDaysFormat ?? "",
+    hoursFormat: state.context?.copy.rateLimitHoursFormat ?? "",
+    minutesFormat: state.context?.copy.rateLimitMinutesFormat ?? "",
   });
 
   const percent = document.createElement("span");
@@ -531,6 +534,9 @@ function rateLimitRowElement(row: AgentSessionRateLimitRow, state: SessionState)
   label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: state.context?.copy.rateLimitWeekly ?? "Weekly",
     monthly: state.context?.copy.rateLimitMonthly ?? "Monthly",
+    daysFormat: state.context?.copy.rateLimitDaysFormat ?? "",
+    hoursFormat: state.context?.copy.rateLimitHoursFormat ?? "",
+    minutesFormat: state.context?.copy.rateLimitMinutesFormat ?? "",
   });
 
   const value = document.createElement("span");

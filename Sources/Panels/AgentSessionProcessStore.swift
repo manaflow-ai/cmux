@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 @MainActor
@@ -31,7 +30,7 @@ final class AgentSessionProcessStore {
         }
         let sessionId = UUID().uuidString
         let process = Process()
-        let launchArguments = try Self.processArguments(for: plan)
+        let launchArguments = plan.arguments
         let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
         process.executableURL = plan.executableURL
         process.arguments = launchArguments
@@ -124,51 +123,6 @@ final class AgentSessionProcessStore {
             emitStarted(session: running)
         }
         return StartedSession(sessionId: sessionId)
-    }
-
-    private static func processArguments(for plan: AgentSessionLaunchPlan) throws -> [String] {
-        guard plan.provider == .opencode else { return plan.arguments }
-        return plan.arguments(assigningOpenCodePort: try allocateLoopbackPort())
-    }
-
-    private static func allocateLoopbackPort() throws -> Int {
-        for _ in 0..<8 {
-            let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-            guard fd >= 0 else { break }
-            defer { Darwin.close(fd) }
-
-            var yes: Int32 = 1
-            Darwin.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-
-            var addr = sockaddr_in()
-            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            addr.sin_family = sa_family_t(AF_INET)
-            addr.sin_port = in_port_t(0)
-            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-            let bindResult = withUnsafePointer(to: &addr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                    Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-            guard bindResult == 0 else { continue }
-
-            var bound = sockaddr_in()
-            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                    Darwin.getsockname(fd, sockaddrPointer, &length)
-                }
-            }
-            guard nameResult == 0 else { continue }
-
-            let port = Int(UInt16(bigEndian: bound.sin_port))
-            if port > 0 && port <= 65535 {
-                return port
-            }
-        }
-
-        throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.opencode.displayName)
     }
 
     func writeLine(

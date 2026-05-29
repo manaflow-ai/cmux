@@ -9,6 +9,9 @@ export type NormalizedRateLimitRow = AgentSessionRateLimitRow & {
 export type RateLimitWindowLabels = {
   weekly: string;
   monthly: string;
+  daysFormat: string;
+  hoursFormat: string;
+  minutesFormat: string;
 };
 
 export function normalizeRateLimitRow(row: AgentSessionRateLimitRow): NormalizedRateLimitRow {
@@ -85,12 +88,12 @@ export function formatRateLimitWindow(
     return labels?.weekly ?? fallback;
   }
   if (rounded >= 24 * 60) {
-    return `${Math.ceil(rounded / (24 * 60))}d`;
+    return formatCompactDurationLabel(labels?.daysFormat, Math.ceil(rounded / (24 * 60)), fallback);
   }
   if (rounded >= 60) {
-    return `${Math.ceil(rounded / 60)}h`;
+    return formatCompactDurationLabel(labels?.hoursFormat, Math.ceil(rounded / 60), fallback);
   }
-  return `${Math.max(1, Math.ceil(rounded))}m`;
+  return formatCompactDurationLabel(labels?.minutesFormat, Math.max(1, Math.ceil(rounded)), fallback);
 }
 
 function clampPercent(value: number): number {
@@ -110,4 +113,15 @@ function isSameLocalDay(date: Date, other: Date): boolean {
     date.getMonth() === other.getMonth() &&
     date.getDate() === other.getDate()
   );
+}
+
+function formatCompactDurationLabel(format: string | undefined, value: number, fallback: string): string {
+  const formattedValue = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+  if (format == null || format.length === 0) {
+    return fallback;
+  }
+  return format
+    .replaceAll("%@", formattedValue)
+    .replaceAll("%d", formattedValue)
+    .replaceAll("{value}", formattedValue);
 }

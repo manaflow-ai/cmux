@@ -1754,6 +1754,9 @@ function RateLimitInlineSegment({ row, state }: { row: AgentSessionRateLimitRow;
   const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: copy?.rateLimitWeekly ?? "Weekly",
     monthly: copy?.rateLimitMonthly ?? "Monthly",
+    daysFormat: copy?.rateLimitDaysFormat ?? "",
+    hoursFormat: copy?.rateLimitHoursFormat ?? "",
+    minutesFormat: copy?.rateLimitMinutesFormat ?? "",
   });
   const resetText = formatRateLimitReset(normalized.resetsAt);
   return h(
@@ -1780,6 +1783,9 @@ function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: Se
   const label = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: copy?.rateLimitWeekly ?? "Weekly",
     monthly: copy?.rateLimitMonthly ?? "Monthly",
+    daysFormat: copy?.rateLimitDaysFormat ?? "",
+    hoursFormat: copy?.rateLimitHoursFormat ?? "",
+    minutesFormat: copy?.rateLimitMinutesFormat ?? "",
   });
   const resetText = formatRateLimitReset(normalized.resetsAt);
   return h(

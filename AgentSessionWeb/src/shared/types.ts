@@ -60,6 +60,9 @@ export type AgentSessionCopy = {
   rateLimitSecondary: string;
   rateLimitWeekly: string;
   rateLimitMonthly: string;
+  rateLimitDaysFormat: string;
+  rateLimitHoursFormat: string;
+  rateLimitMinutesFormat: string;
   rateLimitResets: string;
   voiceInput: string;
   promptPlaceholder: string;
