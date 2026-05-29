@@ -32,29 +32,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = drawsBackground
 
-        let textView = SavingTextView()
+        let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.usesFindPanel = true
-        textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.drawsBackground = drawsBackground
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
-        textView.applyFilePreviewTextEditorInsets()
         textView.string = panel.textContent
         panel.attachTextView(textView)
 
@@ -129,7 +110,66 @@ enum FilePreviewTextEditorLayout {
     static let lineFragmentPadding: CGFloat = 0
 }
 
+extension SavingTextView {
+    /// Builds the File Preview text view configured for large plain-text files.
+    ///
+    /// File Preview opens files up to `FilePreviewPanel.maximumLoadedTextBytes` (16 MB), which can
+    /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
+    /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
+    static func makeFilePreviewTextView() -> SavingTextView {
+        let textView = SavingTextView()
+        // Must run before any `textContainer` access below, or the view locks into TextKit 2.
+        textView.enableLargeDocumentSelectionPerformance()
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.usesFindPanel = true
+        textView.usesFontPanel = false
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = false
+        textView.applyFilePreviewTextEditorInsets()
+        return textView
+    }
+}
+
 extension NSTextView {
+    /// Drops the text view to TextKit 1 with non-contiguous layout for large-document performance.
+    ///
+    /// TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line-fragment count, so
+    /// drag-selecting deep into a large file pegs the main thread (`manaflow-ai/cmux#4576`).
+    /// Accessing `layoutManager` puts the view in TextKit 1 compatibility mode, where mouse
+    /// hit-testing is roughly O(log N); `allowsNonContiguousLayout` keeps glyph layout lazy so
+    /// large files still open instantly.
+    ///
+    /// Call this before touching `textContainer`/`textLayoutManager` on a freshly created text
+    /// view, otherwise the first TextKit 2 access locks the view into TextKit 2 and
+    /// `layoutManager` returns `nil`.
+    func enableLargeDocumentSelectionPerformance() {
+        guard let layoutManager else {
+            // `layoutManager` is nil only when a TextKit 2 access already locked the view into
+            // TextKit 2, in which case non-contiguous layout was never enabled and large-document
+            // selection regresses to O(N). Release behavior is unchanged (no-op); DEBUG fails loudly
+            // so the call-order violation is caught at its source rather than as a future hang.
+            assertionFailure(
+                "enableLargeDocumentSelectionPerformance() ran after a TextKit 2 access; "
+                    + "call it before touching textContainer/textLayoutManager."
+            )
+            return
+        }
+        layoutManager.allowsNonContiguousLayout = true
+    }
+
     func applyFilePreviewTextEditorInsets() {
         let targetInset = FilePreviewTextEditorLayout.textContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
