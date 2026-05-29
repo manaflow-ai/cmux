@@ -1,21 +1,5 @@
 import Foundation
 
-// Compatibility names used only by the existing cmux app while the old prototype
-// sidebar is removed in smaller follow-up steps.
-public enum CmuxExtensionSidebarProviderID {
-    public static let defaultWorkspaces = "cmux.sidebar.default"
-}
-
-public struct CmuxExtensionLocalizedText: Codable, Equatable, Hashable, Sendable {
-    public var key: String
-    public var defaultValue: String
-
-    public init(key: String, defaultValue: String) {
-        self.key = key
-        self.defaultValue = defaultValue
-    }
-}
-
 public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equatable, Sendable {
     public var id: String
     public var title: CmuxExtensionLocalizedText
@@ -44,8 +28,4 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
         systemImageName: "list.bullet",
         isHostProvided: true
     )
-}
-
-public protocol CmuxExtensionSidebarProvider: Sendable {
-    var descriptor: CmuxExtensionSidebarProviderDescriptor { get }
 }
