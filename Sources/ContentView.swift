@@ -1601,8 +1601,9 @@ struct ContentView: View {
                 captureStart: { sidebarDragStartWidth = sidebarWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
+                    let widthDelta = sidebarPosition == .right ? -translation : translation
                     let nextWidth = Self.clampedSidebarWidth(
-                        startWidth + translation,
+                        startWidth + widthDelta,
                         maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
                         minimumWidth: minimumSidebarWidth
                     )
@@ -1618,7 +1619,7 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
+                    let nextWidth = normalizedRightSidebarWidth(
                         startWidth - translation,
                         availableWidth: availableWidth
                     )
@@ -1723,9 +1724,16 @@ struct ContentView: View {
     }
 
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
-        Self.clampedRightSidebarWidth(
+        let resolvedAvailableWidth = resolvedRightSidebarAvailableWidth(availableWidth)
+        let effectiveAvailableWidth = SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+            totalWidth: resolvedAvailableWidth,
+            workspaceSidebarWidth: sidebarWidth,
+            position: sidebarPosition,
+            isWorkspaceSidebarVisible: sidebarState.isVisible
+        )
+        return Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+            availableWidth: effectiveAvailableWidth
         )
     }
 
@@ -1771,18 +1779,29 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
+        if sidebarState.isVisible {
+            switch sidebarPosition {
+            case .left:
+                if SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
+                    return true
+                }
+            case .right:
+                let workspaceSidebarDividerX = min(max(contentBounds.maxX - sidebarWidth, contentBounds.minX), contentBounds.maxX)
+                if SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: workspaceSidebarDividerX).contains(point.x) {
+                    return true
+                }
+            case .top, .bottom:
+                break
+            }
         }
 
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
+        let rightDividerX = rightSidebarDividerX(totalWidth: contentBounds.width)
         return rightSidebarVisible &&
             SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
-        guard sidebarState.isVisible || rightSidebarVisible,
+        guard (sidebarState.isVisible && !sidebarPosition.isHorizontal) || rightSidebarVisible,
               let window = observedWindow,
               let contentView = window.contentView else {
             isResizerBandActive = false
@@ -1979,11 +1998,19 @@ struct ContentView: View {
     }
 
     private var sidebarResizerOverlay: some View {
-        placedSidebarResizerOverlay(
+        let edge: SidebarResizeInteraction.Edge = sidebarPosition == .right ? .trailing : .leading
+        return placedSidebarResizerOverlay(
             handle: .divider,
-            edge: .leading,
+            edge: edge,
             accessibilityIdentifier: "SidebarResizer",
-            dividerX: { totalWidth in min(max(sidebarWidth, 0), totalWidth) }
+            dividerX: { totalWidth in
+                switch sidebarPosition {
+                case .left, .top, .bottom:
+                    return min(max(sidebarWidth, 0), totalWidth)
+                case .right:
+                    return totalWidth - min(max(sidebarWidth, 0), totalWidth)
+                }
+            }
         )
     }
 
@@ -1992,8 +2019,18 @@ struct ContentView: View {
             handle: .explorerDivider,
             edge: .trailing,
             accessibilityIdentifier: "RightSidebarResizer",
-            dividerX: { totalWidth in totalWidth - rightSidebarWidth }
+            dividerX: { totalWidth in rightSidebarDividerX(totalWidth: totalWidth) }
         )
+    }
+
+    private func rightSidebarDividerX(totalWidth: CGFloat) -> CGFloat {
+        let availableWidth = SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+            totalWidth: totalWidth,
+            workspaceSidebarWidth: sidebarWidth,
+            position: sidebarPosition,
+            isWorkspaceSidebarVisible: sidebarState.isVisible
+        )
+        return min(max(availableWidth - rightSidebarWidth, 0), totalWidth)
     }
 
     private var sidebarView: some View {
@@ -2016,6 +2053,22 @@ struct ContentView: View {
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var horizontalSidebarView: some View {
+        HorizontalTabsSidebar(
+            onToggleSidebar: { sidebarState.toggle() },
+            onNewTab: {
+                AppDelegate.shared?.performNewWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "sidebar.horizontalNewWorkspace"
+                )
+            },
+            selection: $sidebarSelectionState.selection,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
@@ -2140,36 +2193,64 @@ struct ContentView: View {
     }
 
     private func sidebarBackdropLayer(
-        width: CGFloat,
+        width: CGFloat? = nil,
+        height: CGFloat? = nil,
         role: WindowBackdropRole,
         appearance: WindowAppearanceSnapshot
     ) -> some View {
         WindowBackdropLayer(role: role, snapshot: appearance)
             .ignoresSafeArea()
-            .frame(width: width)
+            .frame(width: width, height: height)
             .clipShape(RoundedRectangle(cornerRadius: appearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
             .clipped()
             .allowsHitTesting(false)
     }
 
     private func sidebarPanelContainer<Content: View>(
-        width: CGFloat,
+        width: CGFloat? = nil,
+        height: CGFloat? = nil,
         alignment: Alignment,
         role: WindowBackdropRole,
         appearance: WindowAppearanceSnapshot,
         @ViewBuilder content: () -> Content
     ) -> some View {
         ZStack(alignment: alignment) {
-            sidebarBackdropLayer(width: width, role: role, appearance: appearance)
+            sidebarBackdropLayer(width: width, height: height, role: role, appearance: appearance)
             content()
                 .environment(\.colorScheme, appearance.sidebarContentColorScheme)
         }
-        .frame(width: width)
+        .frame(width: width, height: height)
     }
 
     private func sidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
+        let panel = sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
             sidebarView
+        }
+        return panel
+            .overlay(alignment: .leading) {
+                if sidebarPosition == .right {
+                    WindowChromeBorder(orientation: .vertical)
+                }
+            }
+    }
+
+    private func horizontalSidebarPanelWithBackdrop(
+        position: SidebarPositionOption,
+        appearance: WindowAppearanceSnapshot
+    ) -> some View {
+        let panel = sidebarPanelContainer(
+            width: nil,
+            height: SidebarPositionSettings.horizontalBarHeight,
+            alignment: .leading,
+            role: .leftSidebar,
+            appearance: appearance
+        ) {
+            horizontalSidebarView
+        }
+        .frame(maxWidth: .infinity)
+
+        return panel.overlay(alignment: position == .top ? .bottom : .top) {
+            WindowChromeBorder(orientation: .horizontal)
         }
     }
 
@@ -2246,6 +2327,7 @@ struct ContentView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
     @AppStorage("sidebarState") private var sidebarStateSetting = SidebarStateOption.followWindow.rawValue
+    @AppStorage(SidebarPositionSettings.key) private var sidebarPositionRaw = SidebarPositionSettings.defaultPosition.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
 
@@ -2255,6 +2337,9 @@ struct ContentView: View {
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
+    private var sidebarPosition: SidebarPositionOption {
+        SidebarPositionSettings.resolved(rawValue: sidebarPositionRaw)
+    }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
         return WindowAppearanceSnapshot.current(
@@ -2600,7 +2685,12 @@ struct ContentView: View {
         // sit directly on the window background with no intermediate layers.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
-        if useWithinWindow {
+        let layoutMode = SidebarContentLayoutPolicy.mode(
+            position: sidebarPosition,
+            usesWithinWindowOverlay: useWithinWindow
+        )
+        switch layoutMode {
+        case .leftOverlay:
             // Overlay mode keeps the left sidebar on top, but the right
             // sidebar stays in an HStack so terminal rows are clipped before
             // the sidebar backdrop samples the window.
@@ -2618,7 +2708,7 @@ struct ContentView: View {
                     }
                 }
             )
-        } else {
+        case .leftStack:
             // Standard HStack mode for behindWindow blur
             layout = AnyView(
                 HStack(spacing: 0) {
@@ -2628,12 +2718,39 @@ struct ContentView: View {
                     terminalContentWithRightSidebarPanel(appearance: appearance)
                 }
             )
+        case .rightStack:
+            layout = AnyView(
+                HStack(spacing: 0) {
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                    if sidebarState.isVisible {
+                        sidebarPanelWithBackdrop(appearance: appearance)
+                    }
+                }
+            )
+        case .topStack:
+            layout = AnyView(
+                VStack(spacing: 0) {
+                    if sidebarState.isVisible {
+                        horizontalSidebarPanelWithBackdrop(position: .top, appearance: appearance)
+                    }
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                }
+            )
+        case .bottomStack:
+            layout = AnyView(
+                VStack(spacing: 0) {
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                    if sidebarState.isVisible {
+                        horizontalSidebarPanelWithBackdrop(position: .bottom, appearance: appearance)
+                    }
+                }
+            )
         }
 
         return AnyView(
             layout
                 .overlay(alignment: .leading) {
-                    if sidebarState.isVisible {
+                    if sidebarState.isVisible, !sidebarPosition.isHorizontal {
                         sidebarResizerOverlay
                             .zIndex(1000)
                     }
@@ -3168,6 +3285,7 @@ struct ContentView: View {
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
+            clampRightSidebarWidthIfNeeded()
         })
 
         view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _ in
@@ -3180,6 +3298,15 @@ struct ContentView: View {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
+            clampRightSidebarWidthIfNeeded()
+            syncTrafficLightInset()
+        })
+
+        view = AnyView(view.onChange(of: sidebarPositionRaw) { _, _ in
+            clampSidebarWidthIfNeeded()
+            clampRightSidebarWidthIfNeeded()
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
@@ -11537,6 +11664,337 @@ struct VerticalTabsSidebar: View {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+}
+
+private struct HorizontalWorkspaceTabSnapshot: Identifiable, Equatable {
+    let id: UUID
+    let title: String
+    let isActive: Bool
+    let isMultiSelected: Bool
+    let isPinned: Bool
+    let customColorHex: String?
+    let unreadCount: Int
+    let shortcutLabel: String?
+    let canCloseWorkspace: Bool
+    let accessibilityTitle: String
+}
+
+private struct HorizontalTabsSidebar: View {
+    let onToggleSidebar: () -> Void
+    let onNewTab: () -> Void
+    @Binding var selection: SidebarSelection
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    @EnvironmentObject private var tabManager: TabManager
+    @EnvironmentObject private var notificationStore: TerminalNotificationStore
+
+    var body: some View {
+        let snapshots = workspaceSnapshots
+        let selectedWorkspaceId = tabManager.selectedTabId
+
+        HStack(spacing: 8) {
+            Button(action: onToggleSidebar) {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
+            .accessibilityLabel(Text(String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")))
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(snapshots) { snapshot in
+                            HorizontalWorkspaceTabItem(
+                                snapshot: snapshot,
+                                onSelect: {
+                                    selectWorkspace(snapshot.id)
+                                },
+                                onClose: {
+                                    closeWorkspace(snapshot.id)
+                                },
+                                onCopyWorkspaceID: {
+                                    WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds([snapshot.id], includeRefs: false)
+                                }
+                            )
+                            .id(snapshot.id)
+                        }
+                    }
+                    .padding(.vertical, 7)
+                    .frame(maxHeight: .infinity)
+                }
+                .onAppear {
+                    scrollToSelectedWorkspace(proxy, selectedWorkspaceId: selectedWorkspaceId)
+                }
+                .onChange(of: selectedWorkspaceId) { _, newValue in
+                    scrollToSelectedWorkspace(proxy, selectedWorkspaceId: newValue)
+                }
+                .onChange(of: snapshots.map(\.id)) { _, _ in
+                    scrollToSelectedWorkspace(proxy, selectedWorkspaceId: tabManager.selectedTabId)
+                }
+            }
+
+            Button(action: onNewTab) {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+            .accessibilityLabel(Text(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace")))
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .accessibilityIdentifier("Sidebar")
+    }
+
+    private var workspaceSnapshots: [HorizontalWorkspaceTabSnapshot] {
+        let tabs = tabManager.tabs
+        let workspaceCount = tabs.count
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        return tabs.enumerated().map { index, workspace in
+            let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
+                at: index,
+                workspaceCount: workspaceCount
+            )
+            let shortcutLabel = shortcutDigit.map { "\(shortcut.numberedDigitHintPrefix)\($0)" }
+            return HorizontalWorkspaceTabSnapshot(
+                id: workspace.id,
+                title: workspace.title,
+                isActive: tabManager.selectedTabId == workspace.id,
+                isMultiSelected: selectedTabIds.contains(workspace.id),
+                isPinned: workspace.isPinned,
+                customColorHex: workspace.customColor,
+                unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
+                shortcutLabel: shortcutLabel,
+                canCloseWorkspace: workspaceCount > 1,
+                accessibilityTitle: String.localizedStringWithFormat(
+                    String(
+                        localized: "accessibility.workspacePosition",
+                        defaultValue: "%1$@, workspace %2$lld of %3$lld"
+                    ),
+                    workspace.title,
+                    Int64(index + 1),
+                    Int64(workspaceCount)
+                )
+            )
+        }
+    }
+
+    private func scrollToSelectedWorkspace(
+        _ proxy: ScrollViewProxy,
+        selectedWorkspaceId: UUID?
+    ) {
+        guard let selectedWorkspaceId else { return }
+        proxy.scrollTo(selectedWorkspaceId)
+    }
+
+    private func selectWorkspace(_ workspaceId: UUID) {
+        guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
+        let workspace = tabManager.tabs[index]
+        let modifiers = NSEvent.modifierFlags
+        let isCommand = modifiers.contains(.command)
+        let isShift = modifiers.contains(.shift)
+        let wasSelected = tabManager.selectedTabId == workspaceId
+
+        if isShift, let lastIndex = lastSidebarSelectionIndex {
+            let lower = min(lastIndex, index)
+            let upper = max(lastIndex, index)
+            let rangeIds = tabManager.tabs[lower...upper].map(\.id)
+            if isCommand {
+                selectedTabIds.formUnion(rangeIds)
+            } else {
+                selectedTabIds = Set(rangeIds)
+            }
+        } else if isCommand {
+            if selectedTabIds.contains(workspaceId) {
+                selectedTabIds.remove(workspaceId)
+            } else {
+                selectedTabIds.insert(workspaceId)
+            }
+        } else {
+            selectedTabIds = [workspaceId]
+        }
+
+        lastSidebarSelectionIndex = index
+        tabManager.selectTab(workspace)
+        if wasSelected, !isCommand, !isShift {
+            tabManager.dismissNotificationOnDirectInteraction(
+                tabId: workspaceId,
+                surfaceId: tabManager.focusedSurfaceId(for: workspaceId)
+            )
+        }
+        selection = .tabs
+    }
+
+    private func closeWorkspace(_ workspaceId: UUID) {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        tabManager.closeWorkspaceWithConfirmation(workspace)
+        let existingIds = Set(tabManager.tabs.map(\.id))
+        selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
+        if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+        }
+        if let selectedId = tabManager.selectedTabId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        }
+    }
+}
+
+private struct HorizontalWorkspaceTabItem: View, Equatable {
+    static func == (lhs: HorizontalWorkspaceTabItem, rhs: HorizontalWorkspaceTabItem) -> Bool {
+        lhs.snapshot == rhs.snapshot
+    }
+
+    let snapshot: HorizontalWorkspaceTabSnapshot
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    let onCopyWorkspaceID: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
+    private let tabWidth: CGFloat = 184
+    private let tabHeight: CGFloat = 34
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button(action: onSelect) {
+                HStack(spacing: 7) {
+                    if let railColor {
+                        Capsule(style: .continuous)
+                            .fill(railColor)
+                            .frame(width: 3, height: 18)
+                    }
+
+                    if snapshot.unreadCount > 0 {
+                        unreadBadge
+                    }
+
+                    if snapshot.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .foregroundColor(secondaryTextColor)
+                    }
+
+                    Text(snapshot.title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundColor(primaryTextColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let shortcutLabel = snapshot.shortcutLabel {
+                        ShortcutHintPill(text: shortcutLabel, fontSize: 9, emphasis: snapshot.isActive ? 1.0 : 0.75)
+                    }
+                }
+                .padding(.leading, 10)
+                .padding(.trailing, snapshot.canCloseWorkspace && isHovering ? 27 : 10)
+                .frame(width: tabWidth, height: tabHeight, alignment: .leading)
+                .background(tabBackground)
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .safeHelp(snapshot.title)
+            .accessibilityLabel(Text(snapshot.accessibilityTitle))
+
+            if snapshot.canCloseWorkspace && isHovering {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(secondaryTextColor)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace"))
+                .padding(.trailing, 6)
+            }
+        }
+        .frame(width: tabWidth, height: tabHeight)
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button(String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace")) {
+                onClose()
+            }
+            .disabled(!snapshot.canCloseWorkspace)
+
+            Button(String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) {
+                onCopyWorkspaceID()
+            }
+        }
+    }
+
+    private var unreadBadge: some View {
+        ZStack {
+            Circle()
+                .fill(snapshot.isActive ? primaryTextColor.opacity(0.25) : cmuxAccentColor())
+            Text("\(min(snapshot.unreadCount, 99))")
+                .font(.system(size: 8.5, weight: .semibold))
+                .foregroundColor(snapshot.isActive ? primaryTextColor : .white)
+        }
+        .frame(width: 15, height: 15)
+    }
+
+    private var tabBackground: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(backgroundColor)
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: snapshot.isActive ? 1.2 : 1)
+            }
+    }
+
+    private var backgroundColor: Color {
+        if snapshot.isActive {
+            return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme))
+        }
+        if snapshot.isMultiSelected {
+            return Color.primary.opacity(0.11)
+        }
+        return Color.primary.opacity(isHovering ? 0.10 : 0.06)
+    }
+
+    private var borderColor: Color {
+        if snapshot.isActive {
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(
+                on: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme),
+                opacity: 0.36
+            ))
+        }
+        return Color.primary.opacity(isHovering ? 0.12 : 0.08)
+    }
+
+    private var primaryTextColor: Color {
+        if snapshot.isActive {
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(
+                on: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme),
+                opacity: 1
+            ))
+        }
+        return .primary
+    }
+
+    private var secondaryTextColor: Color {
+        if snapshot.isActive {
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(
+                on: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme),
+                opacity: 0.78
+            ))
+        }
+        return .secondary
+    }
+
+    private var railColor: Color? {
+        guard let hex = snapshot.customColorHex,
+              let nsColor = WorkspaceTabColorSettings.displayNSColor(
+                hex: hex,
+                colorScheme: colorScheme,
+                forceBright: !snapshot.isActive
+              ) ?? NSColor(hex: hex) else {
+            return nil
+        }
+        return Color(nsColor: nsColor)
     }
 }
 
