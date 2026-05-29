@@ -66,6 +66,8 @@ cmux send-key --surface "$CMUX_SURFACE_ID" enter
 cmux read-screen --surface "$CMUX_SURFACE_ID"
 ```
 
+**Cross-workspace targeting:** `send`, `send-key`, and `read-screen` resolve `--workspace` from `$CMUX_WORKSPACE_ID`. When targeting a surface outside the caller's workspace, you must pass `--workspace` explicitly. Omitting it produces the misleading `Error: invalid_params: Surface is not a terminal`.
+
 ## Sidebar Metadata
 
 ```bash
