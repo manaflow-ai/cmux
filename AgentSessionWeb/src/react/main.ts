@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
+import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
   computeFooterCollapse,
@@ -2265,7 +2266,7 @@ function AddContextSeparator() {
 
 type ComposerMenuItem = {
   detail: string;
-  icon: string;
+  icon: React.ReactNode;
   id: string;
   label: string;
   mention: PromptMention;
@@ -2282,7 +2283,7 @@ function composerMenuItems(kind: Exclude<ComposerMenuKind, null>, state: Session
         state.context?.workingDirectory
           ? {
               id: "workspace",
-              icon: "@",
+              icon: folderIcon("icon-xs"),
               label: copy?.mentionCurrentWorkspace ?? "Current workspace",
               detail: basename(state.context.workingDirectory),
               mention: {
@@ -2678,6 +2679,17 @@ function paperclipIcon(className = "icon-sm") {
     { className, width: "21", height: "21", viewBox: "0 0 21 21", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M4.43945 12.8041V7.68261C4.43945 7.30642 4.74446 7.00141 5.12066 7.00141C5.49685 7.00141 5.80186 7.30642 5.80186 7.68261V12.8041C5.80186 15.2565 7.78984 17.2445 10.2422 17.2445C12.6945 17.2445 14.6825 15.2565 14.6825 12.8041V5.9751C14.6823 4.46587 13.4589 3.24247 11.9497 3.24229C10.4403 3.24229 9.21606 4.46576 9.21588 5.9751V12.8041C9.21588 13.3708 9.67553 13.8304 10.2422 13.8304C10.8088 13.8304 11.2685 13.3708 11.2685 12.8041V7.68261C11.2685 7.30642 11.5735 7.00141 11.9497 7.00141C12.3257 7.00159 12.6309 7.30653 12.6309 7.68261V12.8041C12.6309 14.1232 11.5612 15.1929 10.2422 15.1929C8.92314 15.1929 7.85347 14.1232 7.85347 12.8041V5.9751C7.85365 3.71337 9.68791 1.87988 11.9497 1.87988C14.2113 1.88006 16.0447 3.71348 16.0449 5.9751V12.8041C16.0449 16.0089 13.4469 18.6069 10.2422 18.6069C7.03745 18.6069 4.43945 16.0089 4.43945 12.8041Z",
+      fill: "currentColor",
+    }),
+  );
+}
+
+function folderIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: 20, height: 20, viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: CODEX_FOLDER_ICON_PATH,
       fill: "currentColor",
     }),
   );

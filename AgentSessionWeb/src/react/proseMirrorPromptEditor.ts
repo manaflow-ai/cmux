@@ -3,6 +3,7 @@ import { Schema, type Node as ProseMirrorNode } from "prosemirror-model";
 import { splitBlock } from "prosemirror-commands";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
+import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
 import { isComposingEnter, isPlanModeShortcut } from "../shared/keyboard";
 import { promptMentionMarkdown } from "../shared/promptMentions";
 
@@ -46,7 +47,7 @@ const promptSchema = new Schema({
       selectable: false,
       toDOM: (node) => mentionDom({
         text: node.attrs.label,
-        icon: "@",
+        iconNode: folderMentionIcon(),
         dataAttributes: {
           "at-mention-label": node.attrs.label,
           "at-mention-path": node.attrs.path,
@@ -142,7 +143,6 @@ const promptSchema = new Schema({
 });
 
 const placeholderKey = new PluginKey<string>("agentPromptPlaceholder");
-
 export type PromptEditorHandle = {
   focus: () => void;
   insertMention: (mention: PromptMention) => void;
@@ -600,11 +600,13 @@ function isAutocompleteKey(key: string): key is PromptAutocompleteKey {
 function mentionDom({
   dataAttributes,
   icon,
+  iconNode,
   text,
   title,
 }: {
   dataAttributes: Record<string, string>;
   icon?: string;
+  iconNode?: Node;
   text: string;
   title?: string;
 }): HTMLElement {
@@ -617,13 +619,17 @@ function mentionDom({
   for (const [key, value] of Object.entries(dataAttributes)) {
     root.setAttribute(key, value);
   }
-  if (icon) {
+  if (icon || iconNode) {
     const iconWrapper = document.createElement("span");
     iconWrapper.className = "prompt-editor-mention-icon relative mr-[3px] inline-block h-[1lh] w-4 align-bottom";
-    const iconGlyph = document.createElement("span");
-    iconGlyph.className = "icon-xs absolute top-1/2 -translate-y-1/2";
-    iconGlyph.textContent = icon;
-    iconWrapper.append(iconGlyph);
+    if (iconNode) {
+      iconWrapper.append(iconNode);
+    } else if (icon) {
+      const iconGlyph = document.createElement("span");
+      iconGlyph.className = "icon-xs absolute top-1/2 -translate-y-1/2";
+      iconGlyph.textContent = icon;
+      iconWrapper.append(iconGlyph);
+    }
     root.append(iconWrapper);
   }
   const label = document.createElement("span");
@@ -631,4 +637,19 @@ function mentionDom({
   label.textContent = text;
   root.append(label);
   return root;
+}
+
+function folderMentionIcon(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "icon-xs absolute top-1/2 -translate-y-1/2");
+  svg.setAttribute("width", "20");
+  svg.setAttribute("height", "20");
+  svg.setAttribute("viewBox", "0 0 20 20");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", CODEX_FOLDER_ICON_PATH);
+  path.setAttribute("fill", "currentColor");
+  svg.append(path);
+  return svg;
 }
