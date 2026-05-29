@@ -71,6 +71,9 @@ extension TerminalSurface {
         let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
             .standardizedFileURL
             .path
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return standardizedDirectory
+        }
         var entries = path
             .split(separator: ":", omittingEmptySubsequences: false)
             .map(String.init)

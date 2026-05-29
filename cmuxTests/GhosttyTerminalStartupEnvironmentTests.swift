@@ -142,6 +142,22 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
+    func testPathByPrependingUniqueDirectoryDoesNotAppendCurrentDirectoryWhenPathIsEmpty() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
+        let shim = root.appendingPathComponent("shim", isDirectory: true).standardizedFileURL.path
+
+        let emptyPath = TerminalSurface.pathByPrependingUniqueDirectory(shim, to: "")
+        let whitespacePath = TerminalSurface.pathByPrependingUniqueDirectory(shim, to: "   ")
+
+        expectEqual(emptyPath, shim)
+        expectEqual(whitespacePath, shim)
+        expectFalse(emptyPath.contains(":"))
+        expectFalse(whitespacePath.contains(":"))
+    }
+
+    @Test
     func testInstallClaudeCommandShimCreatesExecutableOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
