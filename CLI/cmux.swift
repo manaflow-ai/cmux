@@ -24406,7 +24406,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env)
+        var selected = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,

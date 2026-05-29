@@ -108,11 +108,21 @@ struct HermesAgentCodexEnvironmentTests {
                 from: [
                     "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
                     "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
-                ]
+                ],
+                kind: "hermes-agent"
             ) == [
                 "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
                 "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
             ]
+        )
+        #expect(
+            AgentLaunchEnvironmentPolicy.selectedEnvironment(
+                from: [
+                    "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+                    "HERMES_CODEX_BASE_URL": "http://subrouter-team:31415/backend-api/codex",
+                ],
+                kind: "codex"
+            ).isEmpty
         )
     }
 }

@@ -24,6 +24,11 @@ public enum ClaudeConfigDirectoryPath {
 }
 
 public enum AgentLaunchEnvironmentPolicy {
+    private static let hermesAgentEnvironmentKeys: Set<String> = [
+        "CUSTOM_BASE_URL",
+        "HERMES_CODEX_BASE_URL",
+    ]
+
     private static let safeEnvironmentKeys: Set<String> = [
         // AMP_API_KEY is intentionally NOT allowlisted: it's a secret.
         // Amp resolves auth from ~/.config/amp/settings.json on resume.
@@ -73,7 +78,7 @@ public enum AgentLaunchEnvironmentPolicy {
         "USE_BUILTIN_RIPGREP"
     ]
 
-    public static func selectedEnvironment(from env: [String: String]) -> [String: String] {
+    public static func selectedEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
         var result: [String: String] = [:]
         for key in safeEnvironmentKeys.sorted() where key != "NODE_OPTIONS" {
             guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
@@ -81,6 +86,11 @@ public enum AgentLaunchEnvironmentPolicy {
         }
         if let nodeOptions = selectedNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
+        }
+        if kind != "hermes-agent" {
+            for key in hermesAgentEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
         }
         return result
     }
