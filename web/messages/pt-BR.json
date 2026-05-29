@@ -45,7 +45,7 @@
     "taglinePrefix": "O terminal feito para ",
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarefa",
-    "subtitle": "App nativo para macOS construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma API de socket para automação.",
+    "subtitle": "App nativo para macOS construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
     "features": "Recursos",
     "faq": "Perguntas Frequentes",
     "communitySection": "Comunidade",
@@ -673,7 +673,7 @@
       "metaTitle": "Atalhos de teclado"
     },
     "api": {
-      "title": "Referência da API",
+      "title": "Referência da CLI",
       "metaDescription": "Referência da CLI e API de socket Unix do cmux. Gerenciamento de workspaces, painéis divididos, controle de entrada, notificações, metadados da barra lateral, variáveis de ambiente e métodos de detecção.",
       "intro": "O cmux oferece uma ferramenta CLI e um socket Unix para controle programático. Cada comando está disponível através de ambas as interfaces.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Cliente Python",
       "shellScript": "Script shell",
       "buildScriptNotification": "Script de build com notificação",
-      "metaTitle": "Referência da API"
+      "metaTitle": "Referência da CLI"
     },
     "notifications": {
       "title": "Notificações",
@@ -895,7 +895,7 @@
       "authoringCallout": "Ao adicionar uma nova habilidade, inclua <code>agents/openai.yaml</code> para que o instalador exponha um nome claro, uma descrição curta e um prompt padrão.",
       "relatedTitle": "Documentação relacionada",
       "relatedBrowserAutomation": "Automação de navegador",
-      "relatedApi": "Referência da API",
+      "relatedApi": "Referência da CLI",
       "relatedCustomCommands": "Comandos personalizados"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Restauração de sessão",
       "customCommands": "Comandos personalizados",
       "keyboardShortcuts": "Atalhos de Teclado",
-      "apiReference": "Referência da API",
+      "apiReference": "Referência da CLI",
       "browserAutomation": "Automação do Navegador",
       "skills": "Habilidades",
       "notifications": "Notificações",

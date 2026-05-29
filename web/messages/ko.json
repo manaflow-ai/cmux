@@ -45,7 +45,7 @@
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
     "typingCodingAgents": "코딩 에이전트",
     "typingMultitasking": "멀티태스킹",
-    "subtitle": "Ghostty 기반 네이티브 macOS 앱. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 자동화를 위한 소켓 API를 제공합니다.",
+    "subtitle": "Ghostty 기반 네이티브 macOS 앱. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 프로그래밍을 위한 <cliLink>CLI</cliLink>를 제공합니다.",
     "features": "기능",
     "faq": "FAQ",
     "communitySection": "커뮤니티",
@@ -673,7 +673,7 @@
       "metaTitle": "키보드 단축키"
     },
     "api": {
-      "title": "API 레퍼런스",
+      "title": "CLI 레퍼런스",
       "metaDescription": "cmux CLI 및 Unix 소켓 API 레퍼런스. 워크스페이스 관리, 분할 패널, 입력 제어, 알림, 사이드바 메타데이터, 환경 변수, 감지 방법.",
       "intro": "cmux는 프로그래밍 방식 제어를 위한 CLI 도구와 Unix 소켓을 모두 제공합니다. 모든 명령은 두 인터페이스를 통해 사용할 수 있습니다.",
       "socket": "소켓",
@@ -752,7 +752,7 @@
       "pythonClient": "Python 클라이언트",
       "shellScript": "셸 스크립트",
       "buildScriptNotification": "알림이 포함된 빌드 스크립트",
-      "metaTitle": "API 레퍼런스"
+      "metaTitle": "CLI 레퍼런스"
     },
     "notifications": {
       "title": "알림",
@@ -895,7 +895,7 @@
       "authoringCallout": "새 스킬을 추가할 때 <code>agents/openai.yaml</code>을 포함하면 설치 프로그램이 명확한 이름, 짧은 설명, 기본 프롬프트를 표시할 수 있습니다.",
       "relatedTitle": "관련 문서",
       "relatedBrowserAutomation": "브라우저 자동화",
-      "relatedApi": "API 참조",
+      "relatedApi": "CLI 참조",
       "relatedCustomCommands": "사용자 지정 명령"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "세션 복원",
       "customCommands": "사용자 정의 명령어",
       "keyboardShortcuts": "키보드 단축키",
-      "apiReference": "API 레퍼런스",
+      "apiReference": "CLI 레퍼런스",
       "browserAutomation": "브라우저 자동화",
       "skills": "스킬",
       "notifications": "알림",

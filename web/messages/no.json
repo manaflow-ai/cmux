@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminalen bygget for ",
     "typingCodingAgents": "kodeagenter",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en socket-API for automatisering.",
+    "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en <cliLink>CLI</cliLink> for programmerbarhet.",
     "features": "Funksjoner",
     "faq": "Vanlige spørsmål",
     "communitySection": "Fellesskap",
@@ -673,7 +673,7 @@
       "metaTitle": "Tastatursnarveier"
     },
     "api": {
-      "title": "API-referanse",
+      "title": "CLI-referanse",
       "metaDescription": "cmux CLI og Unix socket API-referanse. Arbeidsområdeadministrasjon, delte paneler, inndatakontroll, varsler, sidefeltmetadata, miljøvariabler og deteksjonsmetoder.",
       "intro": "cmux tilbyr både et CLI-verktøy og en Unix-socket for programmatisk kontroll. Hver kommando er tilgjengelig gjennom begge grensesnittene.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Python-klient",
       "shellScript": "Shell-skript",
       "buildScriptNotification": "Build-skript med varsel",
-      "metaTitle": "API-referanse"
+      "metaTitle": "CLI-referanse"
     },
     "notifications": {
       "title": "Varsler",
@@ -895,7 +895,7 @@
       "authoringCallout": "Når du legger til en ny ferdighet, inkluder <code>agents/openai.yaml</code> slik at installasjonsprogrammet viser et tydelig navn, en kort beskrivelse og en standardprompt.",
       "relatedTitle": "Relatert dokumentasjon",
       "relatedBrowserAutomation": "Nettleserautomatisering",
-      "relatedApi": "API-referanse",
+      "relatedApi": "CLI-referanse",
       "relatedCustomCommands": "Egendefinerte kommandoer"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Sesjongjenoppretting",
       "customCommands": "Egendefinerte kommandoer",
       "keyboardShortcuts": "Tastatursnarveier",
-      "apiReference": "API-referanse",
+      "apiReference": "CLI-referanse",
       "browserAutomation": "Nettleserautomatisering",
       "skills": "Ferdigheter",
       "notifications": "Varsler",
