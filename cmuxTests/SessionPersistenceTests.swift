@@ -4910,8 +4910,8 @@ extension SessionPersistenceTests {
     func testHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "hermes-agent",
-            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
-            cwd: "/tmp/project",
+            command: "cd '/tmp/hermes' && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--resume' 'hermes-session-123'",
+            cwd: "/tmp/hermes",
             source: "agent-hook",
             environment: [
                 "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",

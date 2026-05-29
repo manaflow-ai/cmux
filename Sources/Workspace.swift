@@ -981,12 +981,12 @@ extension Workspace {
         var result = binding
         result.environment = environment.isEmpty ? nil : environment
         result.command = hermesAgentCommandByReplacingOpenAICodexProvider(result.command)
-        let commandWords = surfaceResumeShellWords(in: result.command)
-        guard !hermesAgentCommandSetsModelAPIMode(commandWords),
-              hermesAgentCommandAllowsCodexBootstrap(commandWords) else {
+        let agentCommandWords = hermesAgentWordsAfterCwdGuard(surfaceResumeShellWords(in: result.command))
+        guard !hermesAgentCommandSetsModelAPIMode(agentCommandWords),
+              hermesAgentCommandAllowsCodexBootstrap(agentCommandWords) else {
             return result
         }
-        let hermesExecutable = hermesAgentCommandExecutable(commandWords)
+        let hermesExecutable = hermesAgentCommandExecutable(agentCommandWords)
 
         var bootstrap = [
             "\(surfaceResumeShellQuote(hermesExecutable)) config set model.provider \(surfaceResumeShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
@@ -1056,12 +1056,40 @@ extension Workspace {
 
     nonisolated private static func hermesAgentCommandExecutable(_ words: [SurfaceResumeShellWord]) -> String {
         for word in words {
+            guard word.value != "env",
+                  !isSurfaceResumeShellAssignment(word.value) else {
+                continue
+            }
             let basename = (word.value as NSString).lastPathComponent
             if basename == "hermes" || basename == "hermes-agent" {
                 return word.value
             }
         }
         return "hermes"
+    }
+
+    nonisolated private static func hermesAgentWordsAfterCwdGuard(
+        _ words: [SurfaceResumeShellWord]
+    ) -> [SurfaceResumeShellWord] {
+        guard let lastAndIndex = words.lastIndex(where: { $0.value == "&&" }) else {
+            return words
+        }
+        let commandStart = words.index(after: lastAndIndex)
+        guard commandStart < words.endIndex else { return [] }
+        return Array(words[commandStart...])
+    }
+
+    nonisolated private static func isSurfaceResumeShellAssignment(_ value: String) -> Bool {
+        guard let equalIndex = value.firstIndex(of: "="),
+              equalIndex > value.startIndex else {
+            return false
+        }
+        let key = value[..<equalIndex]
+        guard let first = key.first,
+              first == "_" || first.isLetter else {
+            return false
+        }
+        return key.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
     }
 
     private struct SurfaceResumeShellWord {
