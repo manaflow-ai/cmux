@@ -13,8 +13,10 @@ typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
     _CMUX_HAS_ZSH_JOBSTATES=1
 fi
+typeset -g _CMUX_ZSH_JOB_TABLE_SATURATED=0
 
 _cmux_zsh_job_table_saturated() {
+    (( _CMUX_ZSH_JOB_TABLE_SATURATED )) && return 0
     (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
 
     local limit="${CMUX_ZSH_JOB_TABLE_SOFT_LIMIT:-900}"
@@ -23,7 +25,17 @@ _cmux_zsh_job_table_saturated() {
     esac
     (( limit > 0 )) || limit=900
 
-    (( ${#jobstates} >= limit ))
+    local job_count=${#jobstates}
+    (( job_count >= limit ))
+    local saturated=$?
+    if (( saturated == 0 )); then
+        _CMUX_ZSH_JOB_TABLE_SATURATED=1
+    fi
+    return "$saturated"
+}
+
+_cmux_restore_status() {
+    builtin return "$1"
 }
 
 _cmux_send() {
@@ -430,35 +442,73 @@ _cmux_patch_ghostty_semantic_redraw
 _cmux_prepend_job_table_guard_to_function() {
     local fn_name="$1"
     (( $+functions[$fn_name] )) || return 0
-    [[ "${functions[$fn_name]}" == *"_cmux_zsh_job_table_saturated"* ]] && return 0
+    local saved_var="__cmux_${fn_name}_saved_status"
+    [[ "${functions[$fn_name]}" == *"$saved_var"* ]] && return 0
 
-    functions[$fn_name]=$'_cmux_zsh_job_table_saturated && builtin return 0\n'"${functions[$fn_name]}"
+    functions[$fn_name]="builtin local ${saved_var}=\$?
+_cmux_zsh_job_table_saturated && builtin return 0
+_cmux_restore_status \"\$${saved_var}\"
+${functions[$fn_name]}"
 }
 
-_cmux_insert_job_table_guard_after() {
+_cmux_insert_job_table_guard_after_declaration() {
+    builtin emulate -L zsh -o extended_glob -o no_aliases
+
     local fn_name="$1"
-    local needle="$2"
+    local target_name="$2"
     local guard="$3"
     (( $+functions[$fn_name] )) || return 0
 
     local body="${functions[$fn_name]}"
     [[ "$body" == *"$guard"* ]] && return 0
-    [[ "$body" == *"$needle"* ]] || return 0
 
-    functions[$fn_name]="${body/$needle/$needle
-$guard}"
+    local -a lines patched_lines declaration_names
+    lines=("${(@f)body}")
+    local line trimmed declaration candidate
+    local inserted=0
+
+    for line in "${lines[@]}"; do
+        patched_lines+=("$line")
+        (( inserted )) && continue
+
+        trimmed="${line##[[:space:]]#}"
+        [[ "$trimmed" == *"{"* ]] || continue
+
+        declaration="${trimmed%%\{}"
+        declaration="${declaration//\(\)/ }"
+        if [[ "$declaration" == function[[:space:]]* ]]; then
+            declaration="${declaration#function}"
+        fi
+        declaration_names=("${(@z)declaration}")
+
+        for candidate in "${declaration_names[@]}"; do
+            if [[ "$candidate" == "$target_name" ]]; then
+                patched_lines+=("${(@f)guard}")
+                inserted=1
+                break
+            fi
+        done
+    done
+
+    (( inserted )) || return 0
+    functions[$fn_name]="${(F)patched_lines}"
 }
 
 _cmux_patch_ghostty_job_table_guard() {
-    local guard4=$'        _cmux_zsh_job_table_saturated && builtin return 0'
-    local guard6=$'          _cmux_zsh_job_table_saturated && builtin return 0'
+    local guard_precmd=$'        builtin local __cmux__ghostty_precmd_saved_status=$?\n        _cmux_zsh_job_table_saturated && builtin return 0\n        _cmux_restore_status "$__cmux__ghostty_precmd_saved_status"'
+    local guard_preexec=$'        builtin local __cmux__ghostty_preexec_saved_status=$?\n        _cmux_zsh_job_table_saturated && builtin return 0\n        _cmux_restore_status "$__cmux__ghostty_preexec_saved_status"'
+    local guard_zle_init=$'          builtin local __cmux__ghostty_zle_line_init_saved_status=$?\n          _cmux_zsh_job_table_saturated && builtin return 0\n          _cmux_restore_status "$__cmux__ghostty_zle_line_init_saved_status"'
+    local guard_zle_finish=$'          builtin local __cmux__ghostty_zle_line_finish_saved_status=$?\n          _cmux_zsh_job_table_saturated && builtin return 0\n          _cmux_restore_status "$__cmux__ghostty_zle_line_finish_saved_status"'
+    local guard_zle_keymap=$'          builtin local __cmux__ghostty_zle_keymap_select_saved_status=$?\n          _cmux_zsh_job_table_saturated && builtin return 0\n          _cmux_restore_status "$__cmux__ghostty_zle_keymap_select_saved_status"'
 
     # Patch deferred definitions before Ghostty's first precmd installs and
     # invokes its live hook functions.
     if (( $+functions[_ghostty_deferred_init] )); then
-        _cmux_insert_job_table_guard_after _ghostty_deferred_init $'    _ghostty_precmd() {' "$guard4"
-        _cmux_insert_job_table_guard_after _ghostty_deferred_init $'    _ghostty_preexec() {' "$guard4"
-        _cmux_insert_job_table_guard_after _ghostty_deferred_init $'      _ghostty_zle_line_init _ghostty_zle_line_finish _ghostty_zle_keymap_select() {' "$guard6"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_precmd "$guard_precmd"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_preexec "$guard_preexec"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_line_init "$guard_zle_init"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_line_finish "$guard_zle_finish"
+        _cmux_insert_job_table_guard_after_declaration _ghostty_deferred_init _ghostty_zle_keymap_select "$guard_zle_keymap"
     fi
 
     _cmux_prepend_job_table_guard_to_function _ghostty_precmd
@@ -1246,15 +1296,16 @@ _cmux_run_pr_probe_with_timeout() {
 }
 
 _cmux_halt_pr_poll_loop() {
-    if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # Process-group kill: background jobs are process-group leaders, so
-        # negative PID kills the loop + all descendants (gh, sleep) without
-        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
-        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
-    fi
+    local saturated=0
+    _cmux_zsh_job_table_saturated && saturated=1
+
+    # Process-group kill: background jobs are process-group leaders, so
+    # negative PID kills the loop + all descendants (gh, sleep) without
+    # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+    [[ -z "$_CMUX_PR_POLL_PID" || "$saturated" == "1" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
     local signal_path=""
-    signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
-    [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    [[ -z "$signal_path" || "$saturated" == "1" ]] || /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
 }
@@ -1315,10 +1366,12 @@ _cmux_start_pr_poll_loop() {
 }
 
 _cmux_stop_git_head_watch() {
-    if [[ -n "$_CMUX_GIT_HEAD_WATCH_PID" ]]; then
-        kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
-        _CMUX_GIT_HEAD_WATCH_PID=""
-    fi
+    [[ -n "$_CMUX_GIT_HEAD_WATCH_PID" ]] || return 0
+
+    _cmux_zsh_job_table_saturated
+    local saturated=$?
+    (( saturated == 0 )) || kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
+    _CMUX_GIT_HEAD_WATCH_PID=""
 }
 
 _cmux_start_git_head_watch() {
@@ -1410,6 +1463,9 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
+    local cmd="${1## }"
+    _cmux_halt_pr_poll_loop
+    _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0
 
     _cmux_normalize_claude_config_dir
@@ -1417,7 +1473,6 @@ _cmux_preexec() {
         _cmux_restore_terminal_identity_after_startup
     fi
     _cmux_tmux_sync_cmux_environment
-    local cmd="${1## }"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -1440,8 +1495,6 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick command
-    _cmux_halt_pr_poll_loop
-    _cmux_stop_git_head_watch
     if _cmux_command_starts_nested_shell "$cmd"; then
         return 0
     fi
@@ -1450,13 +1503,17 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    # Handle cases where Ghostty integration initializes after this file. This
+    # is pure function-body patching, so it remains safe under job saturation.
+    _cmux_patch_ghostty_job_table_guard
+    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
+    _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0
 
     _cmux_normalize_claude_config_dir
     if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
     fi
-    _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -1467,10 +1524,6 @@ _cmux_precmd() {
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
-
-    # Handle cases where Ghostty integration initializes after this file.
-    _cmux_patch_ghostty_job_table_guard
-    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
