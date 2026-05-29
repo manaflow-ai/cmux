@@ -8,6 +8,18 @@ import XCTest
 #endif
 
 final class SidebarWorkspaceDropPlannerTests: XCTestCase {
+    func testWorkspaceGroupHeaderDropZoneKeepsUsableCenterAtDefaultHeight() {
+        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 2, rowHeight: 24))
+        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 12, rowHeight: 24))
+        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 22, rowHeight: 24))
+    }
+
+    func testWorkspaceGroupHeaderDropZoneKeepsCenterAtCompactHeight() {
+        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 2, rowHeight: 20))
+        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 10, rowHeight: 20))
+        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 18, rowHeight: 20))
+    }
+
     func testWorkspaceDropCenterTargetsExistingWorkspace() {
         let first = UUID()
         let second = UUID()

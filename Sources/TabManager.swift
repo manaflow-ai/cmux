@@ -6576,7 +6576,9 @@ class TabManager: ObservableObject {
                 desiredIds.append(id)
             }
         }
-        normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
+        normalizeWorkspaceGroupContiguity(
+            preservingTopLevelIds: topLevelWorkspaceIdsPreservingOrder(desiredIds)
+        )
         if workspaceGroups.contains(where: { $0.id == groupId }) {
             syncWorkspaceGroupsOrderToAnchorOrder()
         }
@@ -6712,6 +6714,36 @@ class TabManager: ObservableObject {
            let group = groupsById[groupId],
            let groupIndex = ids.firstIndex(of: group.anchorWorkspaceId) {
             ids.insert(promotedWorkspaceId, at: min(groupIndex + 1, ids.count))
+        }
+        return ids
+    }
+
+    private func topLevelWorkspaceIdsPreservingOrder(_ desiredIds: [UUID]) -> [UUID] {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        var emittedWorkspaceIds = Set<UUID>()
+        var emittedGroupIds = Set<UUID>()
+        var ids: [UUID] = []
+        ids.reserveCapacity(tabs.count)
+
+        func appendTopLevelId(for id: UUID) {
+            guard let tab = tabsById[id],
+                  emittedWorkspaceIds.insert(tab.id).inserted else { return }
+            if let groupId = tab.groupId,
+               let group = groupsById[groupId] {
+                if emittedGroupIds.insert(groupId).inserted {
+                    ids.append(group.anchorWorkspaceId)
+                }
+            } else {
+                ids.append(tab.id)
+            }
+        }
+
+        for id in desiredIds {
+            appendTopLevelId(for: id)
+        }
+        for tab in tabs where !emittedWorkspaceIds.contains(tab.id) {
+            appendTopLevelId(for: tab.id)
         }
         return ids
     }

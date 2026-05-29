@@ -138,6 +138,28 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let firstPinnedId = try #require(manager.createWorkspaceGroup(name: "Pinned A", childWorkspaceIds: [originalIds[1]]))
+        manager.toggleWorkspaceGroupPinned(groupId: firstPinnedId)
+        let secondPinnedId = try #require(manager.createWorkspaceGroup(name: "Pinned B", childWorkspaceIds: [originalIds[2]]))
+        manager.toggleWorkspaceGroupPinned(groupId: secondPinnedId)
+
+        let newGroupId = try #require(manager.createWorkspaceGroup(name: "Unpinned", childWorkspaceIds: [originalIds[1]]))
+        let newGroup = try #require(manager.workspaceGroups.first { $0.id == newGroupId })
+        let pinnedGroupIds = Set(manager.workspaceGroups.filter(\.isPinned).map(\.id))
+        let lastPinnedIndex = try #require(manager.tabs.lastIndex { tab in
+            tab.groupId.map { pinnedGroupIds.contains($0) } ?? false
+        })
+        let newGroupIndex = try #require(manager.tabs.firstIndex { $0.id == newGroup.anchorWorkspaceId })
+
+        #expect(newGroupIndex > lastPinnedIndex)
+    }
+
     @Test func movingGroupedChildToTopKeepsAnchorFirstWhenGroupIsAlreadyFirst() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

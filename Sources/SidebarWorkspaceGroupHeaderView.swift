@@ -258,6 +258,15 @@ struct SidebarWorkspaceGroupHeaderView: View {
     }
 }
 
+enum SidebarWorkspaceGroupHeaderDropZone {
+    static func isCenterDrop(locationY: CGFloat, rowHeight: CGFloat) -> Bool {
+        let height = max(rowHeight, 1)
+        let edgeBand = min(max(height * 0.25, 4), height * 0.4)
+        let y = min(max(locationY, 0), height)
+        return y > edgeBand && y < height - edgeBand
+    }
+}
+
 @MainActor
 struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     let targetGroupId: UUID
@@ -321,9 +330,9 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
               group.anchorWorkspaceId == targetAnchorWorkspaceId else {
             return false
         }
-        let rowHeight = max(targetRowHeight ?? 1, 1)
-        let edgeBand = min(max(rowHeight * 0.25, 10), rowHeight / 2)
-        let y = min(max(info.location.y, 0), rowHeight)
-        return y > edgeBand && y < rowHeight - edgeBand
+        return SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(
+            locationY: info.location.y,
+            rowHeight: targetRowHeight ?? 1
+        )
     }
 }
