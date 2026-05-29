@@ -1642,6 +1642,10 @@ function AddContextMenuSwitchItem({
   label: string;
   onSelect: () => void;
 }) {
+  const state = checked ? "checked" : "unchecked";
+  const trackClass = checked
+    ? "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full bg-token-charts-blue transition-colors duration-200 ease-out"
+    : "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full bg-token-foreground/10 transition-colors duration-200 ease-out";
   return h(
     "button",
     {
@@ -1662,7 +1666,15 @@ function AddContextMenuSwitchItem({
         { className: "flex min-w-0 items-center gap-2" },
         h("span", { className: "add-context-item-label min-w-0 truncate" }, label),
       ),
-      h("span", { className: "add-context-switch", "data-checked": checked ? "true" : "false", "aria-hidden": true }),
+      h(
+        "span",
+        { className: trackClass, "data-state": state, "aria-hidden": true },
+        h("span", {
+          className:
+            "h-3 w-3 rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out data-[state=unchecked]:translate-x-[2px] data-[state=checked]:translate-x-[14px]",
+          "data-state": state,
+        }),
+      ),
     ),
   );
 }

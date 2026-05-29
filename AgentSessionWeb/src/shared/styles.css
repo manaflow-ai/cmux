@@ -1579,38 +1579,6 @@ img.ProseMirror-separator {
   background: var(--color-token-menu-border);
 }
 
-.add-context-switch {
-  position: relative;
-  width: 28px;
-  height: 16px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-token-foreground) 10%, transparent);
-  transition: background 200ms ease-out;
-}
-
-.add-context-switch::after {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 1px solid var(--gray-0);
-  background: var(--gray-0);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 24%);
-  content: "";
-  transition: transform 200ms ease-out;
-}
-
-.add-context-switch[data-checked="true"] {
-  background: var(--color-token-charts-blue);
-}
-
-.add-context-switch[data-checked="true"]::after {
-  transform: translateX(14px);
-}
-
 .provider-select {
   position: absolute;
   inset: 0;
