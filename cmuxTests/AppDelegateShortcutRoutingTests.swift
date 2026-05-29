@@ -1069,8 +1069,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         defer {
-            window.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            closeWindow(withId: windowId)
         }
 
         window.makeKeyAndOrderFront(nil)

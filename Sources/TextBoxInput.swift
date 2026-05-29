@@ -2924,6 +2924,10 @@ private final class TextBoxSubmitEventRunner {
             timeoutSeconds: Self.waitTimeoutSeconds,
             onExhausted: onExhausted
         )
+        guard Self.active[id] === self,
+              observationToken == token else {
+            return nil
+        }
 
         @MainActor
         func checkIfCurrent() {
@@ -3009,6 +3013,13 @@ private final class TextBoxSubmitEventRunner {
         onExhausted: (@MainActor () -> Void)?
     ) {
         waitTimeoutTimer?.cancel()
+        guard timeoutSeconds > 0 else {
+#if DEBUG
+            cmuxDebugLog("textbox.submit.wait.timeout.immediate id=\(id.uuidString.prefix(5))")
+#endif
+            onExhausted?()
+            return
+        }
         let timer = DispatchSource.makeTimerSource(queue: .main)
         waitTimeoutTimer = timer
         timer.schedule(deadline: .now() + timeoutSeconds)
