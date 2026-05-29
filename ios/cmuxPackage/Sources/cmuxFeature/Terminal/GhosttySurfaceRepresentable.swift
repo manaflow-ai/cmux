@@ -11,6 +11,7 @@ import UIKit
 /// no snapshot rehydration, no cell-by-cell SwiftUI tree.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
+    let activeSurfaceID: String?
     let store: CMUXMobileShellStore
     let fontSize: Float32
 
@@ -61,7 +62,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     #if DEBUG
     private func configureTestingAccessibility(for uiView: UIView) {
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
-        surfaceView.setTestingAccessibilityActive(store.selectedTerminalID?.rawValue == surfaceID)
+        surfaceView.setTestingAccessibilityActive(activeSurfaceID == surfaceID)
     }
     #endif
 

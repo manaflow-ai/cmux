@@ -714,8 +714,9 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         backgroundColor = .black
         isOpaque = true
         #if DEBUG
-        accessibilityIdentifier = "MobileTerminalSurface"
-        isAccessibilityElement = true
+        accessibilityIdentifier = nil
+        isAccessibilityElement = false
+        accessibilityElementsHidden = true
         #endif
         addSubview(snapshotFallbackView)
         addSubview(inputProxy)
@@ -1449,6 +1450,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func setTestingAccessibilityActive(_ active: Bool) {
         isAccessibilityElement = active
+        accessibilityElementsHidden = !active
         accessibilityIdentifier = active ? "MobileTerminalSurface" : nil
         if active {
             updateTestingAccessibilityState()

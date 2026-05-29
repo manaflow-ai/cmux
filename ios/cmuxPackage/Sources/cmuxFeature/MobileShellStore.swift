@@ -1378,6 +1378,8 @@ public final class CMUXMobileShellStore {
         clearActiveConnectionContext()
         replaceRemoteClient(with: nil)
         rawTerminalInputBuffer.clear()
+        terminalReplayGatesBySurfaceID.removeAll()
+        terminalReplayCompletedSurfaceIDs.removeAll()
     }
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
@@ -1670,23 +1672,24 @@ public final class CMUXMobileShellStore {
     /// producing the same grid by construction.
     private var terminalByteSinksBySurfaceID: [String: (Data) -> Void] = [:]
     private var terminalReplayGatesBySurfaceID: [String: MobileTerminalReplayGate] = [:]
+    private var terminalReplayCompletedSurfaceIDs: Set<String> = []
 
     public func registerTerminalByteSink(
         surfaceID: String,
         sink: @escaping (Data) -> Void
     ) {
         terminalByteSinksBySurfaceID[surfaceID] = sink
-        let replayRequestID = UUID()
-        terminalReplayGatesBySurfaceID[surfaceID] = MobileTerminalReplayGate(requestID: replayRequestID)
+        terminalReplayCompletedSurfaceIDs.remove(surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
-        requestTerminalReplay(surfaceID: surfaceID, requestID: replayRequestID)
+        requestTerminalReplayIfNeeded(surfaceID: surfaceID)
     }
 
     public func unregisterTerminalByteSink(surfaceID: String) {
         terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayGatesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayCompletedSurfaceIDs.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -1765,6 +1768,23 @@ public final class CMUXMobileShellStore {
     /// connection, so they are buffered by `MobileTerminalReplayGate` until the
     /// replay end sequence is known. Bytes already covered by replay are then
     /// dropped before the remaining live tail is fed into libghostty.
+    private func requestTerminalReplayIfNeeded(surfaceID: String) {
+        guard terminalByteSinksBySurfaceID[surfaceID] != nil,
+              terminalReplayGatesBySurfaceID[surfaceID] == nil,
+              !terminalReplayCompletedSurfaceIDs.contains(surfaceID) else {
+            return
+        }
+        let replayRequestID = UUID()
+        terminalReplayGatesBySurfaceID[surfaceID] = MobileTerminalReplayGate(requestID: replayRequestID)
+        requestTerminalReplay(surfaceID: surfaceID, requestID: replayRequestID)
+    }
+
+    private func requestTerminalReplayForRegisteredSinks() {
+        for surfaceID in terminalByteSinksBySurfaceID.keys {
+            requestTerminalReplayIfNeeded(surfaceID: surfaceID)
+        }
+    }
+
     private func requestTerminalReplay(surfaceID: String, requestID: UUID) {
         guard let client = remoteClient else {
             #if DEBUG
@@ -1866,6 +1886,7 @@ public final class CMUXMobileShellStore {
             return
         }
         terminalReplayGatesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayCompletedSurfaceIDs.insert(surfaceID)
         emitTerminalByteSegments(
             surfaceID: surfaceID,
             segments: replayGate.finishReplay(replayEndSeq: replayEndSeq, replayData: replayData)
@@ -1922,6 +1943,9 @@ public final class CMUXMobileShellStore {
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false
     ) {
+        defer {
+            requestTerminalReplayForRegisteredSinks()
+        }
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         if mergeExistingWorkspaces {
             var mergedWorkspaces = workspaces

@@ -2107,6 +2107,7 @@ struct WorkspaceDetailView: View {
             if let terminalID = selectedTerminal?.id.rawValue {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
+                    activeSurfaceID: selectedTerminal?.id.rawValue,
                     store: store,
                     fontSize: 16
                 )
