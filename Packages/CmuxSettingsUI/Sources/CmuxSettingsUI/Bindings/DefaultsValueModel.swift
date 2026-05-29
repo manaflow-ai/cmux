@@ -37,12 +37,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     public init(store: UserDefaultsSettingsStore, key: DefaultsKey<Value>) {
         self.store = store
         self.key = key
-        // Seed from the actual stored value (synchronous, thread-safe
-        // read) so a freshly constructed model shows the real current
-        // value immediately rather than the key default. This is a read,
-        // not a write-ahead-of-storage; the stream is the only writer of
-        // `current` after construction.
-        self.current = store.currentValue(for: key)
+        // Seed with the key default; the observation stream's first
+        // element (the actual stored value) lands immediately after and
+        // is the sole writer of `current` thereafter.
+        self.current = key.defaultValue
         Task { [weak self, store, key] in
             for await value in store.values(for: key) {
                 guard let self else { return }
