@@ -3301,6 +3301,10 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
+    func testCanaryThisShouldAlwaysFailIfTestsAreRunning() {
+        XCTFail("canary: if you see this fail in CI, the test class IS executing; if you do not, the harness skipped it")
+    }
+
     func testReopenLegacyStackDropsSnapshotWhenOriginalWorkspaceIsGone() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
