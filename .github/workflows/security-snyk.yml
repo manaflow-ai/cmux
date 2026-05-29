@@ -34,15 +34,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Bun
-        if: env.SNYK_TOKEN_PRESENT == 'true'
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install web dependencies
-        if: env.SNYK_TOKEN_PRESENT == 'true'
-        working-directory: web
-        run: bun install --frozen-lockfile
-
       - name: Setup Snyk
         if: env.SNYK_TOKEN_PRESENT == 'true'
         uses: snyk/actions/setup@8e119fbb6c251787721d34ba683ed48eba792766 # master
@@ -69,6 +60,15 @@ jobs:
         with:
           sarif_file: snyk-code.sarif
           category: snyk-code-swift
+
+      - name: Setup Bun
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install web dependencies
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        working-directory: web
+        run: bun install --frozen-lockfile
 
       - name: Snyk Open Source scan
         if: env.SNYK_TOKEN_PRESENT == 'true'
