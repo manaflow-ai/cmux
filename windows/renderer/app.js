@@ -44,6 +44,7 @@ const state = {
   pendingRender: false,
   pendingRenderPrevious: null,
   terminalAppearanceFrame: 0,
+  appliedSettingsSignature: "",
   settings: initialSettings,
   settingsCategory: "quick",
   settingsQuery: "",
@@ -193,7 +194,28 @@ function formatLineHeight(value) {
   return Number(value).toFixed(2);
 }
 
+function settingsRenderSignature(settings = state.settings) {
+  return [
+    settings.theme,
+    settings.accent,
+    settings.backgroundImage,
+    settings.backgroundOpacity,
+    settings.density,
+    settings.toolbarMode,
+    settings.showTabs,
+    settings.showStatusbar,
+    settings.showAdvanced,
+    settings.performanceMode,
+    settings.sidebarWidth,
+    settings.terminalFontFamily,
+    settings.terminalPadding
+  ].join("\u001f");
+}
+
 function applySettings() {
+  const signature = settingsRenderSignature();
+  if (state.appliedSettingsSignature === signature) return false;
+  state.appliedSettingsSignature = signature;
   document.body.classList.remove(...themeOptions.filter(([id]) => id !== "cmux").map(([id]) => `theme-${id}`));
   if (state.settings.theme !== "cmux") document.body.classList.add(`theme-${state.settings.theme}`);
   document.documentElement.style.setProperty("--color-accent", state.settings.accent);
@@ -213,6 +235,7 @@ function applySettings() {
   elements.shell.classList.toggle("has-background", css !== "none");
   elements.shell.style.setProperty("--background-image", css);
   elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
+  return true;
 }
 
 function updateSettings(updates) {
