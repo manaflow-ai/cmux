@@ -153,7 +153,7 @@ public struct CMUXSidebarHostClient: Sendable {
 
 public enum CMUXExtensionValidationError: Error, Equatable, Sendable {
     case unsupportedKind(CMUXExtensionKind)
-    case unsupportedMajorVersion(requested: Int, supported: Int)
+    case unsupportedAPIVersion(requested: CMUXExtensionAPIVersion, supported: CMUXExtensionAPIVersion)
     case emptyIdentifier
     case emptyDisplayName
 }
@@ -172,10 +172,10 @@ public enum CMUXExtensionValidator {
         guard manifest.kind == .sidebar else {
             throw CMUXExtensionValidationError.unsupportedKind(manifest.kind)
         }
-        guard manifest.minimumAPIVersion.major == supportedAPIVersion.major else {
-            throw CMUXExtensionValidationError.unsupportedMajorVersion(
-                requested: manifest.minimumAPIVersion.major,
-                supported: supportedAPIVersion.major
+        guard manifest.minimumAPIVersion <= supportedAPIVersion else {
+            throw CMUXExtensionValidationError.unsupportedAPIVersion(
+                requested: manifest.minimumAPIVersion,
+                supported: supportedAPIVersion
             )
         }
     }

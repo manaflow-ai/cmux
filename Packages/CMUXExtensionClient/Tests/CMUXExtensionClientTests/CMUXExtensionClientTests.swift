@@ -1,8 +1,11 @@
 import CmuxExtensionKit
-import XCTest
+import Foundation
+import Testing
 @testable import CMUXExtensionClient
 
-final class CMUXExtensionClientTests: XCTestCase {
+@Suite
+struct CMUXExtensionClientTests {
+    @Test
     func testRegistrySortsAndRejectsDuplicates() throws {
         let first = CMUXSidebarExtensionRecord(
             manifest: CMUXExtensionManifest(id: "b", displayName: "Browser Stack"),
@@ -14,18 +17,23 @@ final class CMUXExtensionClientTests: XCTestCase {
         )
 
         let registry = try CMUXSidebarExtensionRegistry(records: [first, second])
-        XCTAssertEqual(registry.records.map(\.id), ["a", "b"])
+        #expect(registry.records.map(\.id) == ["a", "b"])
 
-        XCTAssertThrowsError(try CMUXSidebarExtensionRegistry(records: [first, first])) { error in
-            XCTAssertEqual(error as? CMUXExtensionClientError, .duplicateExtensionIdentifier("b"))
+        do {
+            _ = try CMUXSidebarExtensionRegistry(records: [first, first])
+            Issue.record("Expected duplicate extension identifier error")
+        } catch {
+            #expect(error as? CMUXExtensionClientError == .duplicateExtensionIdentifier("b"))
         }
     }
 
+    @Test
     func testSidebarExtensionPointUsesStablePublicIdentifiers() {
-        XCTAssertEqual(CMUXSidebarExtensionPoint.identifier, "com.manaflow.cmux.sidebar")
-        XCTAssertEqual(CMUXSidebarExtensionPoint.defaultSceneID, "sidebar")
+        #expect(CMUXSidebarExtensionPoint.identifier == "com.manaflow.cmux.sidebar")
+        #expect(CMUXSidebarExtensionPoint.defaultSceneID == "sidebar")
     }
 
+    @Test
     func testSessionRefreshesSnapshotAndDispatchesActions() async throws {
         let workspaceID = UUID()
         let snapshot = CMUXSidebarSnapshot(
@@ -49,12 +57,12 @@ final class CMUXExtensionClientTests: XCTestCase {
         let refreshed = try await session.refreshSnapshot()
         let result = try await session.perform(.selectWorkspace(workspaceID))
 
-        XCTAssertEqual(refreshed, snapshot)
         let cached = await session.cachedSnapshot()
         let actions = await recorder.actions()
-        XCTAssertEqual(cached, snapshot)
-        XCTAssertEqual(result, .accepted)
-        XCTAssertEqual(actions, [.selectWorkspace(workspaceID)])
+        #expect(refreshed == snapshot)
+        #expect(cached == snapshot)
+        #expect(result == .accepted)
+        #expect(actions == [.selectWorkspace(workspaceID)])
     }
 }
 

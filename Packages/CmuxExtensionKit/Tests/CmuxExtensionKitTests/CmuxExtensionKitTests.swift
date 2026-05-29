@@ -1,7 +1,10 @@
-import XCTest
+import Foundation
+import Testing
 @testable import CmuxExtensionKit
 
-final class CMUXExtensionKitTests: XCTestCase {
+@Suite
+struct CMUXExtensionKitTests {
+    @Test
     func testSidebarSnapshotRoundTripsStableContract() throws {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let snapshot = CMUXSidebarSnapshot(
@@ -28,10 +31,11 @@ final class CMUXExtensionKitTests: XCTestCase {
         let encoded = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(CMUXSidebarSnapshot.self, from: encoded)
 
-        XCTAssertEqual(decoded, snapshot)
-        XCTAssertEqual(decoded.apiVersion, .sidebarV1)
+        #expect(decoded == snapshot)
+        #expect(decoded.apiVersion == CMUXExtensionAPIVersion.sidebarV1)
     }
 
+    @Test
     func testManifestValidationAcceptsSidebarV1() throws {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",
@@ -39,20 +43,26 @@ final class CMUXExtensionKitTests: XCTestCase {
             requestedScopes: [.workspaceMetadata, .workspacePaths]
         )
 
-        XCTAssertNoThrow(try CMUXExtensionValidator.validateSidebarManifest(manifest))
+        try CMUXExtensionValidator.validateSidebarManifest(manifest)
     }
 
-    func testManifestValidationRejectsUnsupportedMajorVersion() {
+    @Test
+    func testManifestValidationRejectsUnsupportedAPIVersion() {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",
             displayName: "Example Sidebar",
-            minimumAPIVersion: CMUXExtensionAPIVersion(major: 2, minor: 0)
+            minimumAPIVersion: CMUXExtensionAPIVersion(major: 1, minor: 1)
         )
 
-        XCTAssertThrowsError(try CMUXExtensionValidator.validateSidebarManifest(manifest)) { error in
-            XCTAssertEqual(
-                error as? CMUXExtensionValidationError,
-                .unsupportedMajorVersion(requested: 2, supported: 1)
+        do {
+            try CMUXExtensionValidator.validateSidebarManifest(manifest)
+            Issue.record("Expected unsupported API version error")
+        } catch {
+            #expect(
+                error as? CMUXExtensionValidationError == .unsupportedAPIVersion(
+                    requested: CMUXExtensionAPIVersion(major: 1, minor: 1),
+                    supported: .sidebarV1
+                )
             )
         }
     }
