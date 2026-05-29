@@ -153,34 +153,17 @@ class TerminalController {
         var columns: Int
         var rows: Int
         var updatedAt: Date
-    }
-    private struct MobileTerminalSnapshotCacheEntry {
-        var columns: Int
-        var rows: Int
-        var maxScrollbackRows: Int?
-        var createdAt: Date
-        var payload: [String: Any]
+        /// Sticky reports come from the dedicated `mobile.terminal.viewport`
+        /// RPC and live for the client's connection lifetime (cleared on
+        /// disconnect or surface detach), so an idle paired device keeps its
+        /// viewport border. Non-sticky reports piggyback on `terminal.input`
+        /// and expire on the TTL so a client that only ever typed once does
+        /// not pin the grid forever.
+        var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
-    private static let mobileTerminalSnapshotCacheTTL: TimeInterval = 0.35
-    private static let mobileTerminalSnapshotViewportChurnCacheTTL: TimeInterval = 1.0
-    /// Window after a `mobile.terminal.input` during which we bypass the snapshot cache so
-    /// callers see fresh grid reads as soon as the PTY echo lands. Without this, the first
-    /// post-input snapshot can be built before the echo arrives, then cached for up to the
-    /// cache TTL, making keystroke echo appear to take ~`cacheTTL` seconds. 200 ms covers
-    /// typical PTY/echo settling on a busy host while still letting steady-state polls hit
-    /// the cache once the user stops typing.
-    private static let mobileTerminalSnapshotPendingEchoTTL: TimeInterval = 0.2
-    private static let mobileTerminalVTExportMinimumInterval: TimeInterval = 0.1
-    private static let mobileTerminalSnapshotMaximumScrollbackRows = 0
-    private static let mobileTerminalSnapshotFrameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
-    private static let mobileTerminalSnapshotEstimatedCellByteCount = 128
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
-    private var mobileTerminalSnapshotCacheBySurfaceID: [UUID: MobileTerminalSnapshotCacheEntry] = [:]
-    private var mobileTerminalVTExportLastAttemptBySurfaceID: [UUID: Date] = [:]
-    private var mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID: [UUID: Date] = [:]
-    private var mobileTerminalSnapshotPendingEchoUntilBySurfaceID: [UUID: Date] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
@@ -3402,14 +3385,12 @@ class TerminalController {
             return v2Result(id: id, self.v2MobileWorkspaceList(params: params))
         case "mobile.terminal.create", "terminal.create":
             return v2Result(id: id, self.v2MobileTerminalCreate(params: params))
-        case "mobile.terminal.snapshot":
-            return v2Result(id: id, self.v2MobileTerminalSnapshot(params: params))
-        case "terminal.snapshot":
-            return v2Result(id: id, self.v2MobileTerminalSnapshot(params: params))
         case "mobile.terminal.input", "terminal.input":
             return v2Result(id: id, self.v2MobileTerminalInput(params: params))
-        case "mobile.terminal.key", "terminal.key":
-            return v2Result(id: id, self.v2MobileTerminalKey(params: params))
+        case "mobile.terminal.replay", "terminal.replay":
+            return v2Result(id: id, self.v2MobileTerminalReplay(params: params))
+        case "mobile.terminal.viewport", "terminal.viewport":
+            return v2Result(id: id, self.v2MobileTerminalViewport(params: params))
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
@@ -3886,13 +3867,13 @@ class TerminalController {
             "mobile.attach_ticket.create",
             "mobile.workspace.list",
             "mobile.terminal.create",
-            "mobile.terminal.snapshot",
             "mobile.terminal.input",
-            "mobile.terminal.key",
+            "mobile.terminal.replay",
+            "mobile.terminal.viewport",
             "terminal.create",
-            "terminal.snapshot",
             "terminal.input",
-            "terminal.key",
+            "terminal.replay",
+            "terminal.viewport",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
@@ -9621,168 +9602,6 @@ class TerminalController {
         return output
     }
 
-    private struct MobileTerminalSnapshotText {
-        var text: String
-        var fidelity: String
-    }
-
-    private func readMobileTerminalViewportTextForSnapshot(
-        terminalPanel: TerminalPanel,
-        lineLimit: Int,
-        now: Date
-    ) -> MobileTerminalSnapshotText? {
-        // The row we send MUST be the 45-row active area (POINT_ACTIVE), not
-        // POINT_VIEWPORT, so the cursor row aligns when the Mac user is
-        // scrolled into history. We prefer VT export for ANSI styling, but
-        // tailing the whole-buffer VT stream is unreliable for row alignment
-        // because Ghostty's formatter unwraps wrapped lines. Strategy:
-        //   1. Read plain text from POINT_ACTIVE as the row truth (exactly 45 lines).
-        //   2. Attempt VT export, tail to exactly `lineLimit` lines.
-        //   3. Use VT output only when its plain-stripped form matches the
-        //      POINT_ACTIVE truth; otherwise fall back to plain text active.
-        guard let activeText = readPlainTerminalTextForMobileActiveArea(
-            terminalPanel: terminalPanel
-        ) else {
-            return nil
-        }
-        let activeAligned = padToExactLines(activeText, lines: lineLimit)
-
-        let attemptedVTExport = shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now)
-        if attemptedVTExport,
-           let vtText = readTerminalTextFromVTExportForSnapshot(
-               terminalPanel: terminalPanel,
-               bindingAction: "write_active_file:copy,vt",
-               lineLimit: lineLimit
-           ) {
-            // VT export from write_active_file emits ANSI-styled rows for
-            // exactly the active area (45 rows) — the same region that
-            // Ghostty's `terminal.screens.active.cursor.y` is anchored on.
-            // So VT row index N and cursor.row N reference the same line
-            // by construction; we don't need a row-by-row equality check
-            // against POINT_ACTIVE. Pad to lineLimit so any wrap-collapse
-            // by unwrap=true doesn't shrink the array iOS expects.
-            let vtTailed = tailTerminalLines(vtText, maxLines: lineLimit)
-            let vtAligned = padToExactLines(vtTailed, lines: lineLimit)
-            #if DEBUG
-            // Keep the comparator + log around for diagnostics: it lets us
-            // see whether VT and POINT_ACTIVE drift when the cursor looks
-            // wrong on iOS. We ship VT regardless.
-            let vtPlainAligned = padToExactLines(Self.mobilePlainTerminalText(vtAligned), lines: lineLimit)
-            if !Self.rowsMatchIgnoringTrailingWhitespace(vtPlainAligned, activeAligned) {
-                Self.logVTAlignmentMismatch(vtPlain: vtPlainAligned, active: activeAligned, lineLimit: lineLimit)
-            }
-            #endif
-            return MobileTerminalSnapshotText(text: vtAligned, fidelity: "ansi_vt")
-        }
-        return MobileTerminalSnapshotText(text: activeAligned, fidelity: "plain_text")
-    }
-
-    #if DEBUG
-    private static func logVTAlignmentMismatch(vtPlain: String, active: String, lineLimit: Int) {
-        let vtRows = vtPlain.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let activeRows = active.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        cmuxDebugLog("vtAlignFail rows vt=\(vtRows.count) active=\(activeRows.count) limit=\(lineLimit)")
-        for i in 0..<max(vtRows.count, activeRows.count) {
-            let v = i < vtRows.count ? vtRows[i] : "<missing>"
-            let a = i < activeRows.count ? activeRows[i] : "<missing>"
-            if Self.trimmedTrailingSpaces(Substring(v)) != Self.trimmedTrailingSpaces(Substring(a)) {
-                cmuxDebugLog("vtAlignFail row \(i): vt=\(v.prefix(80)) | active=\(a.prefix(80))")
-                if i >= 4 { return }
-            }
-        }
-    }
-    #endif
-
-    /// Per-row equality with trailing-whitespace tolerance. VT export's
-    /// formatter trims to the last non-space cell on each row while
-    /// POINT_ACTIVE pads to grid width with spaces, so a strict `==` would
-    /// fail even when the user-visible content lines up. We accept the VT
-    /// stream as long as the row count matches and each row matches modulo
-    /// trailing whitespace.
-    private static func rowsMatchIgnoringTrailingWhitespace(_ lhs: String, _ rhs: String) -> Bool {
-        let lhsRows = lhs.split(separator: "\n", omittingEmptySubsequences: false)
-        let rhsRows = rhs.split(separator: "\n", omittingEmptySubsequences: false)
-        guard lhsRows.count == rhsRows.count else { return false }
-        for index in 0..<lhsRows.count {
-            let left = trimmedTrailingSpaces(lhsRows[index])
-            let right = trimmedTrailingSpaces(rhsRows[index])
-            if left != right { return false }
-        }
-        return true
-    }
-
-    private static func trimmedTrailingSpaces(_ slice: Substring) -> Substring {
-        var end = slice.endIndex
-        while end > slice.startIndex {
-            let prev = slice.index(before: end)
-            let scalar = slice[prev]
-            if scalar == " " || scalar == "\u{0009}" {
-                end = prev
-            } else {
-                break
-            }
-        }
-        return slice[slice.startIndex..<end]
-    }
-
-    private func readPlainTerminalTextForMobileActiveArea(
-        terminalPanel: TerminalPanel
-    ) -> String? {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileActiveAreaText") != nil else {
-            return nil
-        }
-        return readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
-    }
-
-    private func padToExactLines(_ text: String, lines: Int) -> String {
-        guard lines > 0 else { return "" }
-        let normalized = terminalTextDroppingFinalLineTerminator(text)
-        var split = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if split.count > lines {
-            split = Array(split.suffix(lines))
-        } else {
-            while split.count < lines { split.append("") }
-        }
-        return split.joined(separator: "\n")
-    }
-
-    private func shouldAttemptMobileTerminalVTExport(surfaceID: UUID, now: Date) -> Bool {
-        if let lastAttempt = mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID],
-           now.timeIntervalSince(lastAttempt) < Self.mobileTerminalVTExportMinimumInterval {
-            return false
-        }
-        mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = now
-        return true
-    }
-
-#if DEBUG
-    func debugRecordMobileTerminalVTExportAttemptForTesting(surfaceID: UUID, now: Date) {
-        mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = now
-    }
-
-    func debugInvalidateMobileTerminalSnapshotAfterInputForTesting(surfaceID: UUID) {
-        invalidateMobileTerminalSnapshotAfterInput(surfaceID: surfaceID)
-    }
-
-    func debugShouldAttemptMobileTerminalVTExportForTesting(surfaceID: UUID, now: Date) -> Bool {
-        shouldAttemptMobileTerminalVTExport(surfaceID: surfaceID, now: now)
-    }
-
-    func debugSetMobileTerminalSnapshotPendingEchoUntilForTesting(surfaceID: UUID, deadline: Date?) {
-        if let deadline {
-            mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = deadline.addingTimeInterval(-Self.mobileTerminalSnapshotPendingEchoTTL)
-            mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = deadline
-        } else {
-            mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = nil
-            mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = nil
-        }
-    }
-
-    func debugMobileTerminalSnapshotPendingEchoForTesting(surfaceID: UUID, now: Date) -> Bool {
-        return mobileTerminalSnapshotPendingEcho(surfaceID: surfaceID, now: now)
-    }
-#endif
-
     private func readPlainTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
@@ -11898,14 +11717,9 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
+
         if BrowserAvailabilitySettings.isDisabled() {
-            if v2IsDiffViewerURL(url) {
-                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
-            }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
-        }
-        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
-            return error
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -11957,8 +11771,6 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
-            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -11968,10 +11780,7 @@ class TerminalController {
                     inPane: targetPane,
                     url: url,
                     focus: focus,
-                    selectWhenNotFocused: true,
-                    creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
-                    bypassRemoteProxy: bypassRemoteProxy
+                    creationPolicy: .automationPreload
                 )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -11981,9 +11790,7 @@ class TerminalController {
                     orientation: .horizontal,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload,
-                    omnibarVisible: omnibarVisible,
-                    bypassRemoteProxy: bypassRemoteProxy
+                    creationPolicy: .automationPreload
                 )
             }
 
@@ -12010,52 +11817,10 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
-                "placement_strategy": placementStrategy,
-                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
-                "bypass_remote_proxy": bypassRemoteProxy
+                "placement_strategy": placementStrategy
             ])
         }
         return result
-    }
-
-    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
-    }
-
-    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
-        guard let url,
-              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
-            return nil
-        }
-        guard let token = v2String(params, "diff_viewer_token"),
-              token == url.host,
-              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
-              !rawFiles.isEmpty,
-              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
-            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
-        guard files.count == rawFiles.count else {
-            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        do {
-            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
-            return nil
-        } catch {
-            return .err(
-                code: "invalid_params",
-                message: "Invalid trusted diff viewer allowlist",
-                data: ["details": error.localizedDescription]
-            )
-        }
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -21164,12 +20929,12 @@ class TerminalController {
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
-        case "mobile.terminal.snapshot", "terminal.snapshot":
-            result = v2MobileTerminalSnapshot(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
-        case "mobile.terminal.key", "terminal.key":
-            result = v2MobileTerminalKey(params: request.params)
+        case "mobile.terminal.replay", "terminal.replay":
+            result = v2MobileTerminalReplay(params: request.params)
+        case "mobile.terminal.viewport", "terminal.viewport":
+            result = v2MobileTerminalViewport(params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -21194,11 +20959,11 @@ class TerminalController {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
-        let capabilities = ["events.v1"]
+        let capabilities = ["events.v1", "terminal.bytes.v1", "terminal.replay.v1", "terminal.viewport.v1"]
         guard includePrivateMetadata else {
             return .ok([
                 "routes": status.routes.map(\.mobileHostJSONObject),
-                "snapshot_fidelity": "plain_text",
+                "terminal_fidelity": "ghostty_bytes",
                 "capabilities": capabilities,
             ])
         }
@@ -21211,7 +20976,7 @@ class TerminalController {
             "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
-            "snapshot_fidelity": "plain_text",
+            "terminal_fidelity": "ghostty_bytes",
             "capabilities": capabilities,
         ])
     }
@@ -21249,11 +21014,12 @@ class TerminalController {
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
             ?? v2OptionalTrimmedRawString(params, "routeKind")
         let scope = v2OptionalTrimmedRawString(params, "scope")
-        let hasExplicitTarget = mobileAttachTicketHasExplicitTarget(params: params)
-        // No explicit target means general device pairing, so default to a
-        // Mac-wide ticket. Scoped tickets are still available for deep links by
-        // passing workspace_id or terminal_id explicitly.
-        let isMacScope = scope?.lowercased() == "mac" || (scope == nil && !hasExplicitTarget)
+        // scope=mac mints a Mac-wide ticket that grants access to every
+        // workspace on the host. Without this, the ticket gets pinned to
+        // the workspace selected at QR-generation time, and tapping any
+        // other workspace from the paired iPhone falls back to Stack
+        // Auth verification, which is brittle on real-world networks.
+        let isMacScope = scope?.lowercased() == "mac"
 
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
@@ -21325,13 +21091,6 @@ class TerminalController {
         }
     }
 
-    private func mobileAttachTicketHasExplicitTarget(params: [String: Any]) -> Bool {
-        v2HasNonNullParam(params, "workspace_id") ||
-            v2HasNonNullParam(params, "surface_id") ||
-            v2HasNonNullParam(params, "terminal_id") ||
-            v2HasNonNullParam(params, "tab_id")
-    }
-
     private func v2MobileWorkspaceList(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager? = nil,
@@ -21381,7 +21140,7 @@ class TerminalController {
                             ?? mobileNonEmpty(terminal.directory)
                             ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
                     ),
-                    "is_ready": terminal.surface.hasLiveSurface,
+                    "is_ready": terminal.surface.surface != nil,
                     "is_focused": terminal.id == workspace.focusedPanelId
                 ]
             }
@@ -21468,11 +21227,7 @@ class TerminalController {
 
     func clearAllMobileViewportReports(reason: String) {
         guard !mobileViewportReportsBySurfaceID.isEmpty ||
-            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty ||
-            !mobileTerminalSnapshotCacheBySurfaceID.isEmpty ||
-            !mobileTerminalVTExportLastAttemptBySurfaceID.isEmpty ||
-            !mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID.isEmpty ||
-            !mobileTerminalSnapshotPendingEchoUntilBySurfaceID.isEmpty else {
+            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
             return
         }
 
@@ -21482,10 +21237,6 @@ class TerminalController {
         let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
         mobileViewportReportsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
-        mobileTerminalSnapshotCacheBySurfaceID.removeAll()
-        mobileTerminalVTExportLastAttemptBySurfaceID.removeAll()
-        mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID.removeAll()
-        mobileTerminalSnapshotPendingEchoUntilBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
             terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
@@ -21585,7 +21336,49 @@ class TerminalController {
         )
     }
 
-    private func v2MobileTerminalSnapshot(params: [String: Any]) -> V2CallResult {
+    private func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            #if DEBUG
+            cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
+            #endif
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
+        let seq = state?.seq ?? 0
+        let data = state?.data ?? Data()
+        #if DEBUG
+        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) bufferBytes=\(data.count) seq=\(seq) hasState=\(state != nil)")
+        #endif
+        var payload: [String: Any] = [
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+            "seq": seq,
+            "data_b64": data.base64EncodedString(),
+        ]
+        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
+            let size = ghostty_surface_size(surface)
+            payload["columns"] = max(Int(size.columns), 1)
+            payload["rows"] = max(Int(size.rows), 1)
+        }
+        return .ok(payload)
+    }
+
+    /// Record (or clear) a paired device's reported terminal grid, recompute
+    /// the smallest grid across all attached devices, cap this surface to it
+    /// (drawing the macOS viewport border when the pane is larger), and return
+    /// the resulting effective grid so the device can pin + letterbox its own
+    /// render to match. This is the iOS/macOS half of the tmux-style shared
+    /// resize: the smallest attached viewport wins and every device shows the
+    /// same cols×rows with a clear border around the live area.
+    private func v2MobileTerminalViewport(params: [String: Any]) -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -21598,19 +21391,28 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        let maxScrollbackRows = v2Int(params, "max_scrollback_rows") ?? v2Int(params, "lines")
-        if let maxScrollbackRows, maxScrollbackRows < 0 {
-            return .err(code: "invalid_params", message: "max_scrollback_rows must be non-negative", data: nil)
+        if v2Bool(params, "clear") == true {
+            if let clientID = v2String(params, "client_id") {
+                clearMobileViewportReport(
+                    surfaceID: terminalPanel.id,
+                    clientID: clientID,
+                    reason: "mobile.terminal.viewport.clear"
+                )
+            }
+        } else {
+            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true)
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
-        return mobileTerminalSnapshotPayload(
-            params: params,
-            workspace: resolved.workspace,
-            terminalPanel: terminalPanel,
-            maxScrollbackRows: maxScrollbackRows
-        )
+        var payload: [String: Any] = [
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ]
+        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
+            let size = ghostty_surface_size(surface)
+            payload["columns"] = max(Int(size.columns), 1)
+            payload["rows"] = max(Int(size.rows), 1)
+        }
+        return .ok(payload)
     }
 
     private func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
@@ -21635,7 +21437,6 @@ class TerminalController {
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
         let sendResult = terminalPanel.surface.sendInputResult(text)
-        invalidateMobileTerminalSnapshotAfterInput(surfaceID: terminalPanel.id)
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
@@ -21661,86 +21462,10 @@ class TerminalController {
         ])
     }
 
-    private func v2MobileTerminalKey(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key"), !key.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
-        #if DEBUG
-        let sendStart = ProcessInfo.processInfo.systemUptime
-        #endif
-        let sendResult = terminalPanel.sendNamedKeyResult(key)
-        invalidateMobileTerminalSnapshotAfterInput(surfaceID: terminalPanel.id)
-        switch sendResult {
-        case .sent:
-            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalKey")
-        case .queued:
-            break
-        case .unknownKey:
-            return .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
-        case .inputQueueFull:
-            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
-        case .surfaceUnavailable:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
-        case .processExited:
-            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
-        }
-        #if DEBUG
-        let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
-        cmuxDebugLog(
-            "mobile.terminal.key workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) key=\(key) queued=\(sendResult == .queued ? 1 : 0) ms=\(String(format: "%.2f", sendMs))"
-        )
-        #endif
-        return .ok([
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString,
-            "queued": sendResult == .queued,
-        ])
-    }
-
-    private func invalidateMobileTerminalSnapshotAfterInput(surfaceID: UUID) {
-        let now = Date()
-        mobileTerminalSnapshotCacheBySurfaceID[surfaceID] = nil
-        mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = nil
-        mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = now
-        mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = now.addingTimeInterval(Self.mobileTerminalSnapshotPendingEchoTTL)
-        // Notify subscribed mobile clients so they can fetch a fresh snapshot
-        // without polling. Old clients without events.v1 capability fall back
-        // to their 750ms refresh loop.
-        MobileHostService.shared.emitEvent(
-            topic: "terminal.updated",
-            payload: ["surface_id": surfaceID.uuidString]
-        )
-    }
-
-    private func mobileTerminalSnapshotPendingEcho(surfaceID: UUID, now: Date) -> Bool {
-        guard let deadline = mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] else {
-            return false
-        }
-        if deadline > now {
-            return true
-        }
-        mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[surfaceID] = nil
-        mobileTerminalSnapshotPendingEchoUntilBySurfaceID[surfaceID] = nil
-        return false
-    }
-
     private func applyMobileViewportReport(
         params: [String: Any],
-        terminalPanel: TerminalPanel
+        terminalPanel: TerminalPanel,
+        sticky: Bool = false
     ) {
         guard let clientID = v2String(params, "client_id"),
               let rawColumns = v2Int(params, "viewport_columns"),
@@ -21753,12 +21478,13 @@ class TerminalController {
         let now = Date()
         var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
         reports = reports.filter { _, report in
-            now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+            report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
-            updatedAt: now
+            updatedAt: now,
+            sticky: sticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
         scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
@@ -21770,8 +21496,49 @@ class TerminalController {
         terminalPanel.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
-            reason: "mobile.terminal.snapshot"
+            reason: "mobile.terminal.input"
         )
+    }
+
+    /// Remove a single client's viewport report for a surface (dedicated
+    /// `mobile.terminal.viewport` clear, or a disconnect), then recompute the
+    /// remaining min and re-apply or clear the surface's viewport limit so the
+    /// macOS border reflects only the devices still attached.
+    private func clearMobileViewportReport(surfaceID: UUID, clientID: String, reason: String) {
+        guard var reports = mobileViewportReportsBySurfaceID[surfaceID],
+              reports.removeValue(forKey: clientID) != nil else {
+            return
+        }
+        if reports.isEmpty {
+            mobileViewportReportsBySurfaceID[surfaceID] = nil
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            return
+        }
+        mobileViewportReportsBySurfaceID[surfaceID] = reports
+        scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
+        if let minColumns = reports.values.map(\.columns).min(),
+           let minRows = reports.values.map(\.rows).min() {
+            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+                columns: minColumns,
+                rows: minRows,
+                reason: reason
+            )
+        }
+    }
+
+    /// Drop every viewport report owned by the given client IDs across all
+    /// surfaces. Called when a mobile connection closes so a disconnected
+    /// device stops pinning the grid even though it never sent an explicit
+    /// clear. Sticky reports rely on this signal instead of the TTL.
+    func clearMobileViewportReports(clientIDs: Set<String>, reason: String) {
+        guard !clientIDs.isEmpty else { return }
+        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
+            for clientID in clientIDs {
+                clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
+            }
+        }
     }
 
     private func scheduleMobileViewportReportCleanup(
@@ -21779,7 +21546,10 @@ class TerminalController {
         reports: [String: MobileViewportReport]
     ) {
         mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+        // Sticky reports live for the connection lifetime, so they never drive
+        // a TTL timer; only non-sticky (input-piggyback) reports expire.
         guard let nextExpiry = reports.values
+            .filter({ !$0.sticky })
             .map({ $0.updatedAt.addingTimeInterval(Self.mobileViewportReportTTL) })
             .min() else {
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
@@ -21807,7 +21577,7 @@ class TerminalController {
         }
 
         reports = reports.filter { _, report in
-            now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
+            report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
 
         guard !reports.isEmpty else {
@@ -21828,319 +21598,6 @@ class TerminalController {
             )
         }
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
-    }
-
-    private func mobileTerminalSnapshotPayload(
-        params: [String: Any],
-        workspace: Workspace,
-        terminalPanel: TerminalPanel,
-        maxScrollbackRows: Int?
-    ) -> V2CallResult {
-        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalSnapshot") else {
-            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            return .err(code: "not_ready", message: "Terminal surface is not ready", data: [
-                "surface_id": terminalPanel.id.uuidString
-            ])
-        }
-
-        let size = ghostty_surface_size(surface)
-        let columns = max(Int(size.columns), 1)
-        let rows = max(Int(size.rows), 1)
-        let safeMaxScrollbackRows = Self.mobileTerminalSnapshotScrollbackRows(
-            requestedRows: maxScrollbackRows,
-            columns: columns,
-            visibleRows: rows
-        )
-        let now = Date()
-        let pendingEcho = mobileTerminalSnapshotPendingEcho(surfaceID: terminalPanel.id, now: now)
-
-        if let cached = mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id],
-           Self.canReuseMobileTerminalSnapshotCache(
-               cached: cached,
-               pendingEcho: pendingEcho,
-               pendingEchoStartedAt: mobileTerminalSnapshotPendingEchoStartedAtBySurfaceID[terminalPanel.id]
-           ),
-           Self.shouldReuseMobileTerminalSnapshotCache(
-               cached: cached,
-               columns: columns,
-               rows: rows,
-               maxScrollbackRows: safeMaxScrollbackRows,
-               now: now
-           ) {
-            var payload = cached.payload
-            if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
-                payload["viewport_fit"] = viewportFit
-            }
-            return .ok(payload)
-        }
-
-        guard let viewportText = readMobileTerminalViewportTextForSnapshot(
-            terminalPanel: terminalPanel,
-            lineLimit: rows,
-            now: now
-        ) else {
-            return .err(code: "internal_error", message: "Failed to read terminal viewport", data: nil)
-        }
-        let cursor = mobileTerminalCursor(
-            surface: surface,
-            terminalPanel: terminalPanel,
-            columns: columns,
-            rows: rows
-        )
-
-        let scrollbackText: String?
-        let scrollbackFidelity: String?
-        if let safeMaxScrollbackRows, safeMaxScrollbackRows > 0,
-           let combinedText = readPlainTerminalTextForSnapshot(
-               terminalPanel: terminalPanel,
-               includeScrollback: true,
-               lineLimit: safeMaxScrollbackRows + rows
-           ) {
-            let plainViewportText = Self.mobilePlainTerminalText(viewportText.text)
-            scrollbackText = Self.mobileScrollbackText(
-                combinedText: combinedText,
-                viewportText: plainViewportText,
-                maxRows: safeMaxScrollbackRows
-            )
-            scrollbackFidelity = "plain_text"
-        } else {
-            scrollbackText = nil
-            scrollbackFidelity = nil
-        }
-
-        do {
-            let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
-                terminalID: terminalPanel.id.uuidString,
-                columns: columns,
-                rows: rows,
-                scrollbackText: scrollbackText,
-                viewportText: viewportText.text,
-                maxScrollbackRows: safeMaxScrollbackRows,
-                activeScreen: .primary,
-                modes: MobileTerminalGhosttyModes(),
-                cursor: cursor,
-                streamOffset: 0,
-                generatedAt: Date()
-            )
-
-            var payload: [String: Any] = [
-                "workspace_id": workspace.id.uuidString,
-                "surface_id": terminalPanel.id.uuidString,
-                "snapshot": try mobileJSONObject(snapshot),
-                "fidelity": viewportText.fidelity,
-                "scrollback_fidelity": scrollbackFidelity ?? NSNull(),
-                "limitations": mobileTerminalSnapshotLimitations(
-                    viewportFidelity: viewportText.fidelity,
-                    scrollbackFidelity: scrollbackFidelity
-                )
-            ]
-            if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
-                payload["viewport_fit"] = viewportFit
-            }
-            if viewportText.fidelity != "plain_text", !pendingEcho {
-                mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
-                    columns: columns,
-                    rows: rows,
-                    maxScrollbackRows: safeMaxScrollbackRows,
-                    createdAt: now,
-                    payload: payload
-                )
-            }
-            return .ok(payload)
-        } catch {
-            return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: nil)
-        }
-    }
-
-    private static func shouldReuseMobileTerminalSnapshotCache(
-        cached: MobileTerminalSnapshotCacheEntry,
-        columns: Int,
-        rows: Int,
-        maxScrollbackRows: Int?,
-        now: Date
-    ) -> Bool {
-        guard cached.maxScrollbackRows == maxScrollbackRows else {
-            return false
-        }
-        let age = now.timeIntervalSince(cached.createdAt)
-        // When dimensions match the steady-state grid, the cache must expire at the normal TTL.
-        // The longer "viewport churn" TTL is a fallback for the transient case where columns or
-        // rows actually changed (rotation, sidebar fit, manual resize) so callers don't thrash on
-        // a moving target. Previously this returned `true` for any age <= 1s whenever the
-        // dimensions matched, which kept echo-less snapshots cached for ~1s after every input.
-        if cached.columns == columns, cached.rows == rows {
-            return age <= mobileTerminalSnapshotCacheTTL
-        }
-        return age <= mobileTerminalSnapshotViewportChurnCacheTTL
-    }
-
-    private static func canReuseMobileTerminalSnapshotCache(
-        cached _: MobileTerminalSnapshotCacheEntry,
-        pendingEcho: Bool,
-        pendingEchoStartedAt _: Date?
-    ) -> Bool {
-        !pendingEcho
-    }
-
-#if DEBUG
-    static func debugCanReuseMobileTerminalSnapshotCacheDuringPendingEchoForTesting(
-        cachedCreatedAt: Date,
-        pendingEcho: Bool,
-        pendingEchoStartedAt: Date?
-    ) -> Bool {
-        let cached = MobileTerminalSnapshotCacheEntry(
-            columns: 80,
-            rows: 24,
-            maxScrollbackRows: nil,
-            createdAt: cachedCreatedAt,
-            payload: [:]
-        )
-        return canReuseMobileTerminalSnapshotCache(
-            cached: cached,
-            pendingEcho: pendingEcho,
-            pendingEchoStartedAt: pendingEchoStartedAt
-        )
-    }
-
-    static func debugShouldReuseMobileTerminalSnapshotCacheForTesting(
-        cachedMaxScrollbackRows: Int?,
-        requestedMaxScrollbackRows: Int?,
-        cachedColumns: Int = 80,
-        requestedColumns: Int = 80,
-        cachedRows: Int = 24,
-        requestedRows: Int = 24,
-        age: TimeInterval = 0.1
-    ) -> Bool {
-        let createdAt = Date(timeIntervalSince1970: 1_000)
-        let cached = MobileTerminalSnapshotCacheEntry(
-            columns: cachedColumns,
-            rows: cachedRows,
-            maxScrollbackRows: cachedMaxScrollbackRows,
-            createdAt: createdAt,
-            payload: [:]
-        )
-        return shouldReuseMobileTerminalSnapshotCache(
-            cached: cached,
-            columns: requestedColumns,
-            rows: requestedRows,
-            maxScrollbackRows: requestedMaxScrollbackRows,
-            now: createdAt.addingTimeInterval(age)
-        )
-    }
-#endif
-
-    private static func mobileTerminalSnapshotScrollbackRows(
-        requestedRows: Int?,
-        columns: Int,
-        visibleRows: Int
-    ) -> Int? {
-        guard let requestedRows else { return nil }
-
-        let requested = max(0, min(requestedRows, mobileTerminalSnapshotMaximumScrollbackRows))
-        let safeColumns = max(columns, 1)
-        let safeVisibleRows = max(visibleRows, 1)
-        let bytesPerRow = max(safeColumns * mobileTerminalSnapshotEstimatedCellByteCount, 1)
-        let totalRowsByBudget = max(safeVisibleRows, mobileTerminalSnapshotFrameSafetyBudget / bytesPerRow)
-        let scrollbackRowsByBudget = max(0, totalRowsByBudget - safeVisibleRows)
-        return min(requested, scrollbackRowsByBudget)
-    }
-
-    private func mobileTerminalCursor(
-        surface: ghostty_surface_t,
-        terminalPanel: TerminalPanel,
-        columns: Int,
-        rows: Int
-    ) -> MobileTerminalGhosttyCursor? {
-        let size = ghostty_surface_size(surface)
-        let backingScale = max(
-            terminalPanel.surface.hostedView.window?.backingScaleFactor
-                ?? NSScreen.main?.backingScaleFactor
-                ?? 1,
-            1
-        )
-        let cellWidth = Double(size.cell_width_px) / Double(backingScale)
-        let cellHeight = Double(size.cell_height_px) / Double(backingScale)
-        guard cellWidth > 0, cellHeight > 0 else {
-            return nil
-        }
-
-        var x: Double = 0
-        var y: Double = 0
-        var width: Double = cellWidth
-        var height: Double = cellHeight
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
-
-        let column = min(max(Int(floor(x / cellWidth)), 0), max(columns - 1, 0))
-        let row = min(max(Int(floor((y / cellHeight) - 1)), 0), max(rows - 1, 0))
-        return MobileTerminalGhosttyCursor(column: column, row: row)
-    }
-
-    private func mobileViewportFitPayload(
-        params: [String: Any],
-        terminalPanel: TerminalPanel
-    ) -> [String: Any]? {
-        let now = Date()
-        guard var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] else {
-            return nil
-        }
-        reports = reports.filter { _, report in
-            now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
-        }
-        if reports.isEmpty {
-            mobileViewportReportsBySurfaceID[terminalPanel.id] = nil
-            terminalPanel.surface.clearMobileViewportLimit(reason: "mobile.viewport.reportsExpired")
-        } else {
-            mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
-        }
-
-        guard let effectiveColumns = reports.values.map(\.columns).min(),
-              let effectiveRows = reports.values.map(\.rows).min() else {
-            return nil
-        }
-
-        let clientReport = v2String(params, "client_id").flatMap { reports[$0] }
-        let isCurrentClientLimiting = clientReport.map {
-            $0.columns == effectiveColumns || $0.rows == effectiveRows
-        } ?? false
-
-        var payload: [String: Any] = [
-            "effective": [
-                "columns": effectiveColumns,
-                "rows": effectiveRows,
-            ],
-            "is_current_client_limiting": isCurrentClientLimiting,
-        ]
-        if let clientReport {
-            payload["client"] = [
-                "columns": clientReport.columns,
-                "rows": clientReport.rows,
-            ]
-        } else {
-            payload["client"] = NSNull()
-        }
-        return payload
-    }
-
-    private func mobileTerminalSnapshotLimitations(
-        viewportFidelity: String,
-        scrollbackFidelity: String?
-    ) -> [String] {
-        var limitations = [
-            "ghostty_grid_metadata_unavailable",
-            "active_screen_unavailable",
-            "stream_offset_unavailable",
-            "hyperlinks_unavailable_from_vt_export"
-        ]
-        if viewportFidelity == "ansi_vt" || scrollbackFidelity == "ansi_vt" {
-            limitations.append("styled_cells_rehydrated_from_sgr_not_ghostty_grid")
-        }
-        if viewportFidelity == "plain_text" {
-            limitations.append("visible_style_metadata_unavailable_from_read_text")
-        }
-        if scrollbackFidelity == "plain_text" {
-            limitations.append("scrollback_style_metadata_unavailable_from_read_text")
-        }
-        return limitations
     }
 
     private func mobileResolveWorkspaceAndSurface(
@@ -22183,111 +21640,9 @@ class TerminalController {
             }
     }
 
-    private func mobileJSONObject<T: Encodable>(_ value: T) throws -> Any {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(value)
-        return try JSONSerialization.jsonObject(with: data)
-    }
-
     private func mobileNonEmpty(_ raw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private static func mobileScrollbackText(
-        combinedText: String,
-        viewportText: String,
-        maxRows: Int
-    ) -> String? {
-        guard maxRows > 0 else {
-            return nil
-        }
-
-        let combinedLines = mobileTerminalLines(from: combinedText)
-        let viewportLines = mobileTerminalLines(from: viewportText)
-        guard !combinedLines.isEmpty else {
-            return nil
-        }
-
-        let scrollbackLines: ArraySlice<String>
-        if !viewportLines.isEmpty,
-           combinedLines.count >= viewportLines.count,
-           Array(combinedLines.suffix(viewportLines.count)) == viewportLines {
-            scrollbackLines = combinedLines.dropLast(viewportLines.count).suffix(maxRows)
-        } else {
-            scrollbackLines = combinedLines.dropLast(min(combinedLines.count, viewportLines.count)).suffix(maxRows)
-        }
-
-        guard !scrollbackLines.isEmpty else {
-            return nil
-        }
-        return scrollbackLines.joined(separator: "\n")
-    }
-
-    private static func mobilePlainTerminalText(_ text: String) -> String {
-        var output = ""
-        var index = text.startIndex
-        while index < text.endIndex {
-            guard text[index] == "\u{001B}" else {
-                output.append(text[index])
-                index = text.index(after: index)
-                continue
-            }
-
-            var cursor = text.index(after: index)
-            guard cursor < text.endIndex else {
-                index = cursor
-                continue
-            }
-
-            if text[cursor] == "[" {
-                cursor = text.index(after: cursor)
-                while cursor < text.endIndex {
-                    let scalar = text[cursor].unicodeScalars.first?.value ?? 0
-                    cursor = text.index(after: cursor)
-                    if scalar >= 0x40, scalar <= 0x7E {
-                        break
-                    }
-                }
-                index = cursor
-                continue
-            }
-
-            if text[cursor] == "]" {
-                cursor = text.index(after: cursor)
-                while cursor < text.endIndex {
-                    if text[cursor] == "\u{7}" {
-                        cursor = text.index(after: cursor)
-                        break
-                    }
-                    if text[cursor] == "\u{001B}" {
-                        let next = text.index(after: cursor)
-                        if next < text.endIndex, text[next] == "\\" {
-                            cursor = text.index(after: next)
-                            break
-                        }
-                    }
-                    cursor = text.index(after: cursor)
-                }
-                index = cursor
-                continue
-            }
-
-            index = text.index(after: cursor)
-        }
-        return output
-    }
-
-    private static func mobileTerminalLines(from text: String) -> [String] {
-        guard !text.isEmpty else {
-            return []
-        }
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if text.hasSuffix("\n"), lines.last == "" {
-            lines.removeLast()
-        }
-        return lines
     }
 
     deinit {

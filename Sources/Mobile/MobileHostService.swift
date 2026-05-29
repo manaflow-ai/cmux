@@ -142,8 +142,8 @@ private enum MobileHostPublicStatusCache {
         lock.unlock()
         return .ok([
             "routes": cachedRoutes.map(\.mobileHostJSONObject),
-            "snapshot_fidelity": "plain_text",
-            "capabilities": ["events.v1"],
+            "terminal_fidelity": "ghostty_bytes",
+            "capabilities": ["events.v1", "terminal.bytes.v1", "terminal.replay.v1", "terminal.viewport.v1"],
         ])
     }
 }
@@ -385,11 +385,8 @@ final class MobileHostService {
         let status = await publicStatusSnapshot()
         return .ok([
             "routes": status.routes.map(\.mobileHostJSONObject),
-            "snapshot_fidelity": "plain_text",
-            // Clients with "events.v1" can subscribe via mobile.events.subscribe
-            // instead of polling terminal snapshots. Old clients without this
-            // capability fall back to their 750ms refresh loop.
-            "capabilities": ["events.v1"],
+            "terminal_fidelity": "ghostty_bytes",
+            "capabilities": ["events.v1", "terminal.bytes.v1", "terminal.replay.v1", "terminal.viewport.v1"],
         ])
     }
 
@@ -558,7 +555,17 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
+        // Drop this connection's sticky viewport reports so a disconnected
+        // device stops pinning the shared grid (and its macOS viewport border
+        // clears) even though it never sent an explicit clear.
+        let clientIDs = clientIDsByConnectionID[id] ?? []
         clientIDsByConnectionID.removeValue(forKey: id)
+        if !clientIDs.isEmpty {
+            TerminalController.shared.clearMobileViewportReports(
+                clientIDs: clientIDs,
+                reason: "mobile.connection.closed"
+            )
+        }
         MobileHostRequestActivity.endConnection()
     }
 
@@ -686,9 +693,9 @@ final class MobileHostService {
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil
-        case "mobile.terminal.snapshot", "terminal.snapshot",
-             "mobile.terminal.input", "terminal.input",
-             "mobile.terminal.key", "terminal.key":
+        case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.replay", "terminal.replay",
+             "mobile.terminal.viewport", "terminal.viewport":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,
@@ -795,7 +802,7 @@ final class MobileHostService {
 
     nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
-        case "mobile.host.status":
+        case "mobile.host.status", "mobile.attach_ticket.create":
             return false
         default:
             return true
@@ -1398,7 +1405,7 @@ actor MobileHostConnection {
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.terminal.snapshot", "terminal.snapshot":
+        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay":
             return false
         default:
             return true

@@ -47,7 +47,6 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
 
     public var id: ID
     public var name: String
-    public var snapshot: MobileTerminalGhosttySnapshot
     public var isReady: Bool
     public var isFocused: Bool
     public var viewportFit: MobileTerminalViewportFit?
@@ -55,40 +54,15 @@ public struct MobileTerminalPreview: Identifiable, Equatable, Sendable {
     public init(
         id: ID,
         name: String,
-        snapshot: MobileTerminalGhosttySnapshot,
         isReady: Bool = true,
         isFocused: Bool = false,
         viewportFit: MobileTerminalViewportFit? = nil
     ) {
         self.id = id
         self.name = name
-        self.snapshot = snapshot
         self.isReady = isReady
         self.isFocused = isFocused
         self.viewportFit = viewportFit
-    }
-
-    public init(
-        id: ID,
-        name: String,
-        lines: [String],
-        isReady: Bool = true,
-        isFocused: Bool = false,
-        viewportFit: MobileTerminalViewportFit? = nil
-    ) {
-        self.id = id
-        self.name = name
-        self.snapshot = PreviewMobileHost.snapshot(
-            terminalID: id.rawValue,
-            lines: lines
-        )
-        self.isReady = isReady
-        self.isFocused = isFocused
-        self.viewportFit = viewportFit
-    }
-
-    public var lines: [String] {
-        snapshot.scrollbackRows.map(\.trimmedPlainText) + snapshot.renderedVisibleLines
     }
 }
 
@@ -135,21 +109,6 @@ public struct MobileTerminalViewportFit: Codable, Equatable, Sendable {
         case effective
         case client
         case isCurrentClientLimiting = "is_current_client_limiting"
-    }
-}
-
-enum MobileTerminalSnapshotRequestPolicy {
-    private static let maximumScrollbackRows = 0
-    private static let frameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
-    private static let estimatedCellByteCount = 128
-
-    static func maxScrollbackRows(viewportSize: MobileTerminalViewportSize?) -> Int {
-        let columns = max(viewportSize?.columns ?? 80, 1)
-        let visibleRows = max(viewportSize?.rows ?? 24, 1)
-        let bytesPerRow = max(columns * estimatedCellByteCount, 1)
-        let totalRowsByBudget = max(visibleRows, frameSafetyBudget / bytesPerRow)
-        let scrollbackRowsByBudget = max(0, totalRowsByBudget - visibleRows)
-        return min(maximumScrollbackRows, scrollbackRowsByBudget)
     }
 }
 
@@ -359,22 +318,9 @@ enum MobileShellRouteAuthPolicy {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleHost(host)
+            return isTailscaleHost(host) || isPrivateLANHost(host) || isLocalDNSHost(host)
         case (.iroh, .peer):
             return true
-        default:
-            return false
-        }
-    }
-
-    static func routeAllowsUserApprovedManualStackAuth(_ route: CmxAttachRoute) -> Bool {
-        if routeAllowsStackAuth(route) {
-            return true
-        }
-        switch (route.kind, route.endpoint) {
-        case (.tailscale, let .hostPort(host, _)),
-             (.websocket, let .hostPort(host, _)):
-            return normalizedManualHost(host) != nil
         default:
             return false
         }
@@ -452,16 +398,26 @@ enum MobileShellRouteAuthPolicy {
             .hasSuffix(".ts.net")
     }
 
+    private static func isPrivateLANHost(_ host: String) -> Bool {
+        guard let octets = ipv4Octets(host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {
+            return false
+        }
+        return octets[0] == 10 ||
+            (octets[0] == 172 && (16...31).contains(octets[1])) ||
+            (octets[0] == 192 && octets[1] == 168) ||
+            (octets[0] == 169 && octets[1] == 254)
+    }
+
+    private static func isLocalDNSHost(_ host: String) -> Bool {
+        host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasSuffix(".local")
+    }
 }
 
 @MainActor
 @Observable
 public final class CMUXMobileShellStore {
-    private static let viewportSettlingRefreshCount = 8
-    private static let workspaceOpenSettlingRefreshCount = 2
-    private static let inputSettlingRefreshCount = 4
-    private static let terminalRefreshPollIntervalNanoseconds: UInt64 = 750_000_000
-
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
     public private(set) var connectedHostName: String
@@ -481,8 +437,6 @@ public final class CMUXMobileShellStore {
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
-            guard !isSuppressingSelectedWorkspaceRefresh else { return }
-            scheduleSelectedTerminalSnapshotRefresh()
         }
     }
     public var selectedTerminalID: MobileTerminalPreview.ID?
@@ -494,32 +448,19 @@ public final class CMUXMobileShellStore {
         didSet {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
-                cancelSelectedTerminalSnapshotRefresh()
                 cancelRemoteOperationTasks()
-                lowerFidelityDeferralRefreshesByTerminalKey = [:]
-                viewportEchoSettlingKeys = []
-                viewportMatchedEchoByTerminalKey = []
             }
         }
     }
-    private var terminalRefreshPollTask: Task<Void, Never>?
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
-    private var selectedTerminalSnapshotRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
-    private var isSuppressingSelectedWorkspaceRefresh: Bool
-    private var isRefreshingSelectedTerminalSnapshot: Bool
-    private var needsSelectedTerminalSnapshotRefresh: Bool
-    private var lowerFidelityDeferralRefreshesByTerminalKey: [MobileTerminalViewportKey: Int]
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
-    private var viewportSettlingRefreshesByTerminalKey: [MobileTerminalViewportKey: Int]
-    private var viewportEchoSettlingKeys: Set<MobileTerminalViewportKey>
-    private var viewportMatchedEchoByTerminalKey: Set<MobileTerminalViewportKey>
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -575,31 +516,20 @@ public final class CMUXMobileShellStore {
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
-        self.terminalRefreshPollTask = nil
         self.terminalEventListenerID = nil
-        self.selectedTerminalSnapshotRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
-        self.isSuppressingSelectedWorkspaceRefresh = false
-        self.isRefreshingSelectedTerminalSnapshot = false
-        self.needsSelectedTerminalSnapshotRefresh = false
-        self.lowerFidelityDeferralRefreshesByTerminalKey = [:]
         self.reportedViewportSizesByTerminalKey = [:]
-        self.viewportSettlingRefreshesByTerminalKey = [:]
-        self.viewportEchoSettlingKeys = []
-        self.viewportMatchedEchoByTerminalKey = []
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
 
     isolated deinit {
-        terminalRefreshPollTask?.cancel()
         terminalEventListenerTask?.cancel()
-        selectedTerminalSnapshotRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
@@ -642,14 +572,9 @@ public final class CMUXMobileShellStore {
         activeTicket = nil
         activeRoute = nil
         replaceRemoteClient(with: nil)
-        isRefreshingSelectedTerminalSnapshot = false
-        needsSelectedTerminalSnapshotRefresh = false
-        cancelSelectedTerminalSnapshotRefresh()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
-        lowerFidelityDeferralRefreshesByTerminalKey = [:]
         reportedViewportSizesByTerminalKey = [:]
-        viewportSettlingRefreshesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
@@ -658,7 +583,6 @@ public final class CMUXMobileShellStore {
     public func resumeForegroundRefresh() {
         guard remoteClient != nil, connectionState == .connected else { return }
         startTerminalRefreshPolling()
-        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     public func connectPreviewHost() {
@@ -719,11 +643,7 @@ public final class CMUXMobileShellStore {
                 port: port
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            try await connect(
-                ticket: ticket,
-                allowsStackAuthFallback: true,
-                allowsUserApprovedManualStackAuthFallback: true
-            )
+            try await connect(ticket: ticket, allowsStackAuthFallback: true)
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
             connectionState = .disconnected
@@ -888,20 +808,23 @@ public final class CMUXMobileShellStore {
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
-        guard MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(directRoute) else {
-            throw MobileShellConnectionError.insecureManualRoute
-        }
-
-        do {
-            let ticket = try await requestManualAttachTicket(
-                route: directRoute,
-                displayName: displayName
-            )
-            return ticket
-        } catch {
-            guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
-                throw error
+        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
+            do {
+                let ticket = try await requestManualAttachTicket(
+                    route: directRoute,
+                    displayName: displayName
+                )
+                return ticket
+            } catch {
+                guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
+                    throw error
+                }
             }
+            return try Self.manualHostTicket(
+                displayName: displayName,
+                macDeviceID: "manual-\(host):\(port)",
+                route: directRoute
+            )
         }
         return try Self.manualHostTicket(
             displayName: displayName,
@@ -958,13 +881,15 @@ public final class CMUXMobileShellStore {
             runtime: runtime,
             route: route,
             ticket: probeTicket,
-            allowsStackAuthFallback: true,
-            allowsUserApprovedManualStackAuthFallback: true
+            allowsStackAuthFallback: true
         )
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.attach_ticket.create",
-                params: ["ttl_seconds": 3600]
+                params: [
+                    "ttl_seconds": 3600,
+                    "scope": "mac",
+                ]
             ),
             timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
         )
@@ -991,12 +916,7 @@ public final class CMUXMobileShellStore {
             terminals: [
                 MobileTerminalPreview(
                     id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
-                    name: L10n.terminalName(index: 1),
-                    lines: [
-                        "$ cmux mobile preview",
-                        "workspace: Workspace \(nextIndex)",
-                        "terminal: Terminal 1",
-                    ]
+                    name: L10n.terminalName(index: 1)
                 ),
             ]
         )
@@ -1023,12 +943,7 @@ public final class CMUXMobileShellStore {
         let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
         let terminal = MobileTerminalPreview(
             id: .init(rawValue: "\(workspaces[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
-            name: L10n.terminalName(index: terminalIndex),
-            lines: [
-                "$ cmux mobile preview",
-                "workspace: \(workspaces[workspaceIndex].name)",
-                "terminal: Terminal \(terminalIndex)",
-            ]
+            name: L10n.terminalName(index: terminalIndex)
         )
         workspaces[workspaceIndex].terminals.append(terminal)
         selectedTerminalID = terminal.id
@@ -1036,12 +951,6 @@ public final class CMUXMobileShellStore {
 
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
         selectedTerminalID = id
-        selectedTerminalSnapshotRefreshTask?.cancel()
-        selectedTerminalSnapshotRefreshTask = nil
-        if isRefreshingSelectedTerminalSnapshot {
-            needsSelectedTerminalSnapshotRefresh = true
-        }
-        scheduleSelectedTerminalSnapshotRefresh(yieldBeforeRefresh: false)
     }
 
     public func reportTerminalViewport(
@@ -1050,39 +959,11 @@ public final class CMUXMobileShellStore {
         viewportSize: MobileTerminalViewportSize
     ) {
         let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        let previousViewportSize = reportedViewportSizesByTerminalKey[key]
         reportedViewportSizesByTerminalKey[key] = viewportSize
-        let currentSnapshotClientSize = terminalSnapshotClientSize(workspaceID: workspaceID, terminalID: terminalID)
-        if previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize {
-            viewportEchoSettlingKeys.insert(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            viewportSettlingRefreshesByTerminalKey[key] = max(
-                viewportSettlingRefreshesByTerminalKey[key] ?? 0,
-                Self.viewportSettlingRefreshCount
-            )
-        }
-        guard remoteClient != nil else {
-            return
-        }
-        guard previousViewportSize != viewportSize || currentSnapshotClientSize != viewportSize else {
-            return
-        }
-        scheduleSelectedTerminalSnapshotRefresh()
     }
 
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
-        setSelectedWorkspaceID(id, refreshSnapshot: false)
-        if let terminalID = selectedTerminalID,
-           let key = selectedTerminalViewportKey(workspaceID: id, terminalID: terminalID),
-           reportedViewportSizesByTerminalKey[key] != nil {
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            viewportSettlingRefreshesByTerminalKey[key] = max(
-                viewportSettlingRefreshesByTerminalKey[key] ?? 0,
-                Self.workspaceOpenSettlingRefreshCount
-            )
-        }
-        await refreshSelectedTerminalSnapshot()
+        setSelectedWorkspaceID(id)
     }
 
     public func sendTerminalInput() {
@@ -1097,10 +978,7 @@ public final class CMUXMobileShellStore {
             return
         }
         terminalInputText = ""
-        guard remoteClient != nil else {
-            appendPreviewInput(text)
-            return
-        }
+        guard remoteClient != nil else { return }
         await sendRemoteTerminalInput(text + "\r")
     }
 
@@ -1137,12 +1015,6 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    public func sendTerminalKey(_ key: String) {
-        Task { @MainActor [weak self] in
-            await self?.sendRemoteTerminalKey(key)
-        }
-    }
-
     public func submitTerminalRawInput(_ text: String) async {
         guard !text.isEmpty else { return }
         guard let workspaceID = selectedWorkspace?.id,
@@ -1152,16 +1024,33 @@ public final class CMUXMobileShellStore {
         await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
+    /// Raw-bytes overload. The libghostty render path on iOS uses this
+    /// for input that may include binary sequences (mouse reports,
+    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
+    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
+    /// then the Mac decodes back to Data. If we ever need true binary
+    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
+    /// `input` param to a base64 field.
+    public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
+        guard !data.isEmpty else { return }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        let workspaceCandidate = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
+        })
+        guard let workspace = workspaceCandidate else { return }
+        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+    }
+
     private func submitTerminalRawInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
     ) async {
         guard !text.isEmpty else { return }
-        guard remoteClient != nil else {
-            appendPreviewInput(Self.previewLine(forRawTerminalInput: text))
-            return
-        }
+        guard remoteClient != nil else { return }
         await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
@@ -1177,8 +1066,7 @@ public final class CMUXMobileShellStore {
 
     private func connect(
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool? = nil,
-        allowsUserApprovedManualStackAuthFallback: Bool = false
+        allowsStackAuthFallback: Bool? = nil
     ) async throws {
         let generation = UUID()
         connectionGeneration = generation
@@ -1223,8 +1111,7 @@ public final class CMUXMobileShellStore {
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
-                allowsStackAuthFallback: routeAllowsStackAuthFallback,
-                allowsUserApprovedManualStackAuthFallback: allowsUserApprovedManualStackAuthFallback
+                allowsStackAuthFallback: routeAllowsStackAuthFallback
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
@@ -1241,13 +1128,11 @@ public final class CMUXMobileShellStore {
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
-                    await refreshSelectedTerminalSnapshot()
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
                             route: route,
-                            generation: generation,
-                            allowsUserApprovedManualStackAuthFallback: allowsUserApprovedManualStackAuthFallback
+                            generation: generation
                         )
                     }
                     return
@@ -1341,8 +1226,7 @@ public final class CMUXMobileShellStore {
     private func scheduleFullWorkspaceListRefreshIfAvailable(
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
-        generation: UUID,
-        allowsUserApprovedManualStackAuthFallback: Bool
+        generation: UUID
     ) {
         guard workspaceListRefreshTask == nil else { return }
         workspaceListRefreshTask = Task { @MainActor [weak self] in
@@ -1352,7 +1236,6 @@ public final class CMUXMobileShellStore {
                 client: client,
                 route: route,
                 generation: generation,
-                allowsUserApprovedManualStackAuthFallback: allowsUserApprovedManualStackAuthFallback,
                 timeoutNanoseconds: self.runtime?.rpcRequestTimeoutNanoseconds
             )
         }
@@ -1362,12 +1245,9 @@ public final class CMUXMobileShellStore {
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
         generation: UUID,
-        allowsUserApprovedManualStackAuthFallback: Bool,
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
-        let routeAllowsFullList = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
-            || (allowsUserApprovedManualStackAuthFallback && MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(route))
-        guard routeAllowsFullList,
+        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
               let attachToken = activeTicket?.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
             return false
@@ -1491,30 +1371,6 @@ public final class CMUXMobileShellStore {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func selectedTerminalViewportKey(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> MobileTerminalViewportKey? {
-        guard workspaces.contains(where: { workspace in
-            workspace.id == workspaceID && workspace.terminals.contains(where: { $0.id == terminalID })
-        }) else {
-            return nil
-        }
-        return viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-    }
-
-    private func terminalSnapshotClientSize(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> MobileTerminalViewportSize? {
-        workspaces
-            .first { $0.id == workspaceID }?
-            .terminals
-            .first { $0.id == terminalID }?
-            .viewportFit?
-            .client
-    }
-
     private func createRemoteWorkspace() async {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration
@@ -1528,13 +1384,9 @@ public final class CMUXMobileShellStore {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             if let createdID = response.createdWorkspaceID {
                 let createdWorkspaceID = MobileWorkspacePreview.ID(rawValue: createdID)
-                setSelectedWorkspaceID(createdWorkspaceID, refreshSnapshot: false)
-                syncSelectedTerminalForWorkspace()
-                seedCreatedTerminalSnapshot(workspaceID: createdWorkspaceID, terminalID: selectedTerminalID)
-            } else {
-                syncSelectedTerminalForWorkspace()
+                setSelectedWorkspaceID(createdWorkspaceID)
             }
-            scheduleSelectedTerminalSnapshotRefresh()
+            syncSelectedTerminalForWorkspace()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -1558,272 +1410,15 @@ public final class CMUXMobileShellStore {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            var createdTerminalID: MobileTerminalPreview.ID?
             if selectedWorkspaceID == requestedWorkspaceID,
                let createdID = response.createdTerminalID {
-                createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
-                selectedTerminalID = createdTerminalID
+                selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
             }
-            if let createdTerminalID {
-                seedCreatedTerminalSnapshot(workspaceID: requestedWorkspaceID, terminalID: createdTerminalID)
-            }
-            scheduleSelectedTerminalSnapshotRefresh()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error)
         }
-    }
-
-    private func seedCreatedTerminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID?
-    ) {
-        guard let terminalID,
-              let workspace = workspaces.first(where: { $0.id == workspaceID }),
-              let terminal = workspace.terminals.first(where: { $0.id == terminalID }) else {
-            return
-        }
-        replaceTerminalSnapshot(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            snapshot: PreviewMobileHost.snapshot(
-                terminalID: terminalID.rawValue,
-                lines: [
-                    "$ cmux ios",
-                    "workspace: \(workspace.name)",
-                    "terminal: \(terminal.name)",
-                ]
-            ),
-            isReady: true
-        )
-    }
-
-    private func refreshSelectedTerminalSnapshot() async {
-        guard let client = remoteClient,
-              let workspace = selectedWorkspace,
-              let terminalID = selectedTerminalID?.rawValue else { return }
-        let generation = connectionGeneration
-        guard !isRefreshingSelectedTerminalSnapshot else {
-            needsSelectedTerminalSnapshotRefresh = true
-            return
-        }
-        isRefreshingSelectedTerminalSnapshot = true
-        defer {
-            isRefreshingSelectedTerminalSnapshot = false
-            if needsSelectedTerminalSnapshotRefresh {
-                needsSelectedTerminalSnapshotRefresh = false
-                scheduleSelectedTerminalSnapshotRefresh()
-            }
-        }
-        do {
-            mobileShellLog.info("refreshing terminal snapshot workspace=\(workspace.id.rawValue, privacy: .private) terminal=\(terminalID, privacy: .private)")
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.snapshot",
-                    params: terminalSnapshotParams(
-                        workspaceID: workspace.id.rawValue,
-                        terminalID: terminalID
-                    )
-                )
-            )
-            let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            let responseTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
-            let terminalSnapshot = terminalSnapshotByReusingStylesIfNeeded(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: response.snapshot,
-                fidelity: response.fidelity
-            )
-            if !terminalSnapshot.reusedStyles && shouldDeferLowerFidelityTerminalSnapshot(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: response.snapshot,
-                fidelity: response.fidelity
-            ) {
-                scheduleSelectedTerminalSnapshotRefresh()
-                return
-            }
-            if terminalSnapshot.reusedStyles {
-                scheduleStyledSnapshotRefreshAfterPlainTextFallback(
-                    workspaceID: workspace.id,
-                    terminalID: responseTerminalID
-                )
-            } else {
-                clearLowerFidelityDeferralIfSnapshotHasStyledCells(
-                    workspaceID: workspace.id,
-                    terminalID: responseTerminalID,
-                    snapshot: response.snapshot,
-                    fidelity: response.fidelity
-                )
-            }
-            replaceTerminalSnapshot(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                snapshot: terminalSnapshot.snapshot,
-                isReady: true,
-                viewportFit: response.viewportFit
-            )
-            scheduleViewportSettlingRefreshIfNeeded(
-                workspaceID: workspace.id,
-                terminalID: responseTerminalID,
-                viewportFit: response.viewportFit
-            )
-        } catch {
-            let requestedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
-            guard generation == connectionGeneration else { return }
-            guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: requestedTerminalID) else {
-                connectionError = nil
-                return
-            }
-            mobileShellLog.error("terminal snapshot refresh failed: \(String(describing: error), privacy: .private)")
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            if Self.isTerminalSurfaceNotReady(error) {
-                if await refreshReadyFallbackTerminalSnapshot(in: workspace, excluding: terminalID) {
-                    connectionError = nil
-                    return
-                }
-                replaceTerminalSnapshot(
-                    workspaceID: workspace.id,
-                    terminalID: MobileTerminalPreview.ID(rawValue: terminalID),
-                    snapshot: PreviewMobileHost.snapshot(
-                        terminalID: terminalID,
-                        lines: [
-                            L10n.string("mobile.terminal.surfaceNotReady", defaultValue: "Terminal surface is still starting."),
-                        ]
-                    ),
-                    isReady: false
-                )
-                let key = viewportKey(
-                    workspaceID: workspace.id,
-                    terminalID: MobileTerminalPreview.ID(rawValue: terminalID)
-                )
-                lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
-                viewportSettlingRefreshesByTerminalKey[key] = nil
-                viewportEchoSettlingKeys.remove(key)
-                viewportMatchedEchoByTerminalKey.remove(key)
-                connectionError = nil
-                return
-            }
-            connectionError = Self.localizedConnectionError(for: error)
-        }
-    }
-
-    private func refreshReadyFallbackTerminalSnapshot(
-        in workspace: MobileWorkspacePreview,
-        excluding terminalID: String
-    ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        let generation = connectionGeneration
-        let excludedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
-        guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
-            return false
-        }
-        for candidate in terminalSnapshotFallbackCandidates(
-            preferredWorkspaceID: workspace.id,
-            excludingTerminalID: excludedTerminalID
-        ) {
-            do {
-                let resultData = try await client.sendRequest(
-                    MobileCoreRPCClient.requestData(
-                        method: "terminal.snapshot",
-                        params: terminalSnapshotParams(
-                            workspaceID: candidate.workspaceID.rawValue,
-                            terminalID: candidate.terminalID.rawValue
-                        )
-                    )
-                )
-                let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
-                guard isCurrentRemoteOperation(client: client, generation: generation) else { return false }
-                guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
-                    return false
-                }
-                let resolvedTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? candidate.terminalID.rawValue)
-                replaceTerminalSnapshot(
-                    workspaceID: candidate.workspaceID,
-                    terminalID: resolvedTerminalID,
-                    snapshot: response.snapshot,
-                    isReady: true,
-                    viewportFit: response.viewportFit
-                )
-                setSelectedWorkspaceID(candidate.workspaceID, refreshSnapshot: false)
-                selectedTerminalID = resolvedTerminalID
-                mobileShellLog.info("selected fallback ready terminal workspace=\(candidate.workspaceID.rawValue, privacy: .private) terminal=\(resolvedTerminalID.rawValue, privacy: .private)")
-                return true
-            } catch {
-                guard generation == connectionGeneration else { return false }
-                guard isStillSelectedTerminal(workspaceID: workspace.id, terminalID: excludedTerminalID) else {
-                    return false
-                }
-                if Self.isTerminalSurfaceNotReady(error) {
-                    continue
-                }
-                if disconnectForAuthorizationFailureIfNeeded(error) {
-                    return false
-                }
-                mobileShellLog.error("fallback terminal snapshot failed: \(String(describing: error), privacy: .private)")
-                return false
-            }
-        }
-        return false
-    }
-
-    private func isStillSelectedTerminal(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> Bool {
-        selectedWorkspace?.id == workspaceID && selectedTerminalID == terminalID
-    }
-
-    private func terminalSnapshotFallbackCandidates(
-        preferredWorkspaceID: MobileWorkspacePreview.ID,
-        excludingTerminalID: MobileTerminalPreview.ID
-    ) -> [MobileTerminalSnapshotCandidate] {
-        let candidates = workspaces
-            .filter { $0.id == preferredWorkspaceID }
-            .flatMap { workspace in
-                workspace.terminals.compactMap { terminal -> MobileTerminalSnapshotCandidate? in
-                    guard terminal.id != excludingTerminalID else {
-                        return nil
-                    }
-                    return MobileTerminalSnapshotCandidate(
-                        workspaceID: workspace.id,
-                        terminalID: terminal.id,
-                        isReady: terminal.isReady
-                    )
-                }
-            }
-
-        let readyPreferred = candidates.filter { $0.isReady && $0.workspaceID == preferredWorkspaceID }
-        let stalePreferred = candidates.filter { !$0.isReady && $0.workspaceID == preferredWorkspaceID }
-        return readyPreferred + stalePreferred
-    }
-
-    private func terminalSnapshotParams(
-        workspaceID: String,
-        terminalID: String
-    ) -> [String: Any] {
-        let terminalID = MobileTerminalPreview.ID(rawValue: terminalID)
-        let viewportSize = reportedViewportSizesByTerminalKey[
-            viewportKey(
-                workspaceID: MobileWorkspacePreview.ID(rawValue: workspaceID),
-                terminalID: terminalID
-            )
-        ]
-        var params: [String: Any] = [
-            "workspace_id": workspaceID,
-            "surface_id": terminalID.rawValue,
-            "max_scrollback_rows": MobileTerminalSnapshotRequestPolicy.maxScrollbackRows(
-                viewportSize: viewportSize
-            ),
-            "client_id": clientID,
-        ]
-        if let viewportSize {
-            params["viewport_columns"] = viewportSize.columns
-            params["viewport_rows"] = viewportSize.rows
-        }
-        return params
     }
 
     private func sendRemoteTerminalInput(_ text: String) async {
@@ -1853,20 +1448,14 @@ public final class CMUXMobileShellStore {
             #if DEBUG
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
-            let terminalKey = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            viewportEchoSettlingKeys.remove(terminalKey)
-            viewportMatchedEchoByTerminalKey.remove(terminalKey)
-            lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] = max(
-                lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] ?? 0,
-                Self.inputSettlingRefreshCount
-            )
+            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
             var params: [String: Any] = [
                 "workspace_id": workspaceID.rawValue,
                 "surface_id": terminalID.rawValue,
                 "text": text,
                 "client_id": clientID,
             ]
-            if let viewportSize = reportedViewportSizesByTerminalKey[terminalKey] {
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
                 params["viewport_columns"] = viewportSize.columns
                 params["viewport_rows"] = viewportSize.rows
             }
@@ -1877,104 +1466,15 @@ public final class CMUXMobileShellStore {
                 )
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            if selectedWorkspace?.id == workspaceID, selectedTerminalID == terminalID {
-                scheduleSelectedTerminalSnapshotRefresh()
-            }
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             connectionError = Self.localizedConnectionError(for: error)
-        }
-    }
-
-    private func sendRemoteTerminalKey(_ key: String) async {
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            #if DEBUG
-            mobileShellLog.info("skip remote terminal key selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
-            #endif
-            return
-        }
-        await sendRemoteTerminalKey(key, workspaceID: workspaceID, terminalID: terminalID)
-    }
-
-    private func sendRemoteTerminalKey(
-        _ key: String,
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) async {
-        guard let client = remoteClient else {
-            #if DEBUG
-            mobileShellLog.info("skip remote terminal key remoteClient=0")
-            #endif
-            return
-        }
-        let generation = connectionGeneration
-        do {
-            #if DEBUG
-            mobileShellLog.debug("send remote terminal key=\(key, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
-            #endif
-            let terminalKey = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-            viewportEchoSettlingKeys.remove(terminalKey)
-            viewportMatchedEchoByTerminalKey.remove(terminalKey)
-            lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] = max(
-                lowerFidelityDeferralRefreshesByTerminalKey[terminalKey] ?? 0,
-                Self.inputSettlingRefreshCount
-            )
-            var params: [String: Any] = [
-                "workspace_id": workspaceID.rawValue,
-                "surface_id": terminalID.rawValue,
-                "key": key,
-                "client_id": clientID,
-            ]
-            if let viewportSize = reportedViewportSizesByTerminalKey[terminalKey] {
-                params["viewport_columns"] = viewportSize.columns
-                params["viewport_rows"] = viewportSize.rows
-            }
-            _ = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.key",
-                    params: params
-                )
-            )
-            guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
-            if selectedWorkspace?.id == workspaceID, selectedTerminalID == terminalID {
-                scheduleSelectedTerminalSnapshotRefresh()
-            }
-        } catch {
-            guard generation == connectionGeneration else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            connectionError = Self.localizedConnectionError(for: error)
-        }
-    }
-
-    private func scheduleSelectedTerminalSnapshotRefresh(yieldBeforeRefresh: Bool = true) {
-        guard remoteClient != nil else { return }
-        guard selectedTerminalSnapshotRefreshTask == nil else { return }
-        selectedTerminalSnapshotRefreshTask = Task { @MainActor [weak self, yieldBeforeRefresh] in
-            if yieldBeforeRefresh {
-                await Task.yield()
-            }
-            guard let self else { return }
-            self.selectedTerminalSnapshotRefreshTask = nil
-            guard !Task.isCancelled else { return }
-            await self.refreshSelectedTerminalSnapshot()
         }
     }
 
     private func startTerminalRefreshPolling() {
         guard let client = remoteClient else { return }
-        guard runtime?.supportsServerPushEvents ?? true else {
-            // Server doesn't speak the event subscription protocol. Fall
-            // back to the legacy 750 ms poller so the iPhone still catches
-            // grid mutations.
-            startLegacyTerminalRefreshPolling()
-            return
-        }
-        // Push events make user-driven changes show up immediately. We
-        // only spin up the legacy 750 ms `Task.sleep` poller as a fallback
-        // when event subscription fails. With events live there are no
-        // sleeps on the macOS->iOS render path.
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
@@ -1986,15 +1486,18 @@ public final class CMUXMobileShellStore {
                 }
             }
 
-            let subscription = await client.subscribe(to: ["terminal.updated", "workspace.updated"])
-            defer {
-                Task { await client.unsubscribe(subscription) }
-            }
+            // Topics the iOS render path actually consumes. `terminal.bytes`
+            // delivers raw PTY output for the libghostty renderer;
+            // `workspace.updated` keeps the workspace list in sync. The old
+            // `terminal.updated` notifications drove the now-deleted Swift
+            // snapshot refresh path, so we no longer subscribe to them.
+            let topics: [String] = ["workspace.updated", "terminal.bytes"]
+            let stream = await client.subscribe(to: Set(topics))
             let requestData: Data
             do {
                 requestData = try MobileCoreRPCClient.requestData(
                     method: "mobile.events.subscribe",
-                    params: ["topics": ["terminal.updated", "workspace.updated"]]
+                    params: ["topics": topics]
                 )
             } catch {
                 mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -2003,12 +1506,8 @@ public final class CMUXMobileShellStore {
             let responseData: Data
             do {
                 responseData = try await client.sendRequest(requestData)
-            } catch let MobileShellConnectionError.rpcError(code, _) where code == "method_not_found" {
-                self?.startLegacyTerminalRefreshPolling()
-                return
             } catch {
-                mobileShellLog.error("subscribe failed, falling back to legacy polling: \(String(describing: error), privacy: .private)")
-                self?.startLegacyTerminalRefreshPolling()
+                mobileShellLog.error("subscribe failed: \(String(describing: error), privacy: .private)")
                 return
             }
             // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
@@ -2017,21 +1516,23 @@ public final class CMUXMobileShellStore {
             // handler and shouldn't activate the event path.
             let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
             guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
-                self?.startLegacyTerminalRefreshPolling()
+                mobileShellLog.error("subscribe response missing stream_id")
                 return
             }
             // Keep the listener alive without keeping the shell store alive.
-            for await event in subscription.stream {
+            for await event in stream {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
-                if event.topic == "terminal.updated" {
-                    guard self.shouldRefreshSelectedTerminal(for: event) else {
-                        continue
-                    }
-                    await self.refreshSelectedTerminalSnapshot()
-                } else if event.topic == "workspace.updated" {
+                if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                } else if event.topic == "terminal.bytes" {
+                    // Raw PTY bytes coming from the Mac surface's libghostty
+                    // pty-tee. Fan them out to whichever GhosttySurfaceView
+                    // is mounted for the named surface so it can call
+                    // `ghostty_surface_process_output` and converge on the
+                    // same grid as the Mac by construction.
+                    self.handleTerminalBytesEvent(event)
                 }
             }
             guard let self else { return }
@@ -2043,31 +1544,184 @@ public final class CMUXMobileShellStore {
         guard !Task.isCancelled,
               terminalEventListenerID == listenerID,
               remoteClient === client,
-              isSignedIn else {
+              connectionState == .connected else {
             return
         }
-        mobileShellLog.info("terminal event stream ended, falling back to legacy polling")
-        startLegacyTerminalRefreshPolling()
-        if connectionState == .connected {
-            scheduleSelectedTerminalSnapshotRefresh(yieldBeforeRefresh: false)
-        }
+        mobileShellLog.info("terminal event stream ended, restarting")
+        terminalEventListenerTask = nil
+        terminalEventListenerID = nil
+        startTerminalRefreshPolling()
+        scheduleWorkspaceListRefreshFromEvent()
     }
 
-    private func shouldRefreshSelectedTerminal(for event: MobileEventEnvelope) -> Bool {
-        guard let eventSurfaceID = Self.surfaceID(from: event) else {
-            return true
-        }
-        return selectedTerminalID?.rawValue == eventSurfaceID
+    /// Per-surface byte sinks for the libghostty render path. A mounted
+    /// `GhosttySurfaceView` registers itself here and receives raw PTY
+    /// bytes pushed from the Mac via `terminal.bytes` events. The Mac
+    /// installs `ghostty_surface_set_pty_tee_cb` on its own surface so
+    /// every byte the Mac's read thread sees is mirrored here byte for
+    /// byte. The iOS surface feeds them into its own libghostty,
+    /// producing the same grid by construction.
+    private var terminalByteSinksBySurfaceID: [String: (Data) -> Void] = [:]
+
+    public func registerTerminalByteSink(
+        surfaceID: String,
+        sink: @escaping (Data) -> Void
+    ) {
+        terminalByteSinksBySurfaceID[surfaceID] = sink
+        #if DEBUG
+        mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
+        #endif
+        requestTerminalReplay(surfaceID: surfaceID)
     }
 
-    private static func surfaceID(from event: MobileEventEnvelope) -> String? {
-        guard let payloadJSON = event.payloadJSON,
-              let payload = try? JSONSerialization.jsonObject(with: payloadJSON) as? [String: Any],
-              let surfaceID = payload["surface_id"] as? String else {
+    public func unregisterTerminalByteSink(surfaceID: String) {
+        terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
+        // Tell the Mac this device is no longer viewing the surface so it stops
+        // pinning the shared grid to our viewport and clears the macOS border.
+        clearTerminalViewport(surfaceID: surfaceID)
+    }
+
+    /// Report this device's natural terminal grid to the Mac and return the
+    /// effective grid the Mac computed (the smallest across all attached
+    /// devices, capped to the Mac pane). The caller pins its libghostty surface
+    /// to that grid so every device renders the same cols×rows with a viewport
+    /// border around the live area (tmux-style shared resize).
+    public func updateTerminalViewport(
+        surfaceID: String,
+        columns: Int,
+        rows: Int
+    ) async -> (columns: Int, rows: Int)? {
+        guard columns > 0, rows > 0,
+              let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return nil
         }
-        let trimmed = surfaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.viewport",
+                params: [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "client_id": clientID,
+                    "viewport_columns": columns,
+                    "viewport_rows": rows,
+                ]
+            )
+            let data = try await client.sendRequest(request)
+            guard remoteClient === client else { return nil }
+            guard
+                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let cols = (payload["columns"] as? NSNumber)?.intValue,
+                let effectiveRows = (payload["rows"] as? NSNumber)?.intValue,
+                cols > 0, effectiveRows > 0
+            else {
+                return nil
+            }
+            return (cols, effectiveRows)
+        } catch {
+            mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Tell the Mac to drop this device's viewport pin for a surface (on
+    /// detach). Fire-and-forget; the Mac also clears on connection close.
+    public func clearTerminalViewport(surfaceID: String) {
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return
+        }
+        let id = clientID
+        Task { @MainActor in
+            let request = try? MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.viewport",
+                params: [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "client_id": id,
+                    "clear": true,
+                ]
+            )
+            guard let request else { return }
+            _ = try? await client.sendRequest(request)
+        }
+    }
+
+    /// Cold-attach replay: pull the Mac's per-surface byte ring buffer
+    /// once and feed it into the local libghostty surface so the iPhone
+    /// starts with the same grid the Mac currently shows. Live
+    /// `terminal.bytes` events keep flowing in parallel; sinks are
+    /// callable from the moment they register, so any live byte that
+    /// arrives during the in-flight replay request is appended after
+    /// the replay buffer naturally.
+    private func requestTerminalReplay(surfaceID: String) {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=no_remote_client")
+            #endif
+            return
+        }
+        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            #if DEBUG
+            mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=workspace_not_found")
+            #endif
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let request = try MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.replay",
+                    params: [
+                        "workspace_id": workspaceID.rawValue,
+                        "surface_id": surfaceID,
+                    ]
+                )
+                let data = try await client.sendRequest(request)
+                guard self.remoteClient === client else { return }
+                let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let b64 = payload?["data_b64"] as? String
+                let bytes = b64.flatMap { Data(base64Encoded: $0) }
+                #if DEBUG
+                let seq = (payload?["seq"] as? NSNumber)?.uint64Value ?? 0
+                let cols = (payload?["columns"] as? NSNumber)?.intValue ?? -1
+                let rows = (payload?["rows"] as? NSNumber)?.intValue ?? -1
+                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+                #endif
+                guard let bytes, !bytes.isEmpty else {
+                    return
+                }
+                self.terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+            } catch {
+                mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        for workspace in workspaces {
+            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
+                return workspace.id
+            }
+        }
+        return nil
+    }
+
+    private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+            let surfaceID = payload["surface_id"] as? String,
+            let b64 = payload["data_b64"] as? String,
+            let bytes = Data(base64Encoded: b64)
+        else {
+            return
+        }
+        #if DEBUG
+        let seq = (payload["seq"] as? NSNumber)?.uint64Value ?? 0
+        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(seq, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+        #endif
+        terminalByteSinksBySurfaceID[surfaceID]?(bytes)
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {
@@ -2089,84 +1743,14 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    private func startLegacyTerminalRefreshPolling() {
-        guard remoteClient != nil, terminalRefreshPollTask == nil else { return }
-        terminalRefreshPollTask = Task { @MainActor [weak self] in
-            defer {
-                self?.terminalRefreshPollTask = nil
-            }
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: Self.terminalRefreshPollIntervalNanoseconds)
-                } catch {
-                    break
-                }
-                guard let self else { break }
-                guard self.remoteClient != nil, self.connectionState == .connected else {
-                    break
-                }
-                await self.refreshSelectedTerminalSnapshot()
-            }
-        }
-    }
-
     private func stopTerminalRefreshPolling() {
-        terminalRefreshPollTask?.cancel()
-        terminalRefreshPollTask = nil
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
     }
 
-    private func cancelSelectedTerminalSnapshotRefresh() {
-        selectedTerminalSnapshotRefreshTask?.cancel()
-        selectedTerminalSnapshotRefreshTask = nil
-    }
-
-    private func scheduleViewportSettlingRefreshIfNeeded(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        viewportFit: MobileTerminalViewportFit?
-    ) {
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        guard let remaining = viewportSettlingRefreshesByTerminalKey[key],
-              remaining > 0 else {
-            viewportSettlingRefreshesByTerminalKey[key] = nil
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            return
-        }
-
-        let reportedViewportSize = reportedViewportSizesByTerminalKey[key]
-        if viewportEchoSettlingKeys.contains(key),
-           let reportedViewportSize,
-           viewportFit?.client == reportedViewportSize {
-            guard viewportMatchedEchoByTerminalKey.contains(key) else {
-                viewportMatchedEchoByTerminalKey.insert(key)
-                scheduleSelectedTerminalSnapshotRefresh()
-                return
-            }
-            viewportSettlingRefreshesByTerminalKey[key] = nil
-            viewportEchoSettlingKeys.remove(key)
-            viewportMatchedEchoByTerminalKey.remove(key)
-            return
-        }
-        viewportMatchedEchoByTerminalKey.remove(key)
-        viewportSettlingRefreshesByTerminalKey[key] = remaining - 1
-        scheduleSelectedTerminalSnapshotRefresh()
-    }
-
-    private func setSelectedWorkspaceID(
-        _ id: MobileWorkspacePreview.ID?,
-        refreshSnapshot: Bool
-    ) {
-        guard !refreshSnapshot else {
-            selectedWorkspaceID = id
-            return
-        }
-        isSuppressingSelectedWorkspaceRefresh = true
+    private func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
         selectedWorkspaceID = id
-        isSuppressingSelectedWorkspaceRefresh = false
     }
 
     private func applyRemoteWorkspaceList(
@@ -2199,8 +1783,7 @@ public final class CMUXMobileShellStore {
         setSelectedWorkspaceID(
             response.workspaces.first(where: \.isSelected)
                 .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-                ?? workspaces.first?.id,
-            refreshSnapshot: false
+                ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
     }
@@ -2218,7 +1801,6 @@ public final class CMUXMobileShellStore {
                     return remoteTerminal
                 }
                 var terminal = remoteTerminal
-                terminal.snapshot = existingTerminal.snapshot
                 terminal.viewportFit = existingTerminal.viewportFit
                 return terminal
             }
@@ -2234,7 +1816,7 @@ public final class CMUXMobileShellStore {
         guard let workspace = workspaces.first(where: { $0.id == ticketWorkspaceID }) else {
             return false
         }
-        setSelectedWorkspaceID(ticketWorkspaceID, refreshSnapshot: false)
+        setSelectedWorkspaceID(ticketWorkspaceID)
         if let ticketTerminalID = activeTicket.terminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
            workspace.terminals.contains(where: { $0.id == ticketTerminalID }) {
             selectedTerminalID = ticketTerminalID
@@ -2242,135 +1824,6 @@ public final class CMUXMobileShellStore {
             syncSelectedTerminalForWorkspace()
         }
         return true
-    }
-
-    private func replaceTerminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        isReady: Bool? = nil,
-        viewportFit: MobileTerminalViewportFit? = nil
-    ) {
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
-            return
-        }
-        var updatedWorkspaces = workspaces
-        updatedWorkspaces[workspaceIndex].terminals[terminalIndex].snapshot = snapshot
-        if let isReady {
-            updatedWorkspaces[workspaceIndex].terminals[terminalIndex].isReady = isReady
-        }
-        updatedWorkspaces[workspaceIndex].terminals[terminalIndex].viewportFit = viewportFit
-        workspaces = updatedWorkspaces
-        mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) rows=\(snapshot.visibleRows.count, privacy: .public)")
-    }
-
-    private func shouldDeferLowerFidelityTerminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        fidelity: String?
-    ) -> Bool {
-        guard fidelity == "plain_text",
-              !snapshot.hasExplicitCellStyles,
-              let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }),
-              workspaces[workspaceIndex].terminals[terminalIndex].snapshot.hasExplicitCellStyles else {
-            return false
-        }
-
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        let lowerFidelityRemainingRefreshes = lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0
-        let viewportRemainingRefreshes = viewportSettlingRefreshesByTerminalKey[key] ?? 0
-        guard lowerFidelityRemainingRefreshes > 0 || viewportRemainingRefreshes > 0 else {
-            return false
-        }
-        if lowerFidelityRemainingRefreshes > 0 {
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = lowerFidelityRemainingRefreshes - 1
-        }
-        if viewportRemainingRefreshes > 0 {
-            viewportSettlingRefreshesByTerminalKey[key] = viewportRemainingRefreshes - 1
-        }
-        let remainingRefreshes = max(
-            lowerFidelityRemainingRefreshes - 1,
-            viewportRemainingRefreshes - 1
-        )
-        mobileShellLog.info("deferred lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes, privacy: .public)")
-        return true
-    }
-
-    private func terminalSnapshotByReusingStylesIfNeeded(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        fidelity: String?
-    ) -> (snapshot: MobileTerminalGhosttySnapshot, reusedStyles: Bool) {
-        guard fidelity == "plain_text",
-              !snapshot.hasExplicitCellStyles,
-              let previousSnapshot = terminalSnapshot(workspaceID: workspaceID, terminalID: terminalID),
-              previousSnapshot.hasExplicitCellStyles else {
-            return (snapshot, false)
-        }
-
-        let styledSnapshot = snapshot.reusingExplicitCellStyles(from: previousSnapshot)
-        return (styledSnapshot, styledSnapshot != snapshot)
-    }
-
-    private func terminalSnapshot(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) -> MobileTerminalGhosttySnapshot? {
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
-            return nil
-        }
-        return workspaces[workspaceIndex].terminals[terminalIndex].snapshot
-    }
-
-    private func scheduleStyledSnapshotRefreshAfterPlainTextFallback(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID
-    ) {
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        let lowerFidelityRemainingRefreshes = max(0, (lowerFidelityDeferralRefreshesByTerminalKey[key] ?? 0) - 1)
-        let viewportRemainingRefreshes = max(0, (viewportSettlingRefreshesByTerminalKey[key] ?? 0) - 1)
-        if lowerFidelityRemainingRefreshes > 0 {
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = lowerFidelityRemainingRefreshes
-        } else {
-            lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
-        }
-        if viewportRemainingRefreshes > 0 {
-            viewportSettlingRefreshesByTerminalKey[key] = viewportRemainingRefreshes
-        } else {
-            viewportSettlingRefreshesByTerminalKey[key] = nil
-        }
-
-        let remainingRefreshes = max(lowerFidelityRemainingRefreshes, viewportRemainingRefreshes)
-        guard remainingRefreshes > 0 else {
-            return
-        }
-        mobileShellLog.info("accepted style-preserved lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes, privacy: .public)")
-        scheduleSelectedTerminalSnapshotRefresh()
-    }
-
-    private func clearLowerFidelityDeferralIfSnapshotHasStyledCells(
-        workspaceID: MobileWorkspacePreview.ID,
-        terminalID: MobileTerminalPreview.ID,
-        snapshot: MobileTerminalGhosttySnapshot,
-        fidelity: String?
-    ) {
-        guard fidelity != "plain_text" || snapshot.hasExplicitCellStyles else {
-            return
-        }
-        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
-        lowerFidelityDeferralRefreshesByTerminalKey[key] = nil
-    }
-
-    private static func isTerminalSurfaceNotReady(_ error: Error) -> Bool {
-        guard case let MobileShellConnectionError.rpcError(_, message) = error else {
-            return false
-        }
-        return message.localizedCaseInsensitiveContains("surface is not ready")
     }
 
     private func disconnectForAuthorizationFailureIfNeeded(_ error: Error) -> Bool {
@@ -2452,7 +1905,7 @@ public final class CMUXMobileShellStore {
                 hostPort: hostPort
             )
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not trusted. Pair again with a fresh QR/link from that computer.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
         case .attachTicketExpired:
             return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
         case .authorizationFailed:
@@ -2493,51 +1946,6 @@ public final class CMUXMobileShellStore {
         return left.priority < right.priority
     }
 
-    private static func previewLine(forRawTerminalInput text: String) -> String {
-        switch text {
-        case "\u{1B}":
-            return "Esc"
-        case "\t":
-            return "Tab"
-        case "\u{1B}[A":
-            return "↑"
-        case "\u{1B}[B":
-            return "↓"
-        case "\u{1B}[D":
-            return "←"
-        case "\u{1B}[C":
-            return "→"
-        case "\u{03}":
-            return "^C"
-        case "\u{04}":
-            return "^D"
-        case "\u{1A}":
-            return "^Z"
-        case "\u{0C}":
-            return "^L"
-        default:
-            if text.hasSuffix("\r") {
-                return String(text.dropLast())
-            }
-            return text
-        }
-    }
-
-    private func appendPreviewInput(_ text: String) {
-        guard let workspace = selectedWorkspace,
-              let terminalID = selectedTerminalID,
-              let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspace.id }),
-              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
-            return
-        }
-        let terminal = workspaces[workspaceIndex].terminals[terminalIndex]
-        let lines = Array((terminal.lines + ["> \(text)"]).suffix(6))
-        workspaces[workspaceIndex].terminals[terminalIndex].snapshot = PreviewMobileHost.snapshot(
-            terminalID: terminal.id.rawValue,
-            lines: lines
-        )
-    }
-
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
         let terminalID = ticket.terminalID ?? "attached-terminal"
         workspaces = [
@@ -2547,13 +1955,7 @@ public final class CMUXMobileShellStore {
                 terminals: [
                     MobileTerminalPreview(
                         id: .init(rawValue: terminalID),
-                        name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal"),
-                        lines: [
-                            "$ cmux attach",
-                            "mac: \(ticket.macDisplayName ?? ticket.macDeviceID)",
-                            "route: \(route.kind.rawValue)",
-                            "runtime: waiting for transport",
-                        ]
+                        name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal")
                     ),
                 ]
             ),
@@ -2561,12 +1963,6 @@ public final class CMUXMobileShellStore {
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
-}
-
-private struct MobileTerminalSnapshotCandidate: Sendable {
-    var workspaceID: MobileWorkspacePreview.ID
-    var terminalID: MobileTerminalPreview.ID
-    var isReady: Bool
 }
 
 private struct MobileTerminalViewportKey: Hashable, Sendable {
@@ -2701,21 +2097,18 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
-    private let allowsUserApprovedManualStackAuthFallback: Bool
     private let session: MobileCoreRPCSession
 
     init(
         runtime: CMUXMobileRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool = false,
-        allowsUserApprovedManualStackAuthFallback: Bool = false
+        allowsStackAuthFallback: Bool = false
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
-        self.allowsUserApprovedManualStackAuthFallback = allowsUserApprovedManualStackAuthFallback
         self.session = MobileCoreRPCSession(
             makeTransport: { [route, runtime] in
                 try runtime.transportFactory.makeTransport(for: route)
@@ -2729,20 +2122,11 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
-    /// Subscribe to server-pushed events. Cancel with `unsubscribe`.
-    func subscribe(to topics: Set<String>) async -> MobileCoreRPCEventSubscription {
-        await session.addEventListener(topics: topics)
+    /// Subscribe to server-pushed events. Returns a stream of envelopes
+    /// matching any of the requested topics. Cancel by terminating iteration.
+    func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
+        await session.addEventListener(topics: topics).stream
     }
-
-    func unsubscribe(_ subscription: MobileCoreRPCEventSubscription) async {
-        await session.removeListener(id: subscription.id)
-    }
-
-    #if DEBUG
-    func debugEventListenerCount() async -> Int {
-        await session.debugEventListenerCount()
-    }
-    #endif
 
     static func requestData(
         method: String,
@@ -2800,13 +2184,14 @@ final class MobileCoreRPCClient: @unchecked Sendable {
            requestIsCoveredByAttachTicket {
             if ticket.expiresAt > runtime.now() {
                 auth["attach_token"] = attachToken
-            } else if !allowsConfiguredStackAuthFallback() {
+            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
         let shouldSendStackAuth = requestNeedsAuth && auth["attach_token"] == nil
         if shouldSendStackAuth {
-            guard allowsConfiguredStackAuthFallback() else {
+            guard allowsStackAuthFallback,
+                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -2824,14 +2209,6 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
-    }
-
-    private func allowsConfiguredStackAuthFallback() -> Bool {
-        guard allowsStackAuthFallback else {
-            return false
-        }
-        return MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
-            || (allowsUserApprovedManualStackAuthFallback && MobileShellRouteAuthPolicy.routeAllowsUserApprovedManualStackAuth(route))
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
@@ -2855,9 +2232,9 @@ final class MobileCoreRPCClient: @unchecked Sendable {
             return false
         case "mobile.terminal.create", "terminal.create":
             return false
-        case "mobile.terminal.snapshot", "terminal.snapshot",
-             "mobile.terminal.input", "terminal.input",
-             "mobile.terminal.key", "terminal.key":
+        case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.replay", "terminal.replay",
+             "mobile.terminal.viewport", "terminal.viewport":
             return !ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
@@ -2872,7 +2249,7 @@ final class MobileCoreRPCClient: @unchecked Sendable {
 
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return method != "mobile.host.status"
+        return method != "mobile.host.status" && method != "mobile.attach_ticket.create"
     }
 
     private static func ticketCoversTerminalRequest(
@@ -3029,28 +2406,6 @@ private struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     }
 }
 
-private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
-    let snapshot: MobileTerminalGhosttySnapshot
-    let surfaceID: String?
-    let fidelity: String?
-    let viewportFit: MobileTerminalViewportFit?
-
-    private enum CodingKeys: String, CodingKey {
-        case snapshot
-        case surfaceID = "surface_id"
-        case fidelity
-        case viewportFit = "viewport_fit"
-    }
-
-    static func decode(_ data: Data) throws -> MobileSyncTerminalSnapshotResponse {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let response = try decoder.decode(Self.self, from: data)
-        try response.snapshot.validate()
-        return response
-    }
-}
-
 private extension MobileWorkspacePreview {
     init(remote: MobileSyncWorkspaceListResponse.Workspace) {
         self.init(
@@ -3068,11 +2423,6 @@ private extension MobileTerminalPreview {
         self.init(
             id: ID(rawValue: remote.id),
             name: remote.title,
-            lines: [
-                "$ cmux ios",
-                "terminal: \(remote.title)",
-                remote.currentDirectory.map { "directory: \($0)" } ?? "directory: unavailable",
-            ],
             isReady: remote.isReady ?? true,
             isFocused: remote.isFocused
         )
@@ -3087,89 +2437,19 @@ enum PreviewMobileHost {
             id: "workspace-main",
             name: "cmux",
             terminals: [
-                MobileTerminalPreview(
-                    id: "terminal-build",
-                    name: "Build",
-                    lines: [
-                        "$ cmux ios status",
-                        "Mobile Core: enabled",
-                        "Runtime: not connected",
-                        "Transport: injectable",
-                    ]
-                ),
-                MobileTerminalPreview(
-                    id: "terminal-agent",
-                    name: "Agent",
-                    lines: [
-                        "$ git status --short",
-                        "## feat-ios-swift-mobile-core",
-                        "$ swift test",
-                        "Test Suite passed",
-                    ]
-                ),
-                MobileTerminalPreview(
-                    id: "terminal-tui",
-                    name: "TUI",
-                    snapshot: snapshot(
-                        terminalID: "terminal-tui",
-                        lines: [
-                            "LAZYGIT",
-                            "files branches log",
-                            "main feat-ios clean",
-                            "q quit",
-                        ],
-                        activeScreen: .alternate,
-                        modes: MobileTerminalGhosttyModes(
-                            bracketedPaste: true,
-                            applicationCursorKeys: true,
-                            applicationKeypad: true,
-                            mouseTracking: true,
-                            cursorVisible: false
-                        ),
-                        streamOffset: 128
-                    )
-                ),
+                MobileTerminalPreview(id: "terminal-build", name: "Build"),
+                MobileTerminalPreview(id: "terminal-agent", name: "Agent"),
+                MobileTerminalPreview(id: "terminal-tui", name: "TUI"),
             ]
         ),
         MobileWorkspacePreview(
             id: "workspace-docs",
             name: "Docs",
             terminals: [
-                MobileTerminalPreview(
-                    id: "terminal-notes",
-                    name: "Notes",
-                    lines: [
-                        "$ rg \"CMUXMobileCore\" docs",
-                        "docs/ios-swift-mobile-plan.md:iOS shell depends on CMUXMobileCore.",
-                    ]
-                ),
+                MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
             ]
         ),
     ]
-
-    static func snapshot(
-        terminalID: String,
-        lines: [String],
-        scrollbackLines: [String] = [],
-        activeScreen: MobileTerminalGhosttyScreen = .primary,
-        modes: MobileTerminalGhosttyModes = MobileTerminalGhosttyModes(),
-        streamOffset: UInt64 = 0
-    ) -> MobileTerminalGhosttySnapshot {
-        do {
-            return try MobileTerminalGhosttySnapshot.fixture(
-                terminalID: terminalID,
-                columns: 48,
-                rows: 6,
-                scrollbackLines: scrollbackLines,
-                visibleLines: lines,
-                activeScreen: activeScreen,
-                modes: modes,
-                streamOffset: streamOffset
-            )
-        } catch {
-            preconditionFailure("Invalid mobile terminal preview snapshot: \(error)")
-        }
-    }
 }
 
 // MARK: - MobileCoreRPCSession
@@ -3179,11 +2459,6 @@ public struct MobileEventEnvelope: Sendable {
     public let topic: String
     public let payloadJSON: Data?
     public let streamID: String?
-}
-
-struct MobileCoreRPCEventSubscription: Sendable {
-    let id: UUID
-    let stream: AsyncStream<MobileEventEnvelope>
 }
 
 /// Owns a single persistent transport for a `MobileCoreRPCClient`, multiplexes
@@ -3196,6 +2471,11 @@ private actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
 
+    struct EventSubscription {
+        let id: UUID
+        let stream: AsyncStream<MobileEventEnvelope>
+    }
+
     private struct EventListener {
         let topics: Set<String>
         let continuation: AsyncStream<MobileEventEnvelope>.Continuation
@@ -3206,15 +2486,9 @@ private actor MobileCoreRPCSession {
         let frame: Data
     }
 
-    private struct ConnectionAttempt: Sendable {
-        let id: UUID
-        let transport: any CmxByteTransport
-        let task: Task<any CmxByteTransport, Error>
-    }
-
     private let makeTransport: TransportFactory
     private var transport: (any CmxByteTransport)?
-    private var connectionTask: ConnectionAttempt?
+    private var connectionTask: (id: UUID, task: Task<any CmxByteTransport, Error>)?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
@@ -3234,13 +2508,7 @@ private actor MobileCoreRPCSession {
     }
 
     deinit {
-        let connectionAttempt = connectionTask
-        connectionAttempt?.task.cancel()
-        if let connectionAttempt {
-            Task {
-                await connectionAttempt.transport.close()
-            }
-        }
+        connectionTask?.task.cancel()
         readerTask?.cancel()
         writerTask?.cancel()
         writeQueue?.finish()
@@ -3278,7 +2546,7 @@ private actor MobileCoreRPCSession {
         }
     }
 
-    func addEventListener(topics: Set<String>) -> MobileCoreRPCEventSubscription {
+    func addEventListener(topics: Set<String>) -> EventSubscription {
         let id = UUID()
         var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
         let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
@@ -3289,18 +2557,12 @@ private actor MobileCoreRPCSession {
             guard let self else { return }
             Task { await self.removeListener(id: id) }
         }
-        return MobileCoreRPCEventSubscription(id: id, stream: stream)
+        return EventSubscription(id: id, stream: stream)
     }
 
     func removeListener(id: UUID) {
         listeners.removeValue(forKey: id)
     }
-
-    #if DEBUG
-    func debugEventListenerCount() -> Int {
-        listeners.count
-    }
-    #endif
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
@@ -3324,13 +2586,9 @@ private actor MobileCoreRPCSession {
         writeQueue = nil
         writerTask?.cancel()
         writerTask = nil
-        let connectionAttempt = connectionTask
-        connectionAttempt?.task.cancel()
+        connectionTask?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
-        if let connectionAttempt {
-            await connectionAttempt.transport.close()
-        }
         if let transport {
             await transport.close()
         }
@@ -3354,32 +2612,18 @@ private actor MobileCoreRPCSession {
             let candidate = try makeTransport()
             connectionID = UUID()
             task = Task {
-                do {
-                    try await candidate.connect()
-                    try Task.checkCancellation()
-                    return candidate
-                } catch {
-                    await candidate.close()
-                    throw error
-                }
+                try await candidate.connect()
+                return candidate
             }
-            connectionTask = ConnectionAttempt(id: connectionID, transport: candidate, task: task)
+            connectionTask = (id: connectionID, task: task)
         }
 
         let candidate: any CmxByteTransport
         do {
-            candidate = try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                Task {
-                    await self.cancelConnectionAttempt(id: connectionID)
-                }
-            }
+            candidate = try await task.value
         } catch {
-            if let attempt = connectionTask, attempt.id == connectionID {
+            if connectionTask?.id == connectionID {
                 connectionTask = nil
-                attempt.task.cancel()
-                await attempt.transport.close()
             }
             throw error
         }
@@ -3413,15 +2657,6 @@ private actor MobileCoreRPCSession {
             await self?.writeLoop(transport: candidate, frames: stream)
         }
         return candidate
-    }
-
-    private func cancelConnectionAttempt(id connectionID: UUID) async {
-        guard let attempt = connectionTask, attempt.id == connectionID else {
-            return
-        }
-        connectionTask = nil
-        attempt.task.cancel()
-        await attempt.transport.close()
     }
 
     private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {

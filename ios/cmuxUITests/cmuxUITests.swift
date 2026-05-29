@@ -155,45 +155,20 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(0, label: "LAZYGIT", in: app)
     }
 
-    /// The mobile snapshot's `cursor.row` must address the same array index as
-    /// `visibleRows[i]`. Regression for the Mac-side bug where the snapshot
-    /// captured GHOSTTY_POINT_VIEWPORT (user-scrolled area) while the cursor
-    /// was reported from GHOSTTY_POINT_ACTIVE, so they could disagree by tens
-    /// of rows when the Mac had scrollback history. We now use POINT_ACTIVE
-    /// for both and the iOS render side compares row index directly to
-    /// `cursor.row`.
     @MainActor
-    func testTerminalCursorRowAlignsWithSnapshotIndex() async throws {
+    func testTerminalReplayRendersGhosttyText() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
-
-        server.overrideCursor(workspaceID: "workspace-main", terminalID: "terminal-build", row: 2, column: 18, isVisible: true)
 
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 6))
-
-        let cursorRow = app.otherElements["MobileTerminalRow-2"]
-        XCTAssertTrue(cursorRow.waitForExistence(timeout: 4), "Expected MobileTerminalRow-2 to exist")
-        let predicate = NSPredicate { object, _ in
-            guard let element = object as? XCUIElement else { return false }
-            return element.value as? String == "cursor-column-18"
-        }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: cursorRow)
-        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 4), .completed,
-                       "Cursor must render on MobileTerminalRow-2 at column 18 — saw value=\(cursorRow.value ?? "nil")")
-
-        // Adjacent rows must NOT carry the cursor marker.
-        for index in [0, 1, 3, 4] {
-            let row = app.otherElements["MobileTerminalRow-\(index)"]
-            if row.exists {
-                XCTAssertEqual(row.value as? String ?? "", "",
-                               "Row \(index) unexpectedly has a cursor marker")
-            }
-        }
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
     /// Tapping a text field opens the system keyboard; the floating Pair
@@ -317,16 +292,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(surface.waitForExistence(timeout: 6), file: file, line: line)
         let labelExpectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                let row = self.terminalRow(index, in: app)
-                return row.exists && row.label == expectedLabel
+                self.terminalRows(in: app).dropFirst(index).first == expectedLabel
             },
             object: app
         )
         let result = XCTWaiter.wait(for: [labelExpectation], timeout: 6)
-        let row = terminalRow(index, in: app)
-        if result != .completed, row.exists, row.label == expectedLabel {
-            return
-        }
         XCTAssertEqual(
             result,
             .completed,
@@ -334,7 +304,7 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertEqual(row.label, expectedLabel, file: file, line: line)
+        XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
     }
 
     @MainActor
@@ -349,8 +319,7 @@ final class cmuxUITests: XCTestCase {
         let labelExpectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 expectedLabels.allSatisfy { index, expectedLabel in
-                    let row = self.terminalRow(index, in: app)
-                    return row.exists && row.label == expectedLabel
+                    self.terminalRows(in: app).dropFirst(index).first == expectedLabel
                 }
             },
             object: app
@@ -365,7 +334,7 @@ final class cmuxUITests: XCTestCase {
             return
         }
         for (index, expectedLabel) in expectedLabels.sorted(by: { $0.key < $1.key }) {
-            XCTAssertEqual(terminalRow(index, in: app).label, expectedLabel, file: file, line: line)
+            XCTAssertEqual(terminalRows(in: app).dropFirst(index).first, expectedLabel, file: file, line: line)
         }
     }
 
@@ -526,10 +495,18 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func terminalRowLabels(in app: XCUIApplication) -> [String] {
-        (0..<8).compactMap { index in
-            let row = terminalRow(index, in: app)
-            return row.exists ? "\(index):\(row.label)" : nil
+        terminalRows(in: app).enumerated().map { index, row in
+            "\(index):\(row)"
         }
+    }
+
+    @MainActor
+    private func terminalRows(in app: XCUIApplication) -> [String] {
+        let surface = app.otherElements["MobileTerminalSurface"]
+        guard surface.exists else { return [] }
+        return surface.label
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
     }
 
     @MainActor
@@ -869,8 +846,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             result = createWorkspaceResult()
         case "terminal.create":
             result = createTerminalResult(params: params)
-        case "terminal.snapshot":
-            result = terminalSnapshotResult(params: params)
+        case "mobile.events.subscribe":
+            result = ["stream_id": params["stream_id"] as? String ?? "events"]
+        case "mobile.terminal.viewport", "terminal.viewport":
+            result = [
+                "columns": params["viewport_columns"] as? Int ?? 80,
+                "rows": params["viewport_rows"] as? Int ?? 24,
+            ]
+        case "mobile.terminal.replay", "terminal.replay":
+            result = terminalReplayResult(params: params)
         default:
             result = [:]
         }
@@ -941,7 +925,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         return result
     }
 
-    private func terminalSnapshotResult(params: [String: Any]) -> [String: Any] {
+    private func terminalReplayResult(params: [String: Any]) -> [String: Any] {
         let terminalID = params["surface_id"] as? String ?? selectedTerminalID
         selectedTerminalID = terminalID
         if let workspace = workspaces.first(where: { workspace in
@@ -955,10 +939,25 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             .first { $0.0.id == terminalID }
             ?? (workspaces[0].terminals[0], workspaces[0].id)
         streamOffset += 1
+        let bytes = terminalReplayBytes(for: terminal)
         return [
+            "workspace_id": workspaceID,
             "surface_id": terminal.id,
-            "snapshot": snapshot(for: terminal, workspaceID: workspaceID),
+            "seq": streamOffset,
+            "data_b64": bytes.base64EncodedString(),
+            "columns": 80,
+            "rows": 24,
         ]
+    }
+
+    private func terminalReplayBytes(for terminal: Terminal) -> Data {
+        var text = ""
+        if terminal.activeScreen == "alternate" {
+            text += "\u{1B}[?1049h\u{1B}[2J\u{1B}[H"
+        }
+        text += terminal.lines.joined(separator: "\r\n")
+        text += "\r\n"
+        return Data(text.utf8)
     }
 
     private func workspaceListResult() -> [String: Any] {

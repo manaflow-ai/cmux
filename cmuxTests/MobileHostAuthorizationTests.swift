@@ -485,14 +485,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testAttachTicketAcceptsSnapshotForCreatedWorkspace() throws {
+    func testAttachTicketAcceptsReplayForCreatedWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
-            id: "terminal-snapshot",
-            method: "terminal.snapshot",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [
                 "workspace_id": "created-workspace",
-                "terminal_id": "created-terminal",
+                "surface_id": "created-terminal",
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
@@ -509,14 +509,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testAttachTicketAcceptsSnapshotForCreatedTerminal() throws {
+    func testAttachTicketAcceptsReplayForCreatedTerminal() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
-            id: "terminal-snapshot",
-            method: "terminal.snapshot",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [
                 "workspace_id": "other-workspace",
-                "terminal_id": "created-terminal",
+                "surface_id": "created-terminal",
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
@@ -591,15 +591,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testScopedAttachTicketAcceptsNamedTerminalKey() throws {
+    func testScopedAttachTicketAcceptsNamedTerminalReplay() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
-            id: "terminal-key",
-            method: "terminal.key",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [
                 "workspace_id": "workspace",
                 "terminal_id": "terminal",
-                "key": "up",
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
@@ -633,11 +632,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(error?.code, "forbidden")
     }
 
-    func testTerminalScopedAttachTicketRejectsUnscopedTerminalSnapshot() throws {
+    func testTerminalScopedAttachTicketRejectsUnscopedTerminalReplay() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
-            id: "terminal-snapshot",
-            method: "terminal.snapshot",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [:],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
@@ -650,11 +649,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(error?.code, "forbidden")
     }
 
-    func testWorkspaceScopedAttachTicketRejectsTerminalSnapshotOutsideWorkspace() throws {
+    func testWorkspaceScopedAttachTicketRejectsTerminalReplayOutsideWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
-            id: "terminal-snapshot",
-            method: "terminal.snapshot",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [
                 "workspace_id": "other-workspace",
                 "surface_id": "terminal",
@@ -670,11 +669,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(error?.code, "forbidden")
     }
 
-    func testWorkspaceScopedAttachTicketAcceptsTerminalSnapshotInWorkspace() throws {
+    func testWorkspaceScopedAttachTicketAcceptsTerminalReplayInWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
-            id: "terminal-snapshot",
-            method: "terminal.snapshot",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [
                 "workspace_id": "workspace",
                 "surface_id": "terminal",
@@ -690,14 +689,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testMacScopedAttachTicketAcceptsTerminalSnapshotInAnyWorkspace() throws {
+    func testMacScopedAttachTicketAcceptsTerminalReplayInAnyWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
         let request = MobileHostRPCRequest(
-            id: "terminal-snapshot",
-            method: "terminal.snapshot",
+            id: "terminal-replay",
+            method: "terminal.replay",
             params: [
                 "workspace_id": "other-workspace",
-                "terminal_id": "other-terminal",
+                "surface_id": "other-terminal",
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
