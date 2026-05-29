@@ -404,6 +404,11 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let value = jsonBool(section["restorePreviousSessionOnLaunch"]) {
+            snapshot.managedUserDefaults[SessionAutoRestoreSettings.restorePreviousSessionOnLaunchKey] = .bool(value)
+        } else if section.keys.contains("restorePreviousSessionOnLaunch") {
+            logInvalid("app.restorePreviousSessionOnLaunch", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
             snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
         } else if section.keys.contains("workspaceInheritWorkingDirectory") {

@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
+                    "restorePreviousSessionOnLaunch": SessionAutoRestoreSettings.defaultRestorePreviousSessionOnLaunch,
                     "workspaceInheritWorkingDirectory": WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,

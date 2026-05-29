@@ -5299,6 +5299,8 @@ struct SettingsView: View {
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+    @AppStorage(SessionAutoRestoreSettings.restorePreviousSessionOnLaunchKey)
+    private var restorePreviousSessionOnLaunch = SessionAutoRestoreSettings.defaultRestorePreviousSessionOnLaunch
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
     private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
@@ -6681,6 +6683,24 @@ struct SettingsView: View {
                                 .pickerStyle(.segmented)
                                 .controlSize(.small)
                                 .disabled(confirmQuitDevOverrideActive)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.restorePreviousSessionOnLaunch"),
+                            String(localized: "settings.app.restorePreviousSessionOnLaunch", defaultValue: "Restore Previous Session on Launch"),
+                            subtitle: restorePreviousSessionOnLaunch
+                                ? String(localized: "settings.app.restorePreviousSessionOnLaunch.subtitleOn", defaultValue: "cmux restores saved windows, workspaces, tabs, and pane splits when launched normally.")
+                                : String(localized: "settings.app.restorePreviousSessionOnLaunch.subtitleOff", defaultValue: "cmux starts with a fresh window on launch. Use Reopen Previous Session to restore manually.")
+                        ) {
+                            Toggle("", isOn: $restorePreviousSessionOnLaunch)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsRestorePreviousSessionOnLaunchToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.restorePreviousSessionOnLaunch", defaultValue: "Restore Previous Session on Launch")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -8169,6 +8189,7 @@ struct SettingsView: View {
         hideTabCloseButton = CloseTabWarningSettings.defaultHideTabCloseButton
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+        restorePreviousSessionOnLaunch = SessionAutoRestoreSettings.defaultRestorePreviousSessionOnLaunch
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
