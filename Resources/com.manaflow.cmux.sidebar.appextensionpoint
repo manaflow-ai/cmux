@@ -4,8 +4,12 @@
 <dict>
 	<key>com.manaflow.cmux.sidebar</key>
 	<dict>
+		<key>EXExtensionPointIsPublic</key>
+		<true/>
 		<key>EXPresentsUserInterface</key>
 		<true/>
+		<key>_EXScopeRestriction</key>
+		<string>none</string>
 	</dict>
 </dict>
 </plist>

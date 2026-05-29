@@ -655,6 +655,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SampleSidebarExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar";
@@ -684,6 +685,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
+				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SampleSidebarExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "CMUX ExtKit Sample Sidebar";

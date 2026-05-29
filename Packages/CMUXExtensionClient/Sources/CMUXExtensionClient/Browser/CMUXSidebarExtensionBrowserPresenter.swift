@@ -8,7 +8,6 @@ public enum CMUXSidebarExtensionBrowserPresenter {
     public static func present(from anchorView: NSView, title: String) {
         let browserViewController = EXAppExtensionBrowserViewController()
         browserViewController.title = title
-        browserViewController.loadSidebarExtensionsIfSupported()
 
         let browserPanel = NSPanel(contentViewController: browserViewController)
         browserPanel.title = title
@@ -69,15 +68,5 @@ private final class BrowserPanelController: NSObject, NSWindowDelegate {
         }
         self.panel = nil
         self.parentWindow = nil
-    }
-}
-
-@available(macOS 13.0, *)
-private extension EXAppExtensionBrowserViewController {
-    func loadSidebarExtensionsIfSupported() {
-        let selector = NSSelectorFromString("loadExtensions")
-        if responds(to: selector) {
-            perform(selector)
-        }
     }
 }

@@ -100,7 +100,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         isLoading = true
         errorText = nil
         do {
-            let update = try await loadEnabledExtensionIdentities()
+            let update = try await loadEnabledExtensionIdentities(
+                extensionPointIdentifier: CMUXSidebarExtensionPoint.identifier,
+                staticExtensionPointIdentifier: CMUXSidebarExtensionPoint.staticIdentifier
+            )
             identity = update.sorted { $0.localizedName < $1.localizedName }.first
             isLoading = false
         } catch {
@@ -126,9 +129,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
-    private func loadEnabledExtensionIdentities() async throws -> [AppExtensionIdentity] {
+    private func loadEnabledExtensionIdentities(
+        extensionPointIdentifier: String,
+        staticExtensionPointIdentifier: StaticString
+    ) async throws -> [AppExtensionIdentity] {
         if #available(macOS 26.0, *) {
-            let extensionPoint = try AppExtensionPoint(identifier: "com.manaflow.cmux.sidebar")
+            let extensionPoint = try AppExtensionPoint(identifier: staticExtensionPointIdentifier)
             let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
             let state = monitor.state
             disabledExtensionCount = state.disabledCount
@@ -142,7 +148,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         let update = try await Task.detached(priority: .userInitiated) {
             var identities = try AppExtensionIdentity.matching(
-                appExtensionPointIDs: CMUXSidebarExtensionPoint.identifier
+                appExtensionPointIDs: extensionPointIdentifier
             )
             .makeAsyncIterator()
             return await identities.next() ?? []
