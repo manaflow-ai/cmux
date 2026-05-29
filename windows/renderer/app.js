@@ -20,6 +20,9 @@ const FitAddonConstructor = window.FitAddon?.FitAddon;
 const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
 const terminalOutputChunkSize = 32768;
 const terminalOutputPerformanceChunkSize = 16384;
+const paneLayoutStorageKey = "cmux.paneLayout";
+const paneLayoutScale = 1000;
+const paneLayoutMaxWeight = 10000;
 
 const initialSettings = loadSettings();
 
@@ -30,6 +33,7 @@ const state = {
   terminals: new Map(),
   browserViews: new Map(),
   paneCache: new Map(),
+  paneLayouts: loadPaneLayouts(),
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
   newTabButton: null,
@@ -42,6 +46,7 @@ const state = {
   sidebarResizing: null,
   inspectorResizing: null,
   renderFrame: 0,
+  paneLayoutFrame: 0,
   scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
@@ -82,6 +87,10 @@ const elements = {
   toastRegion: document.getElementById("toastRegion"),
   maximizeWindowButton: document.getElementById("maximizeWindowButton")
 };
+
+elements.paneLayoutStyle = document.createElement("style");
+elements.paneLayoutStyle.id = "paneLayoutStyle";
+document.head.appendChild(elements.paneLayoutStyle);
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
@@ -264,6 +273,213 @@ function replaceChildrenIfChanged(parent, nodes) {
   }
   parent.replaceChildren(...nodes);
   return true;
+}
+
+function normalizePaneWeight(value) {
+  const weight = Number(value);
+  if (!Number.isFinite(weight) || weight <= 0) return 0;
+  return Math.min(paneLayoutMaxWeight, Math.max(1, Math.round(weight)));
+}
+
+function loadPaneLayouts() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(paneLayoutStorageKey) || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+    const entries = [];
+    for (const [panelId, layout] of Object.entries(parsed)) {
+      if (!panelId || !layout || typeof layout !== "object" || Array.isArray(layout)) continue;
+      const right = normalizePaneWeight(layout.right);
+      const down = normalizePaneWeight(layout.down);
+      const next = {};
+      if (right) next.right = right;
+      if (down) next.down = down;
+      if (next.right || next.down) entries.push([panelId, next]);
+    }
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function savePaneLayouts() {
+  if (state.paneLayouts.size === 0) {
+    localStorage.removeItem(paneLayoutStorageKey);
+    return;
+  }
+  const payload = {};
+  for (const [panelId, layout] of state.paneLayouts.entries()) {
+    const right = normalizePaneWeight(layout.right);
+    const down = normalizePaneWeight(layout.down);
+    const next = {};
+    if (right) next.right = right;
+    if (down) next.down = down;
+    if (next.right || next.down) payload[panelId] = next;
+  }
+  localStorage.setItem(paneLayoutStorageKey, JSON.stringify(payload));
+}
+
+function paneLayoutDirection(workspace) {
+  return workspace?.splitDirection === "down" ? "down" : "right";
+}
+
+function storedPaneWeight(panelId, direction) {
+  return normalizePaneWeight(state.paneLayouts.get(panelId)?.[direction]);
+}
+
+function setStoredPaneWeight(panelId, direction, weight) {
+  const nextWeight = normalizePaneWeight(weight);
+  const layout = state.paneLayouts.get(panelId) || {};
+  if (nextWeight) {
+    layout[direction] = nextWeight;
+    state.paneLayouts.set(panelId, layout);
+    return;
+  }
+  delete layout[direction];
+  if (layout.right || layout.down) state.paneLayouts.set(panelId, layout);
+  else state.paneLayouts.delete(panelId);
+}
+
+function cleanupPaneLayouts() {
+  const livePanelIds = allPanelIds();
+  let changed = false;
+  for (const panelId of [...state.paneLayouts.keys()]) {
+    if (!livePanelIds.has(panelId)) {
+      state.paneLayouts.delete(panelId);
+      changed = true;
+    }
+  }
+  if (changed) savePaneLayouts();
+}
+
+function storedPaneWeightsForPanels(panels, direction, zoomedPanel) {
+  if (zoomedPanel || panels.length <= 1) return null;
+  const persisted = loadPaneLayouts();
+  const weights = new Map();
+  for (const panel of panels) {
+    const persistedLayout = persisted.get(panel.id);
+    if (persistedLayout) {
+      state.paneLayouts.set(panel.id, {
+        ...(state.paneLayouts.get(panel.id) || {}),
+        ...persistedLayout
+      });
+    }
+    const weight = storedPaneWeight(panel.id, direction);
+    if (!weight) return null;
+    weights.set(panel.id, weight);
+  }
+  return weights;
+}
+
+function storedPaneWeightFromStorage(panelId, direction) {
+  const persistedLayout = loadPaneLayouts().get(panelId);
+  if (persistedLayout) {
+    state.paneLayouts.set(panelId, {
+      ...(state.paneLayouts.get(panelId) || {}),
+      ...persistedLayout
+    });
+  }
+  return storedPaneWeight(panelId, direction);
+}
+
+function paneIdSelector(panelId) {
+  return String(panelId || "").replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
+function renderPaneLayoutStylesForWeights(weights) {
+  if (!weights || weights.size === 0) {
+    elements.paneLayoutStyle.textContent = "";
+    return;
+  }
+  elements.paneLayoutStyle.textContent = [...weights.entries()]
+    .map(([panelId, weight]) => `#paneGrid > .pane[data-panel-id="${paneIdSelector(panelId)}"]{flex:${weight} 1 0px;}`)
+    .join("\n");
+}
+
+function renderPaneLayoutStylesForVisiblePanes(direction) {
+  const panes = [...elements.paneGrid.querySelectorAll(".pane")];
+  if (panes.length <= 1) {
+    elements.paneLayoutStyle.textContent = "";
+    return false;
+  }
+  const weights = new Map();
+  for (const pane of panes) {
+    const weight = storedPaneWeightFromStorage(pane.dataset.panelId, direction);
+    if (!weight) {
+      elements.paneLayoutStyle.textContent = "";
+      return false;
+    }
+    weights.set(pane.dataset.panelId, weight);
+  }
+  renderPaneLayoutStylesForWeights(weights);
+  return true;
+}
+
+function clearPaneFlex(pane) {
+  pane.style.flex = "";
+}
+
+function clearVisiblePaneFlex() {
+  for (const pane of elements.paneGrid.querySelectorAll(".pane")) clearPaneFlex(pane);
+  elements.paneLayoutStyle.textContent = "";
+}
+
+function clearVisiblePaneInlineFlex() {
+  for (const pane of elements.paneGrid.querySelectorAll(".pane")) clearPaneFlex(pane);
+}
+
+function clearPaneLayoutsForWorkspace(workspace) {
+  if (!workspace) return;
+  let changed = false;
+  for (const panel of workspace.panels) {
+    if (state.paneLayouts.delete(panel.id)) changed = true;
+  }
+  if (changed) savePaneLayouts();
+  clearVisiblePaneFlex();
+}
+
+function applyStoredPaneLayoutToVisiblePanes(direction) {
+  const panes = [...elements.paneGrid.querySelectorAll(".pane")];
+  if (panes.length <= 1) {
+    elements.paneLayoutStyle.textContent = "";
+    return false;
+  }
+  const weights = panes.map((pane) => storedPaneWeightFromStorage(pane.dataset.panelId, direction));
+  if (weights.some((weight) => !weight)) {
+    elements.paneLayoutStyle.textContent = "";
+    return false;
+  }
+  const weightMap = new Map(panes.map((pane, index) => [pane.dataset.panelId, weights[index]]));
+  renderPaneLayoutStylesForWeights(weightMap);
+  return true;
+}
+
+function scheduleVisiblePaneLayoutApply() {
+  if (state.resizing || state.paneLayoutFrame) return;
+  state.paneLayoutFrame = requestAnimationFrame(() => {
+    state.paneLayoutFrame = 0;
+    const workspace = activeWorkspace();
+    if (workspace) applyStoredPaneLayoutToVisiblePanes(paneLayoutDirection(workspace));
+  });
+}
+
+function persistPaneLayoutFromGrid(direction) {
+  const panes = [...elements.paneGrid.querySelectorAll(".pane")]
+    .filter((pane) => pane.dataset.panelId);
+  if (panes.length <= 1) return;
+  const sizes = panes.map((pane) => {
+    const rect = pane.getBoundingClientRect();
+    return {
+      panelId: pane.dataset.panelId,
+      size: Math.max(1, direction === "down" ? rect.height : rect.width)
+    };
+  });
+  const total = sizes.reduce((sum, item) => sum + item.size, 0);
+  if (!total) return;
+  for (const item of sizes) {
+    setStoredPaneWeight(item.panelId, direction, Math.round((item.size / total) * paneLayoutScale));
+  }
+  cleanupPaneLayouts();
+  savePaneLayouts();
 }
 
 function terminalTheme() {
@@ -455,6 +671,7 @@ function cleanupStalePaneCache() {
   for (const panelId of [...state.paneCache.keys()]) {
     if (!livePanelIds.has(panelId)) cleanupPanel(panelId);
   }
+  cleanupPaneLayouts();
 }
 
 function flushPendingRender() {
@@ -658,6 +875,10 @@ function renderPanes(workspace) {
   elements.paneGrid.classList.toggle("direction-down", workspace.splitDirection === "down");
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
   const visiblePanels = zoomedPanel ? [zoomedPanel] : panels;
+  const layoutDirection = paneLayoutDirection(workspace);
+  const layoutWeights = storedPaneWeightsForPanels(visiblePanels, layoutDirection, zoomedPanel);
+  if (visiblePanels.length <= 1) elements.paneLayoutStyle.textContent = "";
+  else if (layoutWeights) renderPaneLayoutStylesForWeights(layoutWeights);
   elements.paneGrid.classList.toggle("is-zoomed", Boolean(zoomedPanel));
   const panelIds = new Set(visiblePanels.map((panel) => panel.id));
   const livePanelIds = allPanelIds();
@@ -687,6 +908,7 @@ function renderPanes(workspace) {
     pane.classList.toggle("has-attention", panel.needsAttention);
     pane.classList.toggle("is-browser", panel.type === "browser");
     pane.classList.toggle("is-terminal", panel.type === "terminal");
+    if (visiblePanels.length <= 1) clearPaneFlex(pane);
     pane.querySelector(".pane-type").textContent = panel.type === "browser" ? "web" : "term";
     const title = panel.type === "browser" ? panel.url || "Browser" : panelTitle(panel);
     const titleNode = pane.querySelector(".pane-title");
@@ -703,6 +925,9 @@ function renderPanes(workspace) {
     if (panel.type === "browser") ensureBrowser(panel, pane.querySelector(".pane-body"));
   }
   replaceChildrenIfChanged(elements.paneGrid, nodes);
+  if (!state.resizing && visiblePanels.length > 1) {
+    requestAnimationFrame(() => applyStoredPaneLayoutToVisiblePanes(layoutDirection));
+  }
 }
 
 function panelTitle(panel) {
@@ -775,7 +1000,17 @@ function startPaneResize(event, splitter) {
   }
   splitter.classList.add("is-dragging");
   splitter.setPointerCapture(event.pointerId);
-  state.resizing = { splitter, previousPane, nextPane, vertical, start, previousSize, nextSize };
+  state.resizing = {
+    splitter,
+    previousPane,
+    nextPane,
+    vertical,
+    direction: vertical ? "down" : "right",
+    workspaceId: workspace.id,
+    start,
+    previousSize,
+    nextSize
+  };
 }
 
 function continuePaneResize(event) {
@@ -796,10 +1031,18 @@ function continuePaneResize(event) {
 
 function finishPaneResize(event) {
   if (!state.resizing) return;
-  state.resizing.splitter.releasePointerCapture?.(event.pointerId);
-  state.resizing.splitter.classList.remove("is-dragging");
+  const { splitter, workspaceId, direction } = state.resizing;
+  splitter.releasePointerCapture?.(event.pointerId);
+  splitter.classList.remove("is-dragging");
+  persistPaneLayoutFromGrid(direction);
+  renderPaneLayoutStylesForVisiblePanes(direction);
+  clearVisiblePaneInlineFlex();
   state.resizing = null;
   flushPendingRender();
+  requestAnimationFrame(() => {
+    renderPaneLayoutStylesForVisiblePanes(direction);
+    clearVisiblePaneInlineFlex();
+  });
 }
 
 function startSidebarResize(event) {
@@ -2391,6 +2634,7 @@ async function createPanel(type, direction = "right", options = {}) {
   if (!workspace) return;
   const shellProfile = options.shellProfile || state.settings.terminalProfile;
   const shellPath = options.shellPath || state.settings.terminalCustomShell;
+  clearPaneLayoutsForWorkspace(workspace);
   await api("/api/panels", {
     method: "POST",
     body: JSON.stringify({
@@ -2887,6 +3131,10 @@ window.addEventListener("keydown", (event) => {
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
+new MutationObserver(scheduleVisiblePaneLayoutApply).observe(elements.paneGrid, {
+  childList: true,
+  subtree: true
+});
 window.addEventListener("pointermove", (event) => {
   continuePaneResize(event);
   continueSidebarResize(event);
