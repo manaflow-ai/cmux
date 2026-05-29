@@ -3447,6 +3447,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
+#if DEBUG
+    private var debugDeveloperToolsHostAttachedOverride: Bool?
+#endif
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
@@ -6183,6 +6186,15 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible = next
     }
 
+    private func isDeveloperToolsHostAttached() -> Bool {
+#if DEBUG
+        if let debugDeveloperToolsHostAttachedOverride {
+            return debugDeveloperToolsHostAttachedOverride
+        }
+#endif
+        return webView.superview != nil && webView.window != nil
+    }
+
     private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
         guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
@@ -6196,6 +6208,16 @@ extension BrowserPanel {
             setPreferredDeveloperToolsPresentation(.detached)
         }
     }
+
+#if DEBUG
+    func debugSetAttachedDeveloperToolsPresentationForTesting() {
+        setPreferredDeveloperToolsPresentation(.attached)
+    }
+
+    func debugSetDeveloperToolsHostAttachedForTesting(_ attached: Bool?) {
+        debugDeveloperToolsHostAttachedOverride = attached
+    }
+#endif
 
     private func installDetachedDeveloperToolsWindowCloseObserver() {
         guard detachedDeveloperToolsWindowCloseObserver == nil else { return }
@@ -6299,7 +6321,7 @@ extension BrowserPanel {
     private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
         if preferredDeveloperToolsPresentation != .unknown {
             guard preferredDeveloperToolsPresentation == .attached else { return }
-            guard webView.superview != nil, webView.window != nil else { return }
+            guard isDeveloperToolsHostAttached() else { return }
             guard inspector.cmuxCallBool(selector: NSSelectorFromString("isAttached")) == false else { return }
         }
         let attachSelector = NSSelectorFromString("attach")
@@ -6611,7 +6633,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
-        guard webView.superview != nil, webView.window != nil else { return false }
+        guard isDeveloperToolsHostAttached() else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
             return false

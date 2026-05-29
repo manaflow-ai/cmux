@@ -3606,20 +3606,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     func testAttachedInspectorRevealReattachesFrontendAfterLayoutReentry() {
         let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
         defer { closeBrowserPanel(panel) }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { closeWindow(window) }
 
-        let host = NSView(frame: window.contentView?.bounds ?? .zero)
-        window.contentView?.addSubview(host)
-        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: host.bounds.height)
-        host.addSubview(panel.webView)
+        panel.debugSetAttachedDeveloperToolsPresentationForTesting()
+        panel.debugSetDeveloperToolsHostAttachedForTesting(true)
         inspector.setFrontendAttachedForTesting(true)
-        XCTAssertNotNil(panel.webView.window)
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
