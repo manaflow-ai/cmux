@@ -426,7 +426,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", originalURL, "--title", "Bun PR"],
-            environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
             readPatchSidecar: false
         )
 
@@ -435,14 +434,21 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
         XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
         let rawURL = try XCTUnwrap(result.params["url"] as? String)
+        let serverStateURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(".server.json", isDirectory: false)
+        let serverState = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: serverStateURL)) as? [String: Any]
+        )
+        XCTAssertEqual(serverState["protocolVersion"] as? Int, 6)
         let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
         let patchFile = try XCTUnwrap(files.first { file in
             file["mime_type"] as? String == "text/x-diff"
         })
-        XCTAssertEqual(patchFile["file_path"] as? String, "")
-        XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
         let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        XCTAssertEqual(patchFile["file_path"] as? String, patchSidecarURL.path)
+        XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
         XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
     }
 
@@ -454,7 +460,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             let result = try runDiffCLIAndReadHTML(
                 cliPath: cliPath,
                 arguments: ["diff", originalURL, "--title", "Bun PR"],
-                environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
                 readPatchSidecar: false
             )
 
@@ -465,10 +470,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             let patchFile = try XCTUnwrap(files.first { file in
                 file["mime_type"] as? String == "text/x-diff"
             })
-            XCTAssertEqual(patchFile["file_path"] as? String, "")
-            XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
             let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
             let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+            XCTAssertEqual(patchFile["file_path"] as? String, patchSidecarURL.path)
+            XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
             XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
         }
     }
@@ -600,6 +605,68 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertNil(plainResponse.headers["content-encoding"])
         XCTAssertEqual(plainResponse.headers["cache-control"], "public, max-age=31536000, immutable")
         XCTAssertEqual(plainResponse.body, plainBody)
+    }
+
+    func testDiffViewerServerDoesNotCompleteChunkedRemotePatchWhenCurlFailsAfterPartialBody() throws {
+        let cliPath = try bundledCLIPath()
+        let token = "test-\(UUID().uuidString.lowercased())"
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-remote-\(UUID().uuidString)", isDirectory: true)
+        let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
+        let fakeCurlURL = fakeBinURL.appendingPathComponent("curl", isDirectory: false)
+        let patchURL = rootURL.appendingPathComponent("remote.patch", isDirectory: false)
+        let manifestURL = rootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        chmod(rootURL.path, 0o700)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let partialPatch = Data("diff --git a/a.txt b/a.txt\n".utf8)
+        try """
+        #!/bin/sh
+        printf 'diff --git a/a.txt b/a.txt\\n'
+        exit 28
+        """.write(to: fakeCurlURL, atomically: true, encoding: .utf8)
+        chmod(fakeCurlURL.path, 0o755)
+        let manifest: [String: Any] = [
+            "token": token,
+            "files": [
+                [
+                    "request_path": "/remote.patch",
+                    "file_path": patchURL.path,
+                    "mime_type": "text/x-diff",
+                    "remote_url": "https://github.com/manaflow-ai/cmux/pull/1.diff",
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(fakeBinURL.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["diff-viewer-server", "--root", rootURL.path]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        defer { terminateProcess(process) }
+
+        let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
+        let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
+        let response = try fetchRawHTTP(port: port, path: "/\(token)/remote.patch")
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.headers["transfer-encoding"], "chunked")
+        let bodyText = String(data: response.body, encoding: .utf8) ?? "\(Array(response.body))"
+        XCTAssertTrue(response.body.starts(with: Data("\(String(partialPatch.count, radix: 16))\r\n".utf8)), bodyText)
+        XCTAssertNotNil(response.body.range(of: partialPatch), bodyText)
+        let finalChunk = Data("0\r\n\r\n".utf8)
+        XCTAssertNotEqual(Data(response.body.suffix(finalChunk.count)), finalChunk, bodyText)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: patchURL.path))
     }
 
     func testDiffCommandTakesPrecedenceOverLocalPathNamedDiff() throws {
