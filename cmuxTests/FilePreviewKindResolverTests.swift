@@ -40,11 +40,40 @@ struct FilePreviewKindResolverTests {
         }
     }
 
+    @Test("MTS binary transport streams keep media preview after sniffing")
+    func mtsBinaryTransportStreamsKeepMediaPreviewAfterSniffing() throws {
+        let url = try temporaryFile(
+            extension: "mts",
+            data: mpegTransportStreamData(packetSize: 192, syncOffset: 4)
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .media)
+    }
+
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
+        try temporaryFile(extension: fileExtension, data: Data(contents.utf8))
+    }
+
+    private func temporaryFile(extension fileExtension: String, data: Data) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-preview-\(UUID().uuidString)")
             .appendingPathExtension(fileExtension)
-        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try data.write(to: url, options: .atomic)
         return url
+    }
+
+    private func mpegTransportStreamData(packetSize: Int, syncOffset: Int) -> Data {
+        var data = Data(repeating: 0, count: syncOffset + packetSize * 2)
+        data[syncOffset] = 0x47
+        data[syncOffset + 1] = 0x40
+        data[syncOffset + 2] = 0x00
+        data[syncOffset + 3] = 0x10
+        data[syncOffset + packetSize] = 0x47
+        data[syncOffset + packetSize + 1] = 0x41
+        data[syncOffset + packetSize + 2] = 0x00
+        data[syncOffset + packetSize + 3] = 0x10
+        return data
     }
 }

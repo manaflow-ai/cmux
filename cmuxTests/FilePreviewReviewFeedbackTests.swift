@@ -117,7 +117,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(contentsOf: [0x00, 0x00])
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .media)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
@@ -155,7 +155,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[191] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .media)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
@@ -176,7 +176,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[199] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .media)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 

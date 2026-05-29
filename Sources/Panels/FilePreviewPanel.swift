@@ -717,7 +717,7 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
-        if let textResolution = knownTextResolutionBeforeMedia(for: url) {
+        if let textResolution = knownTextResolutionBeforeMedia(for: url, sniffMediaCollisions: false) {
             return textResolution
         }
 
@@ -743,7 +743,7 @@ enum FilePreviewKindResolver {
             return .resolved(.quickLook)
         }
 
-        if let textResolution = knownTextResolutionBeforeMedia(for: url) {
+        if let textResolution = knownTextResolutionBeforeMedia(for: url, sniffMediaCollisions: true) {
             return textResolution
         }
 
@@ -809,7 +809,7 @@ enum FilePreviewKindResolver {
         return false
     }
 
-    private static func knownTextResolutionBeforeMedia(for url: URL) -> Resolution? {
+    private static func knownTextResolutionBeforeMedia(for url: URL, sniffMediaCollisions: Bool) -> Resolution? {
         let filename = url.lastPathComponent.lowercased()
         let ext = url.pathExtension.lowercased()
         guard ext != "plist",
@@ -825,7 +825,10 @@ enum FilePreviewKindResolver {
         }
 
         // Source extensions can collide with system audio/video UTIs (.ts, .mts).
-        // Decide from a small content sample before QuickLook can pick its movie generator.
+        // Initial routing stays extension-only; resolved routing sniffs off-main.
+        guard sniffMediaCollisions else {
+            return .resolved(.text)
+        }
         if sniffLooksLikeText(url: url) {
             return .resolved(.text)
         }
