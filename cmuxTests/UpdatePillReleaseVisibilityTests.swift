@@ -222,16 +222,15 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertEqual(classic.width, 164, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
         XCTAssertEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            124,
+            accuracy: 0.001,
+            "Sidebar titlebar chrome should use the v0.64.10 three-button host width."
+        )
+        XCTAssertGreaterThan(
             classic.width,
             MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
-            "Default titlebar controls should fit inside the sidebar chrome lane."
-        )
-        XCTAssertEqual(
-            TitlebarControlsLayoutMetrics.outerLeadingPadding
-                + TitlebarControlsLayoutMetrics.buttonRowWidth(config: TitlebarControlsStyle.classic.config),
-            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
-            accuracy: 0.001,
-            "Release-size buttons should fill the sidebar control host without needing cramped spacing."
+            "The full titlebar accessory may include focus-history buttons, but the sidebar host should not."
         )
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
@@ -367,7 +366,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let config = style.config
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
-            XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+            XCTAssertEqual(ranges.count, 3)
             for range in ranges {
                 XCTAssertEqual(
                     range.upperBound - range.lowerBound,
