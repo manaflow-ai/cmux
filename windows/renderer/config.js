@@ -110,9 +110,9 @@ export const toolbarModeOptions = [
 ];
 
 export const terminalColorDefaults = {
-  background: "#20221d",
-  foreground: "#d9d7c9",
-  cursor: "#72a4ff"
+  background: "#191c22",
+  foreground: "#d7dce6",
+  cursor: "#7aa7ff"
 };
 
 export const terminalAppearanceKeys = new Set([

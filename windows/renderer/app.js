@@ -569,7 +569,7 @@ function createSurfaceTab() {
   button.innerHTML = `
     <span class="surface-dot"></span>
     <span class="surface-label"></span>
-    <span class="surface-close" title="Close">x</span>
+    <span class="surface-close" title="Close">×</span>
   `;
   button.addEventListener("click", () => focusPanel(button.dataset.panelId));
   button.addEventListener("contextmenu", (event) => {
@@ -681,13 +681,13 @@ function renderPanes(workspace) {
     pane.classList.toggle("has-attention", panel.needsAttention);
     pane.classList.toggle("is-browser", panel.type === "browser");
     pane.classList.toggle("is-terminal", panel.type === "terminal");
-    pane.querySelector(".pane-type").textContent = panel.type === "browser" ? "www" : ">";
+    pane.querySelector(".pane-type").textContent = panel.type === "browser" ? "web" : "term";
     const title = panel.type === "browser" ? panel.url || "Browser" : panelTitle(panel);
     const titleNode = pane.querySelector(".pane-title");
     titleNode.textContent = title;
     titleNode.title = title;
     const zoomButton = pane.querySelector(".zoom");
-    zoomButton.textContent = panel.id === state.zoomedPanelId ? "[]" : "[ ]";
+    zoomButton.textContent = panel.id === state.zoomedPanelId ? "↙" : "□";
     zoomButton.title = panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane";
     if (panel.type === "terminal") {
       ensureTerminal(panel, pane.querySelector(".pane-body"));
@@ -806,13 +806,13 @@ function createPane(panel) {
       <div class="pane-type"></div>
       <div class="pane-title"></div>
       <div class="pane-toolbar">
-        <button class="pane-tool split-right" title="Split right">+</button>
-        <button class="pane-tool split-down" title="Split down">▾</button>
-        <button class="pane-tool zoom" title="Focus pane">[ ]</button>
+        <button class="pane-tool split-right" title="Split right">◫</button>
+        <button class="pane-tool split-down" title="Split down">⇣</button>
+        <button class="pane-tool zoom" title="Focus pane">□</button>
         <button class="pane-tool font-down" title="Smaller terminal text">A-</button>
         <button class="pane-tool font-up" title="Larger terminal text">A+</button>
-        <button class="pane-tool restart" title="Restart terminal">R</button>
-        <button class="pane-tool close" title="Close">x</button>
+        <button class="pane-tool restart" title="Restart terminal">↻</button>
+        <button class="pane-tool close" title="Close">×</button>
       </div>
     </div>
     <div class="pane-body"></div>
@@ -1092,22 +1092,22 @@ function ensureBrowser(panel, body) {
   back.className = "browser-nav";
   back.type = "button";
   back.title = "Back";
-  back.textContent = "<";
+  back.textContent = "‹";
   const forward = document.createElement("button");
   forward.className = "browser-nav";
   forward.type = "button";
   forward.title = "Forward";
-  forward.textContent = ">";
+  forward.textContent = "›";
   const reload = document.createElement("button");
   reload.className = "browser-nav";
   reload.type = "button";
   reload.title = "Reload";
-  reload.textContent = "R";
+  reload.textContent = "↻";
   const home = document.createElement("button");
   home.className = "browser-nav";
   home.type = "button";
   home.title = "Home";
-  home.textContent = "H";
+  home.textContent = "⌂";
   const address = document.createElement("input");
   address.className = "browser-address";
   address.value = panel.url || "https://example.com";
@@ -1118,7 +1118,7 @@ function ensureBrowser(panel, body) {
   const external = document.createElement("button");
   external.className = "browser-go";
   external.type = "button";
-  external.textContent = "Open";
+  external.textContent = "↗";
   const status = document.createElement("div");
   status.className = "browser-status";
   status.textContent = "Loading";

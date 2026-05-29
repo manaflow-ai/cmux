@@ -1,16 +1,16 @@
 /* Hallmark · macrostructure: Tool Surface · tone: cmux-native Windows utility · anchor hue: blue */
 :root {
-  --color-canvas: oklch(14% 0.012 115);
-  --color-chrome: oklch(18% 0.012 105);
-  --color-rail: oklch(17% 0.014 110);
-  --color-pane: oklch(16% 0.012 112);
-  --color-pane-warm: oklch(21% 0.018 105);
-  --color-pane-active: oklch(23% 0.02 105);
-  --color-line: oklch(31% 0.018 105);
-  --color-line-strong: oklch(41% 0.025 105);
-  --color-text: oklch(92% 0.01 105);
-  --color-muted: oklch(68% 0.02 105);
-  --color-faint: oklch(52% 0.018 105);
+  --color-canvas: oklch(12% 0.006 255);
+  --color-chrome: oklch(17% 0.008 255);
+  --color-rail: oklch(15% 0.007 255);
+  --color-pane: oklch(16% 0.007 255);
+  --color-pane-warm: oklch(20% 0.01 250);
+  --color-pane-active: oklch(24% 0.012 250);
+  --color-line: oklch(31% 0.012 255);
+  --color-line-strong: oklch(42% 0.016 255);
+  --color-text: oklch(92% 0.006 255);
+  --color-muted: oklch(69% 0.012 255);
+  --color-faint: oklch(53% 0.011 255);
   --color-accent: oklch(61% 0.22 255);
   --color-accent-hover: oklch(67% 0.2 255);
   --color-accent-ink: oklch(97% 0.02 255);
@@ -18,7 +18,8 @@
   --color-warning: oklch(78% 0.15 82);
   --color-danger: oklch(62% 0.17 28);
   --color-selection: oklch(43% 0.12 255);
-  --color-glass: oklch(10% 0.01 110 / 72%);
+  --color-glass: oklch(9% 0.007 255 / 72%);
+  --color-terminal-gutter: oklch(8% 0.006 255);
   --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   --space-1: 4px;
@@ -346,7 +347,7 @@ button {
 
 .workspace-row.is-active {
   border-color: var(--workspace-color, var(--color-accent));
-  background: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 18%, var(--color-pane) 82%);
+  background: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 10%, var(--color-pane) 90%);
   color: var(--color-text);
 }
 
@@ -833,7 +834,7 @@ button {
   display: flex;
   flex-direction: row;
   overflow: hidden;
-  background: oklch(8% 0.008 105);
+  background: var(--color-terminal-gutter);
 }
 
 .pane-grid.direction-down {
@@ -869,7 +870,7 @@ button {
   flex: 0 0 8px;
   position: relative;
   z-index: 4;
-  background: oklch(8% 0.008 105);
+  background: var(--color-terminal-gutter);
   cursor: col-resize;
   touch-action: none;
 }
@@ -922,7 +923,7 @@ button {
 }
 
 .pane.is-active .pane-header {
-  background: color-mix(in oklch, var(--panel-color, var(--color-accent)) 14%, var(--color-pane-warm) 86%);
+  background: color-mix(in oklch, var(--panel-color, var(--color-accent)) 8%, var(--color-pane-warm) 92%);
 }
 
 .pane-header:active {
@@ -984,7 +985,7 @@ button {
 }
 
 .pane-type {
-  min-width: 26px;
+  min-width: 34px;
   width: auto;
   height: 16px;
   display: grid;
