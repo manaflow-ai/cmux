@@ -401,6 +401,12 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     case focusHistoryBack
     case focusHistoryForward
 
+    static let sidebarChromeSlots: [TitlebarShortcutHintActionSlot] = [
+        .toggleSidebar,
+        .showNotifications,
+        .newTab
+    ]
+
     var action: KeyboardShortcutSettings.Action {
         switch self {
         case .toggleSidebar:
@@ -429,13 +435,18 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
+        buttonRowWidth(config: config, buttonCount: TitlebarShortcutHintActionSlot.allCases.count)
+    }
+
+    static func buttonRowWidth(config: TitlebarControlsStyleConfig, buttonCount: Int) -> CGFloat {
+        let buttonCount = CGFloat(max(0, buttonCount))
         let gapCount = max(0, buttonCount - 1)
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
     static func contentSize(
         config: TitlebarControlsStyleConfig,
+        buttonCount: Int = TitlebarShortcutHintActionSlot.allCases.count,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX,
         reservesShortcutHintOverflow: Bool = false
     ) -> NSSize {
@@ -445,7 +456,7 @@ enum TitlebarControlsLayoutMetrics {
         return NSSize(
             width: outerLeadingPadding
                 + config.groupPadding.leading
-                + buttonRowWidth(config: config)
+                + buttonRowWidth(config: config, buttonCount: buttonCount)
                 + config.groupPadding.trailing
                 + shortcutHintOverflow,
             height: max(
@@ -712,6 +723,7 @@ struct TitlebarControlsView: View {
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
+    var actionSlots = TitlebarShortcutHintActionSlot.allCases
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
@@ -757,6 +769,7 @@ struct TitlebarControlsView: View {
         let reservesShortcutHintOverflow = shouldShowTitlebarShortcutHints
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
+            buttonCount: actionSlots.count,
             titlebarShortcutHintXOffset: titlebarShortcutHintXOffset,
             reservesShortcutHintOverflow: reservesShortcutHintOverflow
         )
@@ -829,110 +842,119 @@ struct TitlebarControlsView: View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
         let content = HStack(spacing: config.spacing) {
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.toggleSidebar",
-                accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.toggleSidebar")
-                #endif
-                onToggleSidebar()
-            },
-                rightClickAction: { anchorView, event in
-                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: event)
-                }) {
-                iconLabel(
-                    systemName: "sidebar.left",
+            if actionSlots.contains(.toggleSidebar) {
+                TitlebarControlButton(
                     config: config,
-                    iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon"
-                )
-            }
-            .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
-
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.showNotifications",
-                accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.notifications")
-                #endif
-                onToggleNotifications()
-            }) {
-                ZStack(alignment: .topTrailing) {
+                    foregroundColor: foregroundColor,
+                    accessibilityIdentifier: "titlebarControl.toggleSidebar",
+                    accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
+                    action: {
+                    #if DEBUG
+                    cmuxDebugLog("titlebar.toggleSidebar")
+                    #endif
+                    onToggleSidebar()
+                },
+                    rightClickAction: { anchorView, event in
+                        CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: event)
+                    }) {
                     iconLabel(
-                        systemName: "bell",
+                        systemName: "sidebar.left",
                         config: config,
-                        iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
+                        iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon"
                     )
-
-                    if notificationStore.unreadCount > 0 {
-                        Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(width: config.badgeSize, height: config.badgeSize)
-                            .background(
-                                Circle().fill(cmuxAccentColor())
-                            )
-                            .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
-                    }
                 }
-                .frame(width: config.buttonSize, height: config.buttonSize)
+                .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
             }
-            .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
-            .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.newTab")
-                #endif
-                onNewTab()
-            },
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
+            if actionSlots.contains(.showNotifications) {
+                TitlebarControlButton(
+                    config: config,
+                    foregroundColor: foregroundColor,
+                    accessibilityIdentifier: "titlebarControl.showNotifications",
+                    accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
+                    action: {
+                    #if DEBUG
+                    cmuxDebugLog("titlebar.notifications")
+                    #endif
+                    onToggleNotifications()
                 }) {
-                iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
-            }
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+                    ZStack(alignment: .topTrailing) {
+                        iconLabel(
+                            systemName: "bell",
+                            config: config,
+                            iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
+                        )
 
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.focusHistoryBack",
-                accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
-                action: onFocusHistoryBack,
-                isEnabled: focusHistoryAvailability.canNavigateBack,
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
+                        if notificationStore.unreadCount > 0 {
+                            Text("\(min(notificationStore.unreadCount, 99))")
+                                .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: config.badgeSize, height: config.badgeSize)
+                                .background(
+                                    Circle().fill(cmuxAccentColor())
+                                )
+                                .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
+                        }
+                    }
+                    .frame(width: config.buttonSize, height: config.buttonSize)
                 }
-            ) {
-                iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
+                .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
+                .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
             }
-            .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
 
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.focusHistoryForward",
-                accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
-                action: onFocusHistoryForward,
-                isEnabled: focusHistoryAvailability.canNavigateForward,
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
+            if actionSlots.contains(.newTab) {
+                TitlebarControlButton(
+                    config: config,
+                    foregroundColor: foregroundColor,
+                    accessibilityIdentifier: "titlebarControl.newTab",
+                    accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
+                    action: {
+                    #if DEBUG
+                    cmuxDebugLog("titlebar.newTab")
+                    #endif
+                    onNewTab()
+                },
+                    rightClickAction: { anchorView, event in
+                        _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
+                    }) {
+                    iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
                 }
-            ) {
-                iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
+                .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
             }
-            .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
+            if actionSlots.contains(.focusHistoryBack) {
+                TitlebarControlButton(
+                    config: config,
+                    foregroundColor: foregroundColor,
+                    accessibilityIdentifier: "titlebarControl.focusHistoryBack",
+                    accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
+                    action: onFocusHistoryBack,
+                    isEnabled: focusHistoryAvailability.canNavigateBack,
+                    rightClickAction: { anchorView, event in
+                        _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
+                    }
+                ) {
+                    iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
+                }
+                .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
+            }
+
+            if actionSlots.contains(.focusHistoryForward) {
+                TitlebarControlButton(
+                    config: config,
+                    foregroundColor: foregroundColor,
+                    accessibilityIdentifier: "titlebarControl.focusHistoryForward",
+                    accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
+                    action: onFocusHistoryForward,
+                    isEnabled: focusHistoryAvailability.canNavigateForward,
+                    rightClickAction: { anchorView, event in
+                        _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
+                    }
+                ) {
+                    iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
+                }
+                .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
+            }
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -1008,7 +1030,7 @@ struct TitlebarControlsView: View {
     ) -> [(action: KeyboardShortcutSettings.Action, shortcut: StoredShortcut, width: CGFloat, interval: ClosedRange<CGFloat>)] {
         guard shouldShowTitlebarShortcutHints else { return [] }
 
-        return TitlebarShortcutHintActionSlot.allCases.compactMap { slot in
+        return actionSlots.enumerated().compactMap { index, slot in
             let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
             guard titlebarShortcutHintShouldShow(
                 shortcut: shortcut,
@@ -1018,7 +1040,7 @@ struct TitlebarControlsView: View {
 
             let width = titlebarHintWidth(for: shortcut, config: config)
             let rightEdge = config.groupPadding.leading
-                + titlebarButtonRightEdge(for: slot, config: config)
+                + titlebarButtonRightEdge(forButtonAt: index, config: config)
                 + xOffset
                 + TitlebarControlsLayoutMetrics.hintRightSafetyShift
                 + titlebarHintBaseXShift
@@ -1032,8 +1054,8 @@ struct TitlebarControlsView: View {
         return ceil(textWidth) + 12
     }
 
-    private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
+    private func titlebarButtonRightEdge(forButtonAt index: Int, config: TitlebarControlsStyleConfig) -> CGFloat {
+        let index = CGFloat(index)
         return (index + 1) * config.buttonSize + index * config.spacing
     }
 
@@ -1103,26 +1125,34 @@ struct TitlebarControlsView: View {
 
 private struct TitlebarControlsGapDragView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
+    let buttonCount: Int
 
     func makeNSView(context: Context) -> GapDragView {
         let view = GapDragView()
         view.config = config
+        view.buttonCount = buttonCount
         return view
     }
 
     func updateNSView(_ nsView: GapDragView, context: Context) {
         nsView.config = config
+        nsView.buttonCount = buttonCount
     }
 
     final class GapDragView: NSView {
         var config = TitlebarControlsStyle.classic.config
+        var buttonCount = TitlebarControlsHitRegions.sidebarChromeButtonCount
 
         override var mouseDownCanMoveWindow: Bool { false }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard NSApp.currentEvent?.type == .leftMouseDown else { return nil }
             guard bounds.contains(point) else { return nil }
-            guard !TitlebarControlsHitRegions.pointFallsInButtonColumn(point, config: config) else {
+            guard !TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                point,
+                config: config,
+                buttonCount: buttonCount
+            ) else {
                 return nil
             }
             return self
@@ -1151,20 +1181,24 @@ private struct TitlebarControlsGapDragView: NSViewRepresentable {
 
 private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
+    let buttonCount: Int
 
     func makeNSView(context: Context) -> ButtonHitRegionView {
         let view = ButtonHitRegionView()
         view.config = config
+        view.buttonCount = buttonCount
         return view
     }
 
     func updateNSView(_ nsView: ButtonHitRegionView, context: Context) {
         nsView.config = config
+        nsView.buttonCount = buttonCount
         MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
     }
 
     final class ButtonHitRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
         var config = TitlebarControlsStyle.classic.config
+        var buttonCount = TitlebarControlsHitRegions.sidebarChromeButtonCount
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -1182,7 +1216,11 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
         }
 
         func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
-            TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config)
+            TitlebarControlsHitRegions.sidebarActionSlot(
+                at: localPoint,
+                config: config,
+                buttonCount: buttonCount
+            )
         }
 
         deinit {
@@ -1207,6 +1245,10 @@ struct HiddenTitlebarSidebarControlsView: View {
 
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
+    }
+
+    private var sidebarChromeButtonCount: Int {
+        TitlebarShortcutHintActionSlot.sidebarChromeSlots.count
     }
 
     var body: some View {
@@ -1252,7 +1294,8 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
-                visibilityMode: .alwaysVisible
+                visibilityMode: .alwaysVisible,
+                actionSlots: TitlebarShortcutHintActionSlot.sidebarChromeSlots
             )
             .frame(
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
@@ -1264,7 +1307,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             .accessibilityHidden(true)
             .animation(.easeInOut(duration: 0.14), value: shouldPinControls)
 
-            TitlebarControlsGapDragView(config: style.config)
+            TitlebarControlsGapDragView(config: style.config, buttonCount: sidebarChromeButtonCount)
                 .frame(
                     width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                     height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
@@ -1272,6 +1315,7 @@ struct HiddenTitlebarSidebarControlsView: View {
 
             MinimalModeSidebarControlActionProxyView(
                 config: style.config,
+                buttonCount: sidebarChromeButtonCount,
                 requiresRevealedState: true
             ) { slot, anchorView, _ in
                 switch slot {
@@ -1312,7 +1356,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
             alignment: .leading
         )
-        .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
+        .background(MinimalModeTitlebarButtonHitRegionView(config: style.config, buttonCount: sidebarChromeButtonCount))
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG

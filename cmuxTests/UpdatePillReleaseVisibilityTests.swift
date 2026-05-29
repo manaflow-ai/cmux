@@ -232,6 +232,12 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
             "The full titlebar accessory may include focus-history buttons, but the sidebar host should not."
         )
+        let sidebarClassic = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.classic.config,
+            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count
+        )
+        XCTAssertEqual(sidebarClassic.width, 96, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(sidebarClassic.width, MinimalModeSidebarTitlebarControlsMetrics.hostWidth)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
         XCTAssertEqual(compact.width, 128, accuracy: 0.001)
