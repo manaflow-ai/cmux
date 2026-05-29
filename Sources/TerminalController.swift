@@ -6223,7 +6223,7 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
+        var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if v2HasNonNullParam(params, "persistent_daemon_slot") {
             guard let persistentDaemonSlot,
@@ -6291,11 +6291,7 @@ class TerminalController {
            !skipDaemonBootstrap,
            daemonWebSocketEndpoint == nil,
            persistentDaemonSlot == nil {
-            return .err(
-                code: "invalid_params",
-                message: "persistent_daemon_slot is required when preserve_after_terminal_exit is true for bootstrap SSH",
-                data: nil
-            )
+            persistentDaemonSlot = "ssh-\(workspaceId.uuidString.lowercased())"
         }
         if relayPort != nil {
             guard let relayID, !relayID.isEmpty else {

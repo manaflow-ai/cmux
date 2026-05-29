@@ -222,23 +222,38 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
-    func testRemoteConfigureRejectsPreserveWithoutPersistentDaemonSlotForBootstrapSSH() throws {
+    func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
         let response = try handleV2Request(
             method: "workspace.remote.configure",
             params: [
-                "workspace_id": UUID().uuidString,
+                "workspace_id": workspace.id.uuidString,
                 "transport": "ssh",
                 "destination": "example.com",
                 "preserve_after_terminal_exit": true,
+                "auto_connect": false,
             ]
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
-        let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
         XCTAssertEqual(
-            error["message"] as? String,
-            "persistent_daemon_slot is required when preserve_after_terminal_exit is true for bootstrap SSH"
+            workspace.remoteConfiguration?.persistentDaemonSlot,
+            "ssh-\(workspace.id.uuidString.lowercased())"
         )
     }
 
