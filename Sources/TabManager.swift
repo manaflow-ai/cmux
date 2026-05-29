@@ -10023,6 +10023,7 @@ extension TabManager {
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        var restoredOriginalWorkspaceIds: [UUID?] = []
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -10036,6 +10037,7 @@ extension TabManager {
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
             restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
+            restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
         }
 
         if newTabs.isEmpty {
@@ -10075,6 +10077,10 @@ extension TabManager {
                 )
             }
         }
+        remapClosedPanelHistoryAfterSessionRestore(
+            originalWorkspaceIds: restoredOriginalWorkspaceIds,
+            restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+        )
 
         if let selectedTabId {
             NotificationCenter.default.post(
@@ -10084,6 +10090,28 @@ extension TabManager {
             )
         }
         return restoredPanelIdsByWorkspaceIndex
+    }
+
+    private func remapClosedPanelHistoryAfterSessionRestore(
+        originalWorkspaceIds: [UUID?],
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+    ) {
+        let count = min(originalWorkspaceIds.count, tabs.count)
+        guard count > 0 else { return }
+        for index in 0..<count {
+            guard let originalWorkspaceId = originalWorkspaceIds[index],
+                  originalWorkspaceId != tabs[index].id else {
+                continue
+            }
+            let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
+                ? restoredPanelIdsByWorkspaceIndex[index]
+                : [:]
+            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+                from: originalWorkspaceId,
+                to: tabs[index].id,
+                panelIdMap: panelIdMap
+            )
+        }
     }
 
     func remapClosedPanelHistoryAfterWindowRestore(

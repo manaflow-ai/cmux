@@ -1098,6 +1098,93 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: historyURL.path))
     }
 
+    func testClosedItemHistoryAsyncLoadMergesEarlyMutation() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-merge-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        var persistedSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        persistedSnapshot.customTitle = "Persisted Workspace"
+        seedStore.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: UUID(),
+                windowId: nil,
+                workspaceIndex: 0,
+                snapshot: persistedSnapshot
+            ))
+        ))
+
+        let loadingStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: false,
+            persistsRecordsSynchronously: true
+        )
+        var earlySnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        earlySnapshot.customTitle = "Early Workspace"
+        loadingStore.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 2),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: UUID(),
+                windowId: nil,
+                workspaceIndex: 1,
+                snapshot: earlySnapshot
+            ))
+        ))
+
+        waitForClosedHistoryCount(2, in: loadingStore)
+
+        XCTAssertEqual(loadingStore.menuSnapshot().items.map(\.title), [
+            "Early Workspace",
+            "Persisted Workspace"
+        ])
+    }
+
+    func testSessionRestoreRemapsPersistedClosedPanelWorkspaceIds() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer {
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let sourceManager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        sourceWorkspace.setCustomTitle("Restored Parent")
+        let pane = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        sourceWorkspace.setPanelCustomTitle(panelId: panelId, title: "Persisted Closed Tab")
+        let sourceSnapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(
+            sourceWorkspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
+        )
+
+        ClosedItemHistoryStore.shared.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: sourceWorkspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+
+        let restoreManager = TabManager()
+        _ = restoreManager.restoreSessionSnapshot(sourceSnapshot)
+        let restoredWorkspace = try XCTUnwrap(restoreManager.tabs.first { $0.customTitle == "Restored Parent" })
+        XCTAssertNotEqual(restoredWorkspace.id, sourceWorkspace.id)
+
+        XCTAssertTrue(restoreManager.reopenMostRecentlyClosedItem())
+        XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Persisted Closed Tab"))
+    }
+
     func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -2008,6 +2095,21 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 skipDaemonBootstrap: nil
             )
         )
+    }
+
+    private func waitForClosedHistoryCount(
+        _ expectedCount: Int,
+        in store: ClosedItemHistoryStore,
+        timeout: TimeInterval = 2
+    ) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            if store.menuSnapshot().totalItemCount == expectedCount {
+                return
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+        XCTAssertEqual(store.menuSnapshot().totalItemCount, expectedCount)
     }
 
     private static func browserPanelSnapshot(id: UUID) -> SessionPanelSnapshot {

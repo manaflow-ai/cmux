@@ -1679,6 +1679,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
     var customDescription: String?

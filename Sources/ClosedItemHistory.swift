@@ -136,6 +136,9 @@ final class ClosedItemHistoryStore: ObservableObject {
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
+    private var didFinishPersistedRecordsLoad: Bool
+    private var needsPersistenceAfterPersistedRecordsLoad = false
+    private var shouldDiscardPersistedRecordsOnLoad = false
 
     init(
         capacity: Int? = nil,
@@ -147,12 +150,14 @@ final class ClosedItemHistoryStore: ObservableObject {
         self.capacity = capacity.map { max(1, $0) }
         self.fileURL = fileURL
         self.persistsRecordsSynchronously = persistsRecordsSynchronously
+        self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
                 records = Self.loadRecords(fileURL: fileURL)
                 trimToCapacityIfNeeded()
+                didFinishPersistedRecordsLoad = true
             } else {
-                loadPersistedRecordsAsync(from: fileURL, expectedRevision: revision)
+                loadPersistedRecordsAsync(from: fileURL)
             }
         }
     }
@@ -373,7 +378,10 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     func removeAll() {
-        guard !records.isEmpty else { return }
+        guard !records.isEmpty || !didFinishPersistedRecordsLoad else { return }
+        if !didFinishPersistedRecordsLoad {
+            shouldDiscardPersistedRecordsOnLoad = true
+        }
         records.removeAll(keepingCapacity: false)
         revision &+= 1
         persistRecords()
@@ -386,6 +394,10 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     private func persistRecords() {
         guard let fileURL else { return }
+        guard didFinishPersistedRecordsLoad else {
+            needsPersistenceAfterPersistedRecordsLoad = true
+            return
+        }
         let recordsSnapshot = records
         let revisionSnapshot = revision
         if persistsRecordsSynchronously {
@@ -401,15 +413,34 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
     }
 
-    private func loadPersistedRecordsAsync(from fileURL: URL, expectedRevision: UInt64) {
+    private func loadPersistedRecordsAsync(from fileURL: URL) {
         Task { @MainActor [weak self] in
             let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
-            guard let self, self.revision == expectedRevision else { return }
-            guard !loadedRecords.isEmpty else { return }
-            records = loadedRecords
-            trimToCapacityIfNeeded()
-            revision &+= 1
+            guard let self else { return }
+            if !shouldDiscardPersistedRecordsOnLoad {
+                mergeLoadedPersistedRecords(loadedRecords)
+            }
+            didFinishPersistedRecordsLoad = true
+            shouldDiscardPersistedRecordsOnLoad = false
+            if needsPersistenceAfterPersistedRecordsLoad {
+                needsPersistenceAfterPersistedRecordsLoad = false
+                persistRecords()
+            }
         }
+    }
+
+    private func mergeLoadedPersistedRecords(_ loadedRecords: [ClosedItemHistoryRecord]) {
+        guard !loadedRecords.isEmpty else { return }
+        if records.isEmpty {
+            records = loadedRecords
+        } else {
+            var seenRecordIds = Set(records.map(\.id))
+            let missingLoadedRecords = loadedRecords.filter { seenRecordIds.insert($0.id).inserted }
+            guard !missingLoadedRecords.isEmpty else { return }
+            records = missingLoadedRecords + records
+        }
+        trimToCapacityIfNeeded()
+        revision &+= 1
     }
 
     nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
