@@ -206,9 +206,11 @@ struct OpenCodeEventTextAccumulator {
     }
 
     private mutating func consumeMessageUpdated(_ properties: [String: Any]) -> [String] {
-        guard let info = properties["info"] as? [String: Any],
-              let messageID = info["id"] as? String,
-              let role = info["role"] as? String else {
+        let info = (properties["info"] as? [String: Any])
+            ?? (properties["message"] as? [String: Any])
+            ?? [:]
+        guard let messageID = Self.firstString(info["id"], properties["messageID"], properties["messageId"]),
+              let role = Self.firstString(info["role"], properties["role"]) else {
             return []
         }
 
@@ -230,7 +232,7 @@ struct OpenCodeEventTextAccumulator {
         messageIDByPartID[partID] = messageID
         guard part["type"] as? String == "text",
               part["ignored"] as? Bool != true,
-              let text = part["text"] as? String else {
+              let text = Self.firstString(part["text"], part["textDelta"], part["content"]) else {
             return []
         }
 

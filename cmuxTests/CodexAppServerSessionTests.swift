@@ -225,6 +225,76 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testOpenCodeEventTextAccumulatorAcceptsPluginMessageFallbacks() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "textDelta": "fallback",
+                        ]
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "message": [
+                            "id": "message-1",
+                            "sessionID": "session-1",
+                            "role": "assistant",
+                        ]
+                    ],
+                ], sessionID: "session-1"),
+            ["fallback"]
+        )
+    }
+
+    @Test
+    func testOpenCodeEventTextAccumulatorAcceptsTopLevelMessageFallbacksAndPartContent() {
+        var accumulator = OpenCodeEventTextAccumulator()
+
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.updated",
+                    "properties": [
+                        "sessionID": "session-1",
+                        "messageID": "message-1",
+                        "role": "assistant",
+                    ],
+                ], sessionID: "session-1"),
+            []
+        )
+        expectEqual(
+            accumulator.consumeEvent(
+                [
+                    "type": "message.part.updated",
+                    "properties": [
+                        "part": [
+                            "id": "part-1",
+                            "sessionID": "session-1",
+                            "messageID": "message-1",
+                            "type": "text",
+                            "content": "content fallback",
+                        ]
+                    ],
+                ], sessionID: "session-1"),
+            ["content fallback"]
+        )
+    }
+
+    @Test
     func testClaudeStreamJSONAccumulatorExtractsAssistantTextDeltas() {
         var accumulator = ClaudeStreamJSONAccumulator()
 

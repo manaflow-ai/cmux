@@ -6231,8 +6231,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if claudeHooksEnabled,
-           let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper"),
+        if let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper"),
            let claudeShim = Self.installClaudeCommandShimIfPossible(
                 wrapperURL: wrapperURL,
                 surfaceId: id
