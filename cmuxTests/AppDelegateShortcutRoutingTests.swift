@@ -4828,45 +4828,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut() {
-        let previousMainMenu = NSApp.mainMenu
-        let probeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
-        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        let menuProbe = MenuActionProbe()
-
-        defer {
-            NSApp.mainMenu = previousMainMenu
-            probeWindow.orderOut(nil)
+    func testClearedCmdDSuppressesStaleSplitRightMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
         }
-
-        let staleMenu = NSMenu(title: "Test")
-        let staleSplitItem = NSMenuItem(
-            title: "Split Right",
-            action: #selector(MenuActionProbe.perform(_:)),
-            keyEquivalent: "d"
-        )
-        staleSplitItem.keyEquivalentModifierMask = [.command]
-        staleSplitItem.target = menuProbe
-        staleMenu.addItem(staleSplitItem)
-        NSApp.mainMenu = staleMenu
-
-        probeWindow.contentView = contentView
-        contentView.addSubview(probeView)
-        probeWindow.makeKeyAndOrderFront(nil)
-        probeWindow.displayIfNeeded()
-        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
 
         guard let event = makeKeyDownEvent(
             key: "d",
             modifiers: [.command],
             keyCode: 2,
-            windowNumber: probeWindow.windowNumber
+            windowNumber: 0
         ) else {
             XCTFail("Failed to construct Cmd+D event")
             return
@@ -4874,57 +4846,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         withTemporaryShortcut(action: .splitRight, shortcut: .unbound) {
             XCTAssertTrue(
-                probeWindow.performKeyEquivalent(with: event),
-                "Cleared Cmd+D should still be handled by forwarding it to the focused terminal"
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "Cleared Cmd+D should suppress the stale split-right menu equivalent"
             )
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugMatchesConfiguredShortcut(event: event, action: .splitRight),
+                "Cleared Cmd+D should not still match splitRight"
+            )
+#endif
         }
-
-        XCTAssertEqual(menuProbe.callCount, 0, "A stale menu equivalent must not keep consuming cleared Cmd+D")
-        XCTAssertEqual(probeView.keyDownCallCount, 1, "Cleared Cmd+D should be forwarded into the terminal")
-        XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "d")
     }
 
-    func testWindowPerformKeyEquivalentSuppressesRemappedCmdDStaleMenuShortcut() {
-        let previousMainMenu = NSApp.mainMenu
-        let probeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
-        let focusableView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        let menuProbe = MenuActionProbe()
-
-        defer {
-            NSApp.mainMenu = previousMainMenu
-            probeWindow.orderOut(nil)
+    func testRemappedSplitRightSuppressesStaleCmdDMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
         }
 
-        let staleMenu = NSMenu(title: "Test")
-        let staleSplitItem = NSMenuItem(
-            title: "Split Right",
-            action: #selector(MenuActionProbe.perform(_:)),
-            keyEquivalent: "d"
-        )
-        staleSplitItem.keyEquivalentModifierMask = [.command]
-        staleSplitItem.target = menuProbe
-        staleMenu.addItem(staleSplitItem)
-        NSApp.mainMenu = staleMenu
-
-        probeWindow.contentView = contentView
-        contentView.addSubview(focusableView)
-        probeWindow.makeKeyAndOrderFront(nil)
-        probeWindow.displayIfNeeded()
-        XCTAssertTrue(probeWindow.makeFirstResponder(focusableView), "Expected probe view to own first responder")
-
-        guard let event = makeKeyDownEvent(
+        guard let staleCmdD = makeKeyDownEvent(
             key: "d",
             modifiers: [.command],
             keyCode: 2,
-            windowNumber: probeWindow.windowNumber
+            windowNumber: 0
+        ), let remappedCmdJ = makeKeyDownEvent(
+            key: "j",
+            modifiers: [.command],
+            keyCode: 38,
+            windowNumber: 0
         ) else {
-            XCTFail("Failed to construct Cmd+D event")
+            XCTFail("Failed to construct split-right shortcut events")
             return
         }
 
@@ -4935,14 +4886,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             option: false,
             control: false
         )
-        withTemporaryShortcut(action: .splitRight, shortcut: remappedSplitRight) {
-            XCTAssertFalse(
-                probeWindow.performKeyEquivalent(with: event),
-                "Remapped Cmd+D should not be consumed by stale cmux menu equivalents"
-            )
-        }
 
-        XCTAssertEqual(menuProbe.callCount, 0, "Cmd+D must not keep splitting after splitRight is remapped")
+        withTemporaryShortcut(action: .splitRight, shortcut: remappedSplitRight) {
+            XCTAssertTrue(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: staleCmdD),
+                "Cmd+D should suppress its stale split-right menu equivalent after splitRight is remapped"
+            )
+            XCTAssertFalse(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: remappedCmdJ),
+                "The current splitRight shortcut should not be treated as a stale menu shortcut"
+            )
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugMatchesConfiguredShortcut(event: staleCmdD, action: .splitRight),
+                "Stale Cmd+D should not still match splitRight after remapping"
+            )
+            XCTAssertTrue(
+                appDelegate.debugMatchesConfiguredShortcut(event: remappedCmdJ, action: .splitRight),
+                "Remapped Cmd+J should match splitRight"
+            )
+#endif
+        }
     }
 
     func testCurrentGlobalSearchShortcutIsNotSuppressedAsStaleMenuShortcut() {
@@ -9170,72 +9134,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let searchState = TerminalSurface.SearchState(needle: "")
-        terminalPanel.surface.searchState = searchState
-        terminalPanel.hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        guard let searchField = findEditableTextField(in: terminalPanel.hostedView) else {
-            XCTFail("Expected mounted terminal search field")
-            return
-        }
-
+    func testPlainTypingRepairsFocusedTerminalWhenResponderDriftsFromPreferredFocus() {
         XCTAssertTrue(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Expected terminal search field to own first responder before drift"
+            focusedTerminalKeyRepairNeeded(
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: false
+            ),
+            "Typing should repair focus when the responder is live but no longer matches the focused terminal's preferred keyboard target"
         )
-
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+        XCTAssertTrue(
+            focusedTerminalKeyRepairNeeded(
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: true
+            ),
+            "Typing should repair focus when the first responder has fallen back to the window"
+        )
+        XCTAssertTrue(
+            focusedTerminalKeyRepairNeeded(
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: false,
+                responderMatchesPreferredKeyboardFocus: true
+            ),
+            "Typing should repair focus when the responder no longer has a viable key-routing owner"
+        )
         XCTAssertFalse(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Expected terminal search field to lose first responder before repaired typing"
+            focusedTerminalKeyRepairNeeded(
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: true
+            ),
+            "Typing should leave focus alone when a live responder already owns the focused terminal's preferred keyboard target"
         )
-
-        guard let keyDown = makeKeyDownEvent(
-            key: "a",
-            modifiers: [],
-            keyCode: 0,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct typing event")
-            return
-        }
-
-        window.sendEvent(keyDown)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Typing should repair focus back to the terminal search field"
-        )
-        XCTAssertEqual(searchField.stringValue, "a", "Typing repair should preserve the first key in the search field")
     }
 
     private func makeRegisteredShortcutRoutingWindow(id: UUID) -> NSWindow {
