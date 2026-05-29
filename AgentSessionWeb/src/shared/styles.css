@@ -222,9 +222,9 @@
   --markdown-wide-block-max-height: 80vh;
   --conversation-block-gap: 12px;
   --conversation-tool-assistant-gap: 16px;
-  --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
   --text-heading-md: 18px;
-  --cursor-interaction: pointer;
+  --cursor-interaction: default;
   --vscode-editor-font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --vscode-font-size: var(--text-base);
   --vscode-editor-font-size: var(--text-sm);
