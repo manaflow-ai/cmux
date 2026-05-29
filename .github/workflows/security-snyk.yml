@@ -74,8 +74,14 @@ jobs:
         run: |
           snyk test \
             --file=web/package.json \
+            --package-manager=npm \
             --severity-threshold=high \
             --sarif-file-output=snyk-oss.sarif
+
+      - name: Warn when Snyk Open Source SARIF is missing
+        if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') == ''
+        run: |
+          echo "::warning::Snyk Open Source did not produce snyk-oss.sarif; check the scan step logs before relying on OSS findings."
 
       - name: Upload Snyk Open Source SARIF
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') != ''
