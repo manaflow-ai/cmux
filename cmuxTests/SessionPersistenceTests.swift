@@ -648,6 +648,36 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: true
             )
         )
+        XCTAssertTrue(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                forceSynchronousWrite: true
+            )
+        )
+    }
+
+    func testUpdateRelaunchUsesFastTerminationSnapshotPolicy() {
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotOnApplicationTerminate(
+                didPersistUpdateRelaunchSnapshot: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveSessionSnapshotOnApplicationTerminate(
+                didPersistUpdateRelaunchSnapshot: false
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldUseFastSessionSnapshotForUpdateRelaunch(
+                isUpdateRelaunchInProgress: true
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldUseFastSessionSnapshotForUpdateRelaunch(
+                isUpdateRelaunchInProgress: false
+            )
+        )
     }
 
     func testRestoreCompletionSavePolicySkipsManualReopen() {
