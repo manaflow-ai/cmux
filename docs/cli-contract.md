@@ -27,7 +27,7 @@ written around user-visible behavior so the implementation can change behind it.
 
 | Form | Contract |
 | --- | --- |
-| `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
+| `cmux <path>` | Open a directory or file parent in cmux through the app's file-open path, without requiring control-socket access. Relative paths resolve from the current working directory. |
 | `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
 | `cmux help` | Print top-level usage without a socket. |
@@ -66,6 +66,7 @@ Environment:
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
+| `agent-hibernation` | Enable or disable Agent Hibernation. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
 | `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
@@ -92,6 +93,7 @@ Environment:
 | `close-window` | Close a window by handle. |
 | `move-workspace-to-window` | Move a workspace into a target window. |
 | `reorder-workspace` | Reorder a workspace inside a window. |
+| `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
@@ -393,6 +395,7 @@ the expected text without connecting to a cmux socket.
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
 - `cmux browser-status --help` -> `Usage: cmux browser-status [--json]`
+- `cmux agent-hibernation --help` -> `Usage: cmux agent-hibernation <on|off> [--json]`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
@@ -414,6 +417,7 @@ the expected text without connecting to a cmux socket.
 - `cmux split-off --help` -> `Usage: cmux split-off`
 - `cmux reorder-surface --help` -> `Usage: cmux reorder-surface`
 - `cmux reorder-workspace --help` -> `Usage: cmux reorder-workspace`
+- `cmux reorder-workspaces --help` -> `Usage: cmux reorder-workspaces`
 - `cmux workspace-action --help` -> `Usage: cmux workspace-action --action <name>`
 - `cmux move-tab-to-new-workspace --help` -> `Usage: cmux move-tab-to-new-workspace`
 - `cmux tab-action --help` -> `Usage: cmux tab-action --action <name>`

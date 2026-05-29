@@ -2,8 +2,8 @@ import Darwin
 import Foundation
 import SwiftUI
 
-struct CmuxTaskManagerRow: Identifiable {
-    enum Kind: String {
+struct CmuxTaskManagerRow: Identifiable, Equatable {
+    enum Kind: String, Equatable {
         case window
         case workspace
         case tag
@@ -63,6 +63,49 @@ struct CmuxTaskManagerRow: Identifiable {
     let rootProcessIds: [Int]
     let foregroundProcessGroupIds: [Int]
     let agentAssetName: String?
+
+    /// Replaces the synthesized memberwise init so the PID arrays are
+    /// stored in a canonical (deduped + ascending) order. The snapshot
+    /// producers happen to sort today, but this guarantees the synthesized
+    /// `Equatable` stays stable across reorderings so `.equatable()` keeps
+    /// suppressing row re-renders even if a future producer forgets.
+    /// Issue #4529.
+    init(
+        id: String,
+        kind: Kind,
+        level: Int,
+        title: String,
+        detail: String,
+        resources: CmuxTaskManagerResources,
+        isDimmed: Bool,
+        workspaceId: UUID?,
+        surfaceId: UUID?,
+        terminalSurfaceId: UUID?,
+        processId: Int?,
+        rootProcessIds: [Int],
+        foregroundProcessGroupIds: [Int],
+        agentAssetName: String?
+    ) {
+        self.id = id
+        self.kind = kind
+        self.level = level
+        self.title = title
+        self.detail = detail
+        self.resources = resources
+        self.isDimmed = isDimmed
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        self.terminalSurfaceId = terminalSurfaceId
+        self.processId = processId
+        self.rootProcessIds = Self.canonicalIds(rootProcessIds)
+        self.foregroundProcessGroupIds = Self.canonicalIds(foregroundProcessGroupIds)
+        self.agentAssetName = agentAssetName
+    }
+
+    private static func canonicalIds(_ ids: [Int]) -> [Int] {
+        guard !ids.isEmpty else { return ids }
+        return Array(Set(ids)).sorted()
+    }
 
     var canViewWorkspace: Bool {
         workspaceId != nil
@@ -255,7 +298,7 @@ private struct SortNode {
     let children: [SortNode]
 }
 
-struct CmuxTaskManagerResources {
+struct CmuxTaskManagerResources: Equatable {
     static let zero = CmuxTaskManagerResources(cpuPercent: 0, residentBytes: 0, processCount: 0)
 
     let cpuPercent: Double
@@ -275,7 +318,7 @@ struct CmuxTaskManagerResources {
         self.memoryBytes = memoryBytes ?? residentBytes
         self.residentBytes = residentBytes
         self.processCount = processCount
-        self.processIds = processIds
+        self.processIds = Self.canonicalIds(processIds)
     }
 
     init(_ payload: [String: Any]) {
@@ -283,7 +326,15 @@ struct CmuxTaskManagerResources {
         self.memoryBytes = Self.int64(payload["memory_bytes"] ?? payload["resident_bytes"])
         self.residentBytes = Self.int64(payload["resident_bytes"])
         self.processCount = Self.int(payload["process_count"]) ?? 0
-        self.processIds = Self.intArray(payload["pids"])
+        self.processIds = Self.canonicalIds(Self.intArray(payload["pids"]))
+    }
+
+    /// Canonical (deduped + ascending) ordering so synthesized
+    /// `Equatable` stays stable across snapshot reorderings. See
+    /// `CmuxTaskManagerRow.canonicalIds` for the same rationale.
+    private static func canonicalIds(_ ids: [Int]) -> [Int] {
+        guard !ids.isEmpty else { return ids }
+        return Array(Set(ids)).sorted()
     }
 
     private static func double(_ raw: Any?) -> Double {

@@ -2,7 +2,12 @@ import { useTranslations, useLocale } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
-import { testimonials, TestimonialCard, getTestimonialTranslation } from "../testimonials";
+import {
+  testimonials,
+  TestimonialCard,
+  getTestimonialSubtitle,
+  getTestimonialTranslation,
+} from "../testimonials";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -17,6 +22,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 export default function WallOfLovePage() {
   const t = useTranslations("wallOfLove");
   const tt = useTranslations("testimonials");
+  const tst = useTranslations("testimonialSubtitles");
   const locale = useLocale();
 
   return (
@@ -36,6 +42,7 @@ export default function WallOfLovePage() {
               key={testimonial.url}
               testimonial={testimonial}
               translation={getTestimonialTranslation(testimonial, locale, tt)}
+              subtitle={getTestimonialSubtitle(testimonial, tst)}
             />
           ))}
         </div>

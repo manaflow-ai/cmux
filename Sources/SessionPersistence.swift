@@ -13,8 +13,11 @@ enum SessionSnapshotSchema {
 }
 
 enum SessionPersistencePolicy {
-    static let defaultSidebarWidth: Double = 200
-    static let minimumSidebarWidth: Double = 180
+    static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
+    static let defaultSidebarWidth: Double = 220
+    static let defaultMinimumSidebarWidth: Double = 216
+    static let minimumSidebarWidth: Double = 216
+    static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -25,10 +28,33 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
-    static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
-        let fallback = defaultSidebarWidth
+    static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
+        let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
+        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
         guard let candidate, candidate.isFinite else { return fallback }
-        return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
+        return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
+    }
+
+    static func resolvedMinimumSidebarWidth(defaults: UserDefaults = .standard) -> Double {
+        guard let candidate = storedSidebarMinimumWidth(defaults: defaults) else {
+            return defaultMinimumSidebarWidth
+        }
+        return sanitizedMinimumSidebarWidth(candidate)
+    }
+
+    static func sanitizedMinimumSidebarWidth(_ candidate: Double) -> Double {
+        guard candidate.isFinite else { return defaultMinimumSidebarWidth }
+        return min(max(candidate, sidebarMinimumWidthRange.lowerBound), sidebarMinimumWidthRange.upperBound)
+    }
+
+    private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {
+        if let value = defaults.object(forKey: sidebarMinimumWidthKey) as? NSNumber {
+            return value.doubleValue
+        }
+        if let value = defaults.string(forKey: sidebarMinimumWidthKey) {
+            return Double(value)
+        }
+        return nil
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {
@@ -234,6 +260,20 @@ enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
 }
 
 nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case kind
+        case command
+        case cwd
+        case checkpointId
+        case source
+        case environment
+        case autoResume
+        case approvalPolicy
+        case approvalRecordId
+        case updatedAt
+    }
+
     var name: String?
     var kind: String?
     var command: String
@@ -259,17 +299,41 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         approvalRecordId: String? = nil,
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
+        let normalizedCwd = Self.normalized(cwd)
+        let normalizedSource = Self.normalized(source)
         self.name = Self.normalized(name)
         self.kind = Self.normalized(kind)
-        self.command = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.cwd = Self.normalized(cwd)
+        self.command = Self.sanitizedStartupCommand(
+            command,
+            cwd: normalizedCwd,
+            source: normalizedSource
+        )
+        self.cwd = normalizedCwd
         self.checkpointId = Self.normalized(checkpointId)
-        self.source = Self.normalized(source)
+        self.source = normalizedSource
         self.environment = Self.normalizedEnvironment(environment)
         self.autoResume = autoResume
         self.approvalPolicy = approvalPolicy
         self.approvalRecordId = Self.normalized(approvalRecordId)
         self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decodeIfPresent(String.self, forKey: .name),
+            kind: try container.decodeIfPresent(String.self, forKey: .kind),
+            command: try container.decode(String.self, forKey: .command),
+            cwd: try container.decodeIfPresent(String.self, forKey: .cwd),
+            checkpointId: try container.decodeIfPresent(String.self, forKey: .checkpointId),
+            source: try container.decodeIfPresent(String.self, forKey: .source),
+            environment: try container.decodeIfPresent([String: String].self, forKey: .environment),
+            autoResume: try container.decodeIfPresent(Bool.self, forKey: .autoResume),
+            approvalPolicy: try container.decodeIfPresent(SurfaceResumeApprovalPolicy.self, forKey: .approvalPolicy),
+            approvalRecordId: try container.decodeIfPresent(String.self, forKey: .approvalRecordId),
+            updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
+                ?? Date().timeIntervalSince1970
+        )
     }
 
     var isProcessDetected: Bool {
@@ -299,7 +363,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
@@ -310,6 +374,23 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         }
         let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
         return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
+    }
+
+    private var startupCommand: String {
+        Self.sanitizedStartupCommand(command, cwd: cwd, source: source)
+    }
+
+    private static func sanitizedStartupCommand(
+        _ command: String,
+        cwd: String?,
+        source: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard source == "agent-hook" else { return trimmed }
+        return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: trimmed,
+            workingDirectory: cwd
+        )
     }
 
     func startupInputWithLauncherScript(
@@ -333,6 +414,23 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
         let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+
+    func startupCommandWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput,
+              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+                  inlineInput: inlineInput,
+                  binding: self,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
@@ -601,8 +699,10 @@ enum SurfaceResumeApprovalSignature {
 
 enum SurfaceResumeApprovalStore {
     static let didChangeNotification = Notification.Name("cmux.surfaceResumeApprovalsDidChange")
-    private static let defaultFileName = "resume-commands.json"
+    private static let legacyFileName = "resume-commands.json"
     private static let secretFileName = ".surface-resume-approval-secret"
+    private static let settingsTerminalSectionKey = "terminal"
+    private static let settingsRecordsKey = "resumeCommands"
     private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
     private static let keychainAccount = "hmac-secret-v1"
 
@@ -611,19 +711,78 @@ enum SurfaceResumeApprovalStore {
         var records: [SurfaceResumeApprovalRecord]
     }
 
+    private enum CmuxSettingsRootLoadResult {
+        case missing
+        case invalid
+        case parsed([String: Any])
+    }
+
     static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
         if let override = environment["CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: false)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux", isDirectory: true)
-            .appendingPathComponent(defaultFileName, isDirectory: false)
+        return URL(fileURLWithPath: CmuxSettingsFileStore.defaultPrimaryPath, isDirectory: false)
     }
 
     static func loadRecords(
         fileURL: URL = defaultURL(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaultSettingsURL: URL = defaultURL()
+    ) -> [SurfaceResumeApprovalRecord] {
+        if storesRecordsInCmuxSettings(fileURL) {
+            let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
+            if loaded.hasResumeCommandsKey {
+                return loaded.records
+            }
+            guard fileURL.standardizedFileURL.path == defaultSettingsURL.standardizedFileURL.path else {
+                return loaded.records
+            }
+            let legacyURL = legacyURL(forCmuxSettingsURL: fileURL)
+            let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
+            guard !legacyRecords.isEmpty else {
+                return loaded.records
+            }
+            guard loaded.canWriteSettings else {
+                return legacyRecords
+            }
+            _ = migrateLegacyRecordsIfNeeded(
+                fileURL: fileURL,
+                fileManager: fileManager,
+                legacyFileURL: legacyURL
+            )
+            return legacyRecords
+        }
+        return loadStandaloneRecords(fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    static func migrateLegacyRecordsIfNeeded(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        legacyFileURL: URL? = nil
+    ) -> Bool {
+        guard storesRecordsInCmuxSettings(fileURL) else {
+            return false
+        }
+        let loaded = loadRecordsFromCmuxSettings(fileURL: fileURL)
+        guard !loaded.hasResumeCommandsKey else {
+            return false
+        }
+        guard loaded.canWriteSettings else {
+            return false
+        }
+        let legacyURL = legacyFileURL ?? legacyURL(forCmuxSettingsURL: fileURL)
+        let legacyRecords = loadStandaloneRecords(fileURL: legacyURL, fileManager: fileManager)
+        guard !legacyRecords.isEmpty else {
+            return false
+        }
+        return writeRecordsToCmuxSettings(records: legacyRecords, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    private static func loadStandaloneRecords(
+        fileURL: URL,
+        fileManager: FileManager
     ) -> [SurfaceResumeApprovalRecord] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         if let file = try? JSONDecoder().decode(StoredFile.self, from: data) {
@@ -843,6 +1002,9 @@ enum SurfaceResumeApprovalStore {
         fileURL: URL = defaultURL(),
         fileManager: FileManager = .default
     ) -> Bool {
+        if storesRecordsInCmuxSettings(fileURL) {
+            return write(records: [], fileURL: fileURL, fileManager: fileManager)
+        }
         try? fileManager.removeItem(at: fileURL)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
         return true
@@ -890,6 +1052,18 @@ enum SurfaceResumeApprovalStore {
         fileURL: URL,
         fileManager: FileManager
     ) -> Bool {
+        if storesRecordsInCmuxSettings(fileURL) {
+            return writeRecordsToCmuxSettings(records: records, fileURL: fileURL, fileManager: fileManager)
+        }
+        return writeStandaloneRecords(records: records, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    private static func writeStandaloneRecords(
+        records: [SurfaceResumeApprovalRecord],
+        fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
         do {
             try fileManager.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
@@ -899,6 +1073,123 @@ enum SurfaceResumeApprovalStore {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(StoredFile(version: 1, records: records))
+            try data.write(to: fileURL, options: [.atomic])
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            NotificationCenter.default.post(name: didChangeNotification, object: nil)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func storesRecordsInCmuxSettings(_ fileURL: URL) -> Bool {
+        fileURL.lastPathComponent == "cmux.json"
+    }
+
+    private static func legacyURL(forCmuxSettingsURL fileURL: URL) -> URL {
+        fileURL.deletingLastPathComponent()
+            .appendingPathComponent(legacyFileName, isDirectory: false)
+    }
+
+    private static func loadRecordsFromCmuxSettings(
+        fileURL: URL
+    ) -> (records: [SurfaceResumeApprovalRecord], hasResumeCommandsKey: Bool, canWriteSettings: Bool) {
+        let root: [String: Any]
+        switch loadCmuxSettingsRoot(fileURL: fileURL) {
+        case .missing:
+            return ([], false, true)
+        case .invalid:
+            return ([], false, false)
+        case .parsed(let parsedRoot):
+            root = parsedRoot
+        }
+        guard let terminalSection = root[settingsTerminalSectionKey] as? [String: Any],
+              let rawRecords = terminalSection[settingsRecordsKey] else {
+            return ([], false, true)
+        }
+        guard JSONSerialization.isValidJSONObject(rawRecords),
+              let data = try? JSONSerialization.data(withJSONObject: rawRecords, options: []),
+              let records = try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data) else {
+            return ([], true, true)
+        }
+        return (records, true, true)
+    }
+
+    private static func loadCmuxSettingsRoot(fileURL: URL) -> CmuxSettingsRootLoadResult {
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
+            return .missing
+        }
+        do {
+            let sanitized = try JSONCParser.preprocess(data: data)
+            guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any] else {
+                return .invalid
+            }
+            return .parsed(root)
+        } catch {
+            return .invalid
+        }
+    }
+
+    @discardableResult
+    private static func writeRecordsToCmuxSettings(
+        records: [SurfaceResumeApprovalRecord],
+        fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        do {
+            let rootLoadResult = loadCmuxSettingsRoot(fileURL: fileURL)
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let recordsData = try encoder.encode(records)
+            let recordsValue = try JSONSerialization.jsonObject(with: recordsData, options: [])
+            guard let recordsJSON = String(data: recordsData, encoding: .utf8) else {
+                return false
+            }
+
+            let data: Data
+            switch rootLoadResult {
+            case .missing:
+                let root: [String: Any] = [
+                    "$schema": CmuxSettingsFileStore.schemaURLString,
+                    "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
+                    settingsTerminalSectionKey: [
+                        settingsRecordsKey: recordsValue,
+                    ],
+                ]
+                guard JSONSerialization.isValidJSONObject(root) else {
+                    return false
+                }
+                data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            case .invalid:
+                return false
+            case .parsed:
+                guard let existingData = fileManager.contents(atPath: fileURL.path),
+                      let decodedSource = try? JSONCParser.source(data: existingData),
+                      let updatedSource = JSONCObjectEditor.setNestedObjectProperty(
+                          parentKey: settingsTerminalSectionKey,
+                          childKey: settingsRecordsKey,
+                          childValueJSON: recordsJSON,
+                          in: decodedSource.text
+                      ) else {
+                    return false
+                }
+                guard let updatedData = updatedSource.data(using: decodedSource.encoding) else {
+                    return false
+                }
+                let sanitized = try JSONCParser.preprocess(data: updatedData)
+                guard let root = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any],
+                      JSONSerialization.isValidJSONObject(root) else {
+                    return false
+                }
+                data = updatedData
+            }
+
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fileURL.deletingLastPathComponent().path)
             try data.write(to: fileURL, options: [.atomic])
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
             NotificationCenter.default.post(name: didChangeNotification, object: nil)
@@ -976,6 +1267,34 @@ enum SurfaceResumeApprovalStore {
 #endif
 }
 
+nonisolated enum TerminalStartupReturnShellScript {
+    private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
+    private static let zshIntegrationReentryLines = [
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
+        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"  else"#,
+        #"    unset CMUX_ZSH_ZDOTDIR"#,
+        #"  fi"#,
+        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"fi"#,
+    ]
+
+    static func commandThenReturnLines(command: String) -> [String] {
+        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
+        return [
+            shellLine,
+            #"case "${_cmux_resume_shell:t}" in"#,
+            #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
+            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"esac"#,
+        ] + zshIntegrationReentryLines + [
+            #"exec -l "$_cmux_resume_shell""#
+        ]
+    }
+}
+
 private enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -984,7 +1303,8 @@ private enum SurfaceResumeBindingScriptStore {
         inlineInput: String,
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -997,7 +1317,16 @@ private enum SurfaceResumeBindingScriptStore {
                 "\(prefix)-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true"
+            ]
+            if returnToLoginShell {
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput))
+            } else {
+                lines.append(inlineInput)
+            }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
             return scriptURL
@@ -1041,7 +1370,10 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
@@ -1051,23 +1383,120 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
+        hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
+        remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
+        self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.textBoxDraft = textBoxDraft
+        self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
     }
 }
+
+struct SessionAgentHibernationSnapshot: Codable, Sendable {
+    var hibernatedAt: TimeInterval
+    var lastActivityAt: TimeInterval
+}
+
+struct SessionTextBoxInputDraftSnapshot: Codable, Equatable, Sendable {
+    var isActive: Bool
+    var parts: [SessionTextBoxInputDraftPart]
+}
+
+struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case text
+        case attachment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case text
+        case attachment
+    }
+
+    let kind: Kind
+    let text: String?
+    let attachment: SessionTextBoxInputAttachmentSnapshot?
+
+    private init(kind: Kind, text: String?, attachment: SessionTextBoxInputAttachmentSnapshot?) {
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        let text = try container.decodeIfPresent(String.self, forKey: .text)
+        let attachment = try container.decodeIfPresent(
+            SessionTextBoxInputAttachmentSnapshot.self,
+            forKey: .attachment
+        )
+
+        switch kind {
+        case .text:
+            guard text != nil, attachment == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .text,
+                    in: container,
+                    debugDescription: "Text draft parts must contain text and no attachment."
+                )
+            }
+        case .attachment:
+            guard attachment != nil, text == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .attachment,
+                    in: container,
+                    debugDescription: "Attachment draft parts must contain an attachment and no text."
+                )
+            }
+        }
+
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
+    }
+
+    static func text(_ text: String) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .text, text: text, attachment: nil)
+    }
+
+    static func attachment(_ attachment: SessionTextBoxInputAttachmentSnapshot) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .attachment, text: nil, attachment: attachment)
+    }
+}
+
+struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
+    var displayName: String
+    var submissionText: String
+    var submissionPath: String
+    var localPath: String?
+    var cleanupLocalPathWhenDisposed: Bool
+}
+
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
 }
@@ -1080,7 +1509,21 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
 }
 
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
-    var mode: RightSidebarMode
+    var mode: RightSidebarMode?
+
+    init(mode: RightSidebarMode?) {
+        self.mode = mode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case mode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decodeIfPresent(String.self, forKey: .mode)
+        self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+    }
 }
 
 struct SessionNotificationSnapshot: Codable, Sendable {
@@ -1152,6 +1595,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
+    var restoredUnreadContributesToWorkspace: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
@@ -1253,6 +1697,18 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+}
+
+extension SessionWorkspaceSnapshot {
+    var hasRestorablePanels: Bool {
+        !panels.isEmpty
+    }
+}
+
+extension SessionWindowSnapshot {
+    var hasRestorablePanels: Bool {
+        tabManager.workspaces.contains { $0.hasRestorablePanels }
+    }
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

@@ -18,8 +18,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Validate WarpBuild runner guards
+      - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
+
+      - name: Validate Python test harness syntax
+        run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
@@ -32,6 +35,9 @@ jobs:
 
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
+      - name: Validate nightly tag push auth
+        run: ./tests/test_ci_nightly_tag_push_auth.sh
 
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
@@ -47,6 +53,12 @@ jobs:
 
       - name: Validate auxiliary window close shortcut lint
         run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
+
+      - name: Validate pbxproj test-wiring lint
+        run: ./tests/test_ci_pbxproj_test_wiring.sh
+
+      - name: Validate pbxproj objectVersion pin and normalization
+        run: ./scripts/check-pbxproj.sh
 
       # Paused: stale-base merge races (two PRs each fitting the budget can
       # overshoot when merged back-to-back without rebasing). CodeRabbit and
@@ -150,7 +162,7 @@ jobs:
 
   tests:
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
@@ -169,7 +181,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -181,12 +198,17 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -212,10 +234,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-tests-
+          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -244,6 +263,21 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run Ghostty split-theme appearance regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
+            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
+            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
+            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -270,18 +304,7 @@ jobs:
               "-disableAutomaticPackageResolution",
               "-destination", "platform=macOS",
               "CMUX_SKIP_ZIG_BUILD=1",
-              "-skip-testing:cmuxTests/AppDelegateShortcutRoutingTests",
-              "-skip-testing:cmuxTests/BrowserDeveloperToolsConfigurationTests",
-              "-skip-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests",
-              "-skip-testing:cmuxTests/BrowserPanelRemoteStoreTests",
-              "-skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests",
-              "-skip-testing:cmuxTests/BrowserSessionHistoryRestoreTests",
-              "-skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields",
-              "-skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply",
               "-skip-testing:cmuxTests/FileExplorerStoreTests/testRemoteWorkspaceRootRequestResolvesSSHHomeInsteadOfKeepingLocalPath",
-              "-skip-testing:cmuxTests/FilePreviewPanelTextSavingTests",
-              "-skip-testing:cmuxTests/FilePreviewReviewFeedbackTests",
-              "-skip-testing:cmuxTests/GhosttySurfaceOverlayTests",
               "test",
           ]
 
@@ -462,6 +485,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          python3 tests/test_stress_cli_socket_api.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_claude_wrapper_hooks.py
@@ -471,7 +495,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests-build-and-lag:
-    # Build the full cmux scheme and run the lag regression on WarpBuild.
+    # Build the full cmux scheme and run the lag regression on macOS CI.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
@@ -489,7 +513,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -501,12 +530,17 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-lag
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
@@ -532,10 +566,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-*
-          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-build-
+          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -675,7 +706,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -688,12 +724,17 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
@@ -719,10 +760,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal
-          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-release-
+          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -743,6 +781,20 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
+      - name: Validate Release artifact slices
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          test -x "$APP_BINARY"
+          test -x "$CLI_BINARY"
+          test -x "$HELPER_BINARY"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          lipo "$APP_BINARY" -verify_arch arm64 x86_64
+          lipo "$CLI_BINARY" -verify_arch arm64 x86_64
+          lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
@@ -758,7 +810,12 @@ jobs:
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
             if [ -n "$XCODE_APP" ]; then
               XCODE_DIR="$XCODE_APP/Contents/Developer"
             else
@@ -845,7 +902,7 @@ jobs:
           echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
 
           echo "Waiting for persistent virtual display..."
-          for i in $(seq 1 24); do
+          for _ in $(seq 1 24); do
             if [ -f "$VDISPLAY_READY" ]; then break; fi
             sleep 0.5
           done
@@ -908,7 +965,7 @@ jobs:
 
             # Wait for display ready
             echo "Waiting for virtual display..."
-            for i in $(seq 1 24); do
+            for _ in $(seq 1 24); do
               if [ -f "$DISPLAY_READY" ]; then break; fi
               sleep 0.5
             done

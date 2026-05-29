@@ -228,6 +228,36 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(background.color?.hexString(), "#C0392B")
         XCTAssertEqual(background.opacity, 0.7, accuracy: 0.001)
     }
+
+    @MainActor
+    func testBatchWorkspaceColorAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.applyWorkspaceColor("#C0392B", toWorkspaceIds: [second.id])
+
+        manager.applyWorkspaceColor("#1565C0", toWorkspaceIds: [first.id, third.id])
+
+        XCTAssertEqual(first.customColor, "#1565C0")
+        XCTAssertEqual(second.customColor, "#C0392B")
+        XCTAssertEqual(third.customColor, "#1565C0")
+    }
+
+    @MainActor
+    func testBatchWorkspaceTerminalScrollBarVisibilityAppliesOnlyRequestedWorkspaces() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: true, forWorkspaceIds: [first.id, second.id, third.id])
+
+        manager.setWorkspaceTerminalScrollBarHidden(hidden: false, forWorkspaceIds: [first.id, third.id])
+
+        XCTAssertFalse(first.terminalScrollBarHidden)
+        XCTAssertTrue(second.terminalScrollBarHidden)
+        XCTAssertFalse(third.terminalScrollBarHidden)
+    }
 }
 
 
@@ -301,8 +331,12 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.label, "Focus Back")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.label, "Focus Forward")
         XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
         XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBack.defaultsKey, "shortcut.focusHistoryBack")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForward.defaultsKey, "shortcut.focusHistoryForward")
 
         let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
         XCTAssertEqual(nextShortcut.key, "]")
@@ -317,6 +351,23 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(prevShortcut.shift)
         XCTAssertFalse(prevShortcut.option)
         XCTAssertTrue(prevShortcut.control)
+
+        let focusBackShortcut = KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
+        XCTAssertEqual(focusBackShortcut.key, "[")
+        XCTAssertTrue(focusBackShortcut.command)
+        XCTAssertFalse(focusBackShortcut.shift)
+        XCTAssertFalse(focusBackShortcut.option)
+        XCTAssertFalse(focusBackShortcut.control)
+
+        let focusForwardShortcut = KeyboardShortcutSettings.Action.focusHistoryForward.defaultShortcut
+        XCTAssertEqual(focusForwardShortcut.key, "]")
+        XCTAssertTrue(focusForwardShortcut.command)
+        XCTAssertFalse(focusForwardShortcut.shift)
+        XCTAssertFalse(focusForwardShortcut.option)
+        XCTAssertFalse(focusForwardShortcut.control)
+
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryBack))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryForward))
     }
 
     func testNextPreviousWorkspaceShortcutsConvertToMenuShortcut() {
@@ -1053,6 +1104,53 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+    }
+
+    func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SidebarWorkspaceTitleWrapSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "wrapWorkspaceTitles": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertTrue(SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults))
+        XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
@@ -1979,6 +2077,67 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testCommandShortcutUsesPrintableEventLetterBeforePhysicalPunctuationFallback() {
+        let jumpToUnread = StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+        let nextSurface = StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+
+        XCTAssertTrue(
+            jumpToUnread.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+        XCTAssertFalse(
+            nextSurface.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForControlCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "\u{15}",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlLetterCanUseLayoutFallbackForPrintableEventCharacter() {
+        let markUnreadAndJump = StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+
+        XCTAssertTrue(
+            markUnreadAndJump.matches(
+                keyCode: 32,
+                modifierFlags: [.command, .control],
+                eventCharacter: "g",
+                layoutCharacterProvider: { keyCode, _ in keyCode == 32 ? "u" : nil }
+            )
+        )
+    }
+
+    func testCommandControlPunctuationDoesNotStealPrintableLetterShortcut() {
+        let nextWorkspace = StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
+
+        XCTAssertFalse(
+            nextWorkspace.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .control],
+                eventCharacter: "u",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
     func testMatchingTreatsKeypadEnterAsReturn() {
         let shortcut = StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false)
 
@@ -2708,13 +2867,14 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             cachedTitle: nil,
             customTitle: nil,
             manuallyUnread: false,
-            restoredUnread: false,
+            restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
             resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
+            remotePTYSessionID: nil,
             remoteCleanupConfiguration: nil
         )
     }
@@ -3424,6 +3584,49 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
 }
 
 
+final class SidebarWorkspaceSelectionSyncPolicyTests: XCTestCase {
+    @MainActor
+    func testReconciledSelectionPreservesMultiSelectionAfterReorder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+        let previousSelection: Set<UUID> = [second, third]
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: previousSelection,
+            liveWorkspaceIds: [first, third, fourth, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, previousSelection)
+        XCTAssertEqual(
+            SidebarWorkspaceSelectionSyncPolicy.anchorIndex(
+                preferredWorkspaceId: second,
+                selectedWorkspaceIds: result,
+                liveWorkspaceIds: [first, third, fourth, second]
+            ),
+            3
+        )
+    }
+
+    @MainActor
+    func testReconciledSelectionFallsBackToActiveWorkspaceWhenPreviousSelectionIsGone() {
+        let first = UUID()
+        let second = UUID()
+        let removed = UUID()
+
+        let result = SidebarWorkspaceSelectionSyncPolicy.reconciledSelection(
+            previousSelectionIds: [removed],
+            liveWorkspaceIds: [first, second],
+            fallbackSelectedWorkspaceId: second
+        )
+
+        XCTAssertEqual(result, [second])
+    }
+}
+
+
 final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testReorderWorkspacePostsMovedWorkspaceId() {
@@ -3509,6 +3712,56 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 
     @MainActor
+    func testMoveTabToTopPublishesWorkspaceReorderedEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.moveTabToTop(second.id)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+        XCTAssertEqual(payload["pinned_workspace_ids"] as? [String], [])
+    }
+
+    @MainActor
+    func testSetPinnedPublishesWorkspaceReorderedEventWithPinnedState() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        CmuxEventBus.shared.resetForTesting()
+
+        manager.setPinned(second, pinned: true)
+
+        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        XCTAssertEqual(event["name"] as? String, "workspace.reordered")
+        XCTAssertEqual(event["source"] as? String, "workspace.lifecycle")
+        XCTAssertEqual(event["workspace_id"] as? String, second.id.uuidString)
+        let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [second.id.uuidString, first.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [second.id.uuidString])
+        XCTAssertEqual(payload["pinned_workspace_ids"] as? [String], [second.id.uuidString])
+    }
+
+    @MainActor
     func testMoveTabToTopSkipsNotificationWhenUnpinnedAlreadyFirstBelowPinnedWorkspaces() {
         let manager = TabManager()
         let pinned = manager.tabs[0]
@@ -3587,6 +3840,101 @@ final class WorkspaceReorderTests: XCTestCase {
 
         XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
         XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
+    }
+
+    @MainActor
+    func testBatchReorderAppliesFinalLeadingOrderAtomically() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        var observedMovedIds: [UUID] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: .workspaceOrderDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, fourth.id])
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(observedMovedIds, [third.id, first.id])
+    }
+
+    @MainActor
+    func testBatchReorderRejectsUnknownWorkspaceWithoutPartialMutation() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+        let unknown = UUID()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, unknown, first.id])
+
+        XCTAssertEqual(result, .failure(.workspaceNotFound(unknown)))
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderDryRunReturnsPlanWithoutMutation() throws {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let originalOrder = manager.tabs.map(\.id)
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [third.id, first.id], dryRun: true)
+        let plan = try result.get()
+
+        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: third.id, fromIndex: 2, toIndex: 0),
+                WorkspaceReorderPlanItem(workspaceId: first.id, fromIndex: 0, toIndex: 1)
+            ]
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id])
+    }
+
+    @MainActor
+    func testBatchReorderPreservesPinnedWorkspaceSegment() throws {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let firstUnpinned = manager.addWorkspace()
+        let secondUnpinned = manager.addWorkspace()
+
+        let result = manager.reorderWorkspaces(orderedWorkspaceIds: [secondUnpinned.id, secondPinned.id])
+        let plan = try result.get()
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id),
+            [secondPinned.id, firstPinned.id, secondUnpinned.id, firstUnpinned.id]
+        )
+        XCTAssertEqual(
+            plan,
+            [
+                WorkspaceReorderPlanItem(workspaceId: secondUnpinned.id, fromIndex: 3, toIndex: 2),
+                WorkspaceReorderPlanItem(workspaceId: secondPinned.id, fromIndex: 1, toIndex: 0)
+            ]
+        )
     }
 
     @MainActor
@@ -5072,7 +5420,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "cd '/tmp/workspace fork repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5173,7 +5521,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "cd '/Users/cmux/fallback repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5331,7 +5679,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "cd '/Users/cmux/fallback repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5368,7 +5716,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration)
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "cd '/tmp/local fork repo' && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5956,6 +6304,206 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
     }
+
+    // MARK: - Fork Conversation (new sibling tab)
+
+    private func makeForkableClaudeSnapshot(
+        sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
+        workingDirectory: String = "/tmp/fork repo"
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/opt/homebrew/bin/claude",
+                arguments: ["/opt/homebrew/bin/claude"],
+                workingDirectory: workingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+    }
+
+    private func makeForkableCodexSnapshot(
+        sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
+        workingDirectory: String = "/tmp/fork repo"
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: workingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+    }
+
+    func testForkAgentConversationToNewTabCreatesSiblingTabWithForkStartupInput() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let snapshot = makeForkableClaudeSnapshot()
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversationToNewTab(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                anchorTabId: anchorTabId,
+                paneId: sourcePaneId
+            )
+        )
+
+        XCTAssertNotEqual(forkPanel.id, sourcePanelId)
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: forkPanel.id),
+            sourcePaneId,
+            "Fork should land in the same pane as the source tab, not a split pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            1,
+            "Fork creates a sibling tab, not a new pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            2,
+            "Pane should now host both the source and forked tabs"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, forkPanel.id, "Fork should focus the new tab")
+        XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
+        XCTAssertEqual(
+            forkPanel.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" },
+            "Forked tab should boot with the snapshot's --fork-session command"
+        )
+    }
+
+    func testForkAgentConversationToNewTabPlacesForkImmediatelyRightOfAnchor() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+
+        // Drop a second unrelated terminal tab to the right of the source so we can
+        // verify the fork lands *between* the source and the unrelated tab, not at the
+        // end of the strip.
+        let trailingPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(inPane: sourcePaneId, focus: false)
+        )
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: sourcePaneId).count, 2)
+
+        let snapshot = makeForkableClaudeSnapshot()
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversationToNewTab(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                anchorTabId: anchorTabId,
+                paneId: sourcePaneId
+            )
+        )
+
+        let tabIdsInOrder = workspace.bonsplitController.tabs(inPane: sourcePaneId).map(\.id)
+        let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanel.id))
+        let trailingTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(trailingPanel.id))
+        XCTAssertEqual(
+            tabIdsInOrder,
+            [sourceTabId, forkTabId, trailingTabId],
+            "Fork should be inserted immediately to the right of its source tab"
+        )
+    }
+
+    func testCanForkAgentConversationFromPanelReturnsTrueForRestoredClaudeSnapshot() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertFalse(
+            workspace.canForkAgentConversationFromPanel(panelId),
+            "Vanilla shell tab without an agent snapshot should not advertise fork"
+        )
+
+        workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: panelId)
+        XCTAssertTrue(
+            workspace.canForkAgentConversationFromPanel(panelId),
+            "Tab hosting a restored Claude snapshot should advertise fork"
+        )
+    }
+
+    func testCanForkAgentConversationFromPanelReturnsFalseForUnknownPanel() {
+        let workspace = Workspace()
+        XCTAssertFalse(workspace.canForkAgentConversationFromPanel(UUID()))
+    }
+
+    func testForkConversationContextMenuActionWorksForCodexSnapshot() throws {
+        // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
+        // and should reach the same forkAgentConversationToNewTab path through the context-menu
+        // dispatcher (PR #4888 review).
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let snapshot = makeForkableCodexSnapshot()
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+
+        XCTAssertTrue(workspace.canForkAgentConversationFromPanel(sourcePanelId))
+
+        let anchorTab = try XCTUnwrap(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
+        )
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .forkConversation,
+            for: anchorTab,
+            inPane: sourcePaneId
+        )
+
+        let tabsAfter = workspace.bonsplitController.tabs(inPane: sourcePaneId)
+        XCTAssertEqual(tabsAfter.count, 2, "Codex fork should also spawn a sibling tab")
+        let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new tab")
+        let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
+        XCTAssertEqual(
+            forkPanel.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" },
+            "Codex fork tab should boot with the Codex --fork-session command"
+        )
+    }
+
+    func testForkConversationContextMenuActionCreatesSiblingTab() throws {
+        // Drive the same code path the bonsplit context menu triggers, end-to-end,
+        // to lock in that the menu wiring stays connected.
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
+
+        let tabs = workspace.bonsplitController.tabs(inPane: sourcePaneId)
+        let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId })
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .forkConversation,
+            for: anchorTab,
+            inPane: sourcePaneId
+        )
+
+        XCTAssertEqual(
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            2,
+            "Fork Conversation context action should spawn a sibling tab"
+        )
+    }
 }
 
 
@@ -6153,5 +6701,64 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
         let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
         let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
+    }
+}
+
+final class ExtensionWorktreePrototypeTests: XCTestCase {
+    func testPipeOutputCollectorDrainsBufferedOutputOnFinish() async throws {
+        let pipe = Pipe()
+        let collector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
+
+        pipe.fileHandleForWriting.write(Data("exclude-path\n".utf8))
+        try pipe.fileHandleForWriting.close()
+
+        let output = await collector.finish()
+
+        XCTAssertEqual(String(data: output, encoding: .utf8), "exclude-path\n")
+    }
+
+    func testCreateWorktreeKeepsCmuxDirectoryLocallyIgnored() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-prototype-\(UUID().uuidString)", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        _ = try runGit(["init"], in: projectRoot)
+        try "hello\n".write(to: projectRoot.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "README.md"], in: projectRoot)
+        _ = try runGit([
+            "-c", "user.name=cmux Test",
+            "-c", "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "initial"
+        ], in: projectRoot)
+
+        let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRoot.path)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.worktreePath))
+        XCTAssertTrue(result.workspaceTitle.hasPrefix("cmux-sidebar-"))
+        let status = try runGit(["status", "--short", "--untracked-files=all"], in: projectRoot)
+        XCTAssertEqual(status.trimmingCharacters(in: .whitespacesAndNewlines), "")
+    }
+
+    @discardableResult
+    private func runGit(_ arguments: [String], in directory: URL) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)")
+            throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
+        }
+        return output
     }
 }
