@@ -353,6 +353,7 @@ final class CmuxWebView: WKWebView {
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    var onElementPickerMouseDown: ((NSEvent) -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
@@ -734,6 +735,7 @@ final class CmuxWebView: WKWebView {
         )
 #endif
         NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        onElementPickerMouseDown?(event)
         withPointerFocusAllowance {
             super.mouseDown(with: event)
         }

@@ -3005,6 +3005,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
+    @Published var isElementPickerActive: Bool = false
+    var elementPickerLastNativeClick: BrowserElementPickerNativeClick?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -3642,7 +3644,11 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
+            oldCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
+        uninstallElementPickerMessageHandler(from: oldWebView)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -3949,6 +3955,14 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         configuration.userContentController.addUserScript(
             WKUserScript(
+                source: BrowserElementPickerBridge.scriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: .defaultClient
+            )
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
                 source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false
@@ -3986,11 +4000,16 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        webView.onElementPickerMouseDown = { [weak self] event in
+            self?.noteElementPickerNativeMouseDown(event)
+        }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        installElementPickerMessageHandler(for: webView)
+        syncElementPickerActiveStateToPage()
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4019,6 +4038,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
+                self.syncElementPickerActiveStateToPage()
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -4526,7 +4546,11 @@ final class BrowserPanel: Panel, ObservableObject {
         previousWebView.uiDelegate = nil
         if let previousCmuxWebView = previousWebView as? CmuxWebView {
             previousCmuxWebView.onContextMenuDownloadStateChanged = nil
+            previousCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
+        uninstallElementPickerMessageHandler(from: previousWebView)
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -4917,7 +4941,11 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
+            oldCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
+        uninstallElementPickerMessageHandler(from: oldWebView)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -5727,6 +5755,13 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
+            if let cmuxWebView = webView as? CmuxWebView {
+                cmuxWebView.onElementPickerMouseDown = nil
+            }
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: BrowserElementPickerBridge.messageHandlerName,
+                contentWorld: .defaultClient
+            )
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }
@@ -5871,7 +5906,11 @@ extension BrowserPanel {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
+            oldCmuxWebView.onElementPickerMouseDown = nil
         }
+        isElementPickerActive = false
+        elementPickerLastNativeClick = nil
+        uninstallElementPickerMessageHandler(from: oldWebView)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
