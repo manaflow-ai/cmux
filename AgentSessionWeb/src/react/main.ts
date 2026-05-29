@@ -979,12 +979,12 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
     case "assistant":
       return h(
         "div",
-        { className: "codex-assistant-turn" },
+        { className: "codex-assistant-turn group flex min-w-0 flex-col" },
         h(
           "div",
           {
             className:
-              "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]",
+              "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
             dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
           },
         ),
