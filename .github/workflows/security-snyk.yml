@@ -1,0 +1,83 @@
+name: Snyk security
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read # Required by upload-sarif for private repositories.
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  snyk:
+    name: Snyk scans
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN_PRESENT: ${{ secrets.SNYK_TOKEN != '' }}
+    steps:
+      - name: Skip when SNYK_TOKEN is unavailable
+        if: env.SNYK_TOKEN_PRESENT != 'true'
+        run: |
+          echo "SNYK_TOKEN is unavailable; skipping Snyk scans."
+          echo "This is expected for fork PRs, Dependabot PRs, and pre-rollout runs before the secret is added."
+
+      - name: Checkout
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install web dependencies
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Setup Snyk
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: snyk/actions/setup@master
+
+      - name: Snyk Code scan
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        id: snyk-code
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk code test . \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-code.sarif
+
+      - name: Upload Snyk Code SARIF
+        if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code-swift
+
+      - name: Snyk Open Source scan
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        id: snyk-oss
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          snyk test \
+            --file=web/package.json \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-oss.sarif
+
+      - name: Upload Snyk Open Source SARIF
+        if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: snyk-oss.sarif
+          category: snyk-open-source-web-npm
