@@ -2083,6 +2083,7 @@ struct WorkspaceDetailView: View {
                     store: store,
                     fontSize: 16
                 )
+                .id(terminalID)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
             } else {
