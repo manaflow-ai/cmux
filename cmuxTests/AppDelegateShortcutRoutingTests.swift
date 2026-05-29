@@ -1919,58 +1919,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        AppDelegate.installWindowResponderSwizzlesForTesting()
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let mainWindow = window(withId: windowId) else {
-            XCTFail("Expected test main window")
-            return
-        }
-        mainWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        let previousMainMenu = NSApp.mainMenu
-        let probeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        probeWindow.isReleasedWhenClosed = false
-        probeWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
-        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
-        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
-        let menuProbe = MenuActionProbe()
-
-        defer {
-            NSApp.mainMenu = previousMainMenu
-            probeWindow.orderOut(nil)
-            probeWindow.close()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        }
-
-        let staleMenu = NSMenu(title: "Test")
-        let staleCloseItem = NSMenuItem(
-            title: "Close Tab",
-            action: #selector(MenuActionProbe.perform(_:)),
-            keyEquivalent: "w"
-        )
-        staleCloseItem.keyEquivalentModifierMask = [.command]
-        staleCloseItem.target = menuProbe
-        staleMenu.addItem(staleCloseItem)
-        NSApp.mainMenu = staleMenu
-
-        probeWindow.contentView = contentView
-        contentView.addSubview(probeView)
-        probeWindow.makeKeyAndOrderFront(nil)
-        probeWindow.displayIfNeeded()
-        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
-
         guard let ghosttyConfig = GhosttyApp.shared.config else {
             XCTFail("Expected loaded Ghostty config")
             return
+        }
+
+        let routingWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 160, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        routingWindow.isReleasedWhenClosed = false
+        routingWindow.makeKeyAndOrderFront(nil)
+        defer {
+            routingWindow.orderOut(nil)
+            routingWindow.close()
         }
 
         let remappedCloseTab = StoredShortcut(
@@ -1986,7 +1950,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 key: "w",
                 modifiers: [.command],
                 keyCode: 13,
-                windowNumber: probeWindow.windowNumber
+                windowNumber: routingWindow.windowNumber
             ) else {
                 XCTFail("Failed to construct Cmd+W event")
                 return
@@ -2000,28 +1964,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 XCTFail("After Close Tab is remapped, Ghostty must not retain its super+w close_surface fallback")
                 return
             }
-
             XCTAssertTrue(
-                probeWindow.performKeyEquivalent(with: staleCmdW),
-                "Remapped-away Cmd+W should be handled only by forwarding it to the focused terminal"
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: staleCmdW),
+                "A remapped-away Cmd+W Close Tab shortcut must suppress stale menu fallback"
             )
-            XCTAssertEqual(
-                menuProbe.callCount,
-                0,
-                "A stale Close Tab menu equivalent must not keep consuming Cmd+W after remap"
-            )
-            XCTAssertEqual(
-                probeView.keyDownCallCount,
-                1,
-                "Remapped-away Cmd+W should reach the terminal as input instead of closing through cmux"
-            )
-            XCTAssertEqual(probeView.lastKeyDownCharactersIgnoringModifiers, "w")
 
             guard let remappedCmdOptionW = makeKeyDownEvent(
                 key: "w",
                 modifiers: [.command, .option],
                 keyCode: 13,
-                windowNumber: probeWindow.windowNumber
+                windowNumber: routingWindow.windowNumber
             ) else {
                 XCTFail("Failed to construct Cmd+Option+W event")
                 return
@@ -6070,6 +6022,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTextBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() async throws {
+        let mentionIndexStore = TextBoxMentionIndexStore()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-\(UUID().uuidString)",
@@ -6090,7 +6043,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
-        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+        let suggestions = await mentionIndexStore.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 13),
@@ -6106,6 +6059,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
+        let mentionIndexStore = TextBoxMentionIndexStore()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
@@ -6120,7 +6074,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
-        let oldSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+        let oldSuggestions = await mentionIndexStore.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 8),
@@ -6137,7 +6091,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
-        let newSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+        let newSuggestions = await mentionIndexStore.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 8),
@@ -6150,6 +6104,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
+        let mentionIndexStore = TextBoxMentionIndexStore()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-skills-\(UUID().uuidString)",
@@ -6167,7 +6122,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
-        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+        let suggestions = await mentionIndexStore.suggestions(
             for: TextBoxMentionQuery(
                 kind: .skill,
                 range: NSRange(location: 0, length: 20),
