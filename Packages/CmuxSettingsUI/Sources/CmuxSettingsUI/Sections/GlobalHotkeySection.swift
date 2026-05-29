@@ -11,11 +11,11 @@ import SwiftUI
 /// the Keyboard Shortcuts section.
 @MainActor
 public struct GlobalHotkeySection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
-    private let errorLog: SettingsErrorLog?
+    private let errorLog: SettingsErrorLog
 
+    @State private var enabled: DefaultsValueModel<Bool>
     @State private var bindings: [String: StoredShortcut] = [:]
     @State private var bindingsTask: Task<Void, Never>?
     @State private var restoreShortcut: StoredShortcut?
@@ -26,12 +26,12 @@ public struct GlobalHotkeySection: View {
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog? = nil
+        errorLog: SettingsErrorLog
     ) {
-        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
+        _enabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.systemWideHotkeyEnabled))
     }
 
     public var body: some View {
@@ -50,7 +50,6 @@ public struct GlobalHotkeySection: View {
 
     @ViewBuilder
     private var mainCard: some View {
-        let enabled = DefaultsValueModel(store: defaultsStore, key: catalog.app.systemWideHotkeyEnabled)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .settingsOnly,
@@ -132,7 +131,8 @@ public struct GlobalHotkeySection: View {
 
     private func placeholderText(for shortcut: StoredShortcut?) -> String {
         guard let shortcut, !shortcut.isUnbound else {
-            return String(localized: "settings.globalHotkey.recorder.placeholder", defaultValue: "Click and press a shortcut")
+            // Matches the legacy recorder's unbound resting label.
+            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         }
         return format(shortcut)
     }
@@ -202,7 +202,7 @@ public struct GlobalHotkeySection: View {
         do {
             try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
         } catch {
-            errorLog?.record(error, keyID: catalog.shortcuts.bindings.id)
+            errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
         }
     }
 }

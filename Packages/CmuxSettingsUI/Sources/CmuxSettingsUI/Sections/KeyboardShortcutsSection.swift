@@ -9,8 +9,8 @@ import SwiftUI
 public struct KeyboardShortcutsSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
-    private let errorLog: SettingsErrorLog?
-    private let hostActions: SettingsHostActions?
+    private let errorLog: SettingsErrorLog
+    private let hostActions: SettingsHostActions
 
     @State private var bindings: [String: StoredShortcut] = [:]
     @State private var streamTask: Task<Void, Never>?
@@ -30,8 +30,8 @@ public struct KeyboardShortcutsSection: View {
     public init(
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog? = nil,
-        hostActions: SettingsHostActions? = nil
+        errorLog: SettingsErrorLog,
+        hostActions: SettingsHostActions
     ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
@@ -87,14 +87,12 @@ public struct KeyboardShortcutsSection: View {
                 .font(.caption)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
-                if let hostActions {
-                    Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open cmux.json")) {
-                        hostActions.openConfigInExternalEditor()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
+                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open cmux.json")) {
+                    hostActions.openConfigInExternalEditor()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
             }
         }
     }
@@ -489,7 +487,7 @@ public struct KeyboardShortcutsSection: View {
         do {
             try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
         } catch {
-            errorLog?.record(error, keyID: catalog.shortcuts.bindings.id)
+            errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
         }
     }
 }

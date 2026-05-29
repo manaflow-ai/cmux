@@ -70,7 +70,7 @@ public struct SidebarCatalogSection: SettingCatalogSection {
 
     public let makePullRequestsClickable = DefaultsKey<Bool>(
         id: "sidebar.makePullRequestsClickable",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "sidebarMakePullRequestClickable"
     )
 
@@ -118,7 +118,7 @@ public struct SidebarCatalogSection: SettingCatalogSection {
 
     public let activeTabIndicatorStyle = DefaultsKey<String>(
         id: "sidebar.activeTabIndicatorStyle",
-        defaultValue: "default",
+        defaultValue: "leftRail",
         userDefaultsKey: "sidebarActiveTabIndicatorStyle"
     )
 

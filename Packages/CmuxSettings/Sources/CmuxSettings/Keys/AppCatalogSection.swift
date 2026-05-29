@@ -28,7 +28,7 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let newWorkspacePlacement = DefaultsKey<WorkspacePlacement>(
         id: "app.newWorkspacePlacement",
-        defaultValue: .top,
+        defaultValue: .afterCurrent,
         userDefaultsKey: "newWorkspacePlacement"
     )
 
@@ -44,15 +44,20 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspacePresentationMode"
     )
 
+    /// Stored under the legacy `closeWorkspaceOnLastSurfaceShortcut` key
+    /// whose value carries *close*-on-last-surface semantics (true =
+    /// close the workspace), with legacy default `true`. The "Keep
+    /// Workspace Open" toggle in the UI therefore binds to the inverse
+    /// of this value, matching the legacy SettingsView.
     public let keepWorkspaceOpenWhenClosingLastSurface = DefaultsKey<Bool>(
         id: "app.keepWorkspaceOpenWhenClosingLastSurface",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "closeWorkspaceOnLastSurfaceShortcut"
     )
 
     public let focusPaneOnFirstClick = DefaultsKey<Bool>(
         id: "app.focusPaneOnFirstClick",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
@@ -70,7 +75,7 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let openMarkdownInCmuxViewer = DefaultsKey<Bool>(
         id: "app.openMarkdownInCmuxViewer",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
@@ -106,13 +111,13 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let warnBeforeClosingTab = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTab",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "warnBeforeClosingTabShortcut"
     )
 
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTabXButton",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "warnBeforeClosingTabXButton"
     )
 
@@ -140,22 +145,31 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "fileDrop.defaultBehavior"
     )
 
-    public let titlebarControlsStyle = DefaultsKey<String>(
+    /// Titlebar controls style. Legacy stores the `Int` raw value of
+    /// `TitlebarControlsStyle` (`.classic == 0`) under
+    /// `titlebarControlsStyle`; a `String` here would write a value the
+    /// app's `integer(forKey:)` readers can't decode.
+    public let titlebarControlsStyle = DefaultsKey<Int>(
         id: "app.titlebarControlsStyle",
-        defaultValue: "classic",
+        defaultValue: 0,
         userDefaultsKey: "titlebarControlsStyle"
     )
 
+    /// Workspace button fade mode. Legacy `WorkspaceButtonFadeSettings`
+    /// stores the `String` raw value of its `enabled`/`disabled` enum
+    /// (default `disabled`) under `workspaceButtonsFadeMode`.
     public let workspaceButtonFade = DefaultsKey<String>(
         id: "app.workspaceButtonFade",
-        defaultValue: "default",
-        userDefaultsKey: "workspaceButtonFade"
+        defaultValue: "disabled",
+        userDefaultsKey: "workspaceButtonsFadeMode"
     )
 
-    public let workspaceTitlebarVisibility = DefaultsKey<String>(
+    /// Workspace titlebar visibility. Legacy `WorkspaceTitlebarSettings`
+    /// stores a `Bool` (default `true`) under `workspaceTitlebarVisible`.
+    public let workspaceTitlebarVisibility = DefaultsKey<Bool>(
         id: "app.workspaceTitlebarVisibility",
-        defaultValue: "visible",
-        userDefaultsKey: "workspaceTitlebarVisibility"
+        defaultValue: true,
+        userDefaultsKey: "workspaceTitlebarVisible"
     )
 
     public let systemWideHotkeyEnabled = DefaultsKey<Bool>(

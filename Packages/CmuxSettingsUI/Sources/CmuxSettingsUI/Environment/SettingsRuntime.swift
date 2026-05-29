@@ -17,7 +17,7 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let jsonStore: JSONConfigStore
     public let errorLog: SettingsErrorLog
     public let accountFlow: AccountFlow?
-    public let hostActions: SettingsHostActions?
+    public let hostActions: SettingsHostActions
 
     public init(
         catalog: SettingCatalog,
@@ -25,7 +25,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         jsonStore: JSONConfigStore,
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
-        hostActions: SettingsHostActions? = nil
+        hostActions: SettingsHostActions = NoopSettingsHostActions()
     ) {
         self.catalog = catalog
         self.userDefaultsStore = userDefaultsStore

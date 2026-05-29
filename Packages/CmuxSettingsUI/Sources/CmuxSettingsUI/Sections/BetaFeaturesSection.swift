@@ -6,12 +6,10 @@ import SwiftUI
 /// `Dock` toggle.
 @MainActor
 public struct BetaFeaturesSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
-    private let catalog: SettingCatalog
+    @State private var dock: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
-        self.defaultsStore = defaultsStore
-        self.catalog = catalog
+        _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
     }
 
     public var body: some View {
@@ -29,15 +27,14 @@ public struct BetaFeaturesSection: View {
 
     @ViewBuilder
     private var dockRow: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock)
         SettingsCardRow(
             configurationReview: .settingsOnly,
             String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
-            subtitle: model.current
+            subtitle: dock.current
                 ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls.")
                 : String(localized: "settings.betaFeatures.dock.subtitleOff", defaultValue: "Hides Dock from the right sidebar until you enable it here.")
         ) {
-            Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+            Toggle("", isOn: Binding(get: { dock.current }, set: { dock.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")

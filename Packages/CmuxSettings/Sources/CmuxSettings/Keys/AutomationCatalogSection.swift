@@ -4,7 +4,7 @@ import Foundation
 public struct AutomationCatalogSection: SettingCatalogSection {
     public let socketControlMode = DefaultsKey<SocketControlMode>(
         id: "automation.socketControlMode",
-        defaultValue: .off,
+        defaultValue: .cmuxOnly,
         userDefaultsKey: "socketControlMode"
     )
 

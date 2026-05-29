@@ -26,7 +26,11 @@ import Foundation
 /// ```
 public actor UserDefaultsSettingsStore {
     /// The `UserDefaults` suite this store reads and writes.
-    public let underlyingDefaults: UserDefaults
+    ///
+    /// `UserDefaults` is Apple-documented thread-safe, so reading this
+    /// immutable reference from a nonisolated context (see
+    /// ``currentValue(for:)``) is safe.
+    public nonisolated(unsafe) let underlyingDefaults: UserDefaults
 
     /// Creates a store backed by the given `UserDefaults` instance.
     ///
@@ -52,6 +56,22 @@ public actor UserDefaultsSettingsStore {
 
     /// Returns the current value for the key.
     public func value<Value>(for key: DefaultsKey<Value>) -> Value {
+        let raw = underlyingDefaults.object(forKey: key.userDefaultsKey)
+        return Value.decodeFromUserDefaults(raw) ?? key.defaultValue
+    }
+
+    /// Synchronous, actor-isolation-free read of the current value.
+    ///
+    /// `UserDefaults` is Apple-documented thread-safe, and
+    /// ``underlyingDefaults`` is an immutable `let`, so this read is safe
+    /// to perform from any context without hopping onto the actor. UI
+    /// view-models (e.g. ``DefaultsValueModel``) need a synchronous read
+    /// to seed their initial `current` value with the *actual* stored
+    /// value rather than the key's default — otherwise a freshly
+    /// constructed model briefly shows the default before its async
+    /// observation stream catches up, which reads as an unresponsive
+    /// control in SwiftUI.
+    public nonisolated func currentValue<Value>(for key: DefaultsKey<Value>) -> Value {
         let raw = underlyingDefaults.object(forKey: key.userDefaultsKey)
         return Value.decodeFromUserDefaults(raw) ?? key.defaultValue
     }

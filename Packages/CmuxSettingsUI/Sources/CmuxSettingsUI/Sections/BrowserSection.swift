@@ -12,10 +12,25 @@ import SwiftUI
 /// subsection, React Grab Version, Browsing History.
 @MainActor
 public struct BrowserSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions?
+    private let hostActions: SettingsHostActions
     private let importAnchorID: String?
+
+    @State private var disabled: DefaultsValueModel<Bool>
+    @State private var engine: DefaultsValueModel<BrowserSearchEngine>
+    @State private var customName: DefaultsValueModel<String>
+    @State private var customURL: DefaultsValueModel<String>
+    @State private var suggestions: DefaultsValueModel<Bool>
+    @State private var theme: DefaultsValueModel<BrowserThemeMode>
+    @State private var discardEnabled: DefaultsValueModel<Bool>
+    @State private var discardDelay: DefaultsValueModel<Double>
+    @State private var openTermLinks: DefaultsValueModel<Bool>
+    @State private var interceptOpen: DefaultsValueModel<Bool>
+    @State private var hosts: DefaultsValueModel<String>
+    @State private var external: DefaultsValueModel<String>
+    @State private var httpAllowlist: DefaultsValueModel<String>
+    @State private var importHint: DefaultsValueModel<Bool>
+    @State private var reactGrab: DefaultsValueModel<String>
 
     @State private var confirmClearHistory: Bool = false
     @State private var httpAllowlistDraft: String = ""
@@ -25,13 +40,27 @@ public struct BrowserSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions? = nil,
+        hostActions: SettingsHostActions,
         importAnchorID: String? = nil
     ) {
-        self.defaultsStore = defaultsStore
         self.catalog = catalog
         self.hostActions = hostActions
         self.importAnchorID = importAnchorID
+        _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
+        _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
+        _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
+        _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
+        _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
+        _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
+        _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
+        _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
+        _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
+        _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
+        _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
+        _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
+        _httpAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser))
+        _importHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs))
+        _reactGrab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion))
     }
 
     private static let columnWidth: CGFloat = 196
@@ -47,10 +76,8 @@ public struct BrowserSection: View {
             isPresented: $confirmClearHistory,
             titleVisibility: .visible
         ) {
-            if let hostActions {
-                Button(String(localized: "settings.browser.history.clearDialog.confirm", defaultValue: "Clear History"), role: .destructive) {
-                    hostActions.clearBrowserHistory()
-                }
+            Button(String(localized: "settings.browser.history.clearDialog.confirm", defaultValue: "Clear History"), role: .destructive) {
+                hostActions.clearBrowserHistory()
             }
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
@@ -60,22 +87,6 @@ public struct BrowserSection: View {
 
     @ViewBuilder
     private var mainCard: some View {
-        let disabled = DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled)
-        let engine = DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine)
-        let customName = DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName)
-        let customURL = DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate)
-        let suggestions = DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions)
-        let theme = DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme)
-        let discardEnabled = DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews)
-        let discardDelay = DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds)
-        let openTermLinks = DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser)
-        let interceptOpen = DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser)
-        let hosts = DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser)
-        let external = DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally)
-        let httpAllowlist = DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser)
-        let importHint = DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs)
-        let reactGrab = DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion)
-
         SettingsCard {
             // Enable cmux Browser
             SettingsCardRow(
@@ -253,7 +264,7 @@ public struct BrowserSection: View {
             // navigation target scroll the user to this inline block.
             importBrowserDataBlock(
                 importHintModel: importHint,
-                onImport: { hostActions?.openBrowserImportFlow() }
+                onImport: { hostActions.openBrowserImportFlow() }
             )
             .id(importAnchorID ?? "section:browserImport.inline")
             SettingsCardDivider()
@@ -275,7 +286,7 @@ public struct BrowserSection: View {
             // When the host has no history store wired in, the count is
             // nil so the subtitle falls back to the generic instruction
             // and the Clear button is disabled.
-            let historyCount = hostActions?.browserHistoryEntryCount()
+            let historyCount = hostActions.browserHistoryEntryCount()
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .action,
@@ -287,7 +298,7 @@ public struct BrowserSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(hostActions == nil || historyCount == 0)
+                .disabled(historyCount == 0)
             }
         }
     }

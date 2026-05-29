@@ -34,8 +34,15 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     private let hasPendingRejection: Bool
 
     /// Creates a single-stroke recorder.
+    ///
+    /// The default `placeholder` is the legacy empty label
+    /// (`shortcut.unbound.displayValue`, "None"), matching
+    /// `StoredShortcut.displayString` for an unbound binding. When the
+    /// action is unbound and the recorder is not focused, the box shows
+    /// this label rather than a recording prompt — mirroring legacy
+    /// `ShortcutRecorderNSButton` resting state.
     public init(
-        placeholder: String = "Click and press a shortcut",
+        placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         hasPendingRejection: Bool = false,
         onStroke: @escaping (ShortcutStroke) -> Void,
         onBareKeyRejected: (() -> Void)? = nil
@@ -54,7 +61,7 @@ public struct ShortcutRecorderView: NSViewRepresentable {
     /// ``onChord``. Plain single-key recordings still fire
     /// ``onStroke``.
     public init(
-        placeholder: String = "Click and press a shortcut",
+        placeholder: String = String(localized: "shortcut.unbound.displayValue", defaultValue: "None"),
         chordsEnabled: Bool,
         hasPendingRejection: Bool = false,
         onStroke: @escaping (ShortcutStroke) -> Void,
@@ -141,7 +148,18 @@ public final class RecorderHostButton: NSButton {
     private func configure() {
         bezelStyle = .rounded
         setButtonType(.momentaryPushIn)
-        font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        // Match legacy `ShortcutRecorderNSButton`, which rendered the
+        // recorded chord in the default `.regular` system control font
+        // for a `.rounded` bezel NSButton. When this button is hosted
+        // inside SwiftUI via `NSViewRepresentable`, the ambient
+        // `controlSize` environment can shrink the button to `.small`,
+        // which swaps in the small system font and makes the shortcut
+        // text visibly smaller/lighter than the legacy in-app control.
+        // Pin both the control size and the font explicitly so the
+        // package recorder renders byte-for-byte like legacy regardless
+        // of the surrounding SwiftUI environment.
+        controlSize = .regular
+        font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
         target = self
         action = #selector(buttonClicked)
     }

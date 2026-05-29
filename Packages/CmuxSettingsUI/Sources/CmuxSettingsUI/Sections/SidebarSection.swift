@@ -8,12 +8,49 @@ import SwiftUI
 /// clickability) are disabled accordingly.
 @MainActor
 public struct SidebarSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
 
+    @State private var matchTerminal: DefaultsValueModel<Bool>
+    @State private var hideAll: DefaultsValueModel<Bool>
+    @State private var wrapTitles: DefaultsValueModel<Bool>
+    @State private var showDesc: DefaultsValueModel<Bool>
+    @State private var branchVerticalLayout: DefaultsValueModel<Bool>
+    @State private var stackBranchDir: DefaultsValueModel<Bool>
+    @State private var pathLastOnly: DefaultsValueModel<Bool>
+    @State private var showNotification: DefaultsValueModel<Bool>
+    @State private var showBranchDir: DefaultsValueModel<Bool>
+    @State private var showPR: DefaultsValueModel<Bool>
+    @State private var watchGit: DefaultsValueModel<Bool>
+    @State private var prClickable: DefaultsValueModel<Bool>
+    @State private var prLinks: DefaultsValueModel<Bool>
+    @State private var portLinks: DefaultsValueModel<Bool>
+    @State private var showSSH: DefaultsValueModel<Bool>
+    @State private var showPorts: DefaultsValueModel<Bool>
+    @State private var showLog: DefaultsValueModel<Bool>
+    @State private var showProgress: DefaultsValueModel<Bool>
+    @State private var showMetadata: DefaultsValueModel<Bool>
+
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
-        self.defaultsStore = defaultsStore
         self.catalog = catalog
+        _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
+        _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
+        _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
+        _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
+        _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
+        _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
+        _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
+        _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
+        _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
+        _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
+        _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
+        _prLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser))
+        _portLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPortLinksInCmuxBrowser))
+        _showSSH = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showSSH))
+        _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
+        _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
+        _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
+        _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
     }
 
     public var body: some View {
@@ -25,26 +62,6 @@ public struct SidebarSection: View {
 
     @ViewBuilder
     private var mainCard: some View {
-        let matchTerminal = DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground)
-        let hideAll = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails)
-        let wrapTitles = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles)
-        let showDesc = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription)
-        let branchVerticalLayout = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout)
-        let stackBranchDir = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory)
-        let pathLastOnly = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly)
-        let showNotification = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage)
-        let showBranchDir = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory)
-        let showPR = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests)
-        let watchGit = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus)
-        let prClickable = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable)
-        let prLinks = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser)
-        let portLinks = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPortLinksInCmuxBrowser)
-        let showSSH = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showSSH)
-        let showPorts = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts)
-        let showLog = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog)
-        let showProgress = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress)
-        let showMetadata = DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata)
-
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("sidebarAppearance.matchTerminalBackground"),

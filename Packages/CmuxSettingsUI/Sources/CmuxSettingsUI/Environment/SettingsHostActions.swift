@@ -67,3 +67,23 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     func browserHistoryEntryCount() -> Int? { nil }
 }
+
+/// No-op ``SettingsHostActions`` for previews, tests, and any context
+/// that renders settings without a live host. Lets the runtime expose a
+/// non-optional ``SettingsRuntime/hostActions`` so section views never
+/// have to branch on an optional host.
+@MainActor
+public final class NoopSettingsHostActions: SettingsHostActions {
+    public init() {}
+    public func clearBrowserHistory() {}
+    public func openConfigInExternalEditor() {}
+    public func sendFeedback() {}
+    public func sendTestNotification() {}
+    public func openSystemNotificationSettings() {}
+    public func restartApp() {}
+    public func openBrowserImportFlow() {}
+    public func requestNotificationAuthorization() {}
+    public func openTerminalConfigWindow() {}
+    public func previewNotificationSound() {}
+    public func browserHistoryEntryCount() -> Int? { nil }
+}

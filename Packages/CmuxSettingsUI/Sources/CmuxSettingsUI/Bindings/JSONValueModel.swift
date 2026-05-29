@@ -24,20 +24,20 @@ public final class JSONValueModel<Value: SettingCodable> {
 
     private let store: JSONConfigStore
     private let key: JSONKey<Value>
-    private let errorLog: SettingsErrorLog?
+    private let errorLog: SettingsErrorLog
 
     /// Creates a model bound to ``key`` in ``store``.
     ///
     /// - Parameters:
     ///   - store: The JSON config store to read from and write to.
     ///   - key: The setting to observe.
-    ///   - errorLog: Optional global log to push write failures into.
-    ///     Pass `nil` for previews/tests; pass the runtime's log in
-    ///     production so failures surface centrally.
+    ///   - errorLog: Global log that write failures are pushed into so
+    ///     they surface centrally. The runtime always provides one; see
+    ///     ``SettingsRuntime/errorLog``.
     public init(
         store: JSONConfigStore,
         key: JSONKey<Value>,
-        errorLog: SettingsErrorLog? = nil
+        errorLog: SettingsErrorLog
     ) {
         self.store = store
         self.key = key
@@ -57,6 +57,9 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// On failure, ``lastWriteError`` is populated and the error is
     /// recorded in the injected ``SettingsErrorLog`` (if any).
     public func set(_ value: Value) {
+        // Synchronous (callable from a Binding setter); the write is
+        // dispatched async. `current` is updated by the file-watcher
+        // stream once the write lands, not synchronously here.
         let keyID = key.id
         Task { [weak self, store, key] in
             do {
@@ -65,7 +68,7 @@ public final class JSONValueModel<Value: SettingCodable> {
             } catch {
                 await MainActor.run {
                     self?.lastWriteError = error
-                    self?.errorLog?.record(error, keyID: keyID)
+                    self?.errorLog.record(error, keyID: keyID)
                 }
             }
         }
@@ -81,7 +84,7 @@ public final class JSONValueModel<Value: SettingCodable> {
             } catch {
                 await MainActor.run {
                     self?.lastWriteError = error
-                    self?.errorLog?.record(error, keyID: keyID)
+                    self?.errorLog.record(error, keyID: keyID)
                 }
             }
         }

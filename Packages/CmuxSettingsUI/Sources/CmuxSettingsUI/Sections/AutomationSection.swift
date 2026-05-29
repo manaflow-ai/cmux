@@ -9,11 +9,18 @@ import SwiftUI
 /// Integration, and Port Base / Port Range Size.
 @MainActor
 public struct AutomationSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
-    private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
 
-    @State private var socketPasswordModel: JSONValueModel<String>?
+    @State private var socketPasswordModel: JSONValueModel<String>
+    @State private var modeModel: DefaultsValueModel<SocketControlMode>
+    @State private var claudeCodeModel: DefaultsValueModel<Bool>
+    @State private var claudePathModel: DefaultsValueModel<String>
+    @State private var ripgrepPathModel: DefaultsValueModel<String>
+    @State private var suppressSubagentModel: DefaultsValueModel<Bool>
+    @State private var cursorModel: DefaultsValueModel<Bool>
+    @State private var geminiModel: DefaultsValueModel<Bool>
+    @State private var portBaseModel: DefaultsValueModel<Int>
+    @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
@@ -28,11 +35,24 @@ public struct AutomationSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
-        catalog: SettingCatalog
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog
     ) {
-        self.defaultsStore = defaultsStore
-        self.jsonStore = jsonStore
         self.catalog = catalog
+        _socketPasswordModel = State(initialValue: JSONValueModel(
+            store: jsonStore,
+            key: catalog.automation.socketPassword,
+            errorLog: errorLog
+        ))
+        _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
+        _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
+        _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
+        _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
+        _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
+        _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
+        _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
+        _portBaseModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase))
+        _portRangeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange))
     }
 
     private static let columnWidth: CGFloat = 196
@@ -50,11 +70,6 @@ public struct AutomationSection: View {
             geminiCard
             portCard
         }
-        .task {
-            if socketPasswordModel == nil {
-                socketPasswordModel = JSONValueModel(store: jsonStore, key: catalog.automation.socketPassword)
-            }
-        }
         .confirmationDialog(
             String(localized: "settings.automation.openAccess.dialog.title", defaultValue: "Enable full open access?"),
             isPresented: $showOpenAccessConfirmation,
@@ -64,7 +79,6 @@ public struct AutomationSection: View {
                 String(localized: "settings.automation.openAccess.dialog.confirm", defaultValue: "Enable Full Open Access"),
                 role: .destructive
             ) {
-                let modeModel = DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode)
                 if let pending = pendingOpenAccessMode {
                     modeModel.set(pending)
                 }
@@ -88,10 +102,9 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var socketControlCard: some View {
-        let modeModel = DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode)
         let isPassword = modeModel.current == .password
         let isAllowAll = modeModel.current == .allowAll
-        let hasPassword = !(socketPasswordModel?.current.isEmpty ?? true)
+        let hasPassword = !socketPasswordModel.current.isEmpty
 
         SettingsCard {
             SettingsCardRow(
@@ -185,16 +198,15 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var claudeCodeCard: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.claudeCodeIntegration"),
                 String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
-                subtitle: model.current
+                subtitle: claudeCodeModel.current
                     ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
                     : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
             ) {
-                Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                Toggle("", isOn: Binding(get: { claudeCodeModel.current }, set: { claudeCodeModel.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsClaudeCodeHooksToggle")
@@ -206,7 +218,6 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var claudePathCard: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.claudeBinaryPath"),
@@ -215,7 +226,7 @@ public struct AutomationSection: View {
             ) {
                 TextField(
                     String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
-                    text: Binding(get: { model.current }, set: { model.set($0) })
+                    text: Binding(get: { claudePathModel.current }, set: { claudePathModel.set($0) })
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
@@ -225,7 +236,6 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var ripgrepPathCard: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.ripgrepBinaryPath"),
@@ -234,7 +244,7 @@ public struct AutomationSection: View {
             ) {
                 TextField(
                     String(localized: "settings.automation.ripgrep.customPath.placeholder", defaultValue: "e.g. /etc/profiles/per-user/you/bin/rg"),
-                    text: Binding(get: { model.current }, set: { model.set($0) })
+                    text: Binding(get: { ripgrepPathModel.current }, set: { ripgrepPathModel.set($0) })
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
@@ -244,16 +254,15 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var suppressSubagentCard: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.suppressSubagentNotifications"),
                 String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"),
-                subtitle: model.current
+                subtitle: suppressSubagentModel.current
                     ? String(localized: "settings.automation.suppressSubagentNotifications.subtitleOn", defaultValue: "Child agent completions stay in Feed without notifications.")
                     : String(localized: "settings.automation.suppressSubagentNotifications.subtitleOff", defaultValue: "Child agent completions notify like top-level agents.")
             ) {
-                Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                Toggle("", isOn: Binding(get: { suppressSubagentModel.current }, set: { suppressSubagentModel.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsSuppressSubagentNotificationsToggle")
@@ -265,16 +274,15 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var cursorCard: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.cursorIntegration"),
                 String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
-                subtitle: model.current
+                subtitle: cursorModel.current
                     ? String(localized: "settings.automation.cursor.subtitleOn", defaultValue: "Sidebar shows Cursor agent status and notifications.")
                     : String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration.")
             ) {
-                Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                Toggle("", isOn: Binding(get: { cursorModel.current }, set: { cursorModel.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsCursorHooksToggle")
@@ -286,16 +294,15 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var geminiCard: some View {
-        let model = DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.geminiIntegration"),
                 String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"),
-                subtitle: model.current
+                subtitle: geminiModel.current
                     ? String(localized: "settings.automation.gemini.subtitleOn", defaultValue: "Sidebar shows Gemini session status and notifications.")
                     : String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration.")
             ) {
-                Toggle("", isOn: Binding(get: { model.current }, set: { model.set($0) }))
+                Toggle("", isOn: Binding(get: { geminiModel.current }, set: { geminiModel.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsGeminiHooksToggle")
@@ -307,8 +314,6 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var portCard: some View {
-        let baseModel = DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase)
-        let rangeModel = DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange)
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.portBase"),
@@ -316,7 +321,7 @@ public struct AutomationSection: View {
                 subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."),
                 controlWidth: Self.columnWidth
             ) {
-                TextField("", value: Binding(get: { baseModel.current }, set: { baseModel.set($0) }), format: .number)
+                TextField("", value: Binding(get: { portBaseModel.current }, set: { portBaseModel.set($0) }), format: .number)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
             }
@@ -327,7 +332,7 @@ public struct AutomationSection: View {
                 subtitle: String(localized: "settings.automation.portRange.subtitle", defaultValue: "Number of ports per workspace."),
                 controlWidth: Self.columnWidth
             ) {
-                TextField("", value: Binding(get: { rangeModel.current }, set: { rangeModel.set($0) }), format: .number)
+                TextField("", value: Binding(get: { portRangeModel.current }, set: { portRangeModel.set($0) }), format: .number)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
             }
@@ -337,7 +342,6 @@ public struct AutomationSection: View {
     }
 
     private func saveSocketPassword() {
-        guard let model = socketPasswordModel else { return }
         let trimmed = socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             socketPasswordStatus = SocketPasswordStatus(
@@ -346,7 +350,7 @@ public struct AutomationSection: View {
             )
             return
         }
-        model.set(trimmed)
+        socketPasswordModel.set(trimmed)
         socketPasswordDraft = ""
         socketPasswordStatus = SocketPasswordStatus(
             message: String(localized: "settings.automation.socketPassword.saved", defaultValue: "Saved."),
@@ -355,7 +359,7 @@ public struct AutomationSection: View {
     }
 
     private func clearSocketPassword() {
-        socketPasswordModel?.reset()
+        socketPasswordModel.reset()
         socketPasswordDraft = ""
         socketPasswordStatus = SocketPasswordStatus(
             message: String(localized: "settings.automation.socketPassword.cleared", defaultValue: "Cleared."),

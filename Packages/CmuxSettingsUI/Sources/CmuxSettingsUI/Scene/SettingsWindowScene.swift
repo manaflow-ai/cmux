@@ -74,7 +74,7 @@ public struct SettingsWindowRoot: View {
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
     private var catalog: SettingCatalog { runtime.catalog }
-    private var hostActions: SettingsHostActions? { runtime.hostActions }
+    private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
 
     private var searchIndex: SettingsSearchIndex {
@@ -307,7 +307,15 @@ public struct SettingsWindowRoot: View {
         GeometryReader { _ in
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    // LazyVStack so the ~12 settings sections build their
+                    // bodies on demand as they scroll into view instead of
+                    // eagerly on first render. The eager plain VStack made
+                    // opening the window and the first scroll janky because
+                    // every section (and its nested cards/controls) was
+                    // instantiated up front. Each section keeps its
+                    // `.id(anchorID(for:))` so `proxy.scrollTo(...)` from
+                    // the sidebar/search navigation still resolves anchors.
+                    LazyVStack(alignment: .leading, spacing: 14) {
                         sectionStack
                     }
                     // Legacy SettingsView only pads the inner VStack; it
@@ -402,7 +410,8 @@ public struct SettingsWindowRoot: View {
         TerminalSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog
+            catalog: catalog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .terminal))
 
@@ -415,7 +424,8 @@ public struct SettingsWindowRoot: View {
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog
+            catalog: catalog,
+            errorLog: runtime.errorLog
         )
         .id(anchorID(for: .automation))
 

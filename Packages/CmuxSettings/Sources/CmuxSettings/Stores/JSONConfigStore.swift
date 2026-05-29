@@ -225,5 +225,16 @@ public actor JSONConfigStore {
         // Only commit to cache after the file write succeeded.
         cachedRoot = root
         cacheValid = true
+
+        // Notify subscribers of our own write directly rather than
+        // relying on the file watcher to observe it. Atomic writes
+        // replace the file via rename, which a vnode DispatchSource can
+        // miss, so self-writes must be signalled here to guarantee the
+        // `values(for:)` streams (and the view-models bound to them)
+        // reflect a change made through this store. The cache is already
+        // up to date, so subscribers re-read the new value immediately.
+        for continuation in subscribers.values {
+            continuation.yield(())
+        }
     }
 }

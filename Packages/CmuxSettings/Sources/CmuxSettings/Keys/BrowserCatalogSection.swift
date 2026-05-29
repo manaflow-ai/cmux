@@ -34,13 +34,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
 
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "browserHiddenWebViewDiscardEnabled"
     )
 
     public let hiddenWebViewDiscardDelaySeconds = DefaultsKey<Double>(
         id: "browser.hiddenWebViewDiscardDelaySeconds",
-        defaultValue: 60,
+        defaultValue: 300,
         userDefaultsKey: "browserHiddenWebViewDiscardDelaySeconds"
     )
 
@@ -70,7 +70,7 @@ public struct BrowserCatalogSection: SettingCatalogSection {
 
     public let insecureHttpHostsAllowedInEmbeddedBrowser = DefaultsKey<String>(
         id: "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-        defaultValue: "",
+        defaultValue: "localhost\n*.localhost\n127.0.0.1\n::1\n0.0.0.0\n*.localtest.me",
         userDefaultsKey: "browserInsecureHTTPAllowlist"
     )
 
@@ -82,7 +82,7 @@ public struct BrowserCatalogSection: SettingCatalogSection {
 
     public let reactGrabVersion = DefaultsKey<String>(
         id: "browser.reactGrabVersion",
-        defaultValue: "",
+        defaultValue: "0.1.29",
         userDefaultsKey: "reactGrabVersion"
     )
 
@@ -94,7 +94,7 @@ public struct BrowserCatalogSection: SettingCatalogSection {
 
     public let importHintVariant = DefaultsKey<String>(
         id: "browser.importHintVariant",
-        defaultValue: "compact",
+        defaultValue: "toolbarChip",
         userDefaultsKey: "browserImportHintVariant"
     )
 

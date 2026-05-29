@@ -12,7 +12,7 @@ public struct BrowserImportSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions? = nil
+        hostActions: SettingsHostActions
     ) {
         _ = defaultsStore
         _ = catalog

@@ -7,21 +7,34 @@ import SwiftUI
 /// max live terminals, plus the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions?
+    private let hostActions: SettingsHostActions
+
+    @State private var scrollBar: DefaultsValueModel<Bool>
+    @State private var textBoxLines: DefaultsValueModel<Int>
+    @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var autoResume: DefaultsValueModel<Bool>
+    @State private var hibernation: DefaultsValueModel<Bool>
+    @State private var idleSeconds: DefaultsValueModel<Double>
+    @State private var maxLive: DefaultsValueModel<Int>
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions? = nil
+        hostActions: SettingsHostActions
     ) {
-        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
+        _textBoxLines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines))
+        _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
+        _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
+        _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
+        _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
     }
 
     public var body: some View {
@@ -48,13 +61,11 @@ public struct TerminalSection: View {
                     Text(verbatim: "0")
                         .font(.caption.monospacedDigit())
                         .foregroundColor(.secondary)
-                    if let hostActions {
-                        Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
-                            hostActions.openConfigInExternalEditor()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                        hostActions.openConfigInExternalEditor()
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
         }
@@ -62,14 +73,6 @@ public struct TerminalSection: View {
 
     @ViewBuilder
     private var mainCard: some View {
-        let scrollBar = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar)
-        let textBoxLines = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines)
-        let copyOnSelect = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect)
-        let autoResume = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions)
-        let hibernation = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled)
-        let idleSeconds = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds)
-        let maxLive = DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals)
-
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("terminal.showScrollBar"),

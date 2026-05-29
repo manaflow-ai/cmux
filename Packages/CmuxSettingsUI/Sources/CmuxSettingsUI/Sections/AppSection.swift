@@ -17,9 +17,41 @@ import UniformTypeIdentifiers
 /// Command Palette Searches All Surfaces.
 @MainActor
 public struct AppSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions?
+    private let hostActions: SettingsHostActions
+
+    // Every bound value-model lives here as view state, constructed once
+    // and persisted across renders so the @Observable change tracking
+    // actually drives invalidation.
+    @State private var language: DefaultsValueModel<AppLanguage>
+    @State private var appearance: DefaultsValueModel<AppearanceMode>
+    @State private var appIcon: DefaultsValueModel<AppIconMode>
+    @State private var placement: DefaultsValueModel<WorkspacePlacement>
+    @State private var inheritDir: DefaultsValueModel<Bool>
+    @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
+    @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
+    @State private var firstClick: DefaultsValueModel<Bool>
+    @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
+    @State private var preferredEditor: DefaultsValueModel<String>
+    @State private var openSupported: DefaultsValueModel<Bool>
+    @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var iMessage: DefaultsValueModel<Bool>
+    @State private var reorder: DefaultsValueModel<Bool>
+    @State private var dockBadge: DefaultsValueModel<Bool>
+    @State private var menuBarOnly: DefaultsValueModel<Bool>
+    @State private var showInMenuBar: DefaultsValueModel<Bool>
+    @State private var paneRing: DefaultsValueModel<Bool>
+    @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var soundName: DefaultsValueModel<String>
+    @State private var soundCommand: DefaultsValueModel<String>
+    @State private var customSoundFile: DefaultsValueModel<String>
+    @State private var telemetry: DefaultsValueModel<Bool>
+    @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
+    @State private var warnCloseTab: DefaultsValueModel<Bool>
+    @State private var warnCloseX: DefaultsValueModel<Bool>
+    @State private var hideCloseButton: DefaultsValueModel<Bool>
+    @State private var renameSelects: DefaultsValueModel<Bool>
+    @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
     @State private var languageAtAppear: AppLanguage?
     @State private var telemetryAtAppear: Bool?
@@ -27,11 +59,39 @@ public struct AppSection: View {
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
-        hostActions: SettingsHostActions? = nil
+        hostActions: SettingsHostActions
     ) {
-        self.defaultsStore = defaultsStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
+        _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
+        _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
+        _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
+        _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
+        _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
+        _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
+        _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
+        _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
+        _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
+        _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
+        _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
+        _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
+        _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
+        _menuBarOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.menuBarOnly))
+        _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
+        _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
+        _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
+        _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
+        _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
+        _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
+        _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
+        _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
+        _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
+        _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
+        _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
+        _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
     }
 
     private static let columnWidth: CGFloat = 196
@@ -54,46 +114,13 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            if languageAtAppear == nil {
-                languageAtAppear = DefaultsValueModel(store: defaultsStore, key: catalog.app.language).current
-            }
-            if telemetryAtAppear == nil {
-                telemetryAtAppear = DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry).current
-            }
+            if languageAtAppear == nil { languageAtAppear = language.current }
+            if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
 
     @ViewBuilder
     private var mainCard: some View {
-        let language = DefaultsValueModel(store: defaultsStore, key: catalog.app.language)
-        let appearance = DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance)
-        let appIcon = DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon)
-        let placement = DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement)
-        let inheritDir = DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory)
-        let minimalMode = DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode)
-        let keepWorkspaceOpen = DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface)
-        let firstClick = DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick)
-        let fileDrop = DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior)
-        let preferredEditor = DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor)
-        let openSupported = DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux)
-        let openMarkdown = DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer)
-        let iMessage = DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode)
-        let reorder = DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification)
-        let dockBadge = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge)
-        let menuBarOnly = DefaultsValueModel(store: defaultsStore, key: catalog.app.menuBarOnly)
-        let showInMenuBar = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar)
-        let paneRing = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing)
-        let paneFlash = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash)
-        let soundName = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound)
-        let soundCommand = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command)
-        let telemetry = DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry)
-        let confirmQuit = DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode)
-        let warnCloseTab = DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab)
-        let warnCloseX = DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton)
-        let hideCloseButton = DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton)
-        let renameSelects = DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName)
-        let paletteAllSurfaces = DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces)
-
         SettingsCard {
             // Language
             SettingsCardRow(
@@ -180,15 +207,17 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Keep Workspace Open
+            // Keep Workspace Open. The stored value carries close-on-last-
+            // surface semantics (true = close), so the "Keep Open" toggle
+            // and its subtitle bind to the inverse, matching legacy.
             SettingsCardRow(
                 configurationReview: .json("app.keepWorkspaceOpenWhenClosingLastSurface"),
                 String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"),
-                subtitle: keepWorkspaceOpen.current
+                subtitle: !keepWorkspaceOpen.current
                     ? String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn", defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly.")
                     : String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff", defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace.")
             ) {
-                Toggle("", isOn: Binding(get: { keepWorkspaceOpen.current }, set: { keepWorkspaceOpen.set($0) }))
+                Toggle("", isOn: Binding(get: { !keepWorkspaceOpen.current }, set: { keepWorkspaceOpen.set(!$0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
@@ -252,21 +281,19 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             // Terminal Config (host action)
-            if let hostActions {
-                SettingsCardRow(
-                    configurationReview: .action,
-                    String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
-                    subtitle: String(localized: "settings.app.configWindow.subtitle", defaultValue: "Open the cmux terminal config and generated preview in one utility window."),
-                    controlWidth: Self.columnWidth
-                ) {
-                    Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config")) {
-                        hostActions.openTerminalConfigWindow()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
+                subtitle: String(localized: "settings.app.configWindow.subtitle", defaultValue: "Open the cmux terminal config and generated preview in one utility window."),
+                controlWidth: Self.columnWidth
+            ) {
+                Button(String(localized: "settings.app.configWindow.openButton", defaultValue: "Open Config")) {
+                    hostActions.openTerminalConfigWindow()
                 }
-                SettingsCardDivider()
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
+            SettingsCardDivider()
 
             // Open Markdown in cmux Viewer
             SettingsCardRow(
@@ -385,15 +412,13 @@ public struct AppSection: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 98, alignment: .trailing)
                     Button(String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")) {
-                        hostActions?.requestNotificationAuthorization()
+                        hostActions.requestNotificationAuthorization()
                     }
                     .controlSize(.small)
-                    .disabled(hostActions == nil)
                     Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
-                        hostActions?.sendTestNotification()
+                        hostActions.sendTestNotification()
                     }
                     .controlSize(.small)
-                    .disabled(hostActions == nil)
                 }
             }
             SettingsCardDivider()
@@ -550,7 +575,7 @@ public struct AppSection: View {
 
     @ViewBuilder
     private func notificationSoundRow(model: DefaultsValueModel<String>) -> some View {
-        let customFile = DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath)
+        let customFile = customSoundFile
         SettingsCardRow(
             configurationReview: .json("notifications.sound", "notifications.customSoundFilePath"),
             String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
@@ -566,14 +591,14 @@ public struct AppSection: View {
                     }
                     .labelsHidden()
                     Button {
-                        hostActions?.previewNotificationSound()
+                        hostActions.previewNotificationSound()
                     } label: {
                         Image(systemName: "play.fill")
                             .font(.system(size: 9))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(!canPreviewNotificationSound(soundValue: model.current, customFilePath: customFile.current) || hostActions == nil)
+                    .disabled(!canPreviewNotificationSound(soundValue: model.current, customFilePath: customFile.current))
                 }
                 if model.current == Self.customSoundFileValue {
                     HStack(spacing: 6) {

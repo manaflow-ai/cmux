@@ -37,7 +37,12 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     public init(store: UserDefaultsSettingsStore, key: DefaultsKey<Value>) {
         self.store = store
         self.key = key
-        self.current = key.defaultValue
+        // Seed from the actual stored value (synchronous, thread-safe
+        // read) rather than the key default. Section views construct
+        // these models inline in their body, so a fresh instance must
+        // show the real current value immediately or the control reads
+        // as unresponsive until the async stream catches up.
+        self.current = store.currentValue(for: key)
         Task { [weak self, store, key] in
             for await value in store.values(for: key) {
                 guard let self else { return }
@@ -49,19 +54,23 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     /// Writes ``value`` through to the underlying store.
     ///
-    /// `Foundation.UserDefaults.set(_:forKey:)` returns `Void` and has no
-    /// failure path that the OS surfaces, so there is no async error to
-    /// route into an error log. The asymmetry with ``JSONValueModel``
-    /// (whose underlying store can `throw`) is intrinsic to the two
-    /// backing APIs, not an oversight.
+    /// Synchronous so it can be called directly from a SwiftUI
+    /// `Binding` setter (which cannot `await`); the actual write is
+    /// dispatched to the actor-isolated store in a `Task`. ``current``
+    /// is intentionally *not* mutated here — the observation stream set
+    /// up in ``init`` is the single source of truth and updates
+    /// ``current`` (on the main actor) once the write lands and
+    /// `UserDefaults.didChangeNotification` fires. The store is an
+    /// `actor`, so concurrent writes serialize with last-write-wins; no
+    /// extra synchronization is needed.
     public func set(_ value: Value) {
         Task { [store, key] in
             await store.set(value, for: key)
         }
     }
 
-    /// Resets the override; the next observed value will be the key's
-    /// default.
+    /// Removes the override. ``current`` is updated by the observation
+    /// stream once the reset lands, not synchronously here.
     public func reset() {
         Task { [store, key] in
             await store.reset(key)

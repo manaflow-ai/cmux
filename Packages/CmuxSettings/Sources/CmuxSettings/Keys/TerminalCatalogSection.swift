@@ -4,7 +4,7 @@ import Foundation
 public struct TerminalCatalogSection: SettingCatalogSection {
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "terminal.showScrollBar"
     )
 
@@ -28,19 +28,19 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     public let agentHibernationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.agentHibernation.idleSeconds",
-        defaultValue: 300,
+        defaultValue: 3600,
         userDefaultsKey: "terminal.agentHibernation.idleSeconds"
     )
 
     public let agentHibernationMaxLiveTerminals = DefaultsKey<Int>(
         id: "terminal.agentHibernation.maxLiveTerminals",
-        defaultValue: 16,
+        defaultValue: 12,
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
     )
 
     public let textBoxMaxLines = DefaultsKey<Int>(
         id: "terminal.textBoxMaxLines",
-        defaultValue: 6,
+        defaultValue: 10,
         userDefaultsKey: "terminal.textBoxMaxLines"
     )
 

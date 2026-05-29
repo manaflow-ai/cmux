@@ -7,9 +7,9 @@ import SwiftUI
 @MainActor
 public struct SettingsJSONSection: View {
     private let jsonStore: JSONConfigStore
-    private let hostActions: SettingsHostActions?
+    private let hostActions: SettingsHostActions
 
-    public init(jsonStore: JSONConfigStore, hostActions: SettingsHostActions? = nil) {
+    public init(jsonStore: JSONConfigStore, hostActions: SettingsHostActions) {
         self.jsonStore = jsonStore
         self.hostActions = hostActions
     }
@@ -42,14 +42,12 @@ public struct SettingsJSONSection: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
-                if let hostActions {
-                    Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
-                        hostActions.openConfigInExternalEditor()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsJSONOpenButton")
+                Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                    hostActions.openConfigInExternalEditor()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsJSONOpenButton")
             }
             .accessibilityIdentifier("SettingsJSONOpenFileRowActions")
         }

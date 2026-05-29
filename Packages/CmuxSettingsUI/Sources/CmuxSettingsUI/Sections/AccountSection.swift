@@ -8,8 +8,6 @@ import SwiftUI
 /// suppression) live under **Automation** to match legacy ordering.
 @MainActor
 public struct AccountSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
-    private let catalog: SettingCatalog
     private let accountFlow: AccountFlow?
 
     public init(
@@ -17,8 +15,12 @@ public struct AccountSection: View {
         catalog: SettingCatalog,
         accountFlow: AccountFlow?
     ) {
-        self.defaultsStore = defaultsStore
-        self.catalog = catalog
+        // `defaultsStore` and `catalog` are part of the section's shared
+        // init shape (every section takes them) but the Account card binds
+        // no defaults-backed values, so neither is stored. The identity row
+        // is driven entirely by `accountFlow`.
+        _ = defaultsStore
+        _ = catalog
         self.accountFlow = accountFlow
     }
 

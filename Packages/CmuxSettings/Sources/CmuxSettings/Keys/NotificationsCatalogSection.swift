@@ -10,7 +10,7 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
 
     public let showInMenuBar = DefaultsKey<Bool>(
         id: "notifications.showInMenuBar",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "showMenuBarExtra"
     )
 

@@ -8,10 +8,14 @@ import SwiftUI
 /// action.
 @MainActor
 public struct WorkspaceColorsSection: View {
-    private let defaultsStore: UserDefaultsSettingsStore
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
-    private let errorLog: SettingsErrorLog?
+    private let errorLog: SettingsErrorLog
+
+    @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
+    @State private var selectionHex: DefaultsValueModel<String>
+    @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paletteModel: DefaultsValueModel<[String: String]>
 
     /// Built-in palette order and default hexes. Mirrors
     /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
@@ -41,12 +45,15 @@ public struct WorkspaceColorsSection: View {
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog? = nil
+        errorLog: SettingsErrorLog
     ) {
-        self.defaultsStore = defaultsStore
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
+        _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
+        _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
+        _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
     public var body: some View {
@@ -58,11 +65,6 @@ public struct WorkspaceColorsSection: View {
 
     @ViewBuilder
     private var mainCard: some View {
-        let indicator = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle)
-        let selectionHex = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex)
-        let badgeHex = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex)
-        let paletteModel = DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette)
-
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("workspaceColors.indicatorStyle"),
