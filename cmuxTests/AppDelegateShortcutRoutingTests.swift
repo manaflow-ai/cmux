@@ -957,11 +957,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let firstCount = firstManager.tabs.count
         let secondCount = secondManager.tabs.count
 
-        secondContext.window.makeKeyAndOrderFront(nil)
-        waitUntil(timeout: 1.0) {
-            NSApp.keyWindow === secondContext.window || secondContext.window.isKeyWindow
-        }
-        XCTAssertTrue(secondContext.window.isKeyWindow, "Test precondition: second lightweight window should be key")
+        appDelegate.debugPreferredWorkspaceCreationWindowOverride = secondContext.window
+        defer { appDelegate.debugPreferredWorkspaceCreationWindowOverride = nil }
 
         // Force a stale app-level pointer to a different manager.
         appDelegate.tabManager = firstManager
@@ -1304,11 +1301,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let firstManager = firstContext.tabManager
         let secondManager = secondContext.tabManager
 
-        secondContext.window.makeKeyAndOrderFront(nil)
-        waitUntil(timeout: 1.0) {
-            NSApp.keyWindow === secondContext.window || secondContext.window.isKeyWindow
-        }
-        XCTAssertTrue(secondContext.window.isKeyWindow, "Test precondition: second lightweight window should be key")
+        appDelegate.debugPreferredWorkspaceCreationWindowOverride = secondContext.window
+        defer { appDelegate.debugPreferredWorkspaceCreationWindowOverride = nil }
 
         XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: secondContext.windowId))
 

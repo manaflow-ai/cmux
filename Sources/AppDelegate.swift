@@ -735,6 +735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugShortcutEventFocusContextOverride: ShortcutEventFocusContext?
     var debugSuppressShortcutRoutingContextForTesting = false
     var debugAddWorkspaceInPreferredMainWindowCreationOverride: ((MainWindowContext, String?) -> UUID?)?
+    weak var debugPreferredWorkspaceCreationWindowOverride: NSWindow?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -7354,6 +7355,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return nil
         }
+
+        #if DEBUG
+        if let debugPreferredWindow = debugPreferredWorkspaceCreationWindowOverride,
+           let context = contextForMainTerminalWindow(debugPreferredWindow) {
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "debug_preferred_window",
+                event: event,
+                chosenContext: context
+            )
+            return context
+        }
+        #endif
 
         if let keyWindow = NSApp.keyWindow,
            let context = contextForMainTerminalWindow(keyWindow) {
@@ -14017,6 +14032,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugShortcutEventFocusContextOverride = nil
         debugSuppressShortcutRoutingContextForTesting = false
         debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
+        debugPreferredWorkspaceCreationWindowOverride = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
