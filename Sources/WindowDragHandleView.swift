@@ -9,6 +9,10 @@ enum WindowMouseMovedEventsCoordinator {
         var owners: Set<ObjectIdentifier>
     }
 
+    // NSLock is used instead of actor isolation because these static reference
+    // counts are read and restored synchronously from AppKit event-monitor and
+    // deinit paths that cannot suspend or hop while preserving the prior
+    // `acceptsMouseMovedEvents` value.
     private nonisolated(unsafe) static var records: [ObjectIdentifier: Record] = [:]
     private nonisolated static let lock = NSLock()
 
@@ -73,6 +77,9 @@ private func windowDragHandleEventTypeDescription(_ eventType: NSEvent.EventType
 }
 
 private enum WindowDragHandleBreadcrumbLimiter {
+    // NSLock keeps this debug breadcrumb limiter synchronous and allocation-light
+    // from AppKit mouse-event paths; an actor hop would reorder or defer logging
+    // decisions relative to the event currently being handled.
     private static let lock = NSLock()
     private static var lastEmissionByKey: [String: CFAbsoluteTime] = [:]
 
@@ -240,7 +247,7 @@ private enum WindowDragHandleAssociatedObjectKeys {
 // main-thread mouse-event dispatch path.
 private final class WindowMoveSuppressionSequenceState: @unchecked Sendable {
     let reason: WindowMoveSuppressionReason
-    var previousMovableState: Bool
+    let previousMovableState: Bool
 
     init(reason: WindowMoveSuppressionReason, previousMovableState: Bool) {
         self.reason = reason
@@ -336,6 +343,12 @@ func beginWindowMoveSuppressionSequence(
     return reason
 }
 
+/// Updates the restore baseline for an active move-suppression sequence.
+///
+/// Presentation mode can change while a protected drag is in progress. The
+/// window must stay immovable until the drag finishes, but the post-drag
+/// restore value needs to track the current presentation-mode baseline.
+@MainActor
 func updateActiveWindowMoveSuppressionSequencePreviousMovableState(
     window: NSWindow?,
     previousMovableState: Bool
@@ -347,7 +360,16 @@ func updateActiveWindowMoveSuppressionSequencePreviousMovableState(
           ) as? WindowMoveSuppressionSequenceState else {
         return
     }
-    state.previousMovableState = previousMovableState
+    let updatedState = WindowMoveSuppressionSequenceState(
+        reason: state.reason,
+        previousMovableState: previousMovableState
+    )
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence,
+        updatedState,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
 }
 
 func ensureWindowMoveSuppressionSequenceIsImmovable(window: NSWindow?) {
@@ -380,6 +402,10 @@ func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppres
     return state.reason
 }
 
+/// Finishes the active move-suppression sequence only when its reason matches.
+///
+/// This lets a specific drag source clean up after itself without accidentally
+/// ending another source's still-active suppression sequence.
 @discardableResult
 func finishWindowMoveSuppressionSequence(
     window: NSWindow?,
@@ -459,6 +485,10 @@ protocol MinimalModeSidebarControlActionHitRegionProviding: MinimalModeTitlebarC
 }
 
 enum MinimalModeTitlebarControlHitRegionRegistry {
+    // NSLock protects the weak view table because AppKit can register/unregister
+    // representable-backed views during layout while hit-testing reads snapshots
+    // from event dispatch; actor isolation would add a hop to pointer paths and
+    // cannot guard NSHashTable's synchronous mutation semantics.
     private static let lock = NSLock()
     private static let registeredViews = NSHashTable<NSView>.weakObjects()
 

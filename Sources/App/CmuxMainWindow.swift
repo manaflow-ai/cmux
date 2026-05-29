@@ -28,6 +28,14 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+/// Applies the main-window AppKit movability baseline for the active presentation mode.
+///
+/// Standard mode keeps native OS-level window movability enabled for macOS
+/// tiling and third-party window managers. Minimal mode disables native
+/// movability so cmux-owned chrome can decide exactly when to call
+/// `performDrag`. If a protected drag suppression sequence is active, the
+/// window remains immovable and only the post-suppression restore baseline is
+/// updated.
 @MainActor
 func configureCmuxMainWindowDragBehavior(
     _ window: NSWindow,

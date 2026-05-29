@@ -3205,7 +3205,6 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
             if let observedWindow {
-                configureCmuxMainWindowDragBehavior(observedWindow)
                 setTitlebarControlsHidden(isFullScreen, in: observedWindow)
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
                 refreshWindowChromeMetrics(for: observedWindow)
