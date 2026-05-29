@@ -26813,6 +26813,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
+        func shouldSuppressGenericFeedTelemetry() -> Bool {
+            guard def.name == "hermes-agent",
+                  let event = input.object.flatMap({
+                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+                  }) ?? input.rawObject.flatMap({
+                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+                  })
+            else {
+                return false
+            }
+            return def.feedHookEvents.contains(event)
+        }
+        func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil) {
+            if shouldSuppressGenericFeedTelemetry() {
+                didSendFeedTelemetry = true
+            } else {
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+            }
+        }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
             guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
                 return nil
@@ -26914,7 +26933,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return target
         }
         defer {
-            if !didSendFeedTelemetry {
+            if !didSendFeedTelemetry, !shouldSuppressGenericFeedTelemetry() {
                 sendAgentFeedTelemetry()
             }
         }
@@ -26929,7 +26948,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -27002,7 +27021,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -27459,7 +27478,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -27600,7 +27619,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
                 print("{}")
                 return
             }
@@ -27615,7 +27634,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
                 print("{}")
                 return
             }
@@ -27756,7 +27775,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case nil:
                 break
             }
-            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
 
         case .sessionEnd:
             if def.name == "codex", !sessionId.isEmpty {

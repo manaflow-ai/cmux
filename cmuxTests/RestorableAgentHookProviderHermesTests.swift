@@ -39,7 +39,7 @@ extension SocketListenerAcceptPolicyTests {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--provider' 'custom' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
+            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && 'env' 'HERMES_HOME=/tmp/hermes home' '/opt/homebrew/bin/hermes' '--tui' '--model' 'gpt-5.4' '--resume' 'hermes-session-123'"
         )
     }
 
@@ -146,8 +146,6 @@ extension SocketListenerAcceptPolicyTests {
             ),
             [
                 "/opt/homebrew/bin/hermes",
-                "--provider",
-                "custom",
                 "--tui",
                 "--model",
                 "gpt-5.4"

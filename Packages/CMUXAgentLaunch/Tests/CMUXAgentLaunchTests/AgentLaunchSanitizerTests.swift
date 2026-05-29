@@ -551,8 +551,6 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "hermes-agent"
             ) == [
                 "hermes",
-                "--provider",
-                "custom",
                 "--profile",
                 "work",
                 "--tui",
@@ -571,7 +569,7 @@ struct AgentLaunchSanitizerTests {
                 ["hermes", "--worktree", "/tmp/repo", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--provider", "custom", "--model", "gpt-5.4"]
+            ) == ["hermes", "--model", "gpt-5.4"]
         )
     }
 
@@ -582,7 +580,7 @@ struct AgentLaunchSanitizerTests {
                 ["hermes", "chat", "--tui", "--model", "gpt-5.4", "initial prompt"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--provider", "custom", "--tui", "--model", "gpt-5.4"]
+            ) == ["hermes", "--tui", "--model", "gpt-5.4"]
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -607,7 +605,7 @@ struct AgentLaunchSanitizerTests {
                 ["hermes", "--skills", "skill1", "skill2", "--model", "gpt-5.4"],
                 launcher: "hermes-agent",
                 fallbackKind: "hermes-agent"
-            ) == ["hermes", "--provider", "custom", "--skills", "skill1"]
+            ) == ["hermes", "--skills", "skill1"]
         )
     }
 

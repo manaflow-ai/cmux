@@ -6,14 +6,12 @@ public enum HermesAgentCodexEnvironment {
     public static let codexBaseURLEnvironmentKey = "HERMES_CODEX_BASE_URL"
     public static let customBaseURLEnvironmentKey = "CUSTOM_BASE_URL"
 
-    public static func argumentsWithDefaultProvider(_ arguments: [String]) -> [String] {
+    public static func argumentsByReplacingOpenAICodexProvider(_ arguments: [String]) -> [String] {
         var result: [String] = []
-        var hasProviderOverride = false
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--provider", index + 1 < arguments.count {
-                hasProviderOverride = true
                 result.append(argument)
                 let provider = arguments[index + 1]
                 result.append(provider == "openai-codex" ? defaultProvider : provider)
@@ -21,7 +19,6 @@ public enum HermesAgentCodexEnvironment {
                 continue
             }
             if argument.hasPrefix("--provider=") {
-                hasProviderOverride = true
                 let provider = String(argument.dropFirst("--provider=".count))
                 result.append(provider == "openai-codex" ? "--provider=\(defaultProvider)" : argument)
             } else {
@@ -29,7 +26,30 @@ public enum HermesAgentCodexEnvironment {
             }
             index += 1
         }
-        return hasProviderOverride ? result : ["--provider", defaultProvider] + result
+        return result
+    }
+
+    public static func argumentsWithDefaultProvider(_ arguments: [String]) -> [String] {
+        let result = argumentsByReplacingOpenAICodexProvider(arguments)
+        if hasProviderOverride(result) {
+            return result
+        }
+        return ["--provider", defaultProvider] + result
+    }
+
+    private static func hasProviderOverride(_ arguments: [String]) -> Bool {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--provider", index + 1 < arguments.count {
+                return true
+            }
+            if argument.hasPrefix("--provider=") {
+                return true
+            }
+            index += 1
+        }
+        return false
     }
 
     public static func applyingDefaultCodexBaseURL(

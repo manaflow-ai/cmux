@@ -639,6 +639,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             approvalCommands.contains { $0.contains("set_status hermes-agent Hermes Agent needs input") },
             "Expected Hermes approval notification to mark needs input, saw \(approvalCommands)"
         )
+        XCTAssertFalse(
+            approvalCommands.contains { $0.contains(#""method":"feed.push""#) },
+            "Hermes approval notifications are also installed as feed hooks, so the generic notification handler must not push duplicate feed events. Saw \(approvalCommands)"
+        )
 
         let session = try storedHermesSession()
         XCTAssertEqual(session["lastSubtitle"] as? String, "Permission")
@@ -662,6 +666,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             responseCommands.contains { $0.contains("set_status hermes-agent Running") },
             "Expected Hermes approval response to restore running status, saw \(responseCommands)"
+        )
+        XCTAssertFalse(
+            responseCommands.contains { $0.contains(#""method":"feed.push""#) },
+            "Hermes approval responses are also installed as feed hooks, so the generic approval handler must not push duplicate feed events. Saw \(responseCommands)"
         )
 
         let responseSession = try storedHermesSession()

@@ -130,7 +130,7 @@ public enum AgentLaunchSanitizer {
                 return nil
             }
             guard let preserved = preserveOptions(tail, policy: hermesAgentPolicy) else { return nil }
-            return HermesAgentCodexEnvironment.argumentsWithDefaultProvider(preserved)
+            return HermesAgentCodexEnvironment.argumentsByReplacingOpenAICodexProvider(preserved)
         case "copilot":
             return preserveOptions(args, policy: copilotPolicy)
         case "codebuddy":
