@@ -32,7 +32,7 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
-        let sidebarReorderIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
+        let sidebarReorderIds = renderContext.sidebarReorderIds
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -47,12 +47,13 @@ extension VerticalTabsSidebar {
             dragState.dropIndicator = nil
             return SidebarTabDragPayload.provider(for: anchorId)
         }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
+        let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
+            groupId = group.id,
             anchorId = group.anchorWorkspaceId,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
         ] rowHeight in
-            SidebarTabDropDelegate(
+            let reorderDelegate = SidebarTabDropDelegate(
                 targetTabId: anchorId,
                 tabManager: tabManager,
                 dragState: dragState,
@@ -60,6 +61,15 @@ extension VerticalTabsSidebar {
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
                 targetRowHeight: rowHeight,
                 dragAutoScrollController: dragAutoScrollController
+            )
+            return SidebarWorkspaceGroupHeaderDropDelegate(
+                targetGroupId: groupId,
+                targetAnchorWorkspaceId: anchorId,
+                tabManager: tabManager,
+                dragState: dragState,
+                targetRowHeight: rowHeight,
+                dragAutoScrollController: dragAutoScrollController,
+                reorderDelegate: reorderDelegate
             )
         }
 

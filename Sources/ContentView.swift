@@ -10276,6 +10276,8 @@ struct VerticalTabsSidebar: View {
         /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
         /// O(n) per row.
         let tabIds: [UUID]
+        /// Drag-scope row ids shared by every visible row for this render pass.
+        let sidebarReorderIds: [UUID]
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
@@ -10321,9 +10323,11 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let sidebarReorderIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabs.map(\.id),
+            sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
@@ -11567,7 +11571,7 @@ struct VerticalTabsSidebar: View {
         // Equatable conformance ignores closures, so rows whose snapshot is
         // unchanged skip re-render when drag state moves.
         let isBeingDragged = dragState.draggedTabId == tab.id
-        let sidebarReorderIds = tabManager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: dragState.draggedTabId)
+        let sidebarReorderIds = renderContext.sidebarReorderIds
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: tab.id,
             draggedTabId: dragState.draggedTabId,

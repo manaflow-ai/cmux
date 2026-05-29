@@ -24,7 +24,7 @@ struct SidebarWorkspaceGroupHeaderView: View {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
+    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -255,5 +255,79 @@ struct SidebarWorkspaceGroupHeaderView: View {
                 )
             }
         }
+    }
+}
+
+@MainActor
+struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
+    let targetGroupId: UUID
+    let targetAnchorWorkspaceId: UUID
+    let tabManager: TabManager
+    let dragState: SidebarDragState
+    let targetRowHeight: CGFloat?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    let reorderDelegate: SidebarTabDropDelegate
+
+    func validateDrop(info: DropInfo) -> Bool {
+        reorderDelegate.validateDrop(info: info) || isAnchorOnlyAddDrop(info)
+    }
+
+    func dropEntered(info: DropInfo) {
+        if updateAnchorOnlyAddDrop(info) { return }
+        reorderDelegate.dropEntered(info: info)
+    }
+
+    func dropExited(info: DropInfo) {
+        reorderDelegate.dropExited(info: info)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        if updateAnchorOnlyAddDrop(info) {
+            return DropProposal(operation: .move)
+        }
+        return reorderDelegate.dropUpdated(info: info)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard isAnchorOnlyAddDrop(info),
+              let draggedTabId = dragState.draggedTabId else {
+            return reorderDelegate.performDrop(info: info)
+        }
+        defer {
+            dragState.draggedTabId = nil
+            dragState.dropIndicator = nil
+            dragAutoScrollController.stop()
+        }
+        tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
+        return true
+    }
+
+    private func updateAnchorOnlyAddDrop(_ info: DropInfo) -> Bool {
+        guard isAnchorOnlyAddDrop(info) else { return false }
+        dragAutoScrollController.updateFromDragLocation()
+        dragState.dropIndicator = nil
+        return true
+    }
+
+    private func isAnchorOnlyAddDrop(_ info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
+              let draggedTabId = dragState.draggedTabId,
+              draggedTabId != targetAnchorWorkspaceId,
+              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }),
+              !draggedTab.isPinned,
+              draggedTab.groupId != targetGroupId,
+              !tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == draggedTabId }),
+              let group = tabManager.workspaceGroups.first(where: { $0.id == targetGroupId }),
+              group.anchorWorkspaceId == targetAnchorWorkspaceId else {
+            return false
+        }
+        let memberCount = tabManager.tabs.reduce(0) { count, tab in
+            tab.groupId == targetGroupId ? count + 1 : count
+        }
+        guard memberCount <= 1 else { return false }
+        let rowHeight = max(targetRowHeight ?? 1, 1)
+        let edgeBand = min(max(rowHeight * 0.25, 10), rowHeight / 2)
+        let y = min(max(info.location.y, 0), rowHeight)
+        return y > edgeBand && y < rowHeight - edgeBand
     }
 }

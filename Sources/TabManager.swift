@@ -6458,15 +6458,22 @@ class TabManager: ObservableObject {
     private func applyWorkspaceGroupSlotOrderToTabs() {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let topLevelIds = sidebarTopLevelWorkspaceIds()
-        var pinnedAnchors = workspaceGroups.filter(\.isPinned).map(\.anchorWorkspaceId)
-        var unpinnedAnchors = workspaceGroups.filter { !$0.isPinned }.map(\.anchorWorkspaceId)
-        let desiredIds = topLevelIds.map { id -> UUID in
+        let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
+        let tieredTopLevelIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
+            + topLevelIds.filter { !pinnedTopLevelIds.contains($0) }
+        let pinnedAnchors = workspaceGroups.filter(\.isPinned).map(\.anchorWorkspaceId)
+        let unpinnedAnchors = workspaceGroups.filter { !$0.isPinned }.map(\.anchorWorkspaceId)
+        var pinnedAnchorIndex = 0
+        var unpinnedAnchorIndex = 0
+        let desiredIds = tieredTopLevelIds.map { id -> UUID in
             guard let group = groupsByAnchorId[id] else { return id }
-            if group.isPinned, !pinnedAnchors.isEmpty {
-                return pinnedAnchors.removeFirst()
+            if group.isPinned, pinnedAnchorIndex < pinnedAnchors.count {
+                defer { pinnedAnchorIndex += 1 }
+                return pinnedAnchors[pinnedAnchorIndex]
             }
-            if !group.isPinned, !unpinnedAnchors.isEmpty {
-                return unpinnedAnchors.removeFirst()
+            if !group.isPinned, unpinnedAnchorIndex < unpinnedAnchors.count {
+                defer { unpinnedAnchorIndex += 1 }
+                return unpinnedAnchors[unpinnedAnchorIndex]
             }
             return id
         }
