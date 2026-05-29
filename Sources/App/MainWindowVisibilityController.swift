@@ -504,3 +504,338 @@ final class MainWindowVisibilityController {
 #endif
     }
 }
+
+enum QuickTerminalPosition: String {
+    case top
+    case bottom
+    case left
+    case right
+    case center
+}
+
+struct QuickTerminalConfiguration: Equatable {
+    static let fallback = QuickTerminalConfiguration(
+        position: .top,
+        screenFraction: 0.46,
+        animationDuration: 0.18
+    )
+
+    var position: QuickTerminalPosition
+    var screenFraction: CGFloat
+    var animationDuration: TimeInterval
+
+    init(
+        position: QuickTerminalPosition,
+        screenFraction: CGFloat,
+        animationDuration: TimeInterval
+    ) {
+        self.position = position
+        self.screenFraction = min(max(screenFraction, 0.2), 0.95)
+        self.animationDuration = min(max(animationDuration, 0.05), 0.6)
+    }
+
+    static func current(loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() }) -> QuickTerminalConfiguration {
+        let config = loadConfig()
+        return QuickTerminalConfiguration(
+            position: config.quickTerminalPosition.flatMap(QuickTerminalPosition.init(rawValue:)) ?? fallback.position,
+            screenFraction: CGFloat(config.quickTerminalScreenFraction ?? Double(fallback.screenFraction)),
+            animationDuration: config.quickTerminalAnimationDuration ?? fallback.animationDuration
+        )
+    }
+}
+
+@MainActor
+struct QuickTerminalPlacement: Equatable {
+    static let defaultTopInsetRange: ClosedRange<CGFloat> = 8...16
+
+    let visibleFrame: NSRect
+    let hiddenFrame: NSRect
+
+    static func placement(
+        forVisibleFrame visibleFrame: NSRect,
+        configuration: QuickTerminalConfiguration = .fallback
+    ) -> QuickTerminalPlacement {
+        let topInset = min(max(visibleFrame.height * 0.015, defaultTopInsetRange.lowerBound), defaultTopInsetRange.upperBound)
+        let preferredHorizontalInset = min(max(visibleFrame.width * 0.06, 32), 96)
+        let horizontalInset = min(preferredHorizontalInset, max(0, (visibleFrame.width - 1) / 2))
+        let verticalInset = min(max(visibleFrame.height * 0.04, 24), 96)
+
+        let shown: NSRect
+        let hidden: NSRect
+        switch configuration.position {
+        case .top:
+            let width = max(1, visibleFrame.width - horizontalInset * 2)
+            let maxHeight = max(1, visibleFrame.height - topInset)
+            let minHeight = min(420, maxHeight)
+            let height = min(max(minHeight, visibleFrame.height * configuration.screenFraction), maxHeight)
+            let x = visibleFrame.minX + (visibleFrame.width - width) / 2
+            let y = visibleFrame.maxY - topInset - height
+            shown = NSRect(x: x, y: y, width: width, height: height)
+            hidden = NSRect(x: x, y: visibleFrame.maxY + topInset, width: width, height: height)
+        case .bottom:
+            let width = max(1, visibleFrame.width - horizontalInset * 2)
+            let maxHeight = max(1, visibleFrame.height - topInset)
+            let minHeight = min(420, maxHeight)
+            let height = min(max(minHeight, visibleFrame.height * configuration.screenFraction), maxHeight)
+            let x = visibleFrame.minX + (visibleFrame.width - width) / 2
+            let y = visibleFrame.minY + topInset
+            shown = NSRect(x: x, y: y, width: width, height: height)
+            hidden = NSRect(x: x, y: visibleFrame.minY - height - topInset, width: width, height: height)
+        case .left:
+            let maxWidth = max(1, visibleFrame.width - horizontalInset)
+            let width = min(max(420, visibleFrame.width * configuration.screenFraction), maxWidth)
+            let height = max(1, visibleFrame.height - verticalInset * 2)
+            let y = visibleFrame.minY + verticalInset
+            shown = NSRect(x: visibleFrame.minX + topInset, y: y, width: width, height: height)
+            hidden = NSRect(x: visibleFrame.minX - width - topInset, y: y, width: width, height: height)
+        case .right:
+            let maxWidth = max(1, visibleFrame.width - horizontalInset)
+            let width = min(max(420, visibleFrame.width * configuration.screenFraction), maxWidth)
+            let height = max(1, visibleFrame.height - verticalInset * 2)
+            let y = visibleFrame.minY + verticalInset
+            shown = NSRect(x: visibleFrame.maxX - width - topInset, y: y, width: width, height: height)
+            hidden = NSRect(x: visibleFrame.maxX + topInset, y: y, width: width, height: height)
+        case .center:
+            let width = max(1, visibleFrame.width * 0.82)
+            let height = max(1, visibleFrame.height * 0.82)
+            shown = NSRect(
+                x: visibleFrame.midX - width / 2,
+                y: visibleFrame.midY - height / 2,
+                width: width,
+                height: height
+            )
+            hidden = shown
+        }
+        return QuickTerminalPlacement(visibleFrame: shown, hiddenFrame: hidden)
+    }
+
+    static func current(configuration: QuickTerminalConfiguration = .current()) -> QuickTerminalPlacement? {
+        guard let screen = preferredScreen() else { return nil }
+        return placement(forVisibleFrame: screen.visibleFrame, configuration: configuration)
+    }
+
+    private static func preferredScreen() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
+            return screen
+        }
+        if let keyScreen = NSApp.keyWindow?.screen {
+            return keyScreen
+        }
+        if let mainScreen = NSScreen.main {
+            return mainScreen
+        }
+        return NSScreen.screens.first
+    }
+}
+
+@MainActor
+final class QuickTerminalController {
+    @MainActor
+    struct Dependencies {
+        var createMainWindow: @MainActor (AppDelegate, QuickTerminalPlacement, SessionWindowSnapshot?) -> UUID
+        var windowForMainWindowId: @MainActor (AppDelegate, UUID) -> CmuxMainWindow?
+        var focusQuickTerminalWindow: @MainActor (AppDelegate, CmuxMainWindow) -> Bool
+        var beep: @MainActor () -> Void
+        var animateFrame: @MainActor (
+            NSWindow,
+            NSRect,
+            TimeInterval,
+            @escaping @MainActor () -> Void
+        ) -> Void
+
+        static let live = Dependencies(
+            createMainWindow: { appDelegate, placement, snapshot in
+                appDelegate.createMainWindow(
+                    initialWorkspaceTitle: String(localized: "quickTerminal.windowTitle", defaultValue: "Quick Terminal"),
+                    sessionWindowSnapshot: snapshot,
+                    shouldActivate: false,
+                    initialFrame: placement.visibleFrame,
+                    initialSidebarVisible: false,
+                    shouldOrderFrontWhenNotActivating: false,
+                    isQuickTerminal: true
+                )
+            },
+            windowForMainWindowId: { appDelegate, windowId in
+                appDelegate.windowForMainWindowId(windowId) as? CmuxMainWindow
+            },
+            focusQuickTerminalWindow: { appDelegate, window in
+                appDelegate.focusQuickTerminalWindow(window)
+            },
+            beep: {
+                NSSound.beep()
+            },
+            animateFrame: { window, frame, duration, completion in
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = duration
+                    context.allowsImplicitAnimation = true
+                    window.animator().setFrame(frame, display: true)
+                } completionHandler: {
+                    Task { @MainActor in
+                        completion()
+                    }
+                }
+            }
+        )
+    }
+
+    private weak var appDelegate: AppDelegate?
+    private var quickTerminalWindowId: UUID?
+    private var pendingSessionSnapshot: SessionWindowSnapshot?
+    private var isAnimating = false
+    private let configurationProvider: @MainActor () -> QuickTerminalConfiguration
+    private let placementProvider: @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement?
+    private let dependencies: Dependencies
+
+    init(
+        appDelegate: AppDelegate,
+        configurationProvider: @escaping @MainActor () -> QuickTerminalConfiguration = { QuickTerminalConfiguration.current() },
+        placementProvider: @escaping @MainActor (QuickTerminalConfiguration) -> QuickTerminalPlacement? = { configuration in
+            QuickTerminalPlacement.current(configuration: configuration)
+        },
+        dependencies: Dependencies? = nil
+    ) {
+        self.appDelegate = appDelegate
+        self.configurationProvider = configurationProvider
+        self.placementProvider = placementProvider
+        self.dependencies = dependencies ?? Dependencies.live
+    }
+
+    func toggle() {
+        let configuration = configurationProvider()
+        guard !isAnimating,
+              let appDelegate,
+              let placement = placementProvider(configuration) else {
+            return
+        }
+
+        guard let window = quickTerminalWindow(appDelegate: appDelegate, placement: placement) else {
+            dependencies.beep()
+            return
+        }
+
+        if shouldHide(window) {
+            hide(window, placement: placement, configuration: configuration)
+        } else {
+            show(window, placement: placement, configuration: configuration, appDelegate: appDelegate)
+        }
+    }
+
+    func restoreSession(_ snapshot: SessionWindowSnapshot) {
+        pendingSessionSnapshot = snapshot
+    }
+
+    func pendingSessionSnapshotForPersistence() -> SessionWindowSnapshot? {
+        guard quickTerminalWindowId == nil else { return nil }
+        return pendingSessionSnapshot
+    }
+
+    func hideFromCloseShortcut(_ window: CmuxMainWindow) {
+        guard !isAnimating else { return }
+        let configuration = configurationProvider()
+        guard let placement = placementProvider(configuration) else {
+            window.orderOut(nil)
+            window.setSoftHiddenForVisibilityController(true)
+            return
+        }
+        hide(window, placement: placement, configuration: configuration)
+    }
+
+    private func shouldHide(_ window: NSWindow) -> Bool {
+        isShown(window)
+    }
+
+    private func isShown(_ window: NSWindow) -> Bool {
+        window.isVisible &&
+            !window.isMiniaturized &&
+            window.alphaValue > 0.001
+    }
+
+    private func quickTerminalWindow(
+        appDelegate: AppDelegate,
+        placement: QuickTerminalPlacement
+    ) -> CmuxMainWindow? {
+        if let quickTerminalWindowId,
+           let window = appDelegate.windowForMainWindowId(quickTerminalWindowId) as? CmuxMainWindow {
+            configure(window)
+            return window
+        }
+
+        let snapshot = pendingSessionSnapshot
+        let windowId = dependencies.createMainWindow(appDelegate, placement, snapshot)
+        guard let window = dependencies.windowForMainWindowId(appDelegate, windowId) else {
+            return nil
+        }
+        pendingSessionSnapshot = nil
+        quickTerminalWindowId = windowId
+        configure(window)
+        window.setSoftHiddenForVisibilityController(true)
+        window.orderOut(nil)
+#if DEBUG
+        cmuxDebugLog("quickTerminal.create windowId=\(String(windowId.uuidString.prefix(8))) frame={\(NSStringFromRect(placement.visibleFrame))}")
+#endif
+        return window
+    }
+
+    private func configure(_ window: NSWindow) {
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.quickTerminal")
+        window.level = .floating
+        window.collectionBehavior.formUnion([.canJoinAllSpaces, .fullScreenAuxiliary, .transient])
+        window.isExcludedFromWindowsMenu = true
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+    }
+
+    private func show(
+        _ window: CmuxMainWindow,
+        placement: QuickTerminalPlacement,
+        configuration: QuickTerminalConfiguration,
+        appDelegate: AppDelegate
+    ) {
+        configure(window)
+        if isShown(window) {
+            window.setSoftHiddenForVisibilityController(false)
+            _ = dependencies.focusQuickTerminalWindow(appDelegate, window)
+            return
+        }
+
+        isAnimating = true
+        window.setFrame(placement.hiddenFrame, display: false)
+        window.setSoftHiddenForVisibilityController(false)
+        _ = dependencies.focusQuickTerminalWindow(appDelegate, window)
+#if DEBUG
+        cmuxDebugLog("quickTerminal.show frame={\(NSStringFromRect(placement.visibleFrame))}")
+#endif
+        dependencies.animateFrame(window, placement.visibleFrame, configuration.animationDuration) { [weak self] in
+            self?.isAnimating = false
+        }
+    }
+
+    private func hide(
+        _ window: CmuxMainWindow,
+        placement: QuickTerminalPlacement,
+        configuration: QuickTerminalConfiguration
+    ) {
+        if placement.hiddenFrame.equalTo(placement.visibleFrame) {
+            completeHide(window, placement: placement)
+            return
+        }
+
+        isAnimating = true
+#if DEBUG
+        cmuxDebugLog("quickTerminal.hide frame={\(NSStringFromRect(placement.hiddenFrame))}")
+#endif
+        dependencies.animateFrame(window, placement.hiddenFrame, configuration.animationDuration * 0.8) { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.completeHide(window, placement: placement)
+        }
+    }
+
+    private func completeHide(_ window: CmuxMainWindow, placement: QuickTerminalPlacement) {
+        window.orderOut(nil)
+        window.setFrame(placement.visibleFrame, display: false)
+        window.setSoftHiddenForVisibilityController(true)
+        isAnimating = false
+    }
+}
