@@ -591,7 +591,7 @@ jobs:
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

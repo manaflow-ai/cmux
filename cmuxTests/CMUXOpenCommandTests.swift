@@ -364,13 +364,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("id=\"options-menu\""), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("pierre-diffs-1.2.1-trees-1.0.0-beta.4", isDirectory: true)
+            .appendingPathComponent("pierre-diffs-1.2.4-trees-1.0.0-beta.4", isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.mjs").path))
-        XCTAssertTrue(html.contains("WORKER_POOL_MODULE_URL"), html)
-        XCTAssertTrue(html.contains("new CodeView(codeViewOptions(), workerPool ?? undefined)"), html)
+        XCTAssertTrue(html.contains("<link rel=\"modulepreload\" href=\"./assets/pierre-diffs-1.2.4-trees-1.0.0-beta.4/diffs.mjs\">"), html)
+        XCTAssertTrue(html.contains("<link rel=\"modulepreload\" href=\"./assets/pierre-diffs-1.2.4-trees-1.0.0-beta.4/trees.mjs\">"), html)
+        XCTAssertTrue(html.contains("<link rel=\"modulepreload\" href=\"./assets/pierre-diffs-1.2.4-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs\">"), html)
+        XCTAssertTrue(html.contains("<link rel=\"modulepreload\" href=\"./assets/pierre-diffs-1.2.4-trees-1.0.0-beta.4/worker-pool/worker-portable.mjs\">"), html)
         XCTAssertTrue(html.contains("Indicator style"), html)
         XCTAssertTrue(html.contains("Open source URL"), html)
         XCTAssertTrue(html.contains("Copy git apply command"), html)
@@ -424,7 +426,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", originalURL, "--title", "Bun PR"],
-            environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
             readPatchSidecar: false
         )
 
@@ -433,15 +434,48 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
         XCTAssertTrue(result.html.contains("id=\"external-link\""), result.html)
         let rawURL = try XCTUnwrap(result.params["url"] as? String)
+        let serverStateURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(".server.json", isDirectory: false)
+        let serverState = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: serverStateURL)) as? [String: Any]
+        )
+        XCTAssertEqual(serverState["protocolVersion"] as? Int, 6)
         let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
         let patchFile = try XCTUnwrap(files.first { file in
             file["mime_type"] as? String == "text/x-diff"
         })
-        XCTAssertEqual(patchFile["file_path"] as? String, "")
-        XCTAssertEqual(patchFile["remote_url"] as? String, "https://github.com/oven-sh/bun/pull/30412.diff")
         let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+        XCTAssertEqual(patchFile["file_path"] as? String, patchSidecarURL.path)
+        XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
         XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+    }
+
+    func testDiffCommandLinksSuffixedDiffshubPRURLs() throws {
+        let cliPath = try bundledCLIPath()
+
+        for suffix in ["diff", "patch"] {
+            let originalURL = "https://diffshub.com/oven-sh/bun/pull/30412.\(suffix)"
+            let result = try runDiffCLIAndReadHTML(
+                cliPath: cliPath,
+                arguments: ["diff", originalURL, "--title", "Bun PR"],
+                readPatchSidecar: false
+            )
+
+            XCTAssertTrue(result.html.contains("\"externalURL\":\"\(originalURL)\""), result.html)
+            XCTAssertTrue(result.html.contains("\"sourceLabel\":\"\(originalURL)\""), result.html)
+            let rawURL = try XCTUnwrap(result.params["url"] as? String)
+            let files = try diffViewerAllowedFiles(for: rawURL, from: result.params)
+            let patchFile = try XCTUnwrap(files.first { file in
+                file["mime_type"] as? String == "text/x-diff"
+            })
+            let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
+            let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
+            XCTAssertEqual(patchFile["file_path"] as? String, patchSidecarURL.path)
+            XCTAssertEqual(patchFile["remote_url"] as? String, "https://diffshub.com/api/diff?path=/oven-sh/bun/pull/30412")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+        }
     }
 
     func testDiffViewerServerBoundsDeferredWaitRequests() throws {
@@ -499,6 +533,140 @@ final class CMUXOpenCommandTests: XCTestCase {
         let body = String(data: response.data, encoding: .utf8) ?? ""
         XCTAssertFalse(body.contains("data-cmux-diff-pending=\"true\""), body)
         XCTAssertTrue(body.contains("Could not render this diff"), body)
+    }
+
+    func testDiffViewerServerServesPrecompressedStaticAssets() throws {
+        let cliPath = try bundledCLIPath()
+        let token = "test-\(UUID().uuidString.lowercased())"
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-assets-\(UUID().uuidString)", isDirectory: true)
+        let assetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("app.mjs", isDirectory: false)
+        let manifestURL = rootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        chmod(rootURL.path, 0o700)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let plainBody = Data("export const value = 1;\n".utf8)
+        let brotliBody = Data([0xce, 0x6d, 0x75, 0x78])
+        let gzipBody = Data([0x1f, 0x8b, 0x08, 0x00, 0x63, 0x6d, 0x75, 0x78])
+        try plainBody.write(to: assetURL)
+        try brotliBody.write(to: assetURL.appendingPathExtension("br"))
+        try gzipBody.write(to: assetURL.appendingPathExtension("gz"))
+        let manifest: [String: Any] = [
+            "token": token,
+            "files": [
+                [
+                    "request_path": "/assets/app.mjs",
+                    "file_path": assetURL.path,
+                    "mime_type": "text/javascript",
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["diff-viewer-server", "--root", rootURL.path]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        defer { terminateProcess(process) }
+
+        let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
+        let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
+        let brotliResponse = try fetchRawHTTP(
+            port: port,
+            path: "/\(token)/assets/app.mjs",
+            headers: ["Accept-Encoding": "br, gzip"]
+        )
+        XCTAssertEqual(brotliResponse.statusCode, 200)
+        XCTAssertEqual(brotliResponse.headers["content-encoding"], "br")
+        XCTAssertEqual(brotliResponse.headers["cache-control"], "public, max-age=31536000, immutable")
+        XCTAssertEqual(brotliResponse.body, brotliBody)
+
+        let gzipResponse = try fetchRawHTTP(
+            port: port,
+            path: "/\(token)/assets/app.mjs",
+            headers: ["Accept-Encoding": "gzip"]
+        )
+        XCTAssertEqual(gzipResponse.statusCode, 200)
+        XCTAssertEqual(gzipResponse.headers["content-encoding"], "gzip")
+        XCTAssertEqual(gzipResponse.headers["cache-control"], "public, max-age=31536000, immutable")
+        XCTAssertEqual(gzipResponse.body, gzipBody)
+
+        let plainResponse = try fetchRawHTTP(port: port, path: "/\(token)/assets/app.mjs")
+        XCTAssertEqual(plainResponse.statusCode, 200)
+        XCTAssertNil(plainResponse.headers["content-encoding"])
+        XCTAssertEqual(plainResponse.headers["cache-control"], "public, max-age=31536000, immutable")
+        XCTAssertEqual(plainResponse.body, plainBody)
+    }
+
+    func testDiffViewerServerDoesNotCompleteChunkedRemotePatchWhenCurlFailsAfterPartialBody() throws {
+        let cliPath = try bundledCLIPath()
+        let token = "test-\(UUID().uuidString.lowercased())"
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-remote-\(UUID().uuidString)", isDirectory: true)
+        let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
+        let fakeCurlURL = fakeBinURL.appendingPathComponent("curl", isDirectory: false)
+        let patchURL = rootURL.appendingPathComponent("remote.patch", isDirectory: false)
+        let manifestURL = rootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        chmod(rootURL.path, 0o700)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let partialPatch = Data("diff --git a/a.txt b/a.txt\n".utf8)
+        try """
+        #!/bin/sh
+        printf 'diff --git a/a.txt b/a.txt\\n'
+        exit 28
+        """.write(to: fakeCurlURL, atomically: true, encoding: .utf8)
+        chmod(fakeCurlURL.path, 0o755)
+        let manifest: [String: Any] = [
+            "token": token,
+            "files": [
+                [
+                    "request_path": "/remote.patch",
+                    "file_path": patchURL.path,
+                    "mime_type": "text/x-diff",
+                    "remote_url": "https://github.com/manaflow-ai/cmux/pull/1.diff",
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+            .write(to: manifestURL, options: .atomic)
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(fakeBinURL.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = ["diff-viewer-server", "--root", rootURL.path]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        defer { terminateProcess(process) }
+
+        let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
+        let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
+        let response = try fetchRawHTTP(port: port, path: "/\(token)/remote.patch")
+
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.headers["transfer-encoding"], "chunked")
+        let bodyText = String(data: response.body, encoding: .utf8) ?? "\(Array(response.body))"
+        XCTAssertTrue(response.body.starts(with: Data("\(String(partialPatch.count, radix: 16))\r\n".utf8)), bodyText)
+        XCTAssertNotNil(response.body.range(of: partialPatch), bodyText)
+        let finalChunk = Data("0\r\n\r\n".utf8)
+        XCTAssertNotEqual(Data(response.body.suffix(finalChunk.count)), finalChunk, bodyText)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: patchURL.path))
     }
 
     func testDiffCommandTakesPrecedenceOverLocalPathNamedDiff() throws {
@@ -2166,6 +2334,90 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
         return String(data: dataBox.get(), encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func fetchRawHTTP(
+        port: Int,
+        path: String,
+        headers: [String: String] = [:],
+        timeout: TimeInterval = 3
+    ) throws -> (statusCode: Int, headers: [String: String], body: Data) {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { Darwin.close(fd) }
+
+        var timeoutValue = timeval(
+            tv_sec: Int(timeout),
+            tv_usec: Int32((timeout - floor(timeout)) * 1_000_000)
+        )
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeoutValue, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeoutValue, socklen_t(MemoryLayout<timeval>.size))
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let connectResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        var request = "GET \(path) HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nConnection: close\r\n"
+        for (name, value) in headers {
+            request += "\(name): \(value)\r\n"
+        }
+        request += "\r\n"
+        let requestBytes = Array(request.utf8)
+        var sent = 0
+        while sent < requestBytes.count {
+            let count = requestBytes.withUnsafeBytes { rawBuffer in
+                Darwin.write(fd, rawBuffer.baseAddress!.advanced(by: sent), requestBytes.count - sent)
+            }
+            guard count > 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            sent += count
+        }
+
+        var response = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count == 0 {
+                break
+            }
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            response.append(buffer, count: count)
+        }
+
+        let separator = Data("\r\n\r\n".utf8)
+        let headerRange = try XCTUnwrap(response.range(of: separator))
+        let headerData = response.subdata(in: 0..<headerRange.lowerBound)
+        let body = response.subdata(in: headerRange.upperBound..<response.endIndex)
+        let headerText = try XCTUnwrap(String(data: headerData, encoding: .utf8))
+        let lines = headerText.components(separatedBy: "\r\n")
+        let statusParts = lines.first?.split(separator: " ", maxSplits: 2) ?? []
+        let statusCode = statusParts.count > 1 ? Int(statusParts[1]) ?? 0 : 0
+        var responseHeaders: [String: String] = [:]
+        for line in lines.dropFirst() {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            responseHeaders[parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] =
+                parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return (statusCode, responseHeaders, body)
     }
 
     private func fetchData(from url: URL, timeout: TimeInterval) throws -> (data: Data, statusCode: Int) {

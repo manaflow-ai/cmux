@@ -7,4 +7,3 @@ const getWasmInstance = async (info) => {
 
 //#endregion
 export { getWasmInstance as default, getWasmInstance, wasmBinary };
-//# sourceMappingURL=wasm-BaDzIkIn.js.map
