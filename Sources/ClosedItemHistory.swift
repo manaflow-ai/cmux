@@ -714,6 +714,8 @@ final class ClosedItemHistoryStore: ObservableObject {
             return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
         case .agentSession:
             return String(localized: "menu.history.recentlyClosed.panel.agentSession", defaultValue: "Agent")
+        case .project:
+            return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
         }
     }
 
