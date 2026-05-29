@@ -1845,7 +1845,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onNewTab: newTab,
                 onFocusHistoryBack: focusHistoryBack,
                 onFocusHistoryForward: focusHistoryForward,
-                visibilityMode: .alwaysVisible
+                visibilityMode: .alwaysVisible,
+                actionSlots: TitlebarShortcutHintActionSlot.sidebarChromeSlots
             )
         )
 
@@ -1958,7 +1959,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         guard showsWorkspaceTitlebar else { return }
         let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
-        let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
+        let contentSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: style.config,
+            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count
+        )
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
             intrinsicSizeNeedsRefresh = false
