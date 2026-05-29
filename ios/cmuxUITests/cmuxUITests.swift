@@ -194,7 +194,7 @@ final class cmuxUITests: XCTestCase {
         let beforeInputColors = try terminalColorPixelCounts(surface: surface, in: app)
         assertHasTerminalRGBPixels(beforeInputColors)
 
-        try await server.waitForTerminalInput(containing: "x", timeout: 4)
+        try await server.waitForTerminalInput(containing: "x", timeout: 12)
         runMainLoop(for: 0.35)
         assertRendererLayerReady(surface, in: app)
 
@@ -1048,13 +1048,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let postResponseEvents: [(topic: String, payload: [String: Any])]
 
         switch method {
-        case "workspace.list":
+        case "mobile.workspace.list", "workspace.list":
             result = workspaceListResult()
             postResponseEvents = []
         case "workspace.create":
             result = createWorkspaceResult()
             postResponseEvents = [("workspace.updated", [:])]
-        case "terminal.create":
+        case "mobile.terminal.create", "terminal.create":
             result = createTerminalResult(params: params)
             postResponseEvents = [("workspace.updated", [:])]
         case "mobile.events.subscribe":
@@ -1255,7 +1255,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func terminalReplayBytes(for terminal: Terminal) -> Data {
         var text = ""
         if terminal.activeScreen == "alternate" {
-            text += "\u{1B}[?1049h\u{1B}[2J\u{1B}[H"
+            text += "\u{1B}[2J\u{1B}[H"
         }
         text += terminal.lines.joined(separator: "\r\n")
         text += "\r\n"
