@@ -111,8 +111,8 @@ extension AgentSessionWebRenderer {
         private var isClosed = false
         private var isProviderStartPending = false
         private var processStore = AgentSessionProcessStore()
-        private static let imagePreviewMaxBytes = 512 * 1024
-        private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
+        nonisolated private static let imagePreviewMaxBytes = 512 * 1024
+        nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
         var onHasActiveProviderChanged: ((Bool) -> Void)? {
             didSet {
                 onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
@@ -585,7 +585,7 @@ extension AgentSessionWebRenderer {
                 }
                 return context
             case "app.pickFiles":
-                return pickLocalFiles()
+                return await pickLocalFiles()
             case "provider.list":
                 return AgentSessionProviderID.allCases.map { provider in
                     [
@@ -656,7 +656,7 @@ extension AgentSessionWebRenderer {
             }
         }
 
-        private func pickLocalFiles() -> [String: Any] {
+        private func pickLocalFiles() async -> [String: Any] {
             let panel = NSOpenPanel()
             panel.title = String(
                 localized: "agentSession.web.addPhotosAndFiles",
@@ -675,15 +675,18 @@ extension AgentSessionWebRenderer {
                 return ["files": []]
             }
 
-            var remainingImagePreviewBytes = Self.imagePreviewTotalMaxBytes
-            return [
-                "files": panel.urls.map {
-                    pickedLocalFileDictionary($0, remainingImagePreviewBytes: &remainingImagePreviewBytes)
-                }
-            ]
+            let urls = panel.urls
+            return await Task.detached(priority: .userInitiated) {
+                var remainingImagePreviewBytes = Self.imagePreviewTotalMaxBytes
+                return [
+                    "files": urls.map {
+                        Self.pickedLocalFileDictionary($0, remainingImagePreviewBytes: &remainingImagePreviewBytes)
+                    }
+                ]
+            }.value
         }
 
-        private func pickedLocalFileDictionary(
+        nonisolated private static func pickedLocalFileDictionary(
             _ url: URL,
             remainingImagePreviewBytes: inout Int
         ) -> [String: Any] {
@@ -709,7 +712,7 @@ extension AgentSessionWebRenderer {
             return file
         }
 
-        private func imagePreviewByteCount(_ url: URL) -> Int? {
+        nonisolated private static func imagePreviewByteCount(_ url: URL) -> Int? {
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
                   attributes[.type] as? FileAttributeType != .typeSymbolicLink,
                   let size = attributes[.size] as? NSNumber else {

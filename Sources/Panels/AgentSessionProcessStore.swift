@@ -437,13 +437,12 @@ final class AgentSessionProcessStore {
 #endif
             failOpenCodeEventStream(
                 sessionId: sessionId,
-                openCodeSessionID: openCodeSessionID,
-                details: error.localizedDescription
+                openCodeSessionID: openCodeSessionID
             )
         }
     }
 
-    private func failOpenCodeEventStream(sessionId: String, openCodeSessionID: String, details: String?) {
+    private func failOpenCodeEventStream(sessionId: String, openCodeSessionID: String) {
         guard let session = sessions[sessionId],
               session.openCodeSessionID == openCodeSessionID else {
             return
@@ -452,18 +451,11 @@ final class AgentSessionProcessStore {
             localized: "agentSession.opencode.error.eventStreamFailed",
             defaultValue: "OpenCode event stream disconnected."
         )
-        let suffix = details?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let outputText: String
-        if let suffix = suffix, !suffix.isEmpty {
-            outputText = "\(message) \(suffix)\n"
-        } else {
-            outputText = "\(message)\n"
-        }
         emitOutput(
             sessionId: session.sessionId,
             providerID: session.providerID,
             stream: "stderr",
-            text: outputText
+            text: "\(message)\n"
         )
         failSession(sessionId: sessionId, status: 1)
     }

@@ -5266,6 +5266,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceSuspendedForAgentHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private var claudeCommandShim: ClaudeCommandShim?
+    private var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    private var claudeCommandShimInstallCompleted = false
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -6089,6 +6092,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
+    private func claudeCommandShimStateForSurface(view: GhosttyNSView) -> (isReady: Bool, shim: ClaudeCommandShim?) {
+        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
+            claudeCommandShimInstallCompleted = true
+            return (true, nil)
+        }
+
+        if claudeCommandShimInstallCompleted {
+            return (true, claudeCommandShim)
+        }
+
+        if claudeCommandShimInstallTask == nil {
+            let surfaceId = id
+            let installTask = Task.detached(priority: .utility) {
+                Self.installClaudeCommandShimIfPossible(wrapperURL: wrapperURL, surfaceId: surfaceId)
+            }
+            claudeCommandShimInstallTask = installTask
+            Task { @MainActor [weak self, weak view] in
+                let shim = await installTask.value
+                guard let self else { return }
+                self.claudeCommandShim = shim
+                self.claudeCommandShimInstallCompleted = true
+                self.claudeCommandShimInstallTask = nil
+                guard self.allowsRuntimeSurfaceCreation(), self.surface == nil else { return }
+                if let view, view.window != nil {
+                    self.createSurface(for: view)
+                } else if let attachedView = self.attachedView, attachedView.window != nil {
+                    self.createSurface(for: attachedView)
+                } else {
+                    self.scheduleHeadlessRuntimeStartIfNeeded(reason: "claude-shim-ready")
+                }
+            }
+        }
+
+        return (false, nil)
+    }
+
+    @MainActor
     private func createSurface(for view: GhosttyNSView) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
@@ -6102,6 +6142,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
             return
         }
+        let claudeShimState = claudeCommandShimStateForSurface(view: view)
+        guard claudeShimState.isReady else { return }
+        let claudeShim = claudeShimState.shim
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
@@ -6231,11 +6274,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper"),
-           let claudeShim = Self.installClaudeCommandShimIfPossible(
-                wrapperURL: wrapperURL,
-                surfaceId: id
-           ) {
+        if let claudeShim {
             setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
             setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
             let currentPath = env["PATH"]
@@ -7282,6 +7321,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        claudeCommandShimInstallTask?.cancel()
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         closeHeadlessStartupWindowIfNeeded()
