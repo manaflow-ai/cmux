@@ -60,6 +60,87 @@ private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMess
 }
 
 @MainActor
+private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
+    var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
+    var hiddenAt: Date?
+    var webViewInstanceID = UUID()
+    var discardRequestCount = 0
+
+    init(snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot, hiddenAt: Date?) {
+        self.snapshot = snapshot
+        self.hiddenAt = hiddenAt
+    }
+
+    var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+        snapshot
+    }
+
+    var hiddenWebViewDiscardHiddenAt: Date? {
+        hiddenAt
+    }
+
+    var hiddenWebViewDiscardWebViewInstanceID: UUID {
+        webViewInstanceID
+    }
+
+    func hiddenWebViewDiscardManagerDidRequestDiscard(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String
+    ) {
+        discardRequestCount += 1
+    }
+
+    func hiddenWebViewDiscardManagerPolicyDidChange(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String
+    ) {}
+}
+
+@MainActor
+final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
+    func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+        }
+
+        let snapshot = BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+            isClosing: false,
+            isVisibleInUI: false,
+            shouldRenderWebView: true,
+            hasPendingRemoteNavigation: false,
+            hasCurrentURL: true,
+            isLoading: false,
+            webViewIsLoading: false,
+            isDownloading: false,
+            activeDownloadCount: 0,
+            preferredDeveloperToolsVisible: false,
+            isDeveloperToolsVisible: false,
+            isElementFullscreenActive: false,
+            isReactGrabActive: false,
+            hasPopups: false,
+            isCapturingMedia: true
+        )
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["media_capture"])
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+}
+
+@MainActor
 private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
         BrowserProfileStore.shared.createProfile(
