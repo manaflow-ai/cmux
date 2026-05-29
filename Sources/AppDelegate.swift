@@ -736,6 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugSuppressShortcutRoutingContextForTesting = false
     var debugAddWorkspaceInPreferredMainWindowCreationOverride: ((MainWindowContext, String?) -> UUID?)?
     weak var debugPreferredWorkspaceCreationWindowOverride: NSWindow?
+    var debugBrowserPanelsForInspectorWindowCloseOverride: (() -> [BrowserPanel])?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -14033,6 +14034,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSuppressShortcutRoutingContextForTesting = false
         debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
         debugPreferredWorkspaceCreationWindowOverride = nil
+        debugBrowserPanelsForInspectorWindowCloseOverride = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
@@ -15823,6 +15825,12 @@ private extension AppDelegate {
     }
 
     private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
+#if DEBUG
+        if let debugBrowserPanelsForInspectorWindowCloseOverride {
+            return debugBrowserPanelsForInspectorWindowCloseOverride()
+        }
+#endif
+
         var candidateManagers: [TabManager] = []
         var seenManagers = Set<ObjectIdentifier>()
         var panels: [BrowserPanel] = []
@@ -15856,7 +15864,26 @@ private extension AppDelegate {
 
         return panels
     }
+}
 
+#if DEBUG
+extension AppDelegate {
+    @discardableResult
+    func debugHandleDetachedInspectorWindowCloseActionForTesting(
+        action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
+        handleDetachedInspectorWindowCloseAction(
+            action: action,
+            target: target,
+            sender: sender
+        )
+    }
+}
+#endif
+
+private extension AppDelegate {
     @discardableResult
     func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeTitlebarDoubleClickMouseDown(event: event)

@@ -3091,6 +3091,19 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.close()
     }
 
+    private func makeDetachedInspectorWindow(frontendWebView: WKWebView) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Web Inspector — example.com"
+        frontendWebView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(frontendWebView)
+        return window
+    }
+
     private func tearDownMainWindow(
         _ window: NSWindow,
         manager: TabManager
@@ -3139,29 +3152,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testWindowCloseClosesContainedBrowserInspectorBeforeWindowWillClose() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
+        let (browserPanel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(browserPanel) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected main window with browser panel")
-            return
-        }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer { tearDownMainWindow(window, manager: manager) }
-
-        let inspector = FakeInspector()
-        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = window.contentView?.bounds ?? .zero
-            window.contentView?.addSubview(browserPanel.webView)
-        }
+        browserPanel.webView.frame = contentView.bounds
+        contentView.addSubview(browserPanel.webView)
 
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
@@ -3176,9 +3184,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        window.performClose(nil)
-        spinRunLoopOneTick()
+        let closedInspectorCount = WebViewInspectorTeardown.closeAllInspectors(in: window)
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
 
+        XCTAssertEqual(closedInspectorCount, 1)
         XCTAssertEqual(closeCountObservedAtWillClose, 1)
         XCTAssertEqual(inspector.closeCount, 1)
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
@@ -3283,42 +3292,19 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected main window with browser panel")
-            return
-        }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer { tearDownMainWindow(mainWindow, manager: manager) }
+        let (browserPanel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(browserPanel) }
+        appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
+        defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let inspector = FakeInspector()
-        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
-        }
-
-        let inspectorWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
-            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            frame: .zero,
             configuration: WKWebViewConfiguration()
         )
-        inspectorWindow.contentView?.addSubview(frontendWebView)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
         defer { closeWindow(inspectorWindow) }
 
-        inspectorWindow.makeKeyAndOrderFront(nil)
-        inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
@@ -3360,37 +3346,16 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected main window with browser panel")
-            return
-        }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer { tearDownMainWindow(mainWindow, manager: manager) }
+        let (browserPanel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(browserPanel) }
+        appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
+        defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let inspector = FakeInspector()
-        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
-        }
-
-        let inspectorWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
-            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            frame: .zero,
             configuration: WKWebViewConfiguration()
         )
-        inspectorWindow.contentView?.addSubview(frontendWebView)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
         defer { closeWindow(inspectorWindow) }
 
@@ -3418,37 +3383,16 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected main window with browser panel")
-            return
-        }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer { tearDownMainWindow(mainWindow, manager: manager) }
+        let (browserPanel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(browserPanel) }
+        appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
+        defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let inspector = FakeInspector()
-        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
-        }
-
-        let inspectorWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
-            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            frame: .zero,
             configuration: WKWebViewConfiguration()
         )
-        inspectorWindow.contentView?.addSubview(frontendWebView)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
         defer { closeWindow(inspectorWindow) }
 
@@ -3481,25 +3425,26 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
-              let browserPanel = workspace.browserPanel(for: browserPanelId),
-              let contentView = mainWindow.contentView else {
-            XCTFail("Expected main window with browser panel")
+        let (browserPanel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(browserPanel) }
+        appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
+        defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
+
+        let mainWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(mainWindow) }
+
+        guard let contentView = mainWindow.contentView else {
+            XCTFail("Expected test window content view")
             return
         }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer { tearDownMainWindow(mainWindow, manager: manager) }
 
-        let inspector = FakeInspector()
-        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = contentView.bounds
-            contentView.addSubview(browserPanel.webView)
-        }
+        browserPanel.webView.frame = contentView.bounds
+        contentView.addSubview(browserPanel.webView)
 
         let frontendWebView = WKInspectorProbeWebView(
             frame: NSRect(
@@ -3536,47 +3481,29 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
-              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
-            XCTFail("Expected main window with browser panel")
-            return
-        }
-        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
-        defer { tearDownMainWindow(mainWindow, manager: manager) }
+        let (browserPanel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(browserPanel) }
+        appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
+        defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let inspector = FakeInspector()
-        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
-        }
-
-        let inspectorWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        inspectorWindow.title = "Web Inspector — example.com"
         let frontendWebView = WKInspectorProbeWebView(
-            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            frame: .zero,
             configuration: WKWebViewConfiguration()
         )
-        inspectorWindow.contentView?.addSubview(frontendWebView)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
         inspector.setFrontendWebView(frontendWebView)
         defer { closeWindow(inspectorWindow) }
 
-        inspectorWindow.makeKeyAndOrderFront(nil)
-        inspectorWindow.makeKey()
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
 
-        _ = NSApp.sendAction(NSSelectorFromString("close:"), to: nil, from: nil)
+        let handled = appDelegate.debugHandleDetachedInspectorWindowCloseActionForTesting(
+            action: NSSelectorFromString("close:"),
+            target: nil,
+            sender: nil
+        )
 
+        XCTAssertFalse(handled)
         XCTAssertEqual(
             inspector.closeCount,
             0,
