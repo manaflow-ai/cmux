@@ -24,6 +24,7 @@ const paneLayoutStorageKey = "cmux.paneLayout";
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
+const closedPanelLimit = 12;
 
 const initialSettings = loadSettings();
 
@@ -35,6 +36,7 @@ const state = {
   browserViews: new Map(),
   paneCache: new Map(),
   paneLayouts: loadPaneLayouts(),
+  closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
   newTabButton: null,
@@ -584,6 +586,7 @@ const commands = [
   { id: "terminal.clear", label: "Clear Active Terminal", shortcut: "Ctrl+K", run: () => clearActiveTerminal() },
   { id: "terminal.restart", label: "Restart Active Terminal", shortcut: "Ctrl+Shift+R", run: () => restartActiveTerminal() },
   { id: "terminal.close", label: "Close Active Pane", shortcut: "Ctrl+W", run: () => closeActivePanel() },
+  { id: "terminal.reopenClosed", label: "Reopen Closed Pane", shortcut: "Ctrl+Shift+T", run: () => reopenClosedPanel() },
   { id: "terminal.closeOthers", label: "Close Other Panes", shortcut: "", run: () => closeOtherPanes() },
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
   { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
@@ -2646,6 +2649,7 @@ function showToolbarMenu(event) {
   actions.append(
     contextMenuButton("Split down", () => createPanel("terminal", "down")),
     contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
+    contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
     contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
     contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
@@ -3131,12 +3135,14 @@ async function createPanel(type, direction = "right", options = {}) {
   const shellProfile = options.shellProfile || state.settings.terminalProfile;
   const shellPath = options.shellPath || state.settings.terminalCustomShell;
   clearPaneLayoutsForWorkspace(workspace);
-  await api("/api/panels", {
+  const createdPanel = await api("/api/panels", {
     method: "POST",
     body: JSON.stringify({
       workspaceId: workspace.id,
       type,
       direction,
+      title: options.title,
+      color: options.color,
       shellProfile: type === "terminal" ? shellProfile : undefined,
       shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
       cwd: options.cwd || workspace.cwd,
@@ -3147,6 +3153,7 @@ async function createPanel(type, direction = "right", options = {}) {
   if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
     await focusWorkspace(workspace.id);
   }
+  return createdPanel;
 }
 
 async function openBrowserPrompt(workspaceId = null) {
@@ -3240,7 +3247,60 @@ function optimisticUpdatePanel(panelId, updates = {}) {
   return true;
 }
 
+function closedPanelSnapshot(panelId) {
+  const found = findPanelState(panelId);
+  if (!found) return null;
+  return {
+    workspaceId: found.workspace.id,
+    workspaceTitle: found.workspace.title || "Workspace",
+    type: found.panel.type,
+    title: found.panel.title || (found.panel.type === "browser" ? "Browser" : "Terminal"),
+    color: found.panel.color || "",
+    cwd: found.panel.cwd || found.workspace.cwd || "",
+    shellProfile: found.panel.shellProfile || state.settings.terminalProfile,
+    shellPath: found.panel.shellPath || "",
+    url: found.panel.url || state.settings.browserHomeUrl
+  };
+}
+
+function rememberClosedPanel(panelId) {
+  const snapshot = closedPanelSnapshot(panelId);
+  if (!snapshot) return;
+  state.closedPanels.unshift(snapshot);
+  state.closedPanels = state.closedPanels.slice(0, closedPanelLimit);
+}
+
+async function reopenClosedPanel() {
+  const snapshot = state.closedPanels.shift();
+  if (!snapshot) {
+    toast("No closed pane to reopen.");
+    return;
+  }
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === snapshot.workspaceId) || activeWorkspace();
+  if (!workspace) {
+    state.closedPanels.unshift(snapshot);
+    toast("No workspace available.");
+    return;
+  }
+  try {
+    const created = await createPanel(snapshot.type, "right", {
+      workspaceId: workspace.id,
+      title: snapshot.title,
+      color: snapshot.color,
+      cwd: snapshot.cwd || workspace.cwd,
+      shellProfile: snapshot.shellProfile,
+      shellPath: snapshot.shellPath,
+      url: snapshot.url
+    });
+    toast(`Reopened ${created?.type === "browser" ? "browser" : "terminal"} pane.`);
+  } catch {
+    state.closedPanels.unshift(snapshot);
+    toast("Could not reopen pane.");
+  }
+}
+
 async function closePanel(panelId) {
+  rememberClosedPanel(panelId);
   optimisticClosePanel(panelId);
   try {
     await api(`/api/panels/${panelId}`, { method: "DELETE" });
@@ -3255,6 +3315,7 @@ async function closePanelsById(panelIds) {
   if (ids.length === 0) return;
   let changed = false;
   for (const panelId of ids) {
+    rememberClosedPanel(panelId);
     changed = optimisticClosePanel(panelId, false) || changed;
   }
   if (changed) render();
@@ -3628,6 +3689,9 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && key === "n") {
     event.preventDefault();
     createWorkspace();
+  } else if (event.ctrlKey && event.shiftKey && key === "t") {
+    event.preventDefault();
+    reopenClosedPanel();
   } else if (event.ctrlKey && key === "t") {
     event.preventDefault();
     createPanel("terminal", "right");

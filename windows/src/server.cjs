@@ -430,12 +430,14 @@ class CmuxWindowsRuntime {
   }
 
   newPanel(type, workspaceId, options = {}) {
+    const defaultTitle = type === "browser" ? "Browser" : "Terminal";
+    const title = String(options.title || defaultTitle).trim().slice(0, 80) || defaultTitle;
     const panel = {
       id: id(type === "browser" ? "browser" : "surface"),
       workspaceId,
       type,
-      title: type === "browser" ? "Browser" : "Terminal",
-      color: options.color || "",
+      title,
+      color: isSafeColorValue(options.color) ? options.color : "",
       cwd: options.cwd || process.cwd(),
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
       shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",

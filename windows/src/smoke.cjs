@@ -69,10 +69,12 @@ function pipeRoundTrip(command) {
   const browserResponse = await fetch(`${info.url}api/panels`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ workspaceId: workspace.id, type: "browser", url: "https://example.com" })
+    body: JSON.stringify({ workspaceId: workspace.id, type: "browser", title: "Smoke Browser", color: "#336699", url: "https://example.com" })
   });
   assert(browserResponse.ok, "browser create failed");
   const browser = await browserResponse.json();
+  assert(browser.title === "Smoke Browser", "browser title should be preserved on create");
+  assert(browser.color === "#336699", "browser color should be preserved on create");
 
   const browserUpdateResponse = await fetch(`${info.url}api/panels/${browser.id}`, {
     method: "PATCH",
