@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminalen bygget til ",
     "typingCodingAgents": "kodningsagenter",
     "typingMultitasking": "multitasking",
-    "subtitle": "Native macOS-app bygget på Ghostty. Vertikale faner, notifikationsringe når agenter har brug for opmærksomhed, opdelte paneler og en socket API til automatisering.",
+    "subtitle": "Native macOS-app bygget på Ghostty. Vertikale faner, notifikationsringe når agenter har brug for opmærksomhed, opdelte paneler og en <cliLink>CLI</cliLink> til programmerbarhed.",
     "features": "Funktioner",
     "faq": "FAQ",
     "communitySection": "Fællesskab",
@@ -673,7 +673,7 @@
       "metaTitle": "Tastaturgenveje"
     },
     "api": {
-      "title": "API-reference",
+      "title": "CLI-reference",
       "metaDescription": "cmux CLI og Unix socket API-reference. Workspace-håndtering, opdelte paneler, inputstyring, notifikationer, sidebar-metadata, miljøvariabler og detektionsmetoder.",
       "intro": "cmux tilbyder både et CLI-værktøj og en Unix socket til programmatisk styring. Alle kommandoer er tilgængelige via begge grænseflader.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Python-klient",
       "shellScript": "Shell-script",
       "buildScriptNotification": "Build-script med notifikation",
-      "metaTitle": "API-reference"
+      "metaTitle": "CLI-reference"
     },
     "notifications": {
       "title": "Notifikationer",
@@ -895,7 +895,7 @@
       "authoringCallout": "Når du tilføjer en ny færdighed, skal du inkludere <code>agents/openai.yaml</code>, så installeren viser et tydeligt navn, en kort beskrivelse og en standardprompt.",
       "relatedTitle": "Relateret dokumentation",
       "relatedBrowserAutomation": "Browserautomatisering",
-      "relatedApi": "API-reference",
+      "relatedApi": "CLI-reference",
       "relatedCustomCommands": "Tilpassede kommandoer"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Sessionsgenoprettelse",
       "customCommands": "Brugerdefinerede kommandoer",
       "keyboardShortcuts": "Tastaturgenveje",
-      "apiReference": "API-reference",
+      "apiReference": "CLI-reference",
       "browserAutomation": "Browserautomatisering",
       "skills": "Færdigheder",
       "notifications": "Notifikationer",

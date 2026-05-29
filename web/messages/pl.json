@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminal stworzony dla ",
     "typingCodingAgents": "agentów kodowania",
     "typingMultitasking": "multitaskingu",
-    "subtitle": "Natywna aplikacja macOS zbudowana na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele i socket API do automatyzacji.",
+    "subtitle": "Natywna aplikacja macOS zbudowana na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele i <cliLink>CLI</cliLink> do programowania.",
     "features": "Funkcje",
     "faq": "FAQ",
     "communitySection": "Społeczność",
@@ -673,7 +673,7 @@
       "metaTitle": "Skróty klawiszowe"
     },
     "api": {
-      "title": "Dokumentacja API",
+      "title": "Dokumentacja CLI",
       "metaDescription": "Dokumentacja cmux CLI i Unix socket API. Zarządzanie workspace'ami, dzielone panele, sterowanie wejściem, powiadomienia, metadane paska bocznego, zmienne środowiskowe i metody wykrywania.",
       "intro": "cmux zapewnia zarówno narzędzie CLI jak i Unix socket do programowej kontroli. Każde polecenie jest dostępne przez oba interfejsy.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Klient Python",
       "shellScript": "Skrypt powłoki",
       "buildScriptNotification": "Skrypt budowania z powiadomieniem",
-      "metaTitle": "Dokumentacja API"
+      "metaTitle": "Dokumentacja CLI"
     },
     "notifications": {
       "title": "Powiadomienia",
@@ -895,7 +895,7 @@
       "authoringCallout": "Dodając nową umiejętność, dołącz <code>agents/openai.yaml</code>, aby instalator pokazywał jasną nazwę, krótki opis i domyślny prompt.",
       "relatedTitle": "Powiązana dokumentacja",
       "relatedBrowserAutomation": "Automatyzacja przeglądarki",
-      "relatedApi": "Referencja API",
+      "relatedApi": "Referencja CLI",
       "relatedCustomCommands": "Niestandardowe polecenia"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Przywracanie sesji",
       "customCommands": "Niestandardowe polecenia",
       "keyboardShortcuts": "Skróty klawiszowe",
-      "apiReference": "Dokumentacja API",
+      "apiReference": "Dokumentacja CLI",
       "browserAutomation": "Automatyzacja przeglądarki",
       "skills": "Umiejętności",
       "notifications": "Powiadomienia",

@@ -45,7 +45,7 @@
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
     "typingCodingAgents": "เอเจนต์เขียนโค้ด",
     "typingMultitasking": "มัลติทาสกิ้ง",
-    "subtitle": "แอป macOS เนทีฟที่สร้างบน Ghostty แท็บแนวตั้ง, วงแหวนแจ้งเตือนเมื่อ agent ต้องการความสนใจ, แยกหน้าจอ และ socket API สำหรับระบบอัตโนมัติ",
+    "subtitle": "แอป macOS เนทีฟที่สร้างบน Ghostty แท็บแนวตั้ง, วงแหวนแจ้งเตือนเมื่อ agent ต้องการความสนใจ, แยกหน้าจอ และ <cliLink>CLI</cliLink> สำหรับการเขียนโปรแกรม",
     "features": "ฟีเจอร์",
     "faq": "คำถามที่พบบ่อย",
     "communitySection": "ชุมชน",
@@ -673,7 +673,7 @@
       "metaTitle": "ทางลัดคีย์บอร์ด"
     },
     "api": {
-      "title": "เอกสาร API",
+      "title": "เอกสาร CLI",
       "metaDescription": "เอกสาร cmux CLI และ Unix socket API การจัดการ workspace, แยกหน้าจอ, ควบคุม input, แจ้งเตือน, metadata แถบข้าง, ตัวแปรสภาพแวดล้อม และวิธีตรวจจับ",
       "intro": "cmux มีทั้งเครื่องมือ CLI และ Unix socket สำหรับการควบคุมแบบโปรแกรม ทุกคำสั่งพร้อมใช้งานผ่านทั้งสองอินเทอร์เฟซ",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Python client",
       "shellScript": "Shell script",
       "buildScriptNotification": "Build script พร้อมแจ้งเตือน",
-      "metaTitle": "เอกสาร API"
+      "metaTitle": "เอกสาร CLI"
     },
     "notifications": {
       "title": "การแจ้งเตือน",
@@ -895,7 +895,7 @@
       "authoringCallout": "เมื่อเพิ่มทักษะใหม่ ให้ใส่ <code>agents/openai.yaml</code> เพื่อให้ installer แสดงชื่อที่ชัดเจน คำอธิบายสั้น และ prompt เริ่มต้น",
       "relatedTitle": "เอกสารที่เกี่ยวข้อง",
       "relatedBrowserAutomation": "การทำงานอัตโนมัติของเบราว์เซอร์",
-      "relatedApi": "เอกสารอ้างอิง API",
+      "relatedApi": "เอกสารอ้างอิง CLI",
       "relatedCustomCommands": "คำสั่งกำหนดเอง"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "การกู้คืนเซสชัน",
       "customCommands": "คำสั่งที่กำหนดเอง",
       "keyboardShortcuts": "คีย์ลัด",
-      "apiReference": "เอกสาร API",
+      "apiReference": "เอกสาร CLI",
       "browserAutomation": "Browser Automation",
       "skills": "ทักษะ",
       "notifications": "การแจ้งเตือน",

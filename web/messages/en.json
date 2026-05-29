@@ -45,7 +45,7 @@
     "taglinePrefix": "The terminal built for ",
     "typingCodingAgents": "coding agents",
     "typingMultitasking": "multitasking",
-    "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a socket API for automation.",
+    "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -782,8 +782,8 @@
       }
     },
     "api": {
-      "title": "API Reference",
-      "metaTitle": "API Reference",
+      "title": "CLI Reference",
+      "metaTitle": "CLI Reference",
       "metaDescription": "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, sidebar metadata, environment variables, and detection methods.",
       "intro": "cmux provides both a CLI tool and a Unix socket for programmatic control. Every command is available through both interfaces.",
       "socket": "Socket",
@@ -1075,7 +1075,7 @@
       "suggestionsCallout": "Keep future skills focused on repeatable workflows with real command sequences. If a skill would only restate product docs, add it to docs instead.",
       "relatedTitle": "Related docs",
       "relatedBrowserAutomation": "Browser Automation",
-      "relatedApi": "API Reference",
+      "relatedApi": "CLI Reference",
       "relatedCustomCommands": "Custom Commands"
     },
     "ssh": {
@@ -1298,7 +1298,7 @@
       "sessionRestore": "Session Restore",
       "customCommands": "Custom Commands",
       "keyboardShortcuts": "Keyboard Shortcuts",
-      "apiReference": "API Reference",
+      "apiReference": "CLI Reference",
       "browserAutomation": "Browser Automation",
       "skills": "Skills",
       "notifications": "Notifications",
