@@ -23,6 +23,7 @@ const terminalOutputPerformanceChunkSize = 16384;
 const paneLayoutStorageKey = "cmux.paneLayout";
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
+const settingsSaveDelay = 140;
 
 const initialSettings = loadSettings();
 
@@ -50,7 +51,15 @@ const state = {
   scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
+  settingsSaveTimer: 0,
+  settingsSavePending: false,
   terminalAppearanceFrame: 0,
+  renderStats: {
+    count: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0
+  },
   appliedSettingsSignature: "",
   settings: initialSettings,
   settingsCategory: "quick",
@@ -173,6 +182,26 @@ function saveSettings() {
   localStorage.setItem("cmux.terminalFontSize", String(state.settings.terminalFontSize));
 }
 
+function scheduleSettingsSave() {
+  if (state.settingsSaveTimer) clearTimeout(state.settingsSaveTimer);
+  state.settingsSavePending = true;
+  state.settingsSaveTimer = setTimeout(() => {
+    state.settingsSaveTimer = 0;
+    state.settingsSavePending = false;
+    saveSettings();
+  }, settingsSaveDelay);
+}
+
+function flushSettingsSave() {
+  if (state.settingsSaveTimer) {
+    clearTimeout(state.settingsSaveTimer);
+    state.settingsSaveTimer = 0;
+  }
+  if (!state.settingsSavePending) return;
+  state.settingsSavePending = false;
+  saveSettings();
+}
+
 function isBackgroundPreset(value) {
   return backgroundPresetMap.has(String(value || "").trim());
 }
@@ -253,14 +282,15 @@ function applySettings() {
   return true;
 }
 
-function updateSettings(updates) {
+function updateSettings(updates, options = {}) {
   const previous = state.settings;
   state.settings = normalizeSettings({
     ...state.settings,
     ...updates
   });
   state.terminalFontSize = state.settings.terminalFontSize;
-  saveSettings();
+  if (options.immediate) saveSettings();
+  else scheduleSettingsSave();
   applySettings();
   if (Object.keys(updates).some((key) => terminalAppearanceKeys.has(key) && previous[key] !== state.settings[key])) {
     scheduleTerminalAppearanceRefresh();
@@ -556,6 +586,8 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
+  { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
+  { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -641,6 +673,7 @@ function render(previousState) {
     state.pendingRenderPrevious ||= previousState || null;
     return;
   }
+  const renderStartedAt = performance.now();
   cleanupStalePaneCache();
   const workspace = activeWorkspace();
   const panelCount = workspace?.panels.length || 0;
@@ -667,6 +700,17 @@ function render(previousState) {
   renderInspector();
   renderPalette();
   announceNewAttention(previousState, state.data);
+  recordRenderDuration(performance.now() - renderStartedAt);
+}
+
+function recordRenderDuration(durationMs) {
+  const value = Number(durationMs) || 0;
+  state.renderStats.count += 1;
+  state.renderStats.lastMs = value;
+  state.renderStats.avgMs = state.renderStats.avgMs
+    ? (state.renderStats.avgMs * 0.86) + (value * 0.14)
+    : value;
+  state.renderStats.maxMs = Math.max(state.renderStats.maxMs, value);
 }
 
 function cleanupStalePaneCache() {
@@ -1813,6 +1857,35 @@ function renderSettingsInspector() {
     nodes.push(layoutSection);
   }
 
+  if (shouldBuildSection("performance")) {
+    const performanceSection = settingsSection("Performance", "speed smooth lag render diagnostics optimize preset");
+    performanceSection.append(settingsMetricGrid(performanceMetrics()));
+    performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
+    const scrollbackRange = document.createElement("input");
+    scrollbackRange.className = "setting-control";
+    scrollbackRange.type = "range";
+    scrollbackRange.min = "2000";
+    scrollbackRange.max = "50000";
+    scrollbackRange.step = "2000";
+    scrollbackRange.value = String(state.settings.terminalScrollback);
+    const scrollbackRow = settingRow(`History ${state.settings.terminalScrollback}`, scrollbackRange, false, "terminal history scrollback memory output performance");
+    scrollbackRange.oninput = () => {
+      updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
+      scrollbackRow.querySelector(".setting-label").textContent = `History ${state.settings.terminalScrollback}`;
+    };
+    performanceSection.append(scrollbackRow);
+    const performanceActions = document.createElement("div");
+    performanceActions.className = "settings-actions";
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset balanced reset render stats clear");
+    performanceActions.append(
+      settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
+      settingsActionButton("Balanced preset", () => applySettingsPresetById("balanced"), "", "balanced preset restore"),
+      settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
+    );
+    performanceSection.append(performanceActions);
+    nodes.push(performanceSection);
+  }
+
   if (shouldBuildSection("terminal")) {
     const terminalSection = settingsSection("Terminal");
     const fontSelect = document.createElement("select");
@@ -2145,6 +2218,57 @@ function settingsSearchMatches(searchText, query) {
   return query.split(/\s+/).every((token) => haystack.includes(token));
 }
 
+function formatMs(value) {
+  return `${Math.max(0, Number(value) || 0).toFixed(1)} ms`;
+}
+
+function performanceMetrics() {
+  const workspaces = state.data?.workspaces || [];
+  const panels = allPanels();
+  const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
+  const browserCount = panels.filter((panel) => panel.type === "browser").length;
+  return [
+    ["Render avg", formatMs(state.renderStats.avgMs)],
+    ["Last render", formatMs(state.renderStats.lastMs)],
+    ["Max render", formatMs(state.renderStats.maxMs)],
+    ["Workspaces", String(workspaces.length)],
+    ["Panes", String(panels.length)],
+    ["Terminals", String(terminalCount)],
+    ["Browsers", String(browserCount)],
+    ["Cached panes", String(state.paneCache.size)],
+    ["Terminal cache", String(state.terminals.size)],
+    ["Browser cache", String(state.browserViews.size)],
+    ["Settings save", state.settingsSavePending ? "Queued" : "Clean"],
+    ["Renders", String(state.renderStats.count)]
+  ];
+}
+
+function settingsMetricGrid(metrics) {
+  const grid = document.createElement("div");
+  grid.className = "settings-metric-grid";
+  for (const [label, value] of metrics) {
+    const card = document.createElement("div");
+    card.className = "settings-metric";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`performance diagnostics metric ${label} ${value}`);
+    card.innerHTML = `<span class="settings-metric-value"></span><span class="settings-metric-label"></span>`;
+    card.querySelector(".settings-metric-value").textContent = value;
+    card.querySelector(".settings-metric-label").textContent = label;
+    grid.append(card);
+  }
+  return grid;
+}
+
+function resetRenderStats() {
+  state.renderStats = {
+    count: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0
+  };
+  renderSettingsInspector();
+  toast("Performance stats reset.");
+}
+
 function toggleInput(checked, onChange) {
   const label = document.createElement("label");
   label.className = "setting-toggle";
@@ -2272,6 +2396,12 @@ function applySettingsPreset(preset) {
   updateSettings(preset.settings);
   renderSettingsInspector();
   toast(`${preset.label} settings applied.`);
+}
+
+function applySettingsPresetById(presetId) {
+  const preset = settingsPresets.find((candidate) => candidate.id === presetId);
+  if (!preset) return;
+  applySettingsPreset(preset);
 }
 
 function ensureContextMenu() {
@@ -2403,6 +2533,8 @@ function showToolbarMenu(event) {
     contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
+    contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
+    contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
     contextMenuButton("Reset session", resetSession, false, "danger")
@@ -3222,6 +3354,7 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("dragend", clearAllDropTargets);
 document.addEventListener("drop", clearAllDropTargets);
+window.addEventListener("beforeunload", flushSettingsSave);
 
 function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;

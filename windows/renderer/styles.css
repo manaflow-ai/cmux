@@ -1496,6 +1496,41 @@ button {
   gap: var(--space-2);
 }
 
+.settings-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.settings-metric {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.settings-metric-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+  font: 700 13px/1.1 var(--font-mono);
+}
+
+.settings-metric-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-faint);
+  font-size: 11px;
+}
+
 .settings-action {
   height: 30px;
   border: 1px solid var(--color-line);

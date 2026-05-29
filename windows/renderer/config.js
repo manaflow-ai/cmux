@@ -248,6 +248,7 @@ export const settingsCategories = [
   ["appearance", "Look"],
   ["browser", "Browser"],
   ["layout", "Layout"],
+  ["performance", "Performance"],
   ["terminal", "Terminal"],
   ["data", "Data"]
 ];
