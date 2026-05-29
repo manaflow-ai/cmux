@@ -13561,6 +13561,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let textView = responder as? NSTextView,
            textView.isFieldEditor,
+           let registeredField = BrowserOmnibarNativeFieldRegistry.shared.fieldOwningEditor(
+               textView,
+               in: textView.window
+           ) {
+            return registeredField
+        }
+
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
            let delegateView = textView.delegate as? NSView,
            delegateView.identifier == browserOmnibarTextFieldIdentifier {
             return delegateView
