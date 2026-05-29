@@ -2,13 +2,13 @@ import Foundation
 import Combine
 import Bonsplit
 
-struct ClosedPanelSplitPlacement {
+struct ClosedPanelSplitPlacement: Codable {
     let orientation: SplitOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }
 
-struct ClosedPanelHistoryEntry {
+struct ClosedPanelHistoryEntry: Codable {
     let workspaceId: UUID
     let paneId: UUID
     let paneAnchorPanelId: UUID?
@@ -36,14 +36,14 @@ struct ClosedPanelHistoryEntry {
     }
 }
 
-struct ClosedWorkspaceHistoryEntry {
+struct ClosedWorkspaceHistoryEntry: Codable {
     let workspaceId: UUID
     let windowId: UUID?
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
 
-struct ClosedWindowHistoryEntry {
+struct ClosedWindowHistoryEntry: Codable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
 
@@ -56,13 +56,13 @@ struct ClosedWindowHistoryEntry {
     }
 }
 
-enum ClosedItemHistoryEntry {
+enum ClosedItemHistoryEntry: Codable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
 
-struct ClosedItemHistoryRecord: Identifiable {
+struct ClosedItemHistoryRecord: Identifiable, Codable {
     let id: UUID
     let closedAt: Date
     var entry: ClosedItemHistoryEntry
@@ -120,14 +120,23 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
-    static let shared = ClosedItemHistoryStore(capacity: 50)
+    static let shared = ClosedItemHistoryStore(
+        capacity: nil,
+        fileURL: defaultHistoryFileURL()
+    )
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
-    private let capacity: Int
+    private let capacity: Int?
+    private let fileURL: URL?
 
-    init(capacity: Int) {
-        self.capacity = max(1, capacity)
+    init(capacity: Int? = nil, fileURL: URL? = nil, loadPersisted: Bool = true) {
+        self.capacity = capacity.map { max(1, $0) }
+        self.fileURL = fileURL
+        if loadPersisted, let fileURL {
+            records = Self.loadRecords(fileURL: fileURL)
+            trimToCapacityIfNeeded()
+        }
     }
 
     var canReopen: Bool {
@@ -140,10 +149,9 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func push(_ record: ClosedItemHistoryRecord) {
         records.append(record)
-        if records.count > capacity {
-            records.removeFirst(records.count - capacity)
-        }
+        trimToCapacityIfNeeded()
         revision &+= 1
+        persistRecords()
     }
 
     @discardableResult
@@ -179,6 +187,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {
                 records.remove(at: index)
                 revision &+= 1
+                persistRecords()
             }
             return true
         }
@@ -191,12 +200,13 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
         let record = records.remove(at: index)
         revision &+= 1
+        persistRecords()
         return (record, index)
     }
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        if records.count > capacity {
+        if let capacity, records.count > capacity {
             let protectedRecordId = record.id
             let overflow = records.count - capacity
             for _ in 0..<overflow {
@@ -208,6 +218,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             }
         }
         revision &+= 1
+        persistRecords()
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
@@ -264,6 +275,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         if didUpdate {
             records = remappedRecords
             revision &+= 1
+            persistRecords()
         }
     }
 
@@ -302,6 +314,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         if didUpdate {
             records = remappedRecords
             revision &+= 1
+            persistRecords()
         }
     }
 
@@ -324,6 +337,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         if didUpdate {
             records = remappedRecords
             revision &+= 1
+            persistRecords()
         }
     }
 
@@ -336,6 +350,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
         if records.count != originalCount {
             revision &+= 1
+            persistRecords()
         }
     }
 
@@ -343,6 +358,82 @@ final class ClosedItemHistoryStore: ObservableObject {
         guard !records.isEmpty else { return }
         records.removeAll(keepingCapacity: false)
         revision &+= 1
+        persistRecords()
+    }
+
+    private func trimToCapacityIfNeeded() {
+        guard let capacity, records.count > capacity else { return }
+        records.removeFirst(records.count - capacity)
+    }
+
+    private func persistRecords() {
+        guard let fileURL else { return }
+        Self.saveRecords(records, fileURL: fileURL)
+    }
+
+    nonisolated private static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        let decoder = JSONDecoder()
+        if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
+           snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
+            return snapshot.records
+        }
+        return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+    }
+
+    nonisolated private static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
+        guard !records.isEmpty else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return
+        }
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(snapshot)
+            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                return
+            }
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            return
+        }
+    }
+
+    nonisolated private static func defaultHistoryFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> URL? {
+        guard !isRunningUnderAutomatedTests else { return nil }
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? bundleIdentifier!
+            : "com.cmuxterm.app"
+        let safeBundleId = bundleId.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        return resolvedAppSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("closed-item-history-\(safeBundleId).json", isDirectory: false)
     }
 
     private static func menuItem(for record: ClosedItemHistoryRecord) -> ClosedItemHistoryMenuItem {
@@ -436,4 +527,11 @@ final class ClosedItemHistoryStore: ObservableObject {
             count
         )
     }
+}
+
+private struct ClosedItemHistoryPersistenceSnapshot: Codable {
+    static let currentVersion = 1
+
+    var version: Int = currentVersion
+    var records: [ClosedItemHistoryRecord]
 }

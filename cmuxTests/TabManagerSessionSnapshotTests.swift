@@ -1048,6 +1048,46 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.items.allSatisfy { $0.menuSubtitle.contains("Closed") })
     }
 
+    func testClosedItemHistoryPersistsRecordsWithoutSharedCapacityLimit() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let store = ClosedItemHistoryStore(capacity: nil, fileURL: historyURL)
+
+        for index in 0..<3 {
+            var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+            workspaceSnapshot.customTitle = "Closed Workspace \(index)"
+            store.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: UUID(),
+                    windowId: nil,
+                    workspaceIndex: index,
+                    snapshot: workspaceSnapshot
+                ))
+            ))
+        }
+
+        let restoredStore = ClosedItemHistoryStore(capacity: nil, fileURL: historyURL)
+        let snapshot = restoredStore.menuSnapshot()
+
+        XCTAssertEqual(snapshot.totalItemCount, 3)
+        XCTAssertFalse(snapshot.isLimited)
+        XCTAssertEqual(snapshot.items.map(\.title), [
+            "Closed Workspace 2",
+            "Closed Workspace 1",
+            "Closed Workspace 0"
+        ])
+
+        restoredStore.removeAll()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: historyURL.path))
+    }
+
     func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

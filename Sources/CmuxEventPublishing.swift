@@ -291,13 +291,18 @@ extension CmuxEventBus {
     }
 
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
-        let oldById = Dictionary(uniqueKeysWithValues: oldValue.map { ($0.id, $0) })
+        var oldById: [UUID: TerminalNotification] = [:]
+        for notification in oldValue {
+            oldById[notification.id] = notification
+        }
         let newIds = Set(newValue.map(\.id))
         let removed = oldValue.filter { !newIds.contains($0.id) }
         for notification in removed {
             publishNotificationRemoved(notification)
         }
+        var seenNewIds = Set<UUID>()
         for notification in newValue {
+            guard seenNewIds.insert(notification.id).inserted else { continue }
             if let old = oldById[notification.id] {
                 if !old.isRead, notification.isRead {
                     publishNotificationRead(

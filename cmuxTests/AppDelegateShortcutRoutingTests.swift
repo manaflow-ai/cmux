@@ -1203,6 +1203,51 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         createdWindowId = newWindowIds.first
     }
 
+    func testRestorePreviousSessionSnapshotCreatesNewWindowWithoutClosingCurrentWindows() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let baselineWindowIds = mainWindowIds()
+        let liveWindowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer {
+            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
+                closeWindow(withId: windowId)
+            }
+        }
+
+        guard let liveManager = appDelegate.tabManagerFor(windowId: liveWindowId),
+              let liveWorkspace = liveManager.selectedWorkspace else {
+            XCTFail("Expected live window manager and workspace")
+            return
+        }
+        liveWorkspace.setCustomTitle("Current Work")
+        let windowIdsAfterLiveWindow = mainWindowIds()
+
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
+        restoredWorkspace.setCustomTitle("Previous Work")
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 1_700_000_000,
+            windows: [sessionWindowSnapshot(tabManager: restoredManager)]
+        )
+
+        XCTAssertTrue(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let finalWindowIds = mainWindowIds()
+        XCTAssertTrue(finalWindowIds.contains(liveWindowId))
+        XCTAssertEqual(liveManager.selectedWorkspace?.customTitle, "Current Work")
+
+        let createdWindowIds = finalWindowIds.subtracting(windowIdsAfterLiveWindow)
+        XCTAssertEqual(createdWindowIds.count, 1)
+        let restoredWindowId = try XCTUnwrap(createdWindowIds.first)
+        let restoredWindowManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: restoredWindowId))
+        XCTAssertEqual(restoredWindowManager.selectedWorkspace?.customTitle, "Previous Work")
+    }
+
     func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
