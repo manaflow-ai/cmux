@@ -39,6 +39,33 @@ struct BrowserRemoteWorkspaceStatus: Equatable {
     let lastHeartbeatAt: Date?
 }
 
+enum BrowserDeveloperToolsAttachmentPolicy {
+#if DEBUG
+    private nonisolated(unsafe) static var attachedInspectorAllowedOverrideForTesting: Bool?
+
+    static func withAttachedInspectorAllowedForTesting<T>(
+        _ allowed: Bool?,
+        _ body: () throws -> T
+    ) rethrows -> T {
+        let previous = attachedInspectorAllowedOverrideForTesting
+        attachedInspectorAllowedOverrideForTesting = allowed
+        defer { attachedInspectorAllowedOverrideForTesting = previous }
+        return try body()
+    }
+#endif
+
+    static func allowsAttachedInspector(
+        osVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+    ) -> Bool {
+#if DEBUG
+        if let attachedInspectorAllowedOverrideForTesting {
+            return attachedInspectorAllowedOverrideForTesting
+        }
+#endif
+        return true
+    }
+}
+
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
         WindowAppearanceSnapshot.clampedOpacity(opacity)
