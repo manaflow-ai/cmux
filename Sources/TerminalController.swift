@@ -752,36 +752,6 @@ class TerminalController {
         return trimmed
     }
 
-    nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let url = URL(string: trimmed),
-           url.isFileURL,
-           !url.path.isEmpty {
-            return url.path
-        }
-        return trimmed.hasPrefix("/") ? trimmed : nil
-    }
-
-    nonisolated static func shouldRemoveExportedScreenFile(
-        fileURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        let standardizedFile = fileURL.standardizedFileURL
-        let temporary = temporaryDirectory.standardizedFileURL
-        return standardizedFile.path.hasPrefix(temporary.path + "/")
-    }
-
-    nonisolated static func shouldRemoveExportedScreenDirectory(
-        fileURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        let directory = fileURL.deletingLastPathComponent().standardizedFileURL
-        let temporary = temporaryDirectory.standardizedFileURL
-        return directory.path.hasPrefix(temporary.path + "/")
-    }
-
     nonisolated static func parseReportedShellActivityState(
         _ rawState: String
     ) -> Workspace.PanelShellActivityState? {
@@ -10006,6 +9976,35 @@ class TerminalController {
         return String(decoding: rawData, as: UTF8.self)
     }
 
+    private func readTerminalTextTail(
+        terminalPanel: TerminalPanel,
+        scope: ghostty_text_scope_e,
+        format: ghostty_text_format_e,
+        lineLimit: Int?,
+        byteLimit: Int? = nil
+    ) -> String? {
+        guard let surface = terminalPanel.surface.surface else { return nil }
+        let options = ghostty_text_tail_options_s(
+            scope: scope,
+            format: format,
+            max_lines: UInt(max(lineLimit ?? 0, 0)),
+            max_bytes: UInt(max(byteLimit ?? 0, 0))
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text_tail(surface, options, &text) else {
+            return nil
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
+        }
+
+        guard let ptr = text.text, text.text_len > 0 else {
+            return ""
+        }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: rawData, as: UTF8.self)
+    }
+
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
         guard terminalPanel.surface.surface != nil else { return "ERROR: Terminal surface not found" }
         func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
@@ -10014,44 +10013,15 @@ class TerminalController {
 
         var output: String
         if includeScrollback {
-            func candidateScore(_ text: String) -> (lines: Int, bytes: Int) {
-                let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
-                return (lines, text.utf8.count)
-            }
-
-            // Read all available regions and pick the most complete candidate.
-            // Different point tags can lose different rows around resize/reflow boundaries.
-            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
-            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
-            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
-
-            var candidates: [String] = []
-            if let screen {
-                candidates.append(screen)
-            }
-            if history != nil || active != nil {
-                var merged = history ?? ""
-                if let active {
-                    if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
-                        merged.append("\n")
-                    }
-                    merged.append(active)
-                }
-                candidates.append(merged)
-            }
-
-            if let best = candidates.max(by: { lhs, rhs in
-                let left = candidateScore(lhs)
-                let right = candidateScore(rhs)
-                if left.lines != right.lines {
-                    return left.lines < right.lines
-                }
-                return left.bytes < right.bytes
-            }) {
-                output = best
-            } else {
+            guard let tail = readTerminalTextTail(
+                terminalPanel: terminalPanel,
+                scope: GHOSTTY_TEXT_SCOPE_SCREEN,
+                format: GHOSTTY_TEXT_FORMAT_PLAIN,
+                lineLimit: lineLimit
+            ) else {
                 return "ERROR: Failed to read terminal text"
             }
+            output = tail
         } else {
             guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
                 return "ERROR: Failed to read terminal text"
@@ -10067,106 +10037,26 @@ class TerminalController {
         return "OK \(base64)"
     }
 
-    private struct PasteboardItemSnapshot {
-        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
-    }
-
-    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
-        guard let items = pasteboard.pasteboardItems else { return [] }
-        return items.map { item in
-            let representations = item.types.compactMap { type -> (type: NSPasteboard.PasteboardType, data: Data)? in
-                guard let data = item.data(forType: type) else { return nil }
-                return (type: type, data: data)
-            }
-            return PasteboardItemSnapshot(representations: representations)
-        }
-    }
-
-    private func restorePasteboardItems(
-        _ snapshots: [PasteboardItemSnapshot],
-        to pasteboard: NSPasteboard
-    ) {
-        _ = pasteboard.clearContents()
-        guard !snapshots.isEmpty else { return }
-
-        let restoredItems = snapshots.compactMap { snapshot -> NSPasteboardItem? in
-            guard !snapshot.representations.isEmpty else { return nil }
-            let item = NSPasteboardItem()
-            for representation in snapshot.representations {
-                item.setData(representation.data, forType: representation.type)
-            }
-            return item
-        }
-        guard !restoredItems.isEmpty else { return }
-        _ = pasteboard.writeObjects(restoredItems)
-    }
-
-    private func readGeneralPasteboardString(_ pasteboard: NSPasteboard) -> String? {
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let firstURL = urls.first,
-           firstURL.isFileURL {
-            return firstURL.path
-        }
-        if let value = pasteboard.string(forType: .string) {
-            return value
-        }
-        return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
-    }
-
-    private func readTerminalTextFromVTExportForSnapshot(
-        terminalPanel: TerminalPanel,
-        lineLimit: Int?
-    ) -> String? {
-        let pasteboard = NSPasteboard.general
-        let snapshot = snapshotPasteboardItems(pasteboard)
-        defer {
-            restorePasteboardItems(snapshot, to: pasteboard)
-        }
-
-        let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
-            return nil
-        }
-        guard pasteboard.changeCount != initialChangeCount else {
-            return nil
-        }
-        guard let exportedPath = Self.normalizedExportedScreenPath(readGeneralPasteboardString(pasteboard)) else {
-            return nil
-        }
-
-        let fileURL = URL(fileURLWithPath: exportedPath)
-        defer {
-            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
-                try? FileManager.default.removeItem(at: fileURL)
-                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
-                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
-                }
-            }
-        }
-
-        guard let data = try? Data(contentsOf: fileURL),
-              var output = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        if let lineLimit {
-            output = tailTerminalLines(output, maxLines: lineLimit)
-        }
-        return output
-    }
-
     func readTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil,
         allowVTExport: Bool = true
     ) -> String? {
-        if includeScrollback,
-           allowVTExport,
-           let vtOutput = readTerminalTextFromVTExportForSnapshot(
-               terminalPanel: terminalPanel,
-               lineLimit: lineLimit
-           ) {
-            return vtOutput
+        if includeScrollback {
+            return readTerminalTextTail(
+                terminalPanel: terminalPanel,
+                scope: GHOSTTY_TEXT_SCOPE_SCREEN,
+                format: allowVTExport ? GHOSTTY_TEXT_FORMAT_VT : GHOSTTY_TEXT_FORMAT_PLAIN,
+                lineLimit: lineLimit,
+                byteLimit: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            ) ?? readTerminalTextTail(
+                terminalPanel: terminalPanel,
+                scope: GHOSTTY_TEXT_SCOPE_VIEWPORT,
+                format: GHOSTTY_TEXT_FORMAT_PLAIN,
+                lineLimit: lineLimit,
+                byteLimit: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            )
         }
 
         let response = readTerminalTextBase64(
