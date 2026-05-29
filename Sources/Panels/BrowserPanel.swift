@@ -4868,7 +4868,9 @@ final class BrowserPanel: Panel, ObservableObject {
             object: nil,
             queue: nil
         ) { [weak self] notification in
-            self?.applyGhosttyDefaultBackground(from: notification)
+            MainActor.assumeIsolated {
+                self?.applyGhosttyDefaultBackground(from: notification)
+            }
         }
         webViewCancellables.insert(
             AnyCancellable {
