@@ -11,6 +11,7 @@ public struct CanvasScene: Sendable, Equatable {
     public var grid: CanvasGrid
     public var surfaces: [CanvasSurfaceDescriptor]
     public var alignmentGuides: [CanvasAlignmentGuide]
+    public var cullsSurfacesToViewport: Bool
 
     public init(
         viewport: CanvasViewport = .native,
@@ -20,7 +21,8 @@ public struct CanvasScene: Sendable, Equatable {
         minimumSurfaceDisplaySize: CGSize = .zero,
         grid: CanvasGrid = .freeformDefault,
         surfaces: [CanvasSurfaceDescriptor] = [],
-        alignmentGuides: [CanvasAlignmentGuide] = []
+        alignmentGuides: [CanvasAlignmentGuide] = [],
+        cullsSurfacesToViewport: Bool = true
     ) {
         let resolvedScale = CGFloat(scale ?? CGFloat(CanvasViewportZoom.presentationScale(for: viewport)))
         self.viewport = viewport
@@ -37,6 +39,7 @@ public struct CanvasScene: Sendable, Equatable {
         self.grid = grid
         self.surfaces = surfaces.sorted(by: Self.surfaceSort)
         self.alignmentGuides = alignmentGuides
+        self.cullsSurfacesToViewport = cullsSurfacesToViewport
     }
 
     public init(
@@ -51,7 +54,8 @@ public struct CanvasScene: Sendable, Equatable {
             minimumSurfaceDisplaySize: presentation.minimumSurfaceDisplaySize,
             grid: presentation.grid,
             surfaces: presentation.surfaces,
-            alignmentGuides: presentation.alignmentGuides
+            alignmentGuides: presentation.alignmentGuides,
+            cullsSurfacesToViewport: false
         )
     }
 
@@ -76,6 +80,9 @@ public struct CanvasScene: Sendable, Equatable {
     }
 
     public var visibleSurfaces: [CanvasSurfaceDescriptor] {
+        guard cullsSurfacesToViewport else {
+            return surfaces
+        }
         let visibleDocumentRect = documentBounds
         return surfaces.filter { surface in
             surface.frame.cgRect.intersects(visibleDocumentRect)

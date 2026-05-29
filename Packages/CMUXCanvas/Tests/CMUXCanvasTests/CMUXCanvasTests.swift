@@ -596,6 +596,40 @@ final class CMUXCanvasTests: XCTestCase {
         XCTAssertEqual(plan.surfaces.map(\.id), [visibleID])
     }
 
+    func testPresentationSceneUsesPreculledSurfacesWithoutSecondViewportCull() {
+        let onscreenID = LayoutItemID()
+        let overscanID = LayoutItemID()
+        let document = CanvasDocument(
+            policy: .freeform,
+            viewport: CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 800, height: 600), scale: 1),
+            items: [
+                CanvasItem(
+                    id: onscreenID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 20, y: 20, width: 300, height: 220)
+                ),
+                CanvasItem(
+                    id: overscanID,
+                    content: .pane(PaneID()),
+                    frame: PixelRect(x: 900, y: 20, width: 300, height: 220)
+                ),
+            ]
+        )
+        let presentation = CanvasPresentationEngine.presentation(
+            document: document,
+            viewportSize: CGSize(width: 800, height: 600),
+            focusedItemID: onscreenID,
+            activeItemID: onscreenID,
+            interactionPhase: .panning,
+            configuration: CanvasPresentationConfiguration(overscanScreenPoints: 400)
+        )
+
+        let plan = CanvasShellRenderPlan(scene: CanvasScene(presentation: presentation))
+
+        XCTAssertEqual(Set(presentation.presentationSurfaces.map(\.id)), Set([onscreenID, overscanID]))
+        XCTAssertEqual(Set(plan.surfaces.map(\.id)), Set([onscreenID, overscanID]))
+    }
+
     func testSurfaceTextureCacheEvictsLeastRecentlyUsedAndPrunesInvisibleSurfaces() {
         let firstID = LayoutItemID()
         let secondID = LayoutItemID()
