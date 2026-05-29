@@ -744,18 +744,6 @@ function SessionSurface({
       h(
         "div",
         { className: "relative flex w-full flex-col gap-2" },
-        showPlanSuggestion
-          ? h(AboveComposerPlanSuggestion, {
-              copy: state.context?.copy,
-              onAction: enablePlanModeFromSuggestion,
-              onDismiss: () => setIsPlanSuggestionDismissed(true),
-            })
-          : null,
-        h("span", {
-          ref: composerLayout.textMeasureRef,
-          className: "composer-single-line-measure",
-          "aria-hidden": true,
-        }, state.input),
         h(
           "form",
           {
@@ -768,6 +756,18 @@ function SessionSurface({
           h(
             "div",
             { className: "codex-composer-frame relative" },
+            h("span", {
+              ref: composerLayout.textMeasureRef,
+              className: "composer-single-line-measure text-size-chat pointer-events-none invisible absolute h-0 w-max max-w-none overflow-hidden whitespace-pre",
+              "aria-hidden": true,
+            }, state.input),
+            showPlanSuggestion
+              ? h(AboveComposerPlanSuggestion, {
+                  copy: state.context?.copy,
+                  onAction: enablePlanModeFromSuggestion,
+                  onDismiss: () => setIsPlanSuggestionDismissed(true),
+                })
+              : null,
             menuKind
               ? h(ComposerTopTray, {
                   highlightedIndex: highlightedMenuIndex,
@@ -804,14 +804,20 @@ function AboveComposerPlanSuggestion({
 }) {
   return h(
     "div",
-    { className: "above-composer-suggestion-shell pointer-events-auto flex w-full max-w-full justify-center" },
+    {
+      className:
+        "above-composer-suggestion-shell pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 flex justify-center",
+    },
     h(
       "div",
-      {
-        className:
-          "relative inline-flex max-w-full min-w-0 items-center justify-between gap-4 overflow-hidden rounded-3xl border border-token-border/80 bg-token-dropdown-background/90 py-1.5 pr-2 pl-3 text-token-foreground shadow-md backdrop-blur-sm",
-        "data-codex-above-composer-suggestion": "keyword-plan-mode",
-      },
+      { className: "pointer-events-auto flex w-full max-w-full justify-center" },
+      h(
+        "div",
+        {
+          className:
+            "relative inline-flex max-w-full min-w-0 items-center justify-between gap-4 overflow-hidden rounded-3xl border border-token-border/80 bg-token-dropdown-background/90 py-1.5 pr-2 pl-3 text-token-foreground shadow-md backdrop-blur-sm",
+          "data-codex-above-composer-suggestion": "keyword-plan-mode",
+        },
       h(
         "div",
         { className: "flex min-w-0 flex-1 items-center gap-2" },
@@ -876,6 +882,7 @@ function AboveComposerPlanSuggestion({
           xIcon("icon-xs"),
         ),
       ),
+    ),
     ),
   );
 }
