@@ -162,6 +162,7 @@ jobs:
 
   tests:
     runs-on: warp-macos-15-arm64-6x
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -389,6 +390,7 @@ jobs:
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: warp-macos-15-arm64-6x
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -582,6 +584,7 @@ jobs:
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
     runs-on: warp-macos-26-arm64-6x
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -686,6 +689,7 @@ jobs:
 
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 25
     steps:
       - name: Checkout
