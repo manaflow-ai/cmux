@@ -3851,18 +3851,23 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         let oldFrame = containerView.frame
+        let visibilityFrameInHost = canvasSurfacePresentation != nil ? visibleFrameInHost : frameInHost
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
             frameInHost.origin.y.isFinite &&
             frameInHost.size.width.isFinite &&
-            frameInHost.size.height.isFinite
+            frameInHost.size.height.isFinite &&
+            visibilityFrameInHost.origin.x.isFinite &&
+            visibilityFrameInHost.origin.y.isFinite &&
+            visibilityFrameInHost.size.width.isFinite &&
+            visibilityFrameInHost.size.height.isFinite
         let clampedFrame = visibleFrameInHost.intersection(hostBounds)
         let hasVisibleIntersection =
             !clampedFrame.isNull &&
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
         let targetFrame = canvasSurfacePresentation != nil
-            ? frameInHost
+            ? visibilityFrameInHost
             : (hasVisibleIntersection ? clampedFrame : frameInHost)
         let anchorHidden = canvasSurfacePresentation == nil &&
             interactiveFrameInWindow == nil &&
@@ -3974,7 +3979,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let expectedContainerBounds = canvasSurfacePresentation.map {
-            NSRect(origin: .zero, size: $0.nativeContentSize)
+            $0.nativeClipBounds
         } ?? NSRect(origin: .zero, size: targetFrame.size)
         if !Self.rectApproximatelyEqual(containerView.bounds, expectedContainerBounds) {
             let oldContainerBounds = containerView.bounds
@@ -3996,9 +4001,7 @@ final class WindowBrowserPortal: NSObject {
         let containerOwnsWebView = webView.superview === containerView
         let containerBounds = containerView.bounds
         let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
-        let expectedHostedWebFrame = canvasSurfacePresentation != nil
-            ? NSRect(origin: .zero, size: canvasSurfacePresentation?.nativeContentSize ?? containerBounds.size)
-            : containerBounds
+        let expectedHostedWebFrame = canvasSurfacePresentation?.nativeContentFrameInClip ?? containerBounds
         let hasVisibleHostedInspector = Self.hasVisibleInspectorDescendant(in: containerView)
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)
         let inspectorHeightFromOverflow = max(0, preNormalizeWebFrame.maxY - containerBounds.maxY)

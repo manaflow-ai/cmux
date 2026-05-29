@@ -2720,6 +2720,53 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(postLayoutSnapshot.webViewFrame.size.height, 700, accuracy: 0.5)
     }
 
+    func testCanvasSurfacePresentationClipsContainerAndOffsetsWebView() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 900),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let clipSource = NSObject()
+        WindowPortalClipRegistry.setVisibleContentFrame(
+            NSRect(x: 0, y: 0, width: 1_200, height: 900),
+            for: window,
+            source: clipSource
+        )
+        defer { WindowPortalClipRegistry.clear(for: window, source: clipSource) }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 1_000, height: 700))
+        window.contentView?.addSubview(anchor)
+        let webView = TrackingPortalWebView(frame: NSRect(x: 0, y: 0, width: 1_000, height: 700))
+        let portal = WindowBrowserPortal(window: window)
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        portal.setCanvasSurfacePresentation(
+            forWebViewId: ObjectIdentifier(webView),
+            presentation: CanvasSurfacePresentation(
+                frameInWindow: NSRect(x: -100, y: -80, width: 400, height: 280),
+                nativeContentSize: CGSize(width: 1_000, height: 700),
+                scale: 0.4
+            )
+        )
+
+        let snapshot = try XCTUnwrap(portal.debugSnapshot(forWebViewId: ObjectIdentifier(webView)))
+        XCTAssertEqual(snapshot.frameInWindow.origin.x, 0, accuracy: 1)
+        XCTAssertEqual(snapshot.frameInWindow.origin.y, 0, accuracy: 1)
+        XCTAssertEqual(snapshot.frameInWindow.size.width, 300, accuracy: 1)
+        XCTAssertEqual(snapshot.frameInWindow.size.height, 200, accuracy: 1)
+        XCTAssertEqual(snapshot.containerBounds.size.width, 750, accuracy: 0.5)
+        XCTAssertEqual(snapshot.containerBounds.size.height, 500, accuracy: 0.5)
+        XCTAssertEqual(snapshot.webViewFrame.origin.x, -250, accuracy: 0.5)
+        XCTAssertEqual(snapshot.webViewFrame.origin.y, -200, accuracy: 0.5)
+        XCTAssertEqual(snapshot.webViewFrame.size.width, 1_000, accuracy: 0.5)
+        XCTAssertEqual(snapshot.webViewFrame.size.height, 700, accuracy: 0.5)
+    }
+
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

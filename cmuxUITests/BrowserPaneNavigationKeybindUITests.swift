@@ -3290,6 +3290,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { return nil }
             defer { close(fd) }
+            var socketTimeout = timeval(
+                tv_sec: Int(responseTimeout.rounded(.down)),
+                tv_usec: Int32(((responseTimeout - floor(responseTimeout)) * 1_000_000).rounded())
+            )
 
 #if os(macOS)
             var noSigPipe: Int32 = 1
@@ -3303,6 +3307,24 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 )
             }
 #endif
+            _ = withUnsafePointer(to: &socketTimeout) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_RCVTIMEO,
+                    ptr,
+                    socklen_t(MemoryLayout<timeval>.size)
+                )
+            }
+            _ = withUnsafePointer(to: &socketTimeout) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_SNDTIMEO,
+                    ptr,
+                    socklen_t(MemoryLayout<timeval>.size)
+                )
+            }
 
             var addr = sockaddr_un()
             memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
@@ -3345,6 +3367,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 return true
             }
             guard wrote else { return nil }
+            _ = shutdown(fd, SHUT_WR)
 
             let deadline = Date().addingTimeInterval(responseTimeout)
             var buffer = [UInt8](repeating: 0, count: 4096)
