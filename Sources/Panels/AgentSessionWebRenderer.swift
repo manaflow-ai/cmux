@@ -446,6 +446,22 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.copiedUserMessage",
                             defaultValue: "Copied"
                         ),
+                        "shellLabel": String(
+                            localized: "agentSession.web.shellLabel",
+                            defaultValue: "Shell"
+                        ),
+                        "copyShellContents": String(
+                            localized: "agentSession.web.copyShellContents",
+                            defaultValue: "Copy shell contents"
+                        ),
+                        "copiedShellContents": String(
+                            localized: "agentSession.web.copiedShellContents",
+                            defaultValue: "Copied shell contents"
+                        ),
+                        "collapseShell": String(
+                            localized: "agentSession.web.collapseShell",
+                            defaultValue: "Collapse shell"
+                        ),
                         "showMore": String(
                             localized: "agentSession.web.showMore",
                             defaultValue: "Show more"

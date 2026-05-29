@@ -70,6 +70,10 @@ export type AgentSessionCopy = {
   copiedAssistantMessage: string;
   copyUserMessage: string;
   copiedUserMessage: string;
+  shellLabel: string;
+  copyShellContents: string;
+  copiedShellContents: string;
+  collapseShell: string;
   showMore: string;
   showLess: string;
   browseWeb: string;

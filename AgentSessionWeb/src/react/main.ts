@@ -1008,10 +1008,18 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
 function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: TranscriptEntry }) {
   const [isOutputExpanded, setIsOutputExpanded] = useState(false);
   const copyOutputLabel = copy?.copyOutput ?? "Copy output";
+  const shellLabel = copy?.shellLabel ?? "";
+  const copyShellContentsLabel = copy?.copyShellContents ?? copyOutputLabel;
+  const copiedShellContentsLabel = copy?.copiedShellContents ?? copyShellContentsLabel;
+  const collapseShellLabel = copy?.collapseShell ?? "";
   const isExpandable = Boolean(entry.output);
   const toggleOutput = useCallback(() => {
     setIsOutputExpanded((current) => !current);
   }, []);
+  const collapseOutput = useCallback(() => {
+    setIsOutputExpanded(false);
+  }, []);
+  const shellCopyText = shellCopyTextForEntry(entry);
   const summaryContent = h(
     React.Fragment,
     null,
@@ -1080,17 +1088,110 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
             { className: "codex-tool-activity-output-shell-inner" },
             h(
               "div",
-              { className: "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem]" },
-              h("div", {
+              {
                 className:
-                  "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
-                dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
-              }),
+                  "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem] flex flex-col overflow-clip rounded-lg border border-token-border",
+              },
+              h(
+                "div",
+                {
+                  className:
+                    "codex-shell-header flex items-center justify-between bg-token-side-bar-background pl-2 text-sm font-medium text-ellipsis hover:bg-token-editor-background/40",
+                },
+                h("div", { className: "flex min-w-0 items-center" }, h("span", { className: "truncate" }, shellLabel)),
+                h(
+                  "div",
+                  { className: "flex items-center" },
+                  h(ShellHeaderCopyButton, {
+                    copiedLabel: copiedShellContentsLabel,
+                    copyLabel: copyShellContentsLabel,
+                    text: shellCopyText,
+                  }),
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      className:
+                        `codex-shell-collapse ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
+                      "aria-label": collapseShellLabel,
+                      title: collapseShellLabel,
+                      onClick: collapseOutput,
+                    },
+                    chevronIcon("icon-2xs rotate-180"),
+                  ),
+                ),
+              ),
+              h(
+                "div",
+                { className: "relative overflow-hidden" },
+                h("div", {
+                  className:
+                    "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
+                  dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
+                }),
+              ),
               h(CopyOutputButton, { label: copyOutputLabel, output: entry.output }),
             ),
           ),
         )
       : null,
+  );
+}
+
+function shellCopyTextForEntry(entry: TranscriptEntry): string {
+  const command = (entry.detail ?? entry.text).trim();
+  const output = entry.output?.trimEnd() ?? "";
+  return [command, output].filter((part) => part.length > 0).join("\n\n");
+}
+
+function ShellHeaderCopyButton({
+  copiedLabel,
+  copyLabel,
+  text,
+}: {
+  copiedLabel: string;
+  copyLabel: string;
+  text: string;
+}) {
+  const [isCopied, setIsCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  const activeLabel = isCopied ? copiedLabel : copyLabel;
+  const buttonRef = useCallback((node: HTMLButtonElement | null) => {
+    if (node !== null || resetTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = null;
+  }, []);
+  const copyContents = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      const writePromise = navigator.clipboard?.writeText(text);
+      void writePromise?.catch(() => undefined);
+      setIsCopied(true);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        setIsCopied(false);
+        resetTimerRef.current = null;
+      }, 2000);
+    },
+    [text],
+  );
+
+  return h(
+    "button",
+    {
+      ref: buttonRef,
+      type: "button",
+      className:
+        `codex-shell-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
+      "aria-label": activeLabel,
+      title: activeLabel,
+      onClick: copyContents,
+    },
+    isCopied ? checkIcon("icon-xxs") : copyIcon("icon-xxs"),
   );
 }
 

@@ -41,6 +41,7 @@
   --color-token-list-hover-background: var(--agent-control-hover);
   --color-token-side-bar-background: var(--agent-surface-elevated);
   --color-token-main-surface-primary: transparent;
+  --color-token-text-code-block-background: var(--agent-input-bg);
   --color-token-text-link-foreground: var(--agent-accent);
   --color-token-text-link-active-foreground: var(--agent-accent);
   --color-token-editor-foreground: var(--agent-text);
@@ -172,6 +173,7 @@
   --color-token-editor-background: var(--agent-page-bg);
   --color-token-side-bar-background: var(--agent-surface-elevated);
   --color-token-main-surface-primary: transparent;
+  --color-token-text-code-block-background: var(--agent-input-bg);
   --color-token-bg-primary: var(--agent-surface-elevated);
   --color-token-bg-secondary: var(--agent-card);
   --color-token-bg-fog: var(--color-background-elevated-secondary);
