@@ -4224,6 +4224,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
+            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                insecureHTTPBypassHostOnce == nil,
@@ -4243,6 +4244,7 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
+            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             navigate(to: url)
         }
@@ -4861,12 +4863,22 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.append(fullscreenObserver)
 
-        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
-            .sink { [weak self] notification in
-                guard let self else { return }
-                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
+        let backgroundObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            self?.applyGhosttyDefaultBackground(from: notification)
+        }
+        webViewCancellables.insert(
+            AnyCancellable {
+                NotificationCenter.default.removeObserver(backgroundObserver)
             }
-            .store(in: &webViewCancellables)
+        )
+    }
+
+    private func applyGhosttyDefaultBackground(from notification: Notification?) {
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
@@ -6632,13 +6644,19 @@ extension BrowserPanel {
             forceDeveloperToolsRefreshOnNextAttach = false
             return
         }
-        guard !isDeveloperToolsTransitionInFlight else { return }
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        if isDeveloperToolsTransitionInFlight {
+            guard shouldForceRefresh else { return }
+            developerToolsTransitionSettleWorkItem?.cancel()
+            developerToolsTransitionSettleWorkItem = nil
+            developerToolsTransitionTargetVisible = nil
+            pendingDeveloperToolsTransitionTargetVisible = nil
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
         }
 
-        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false

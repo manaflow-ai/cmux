@@ -1823,8 +1823,15 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
 
 @MainActor
 final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
+    private func closeBrowserPanel(_ panel: BrowserPanel) {
+        panel.close()
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.webView.removeFromSuperview()
+    }
+
     func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(panel) }
         let developerExtras = panel.webView.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool
         XCTAssertEqual(developerExtras, true)
 
@@ -1835,6 +1842,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(panel) }
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let updatedOpacity = 0.57
 
@@ -1861,6 +1869,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
     func testBrowserPanelStartsAsNewTabWithoutLoadingAboutBlank() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertEqual(panel.displayTitle, "New tab")
         XCTAssertFalse(panel.shouldRenderWebView)
@@ -1871,6 +1880,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
     func testBrowserPanelLeavesNewTabPageStateWhenNavigationStarts() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.isShowingNewTabPage)
         panel.navigate(to: URL(string: "https://example.com")!)
@@ -1884,6 +1894,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             initialURL: url,
             renderInitialNavigation: false
         )
+        defer { closeBrowserPanel(panel) }
 
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertEqual(panel.currentURL, url)
@@ -1893,6 +1904,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
     func testBrowserPanelThemeModeUpdatesWebViewAppearance() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(panel) }
 
         panel.setBrowserThemeMode(.dark)
         XCTAssertEqual(panel.webView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
@@ -1906,6 +1918,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
         let panel = BrowserPanel(workspaceId: UUID())
+        defer { closeBrowserPanel(panel) }
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 
         NotificationCenter.default.post(
