@@ -132,7 +132,7 @@ extension CMUXCLI {
     private enum DiffViewerLimits {
         static let repoOptions = 4
         static let branchBaseOptions = 4
-        static let remotePatchChunkBytes = 512 * 1024
+        static let responseChunkBytes = 512 * 1024
     }
 
     private struct OpenArguments {
@@ -352,7 +352,7 @@ extension CMUXCLI {
         var rootPath: String
     }
 
-    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v4 remote-stream-large-chunks\n".utf8)
+    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v5-diffhub-cache-key\n".utf8)
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -4346,7 +4346,7 @@ extension CMUXCLI {
         let handle = try FileHandle(forReadingFrom: responseURL)
         defer { try? handle.close() }
         while true {
-            let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+            let data = try handle.read(upToCount: DiffViewerLimits.responseChunkBytes) ?? Data()
             if data.isEmpty {
                 break
             }
@@ -4453,7 +4453,7 @@ extension CMUXCLI {
         }
 
         let handle = stdoutPipe.fileHandleForReading
-        let firstChunk = try handle.read(upToCount: DiffViewerLimits.remotePatchChunkBytes) ?? Data()
+        let firstChunk = try handle.read(upToCount: DiffViewerLimits.responseChunkBytes) ?? Data()
         if firstChunk.isEmpty {
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
@@ -4493,7 +4493,7 @@ extension CMUXCLI {
         try sendAllDiffViewerHTTPData(firstChunk, fileDescriptor: fd)
 
         while true {
-            let data = try handle.read(upToCount: DiffViewerLimits.remotePatchChunkBytes) ?? Data()
+            let data = try handle.read(upToCount: DiffViewerLimits.responseChunkBytes) ?? Data()
             if data.isEmpty {
                 break
             }
@@ -5471,11 +5471,14 @@ extension CMUXCLI {
             setupSourceSelector(payload.sourceOptions ?? []);
             setupNavigationSelector(repoSelect, payload.repoOptions ?? [], payload.repoRoot ?? "", label("repoPath"));
             setupNavigationSelector(baseSelect, payload.baseOptions ?? [], payload.branchBaseRef ?? "", label("branchBase"));
-            const patchResponsePromise = fetch(payload.patchURL, { cache: "no-store" });
-            patchResponsePromise.catch(() => {});
+            const patchAbortController = typeof AbortController === "undefined" ? null : new AbortController();
+            const patchFetchOptions = patchAbortController == null
+              ? { cache: "no-store" }
+              : { cache: "no-store", signal: patchAbortController.signal };
             const workerPoolPromise = initializeCodeViewWorkerPool();
             window.addEventListener("pagehide", () => {
               pageHiddenForCleanup = true;
+              patchAbortController?.abort();
               terminateCodeViewWorkerPool();
             });
             window.addEventListener("pageshow", () => {
@@ -5519,7 +5522,7 @@ extension CMUXCLI {
                 CodeView,
                 parsePatchFiles,
                 processFile,
-                patchResponsePromise,
+                patchFetchOptions,
                 workerPoolPromise,
                 treesModulePromise,
               });
@@ -5757,7 +5760,7 @@ extension CMUXCLI {
               return `Commit ${index + 1}`;
             }
 
-            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchResponsePromise, workerPoolPromise, treesModulePromise }) {
+            async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile, patchFetchOptions, workerPoolPromise, treesModulePromise }) {
               const diffModel = createStreamingDiffModel();
               const navigationRefreshState = {
                 dirtyCount: 0,
@@ -5783,6 +5786,12 @@ extension CMUXCLI {
                 initialMaxWait: 500,
                 incrementalMaxWait: 100,
               };
+              const cacheKeyPrefix = encodeURIComponent(
+                payload.externalURL ||
+                payload.sourceLabel ||
+                payload.patchURL ||
+                window.location.pathname
+              );
               rebuildCodeViewWithoutWorkerPool = rebuildCodeViewWithoutWorker;
 
               workerPoolPromise?.then?.(
@@ -6104,7 +6113,9 @@ extension CMUXCLI {
                 recordStreamMetrics(streamMetrics);
               }
 
-              const response = await patchResponsePromise;
+              console.time("--     request time");
+              const response = await fetch(payload.patchURL, patchFetchOptions);
+              console.timeEnd("--     request time");
               if (!response.ok) {
                 throw new Error(`${label("loadingDiff")} (${response.status})`);
               }
@@ -6121,6 +6132,7 @@ extension CMUXCLI {
 
               const decoder = new TextDecoder();
               const reader = response.body.getReader();
+              await yieldToNextFrame();
               const gitMarker = "diff --git ";
               const gitMarkerWithNewline = "\\n" + gitMarker;
               const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
@@ -6189,7 +6201,7 @@ extension CMUXCLI {
                   currentPatchPrefix = commitMetadataLabel(metadata, patchMetadataIndex);
                   patchMetadataIndex += 1;
                 }
-                const cacheKey = `cmux-diff-file-${diffModel.fileIndex}`;
+                const cacheKey = `${cacheKeyPrefix}-0-${diffModel.fileIndex}`;
                 await enqueueFileDiff(processFile(fileText, {
                   cacheKey,
                   isGitDiff: true,
