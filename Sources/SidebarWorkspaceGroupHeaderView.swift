@@ -303,6 +303,36 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
         }
         return .addWorkspaceToGroup(draggedWorkspaceId)
     }
+
+    static func shouldConsumeNoOpEdgeDrop(
+        hasSidebarPayload: Bool,
+        draggedWorkspaceId: UUID?,
+        targetAnchorWorkspaceId: UUID,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>,
+        locationY: CGFloat,
+        rowHeight: CGFloat
+    ) -> Bool {
+        guard hasSidebarPayload,
+              let draggedWorkspaceId,
+              tabIds.count > 1,
+              tabIds.contains(draggedWorkspaceId),
+              tabIds.contains(targetAnchorWorkspaceId),
+              !SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(
+                  locationY: locationY,
+                  rowHeight: rowHeight
+              ) else {
+            return false
+        }
+        return SidebarDropPlanner.indicator(
+            draggedTabId: draggedWorkspaceId,
+            targetTabId: targetAnchorWorkspaceId,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds,
+            pointerY: locationY,
+            targetHeight: rowHeight
+        ) == nil
+    }
 }
 
 @MainActor
@@ -337,13 +367,13 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard let action = groupHeaderCenterDropAction(info) else {
+            if shouldConsumeGroupHeaderNoOpEdgeDrop(info) {
+                clearDropState()
+                return true
+            }
             return reorderDelegate.performDrop(info: info)
         }
-        defer {
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
-            dragAutoScrollController.stop()
-        }
+        defer { clearDropState() }
         switch action {
         case .addWorkspaceToGroup(let draggedTabId):
             tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
@@ -380,5 +410,31 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
             locationY: info.location.y,
             rowHeight: targetRowHeight ?? 1
         )
+    }
+
+    private func shouldConsumeGroupHeaderNoOpEdgeDrop(_ info: DropInfo) -> Bool {
+        let height = targetRowHeight ?? 1
+        guard let draggedTabId = dragState.draggedTabId else { return false }
+        return SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
+            hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
+            draggedWorkspaceId: draggedTabId,
+            targetAnchorWorkspaceId: targetAnchorWorkspaceId,
+            tabIds: tabManager.sidebarReorderWorkspaceIds(
+                forDraggedWorkspaceId: draggedTabId,
+                targetWorkspaceId: targetAnchorWorkspaceId
+            ),
+            pinnedTabIds: tabManager.sidebarReorderPinnedWorkspaceIds(
+                forDraggedWorkspaceId: draggedTabId,
+                targetWorkspaceId: targetAnchorWorkspaceId
+            ),
+            locationY: info.location.y,
+            rowHeight: height
+        )
+    }
+
+    private func clearDropState() {
+        dragState.draggedTabId = nil
+        dragState.dropIndicator = nil
+        dragAutoScrollController.stop()
     }
 }

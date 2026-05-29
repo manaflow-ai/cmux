@@ -83,6 +83,54 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertNil(action)
     }
 
+    func testWorkspaceGroupHeaderBottomEdgeConsumesAdjacentNoOpDrop() {
+        let anchorId = UUID()
+        let adjacentId = UUID()
+        let trailingId = UUID()
+
+        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
+            hasSidebarPayload: true,
+            draggedWorkspaceId: adjacentId,
+            targetAnchorWorkspaceId: anchorId,
+            tabIds: [anchorId, adjacentId, trailingId],
+            pinnedTabIds: [],
+            locationY: 22,
+            rowHeight: 24
+        ))
+    }
+
+    func testWorkspaceGroupHeaderTopEdgeDoesNotConsumeRealReorder() {
+        let anchorId = UUID()
+        let adjacentId = UUID()
+        let trailingId = UUID()
+
+        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
+            hasSidebarPayload: true,
+            draggedWorkspaceId: adjacentId,
+            targetAnchorWorkspaceId: anchorId,
+            tabIds: [anchorId, adjacentId, trailingId],
+            pinnedTabIds: [],
+            locationY: 2,
+            rowHeight: 24
+        ))
+    }
+
+    func testWorkspaceGroupHeaderCenterDropDoesNotUseEdgeNoOpPolicy() {
+        let anchorId = UUID()
+        let adjacentId = UUID()
+        let trailingId = UUID()
+
+        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
+            hasSidebarPayload: true,
+            draggedWorkspaceId: adjacentId,
+            targetAnchorWorkspaceId: anchorId,
+            tabIds: [anchorId, adjacentId, trailingId],
+            pinnedTabIds: [],
+            locationY: 12,
+            rowHeight: 24
+        ))
+    }
+
     func testWorkspaceGroupHeaderCenterDropDoesNotInterceptOtherGroupHeader() {
         let workspaceId = UUID()
         let groupId = UUID()
