@@ -276,12 +276,17 @@ function SessionSurface({
   const modelLabel = codexModelLabel(provider);
   const reasoningEffortLabel =
     provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
+  const [permissionMode, setPermissionMode] = useState<ComposerPermissionMode>("default");
+  const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
+  const isSingleLineComposer = composerLayout.isSingleLine;
   const footerCollapse = useMeasuredFooterControlCollapse([{
     canHideLabel: reasoningEffortLabel != null,
     enabled: provider != null,
     id: "intelligence",
   }]);
-  const intelligenceCollapse = footerCollapse.state.intelligence ?? { hideControl: false, hideLabel: false };
+  const intelligenceCollapse = isSingleLineComposer
+    ? { hideControl: false, hideLabel: false }
+    : (footerCollapse.state.intelligence ?? { hideControl: false, hideLabel: false });
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
@@ -291,9 +296,6 @@ function SessionSurface({
   const [isPickingFiles, setIsPickingFiles] = useState(false);
   const [isPlanMode, setIsPlanMode] = useState(false);
   const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<ComposerPermissionMode>("default");
-  const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
-  const isSingleLineComposer = composerLayout.isSingleLine;
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
