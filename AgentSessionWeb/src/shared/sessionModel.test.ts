@@ -291,6 +291,7 @@ test("sent action appends a user transcript turn", () => {
   const state = reduceSession(running, {
     type: "sent",
     sessionId: "session-1",
+    sentAtMs: 1_850_000_000_000,
     text: "hello codex",
     submittedInput: "hello codex",
   });
@@ -298,6 +299,7 @@ test("sent action appends a user transcript turn", () => {
   expect(state.input).toBe("");
   expect(state.transcript.at(-1)).toMatchObject({
     role: "user",
+    sentAtMs: 1_850_000_000_000,
     text: "hello codex",
   });
 });

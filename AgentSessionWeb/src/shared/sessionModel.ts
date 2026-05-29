@@ -15,6 +15,7 @@ export type TranscriptEntry = {
   text: string;
   tone?: "error" | "warning";
   sessionId?: string;
+  sentAtMs?: number;
   activityId?: string;
   activityKind?: "command" | "fileChange" | "other";
   activityStatus?: "inProgress" | "completed" | "failed" | "stopped";
@@ -55,6 +56,7 @@ export type Action =
       type: "sent";
       attachments?: AgentSessionAttachment[];
       displayText?: string;
+      sentAtMs?: number;
       sessionId: string;
       text: string;
       submittedInput: string;
@@ -159,7 +161,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         ...state,
         input: state.input === action.submittedInput ? "" : state.input,
         log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", action.text.length)),
-        transcript: appendUserTranscript(state, action.displayText ?? action.text, action.attachments),
+        transcript: appendUserTranscript(state, action.displayText ?? action.text, action.attachments, action.sentAtMs),
       };
     case "event":
       return applyEvent(state, action.event);
@@ -273,6 +275,7 @@ export async function sendInput(
       type: "sent",
       attachments: options.attachments,
       displayText: options.displayText,
+      sentAtMs: Date.now(),
       sessionId,
       text: submittedInput,
       submittedInput: clearInput,
@@ -471,11 +474,13 @@ function appendUserTranscript(
   state: SessionState,
   text: string,
   attachments?: AgentSessionAttachment[],
+  sentAtMs?: number,
 ): TranscriptEntry[] {
   return appendTranscript(state.transcript, {
     attachments,
     id: makeClientId(),
     role: "user",
+    sentAtMs,
     text,
   });
 }

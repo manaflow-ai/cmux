@@ -971,7 +971,7 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
               h(UserMessageText, { copy, text: entry.text }),
             )
           : null,
-        hasText ? h(UserMessageActions, { copy, text: entry.text }) : null,
+        hasText ? h(UserMessageActions, { copy, sentAtMs: entry.sentAtMs, text: entry.text }) : null,
       );
     }
     case "assistant":
@@ -1132,12 +1132,21 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
   );
 }
 
-function UserMessageActions({ copy, text }: { copy?: AgentSessionCopy; text: string }) {
+function UserMessageActions({
+  copy,
+  sentAtMs,
+  text,
+}: {
+  copy?: AgentSessionCopy;
+  sentAtMs?: number;
+  text: string;
+}) {
   const [isCopied, setIsCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
   const copyLabel = copy?.copyUserMessage ?? "";
   const copiedLabel = copy?.copiedUserMessage ?? "";
   const activeLabel = isCopied ? copiedLabel : copyLabel;
+  const sentAtLabel = sentAtMs == null ? null : formatUserMessageSentAt(sentAtMs);
   const buttonRef = useCallback((node: HTMLButtonElement | null) => {
     if (node !== null || resetTimerRef.current === null) {
       return;
@@ -1168,6 +1177,7 @@ function UserMessageActions({ copy, text }: { copy?: AgentSessionCopy; text: str
     h(
       "div",
       { className: "mr-1 ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" },
+      sentAtLabel == null ? null : h("span", { className: "text-xs text-token-text-tertiary" }, sentAtLabel),
       h(
         "button",
         {
@@ -1183,6 +1193,35 @@ function UserMessageActions({ copy, text }: { copy?: AgentSessionCopy; text: str
       ),
     ),
   );
+}
+
+const USER_MESSAGE_RELATIVE_DAY_LIMIT = 7;
+
+function formatUserMessageSentAt(sentAtMs: number, now = new Date()): string {
+  const sentAt = new Date(sentAtMs);
+  const dayDelta = calendarDayDelta(sentAt, now);
+  if (dayDelta === 0) {
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(sentAt);
+  }
+  if (dayDelta < 0 && dayDelta > -USER_MESSAGE_RELATIVE_DAY_LIMIT) {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      weekday: "long",
+    }).format(sentAt);
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(sentAt);
+}
+
+function calendarDayDelta(left: Date, right: Date): number {
+  const leftDay = new Date(left.getFullYear(), left.getMonth(), left.getDate());
+  const rightDay = new Date(right.getFullYear(), right.getMonth(), right.getDate());
+  return Math.round((leftDay.getTime() - rightDay.getTime()) / 86_400_000);
 }
 
 function UserMessageText({ copy, text }: { copy?: AgentSessionCopy; text: string }) {
