@@ -98,14 +98,14 @@ final class TerminalImageTransferOperation: @unchecked Sendable {
         var handler: (() -> Void)?
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: Protected())
+    private let state = OSAllocatedUnfairLock(uncheckedState: Protected())
 
     var isCancelled: Bool {
-        state.withLock { $0.phase == .cancelled }
+        state.withLockUnchecked { $0.phase == .cancelled }
     }
 
     func installCancellationHandler(_ handler: @escaping () -> Void) {
-        let invokeImmediately = state.withLock { protected -> Bool in
+        let invokeImmediately = state.withLockUnchecked { protected -> Bool in
             switch protected.phase {
             case .running:
                 protected.handler = handler
@@ -123,7 +123,7 @@ final class TerminalImageTransferOperation: @unchecked Sendable {
     }
 
     func clearCancellationHandler() {
-        state.withLock { protected in
+        state.withLockUnchecked { protected in
             if protected.phase == .running {
                 protected.handler = nil
             }
@@ -132,7 +132,7 @@ final class TerminalImageTransferOperation: @unchecked Sendable {
 
     @discardableResult
     func cancel() -> Bool {
-        let result = state.withLock { protected -> (didCancel: Bool, handler: (() -> Void)?) in
+        let result = state.withLockUnchecked { protected -> (didCancel: Bool, handler: (() -> Void)?) in
             guard protected.phase == .running else { return (false, nil) }
             protected.phase = .cancelled
             let pending = protected.handler
@@ -147,7 +147,7 @@ final class TerminalImageTransferOperation: @unchecked Sendable {
 
     @discardableResult
     func finish() -> Bool {
-        state.withLock { protected in
+        state.withLockUnchecked { protected in
             guard protected.phase == .running else { return false }
             protected.phase = .finished
             protected.handler = nil
