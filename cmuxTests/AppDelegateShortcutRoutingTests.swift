@@ -8121,6 +8121,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(submitCount, 0, "Return should let the input method commit marked text")
 
         textView.unmarkText()
+        XCTAssertFalse(textView.hasMarkedText())
+        textView.string = "committed draft"
         textView.keyDown(with: returnEvent)
         XCTAssertEqual(submitCount, 1, "Return should submit after marked text is committed")
     }
