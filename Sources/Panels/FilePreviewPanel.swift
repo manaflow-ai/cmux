@@ -1100,7 +1100,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             filePreviewIntent = target
         case .panel:
             filePreviewIntent = focusCoordinator.preferredIntent
-        case .terminal, .browser:
+        case .terminal, .browser, .project:
             return false
         }
         return focusCoordinator.focus(filePreviewIntent)

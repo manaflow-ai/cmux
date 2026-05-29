@@ -1526,6 +1526,28 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionProjectPanelSnapshot: Codable, Sendable {
+    var projectPath: String
+    var selectedNodePath: String?
+    var activeTab: String?
+    var selectedSchemeName: String?
+    var selectedConfigurationName: String?
+
+    init(
+        projectPath: String,
+        selectedNodePath: String? = nil,
+        activeTab: String? = nil,
+        selectedSchemeName: String? = nil,
+        selectedConfigurationName: String? = nil
+    ) {
+        self.projectPath = projectPath
+        self.selectedNodePath = selectedNodePath
+        self.activeTab = activeTab
+        self.selectedSchemeName = selectedSchemeName
+        self.selectedConfigurationName = selectedConfigurationName
+    }
+}
+
 struct SessionNotificationSnapshot: Codable, Sendable {
     var id: UUID
     var title: String
@@ -1605,6 +1627,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var project: SessionProjectPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -1679,6 +1702,10 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    /// Original workspace ID captured when the snapshot comes from a live workspace.
+    /// Restore uses this to remap closed-panel history onto the new workspace IDs;
+    /// legacy or externally-created snapshots can leave it nil.
+    var workspaceId: UUID? = nil
     var processTitle: String
     var customTitle: String?
     var customDescription: String?
@@ -1739,6 +1766,7 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
+    var windowId: UUID? = nil
     var frame: SessionRectSnapshot?
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
