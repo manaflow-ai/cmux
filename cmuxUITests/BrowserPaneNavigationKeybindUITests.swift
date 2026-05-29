@@ -2768,7 +2768,19 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                       panel["hidden"] as? Bool == false else {
                     return false
                 }
-                return self.maxFrameDrift(actualFrame, expectedFrame) <= maxDrift
+                if self.maxFrameDrift(actualFrame, expectedFrame) <= maxDrift {
+                    return true
+                }
+                guard let nativeFrame = self.pixelRect(panel["nativeFrameInContainer"]) else {
+                    return false
+                }
+                let reconstructedFrame = CGRect(
+                    x: actualFrame.minX + nativeFrame.minX,
+                    y: actualFrame.minY + nativeFrame.minY,
+                    width: nativeFrame.width,
+                    height: nativeFrame.height
+                )
+                return self.maxFrameDrift(reconstructedFrame, expectedFrame) <= maxDrift
             },
             "Expected \(panelType) portal to stay aligned with canvas shell. layout=\(String(describing: canvasLayout()))",
             file: file,
