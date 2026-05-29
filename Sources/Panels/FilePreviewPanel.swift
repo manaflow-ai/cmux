@@ -993,16 +993,22 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var activeSaveGeneration: Int?
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
+    private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }
 
-    init(workspaceId: UUID, filePath: String) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = FilePreviewTextLoader.load(url:)
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.textLoader = textLoader
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -1174,9 +1180,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textLoadGeneration += 1
         let generation = textLoadGeneration
         let fileURL = fileURL
+        let textLoader = textLoader
 
-        return Task { [weak self, fileURL, generation, replacingDirtyContent] in
-            let result = await FilePreviewTextLoader.load(url: fileURL)
+        return Task { [weak self, fileURL, generation, replacingDirtyContent, textLoader] in
+            let result = await textLoader(fileURL)
             guard let self,
                   self.textLoadGeneration == generation,
                   self.previewMode == .text else { return }

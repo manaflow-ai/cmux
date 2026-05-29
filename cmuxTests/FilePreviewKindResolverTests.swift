@@ -61,16 +61,23 @@ struct FilePreviewKindResolverTests {
             syncOffset: 4
         )
         defer { try? FileManager.default.removeItem(at: url) }
+        let loader = DeferredTextLoader(result: .unavailable)
 
-        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { url in await loader.load(url: url) }
+        )
         defer { panel.close() }
 
         #expect(panel.previewMode == .text)
+        await loader.waitUntilStarted()
         let resolvedAsMedia = await waitForPreviewMode(panel, .media)
         #expect(resolvedAsMedia)
         #expect(panel.isFileUnavailable == false)
 
-        await panel.loadTextContent().value
+        await loader.release()
+        await loader.waitUntilCompleted()
 
         #expect(panel.previewMode == .media)
         #expect(panel.isFileUnavailable == false)
@@ -127,5 +134,57 @@ struct FilePreviewKindResolverTests {
             await Task.yield()
         }
         return false
+    }
+}
+
+private actor DeferredTextLoader {
+    private let result: FilePreviewTextLoader.Result
+    private var didStart = false
+    private var didComplete = false
+    private var isReleased = false
+    private var startContinuations: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var completionContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(result: FilePreviewTextLoader.Result) {
+        self.result = result
+    }
+
+    func load(url: URL) async -> FilePreviewTextLoader.Result {
+        _ = url
+        didStart = true
+        startContinuations.forEach { $0.resume() }
+        startContinuations.removeAll()
+
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+
+        didComplete = true
+        completionContinuations.forEach { $0.resume() }
+        completionContinuations.removeAll()
+        return result
+    }
+
+    func waitUntilStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { continuation in
+            startContinuations.append(continuation)
+        }
+    }
+
+    func release() {
+        isReleased = true
+        releaseContinuations.forEach { $0.resume() }
+        releaseContinuations.removeAll()
+    }
+
+    func waitUntilCompleted() async {
+        guard !didComplete else { return }
+        await withCheckedContinuation { continuation in
+            completionContinuations.append(continuation)
+        }
     }
 }
