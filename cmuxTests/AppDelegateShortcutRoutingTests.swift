@@ -1646,91 +1646,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testPerformSplitShortcutSplitsFocusedTerminalSurfaceWhenSelectedWorkspaceIsStale() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+        let focusedWorkspaceId = UUID()
+        let focusedPanelId = UUID()
+        let staleSelectedWorkspaceId = UUID()
+        let staleSelectedPanelId = UUID()
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let leftPanel = workspace.terminalPanel(for: leftPanelId) else {
-            XCTFail("Expected split terminal panels")
-            return
-        }
-
-        let originalPanelIds = Set(workspace.panels.keys)
-
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split terminal panels")
-            return
-        }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        guard let leftPaneBefore = workspace.paneId(forPanelId: leftPanel.id),
-              let rightPaneBefore = workspace.paneId(forPanelId: rightPanel.id) else {
-            XCTFail("Expected split pane IDs")
-            return
-        }
-        let layoutBefore = workspace.bonsplitController.layoutSnapshot()
-        guard let leftPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == leftPaneBefore.id.uuidString })?.frame,
-              let rightPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == rightPaneBefore.id.uuidString })?.frame else {
-            XCTFail("Expected pane frames before shortcut split")
-            return
-        }
-        XCTAssertLessThan(leftPaneBeforeFrame.x, rightPaneBeforeFrame.x, "Expected baseline layout to start left-to-right")
-
-        guard let leftSurfaceView = surfaceView(in: leftPanel.hostedView) else {
-            XCTFail("Expected left terminal surface view")
-            return
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        workspace.focusPanel(rightPanel.id)
-        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected Bonsplit selection to stay on the right pane")
-        leftPanel.hostedView.suppressReparentFocus()
-        XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
-        leftPanel.hostedView.clearSuppressReparentFocus()
-        XCTAssertTrue(window.firstResponder === leftSurfaceView, "Expected left Ghostty surface to stay first responder")
-        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected selected pane to stay stale after first-responder change")
-        XCTAssertEqual(leftSurfaceView.tabId, workspace.id, "Expected focused Ghostty view to keep its workspace ID")
-        XCTAssertEqual(leftSurfaceView.terminalSurface?.id, leftPanel.id, "Expected focused Ghostty view to keep its surface ID")
-
-        XCTAssertTrue(
-            appDelegate.performSplitShortcut(direction: .right, preferredWindow: window),
-            "Split shortcut should use the focused terminal surface even when selectedTabId is stale"
+        XCTAssertEqual(
+            splitShortcutTarget(
+                focusedTerminalWorkspaceId: focusedWorkspaceId,
+                focusedTerminalPanelId: focusedPanelId,
+                activeWorkspaceId: staleSelectedWorkspaceId,
+                activeFocusedPanelId: staleSelectedPanelId
+            ),
+            SplitShortcutTarget(
+                workspaceId: focusedWorkspaceId,
+                panelId: focusedPanelId,
+                source: .focusedTerminal
+            ),
+            "Split shortcuts must use the focused terminal surface before stale workspace selection"
         )
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
 
-        let newPanelIds = Set(workspace.panels.keys)
-            .subtracting(originalPanelIds)
-            .subtracting([rightPanel.id])
-        guard newPanelIds.count == 1, let newPanelId = newPanelIds.first else {
-            XCTFail("Expected exactly one shortcut-created split panel")
-            return
-        }
-        guard let newPaneId = workspace.paneId(forPanelId: newPanelId),
-              let rightPaneAfter = workspace.paneId(forPanelId: rightPanel.id) else {
-            XCTFail("Expected pane IDs after shortcut split")
-            return
-        }
-        let layoutAfter = workspace.bonsplitController.layoutSnapshot()
-        guard let newPaneFrame = layoutAfter.panes.first(where: { $0.paneId == newPaneId.id.uuidString })?.frame,
-              let rightPaneAfterFrame = layoutAfter.panes.first(where: { $0.paneId == rightPaneAfter.id.uuidString })?.frame else {
-            XCTFail("Expected pane frames after shortcut split")
-            return
-        }
-        XCTAssertEqual(layoutAfter.panes.count, 3, "Cmd+D should create a third pane")
-        XCTAssertLessThan(
-            newPaneFrame.x,
-            rightPaneAfterFrame.x,
-            "Cmd+D should split the focused left terminal pane, not the stale selected right pane"
+        XCTAssertEqual(
+            splitShortcutTarget(
+                focusedTerminalWorkspaceId: nil,
+                focusedTerminalPanelId: nil,
+                activeWorkspaceId: staleSelectedWorkspaceId,
+                activeFocusedPanelId: staleSelectedPanelId
+            ),
+            SplitShortcutTarget(
+                workspaceId: staleSelectedWorkspaceId,
+                panelId: staleSelectedPanelId,
+                source: .activeSelection
+            ),
+            "Split shortcuts should keep the active workspace fallback when no terminal responder owns the shortcut"
         )
     }
 

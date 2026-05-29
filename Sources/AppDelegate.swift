@@ -13688,7 +13688,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performSplitShortcut(direction: SplitDirection, preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
-        _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        let activeManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow) ?? tabManager
+        let target = splitShortcutTarget(
+            focusedTerminalWorkspaceId: terminalContext?.workspaceId,
+            focusedTerminalPanelId: terminalContext?.panelId,
+            activeWorkspaceId: activeManager?.selectedTabId,
+            activeFocusedPanelId: activeManager?.selectedWorkspace?.focusedPanelId
+        )
 
         let directionLabel: String
         switch direction {
@@ -13724,14 +13730,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         let didCreateSplit: Bool = {
-            if let terminalContext {
+            guard let target else { return false }
+            switch target.source {
+            case .focusedTerminal:
+                guard let terminalContext else { return false }
                 return terminalContext.tabManager.createSplit(
-                    tabId: terminalContext.workspaceId,
-                    surfaceId: terminalContext.panelId,
+                    tabId: target.workspaceId,
+                    surfaceId: target.panelId,
+                    direction: direction
+                ) != nil
+            case .activeSelection:
+                return activeManager?.createSplit(
+                    tabId: target.workspaceId,
+                    surfaceId: target.panelId,
                     direction: direction
                 ) != nil
             }
-            return tabManager?.createSplit(direction: direction) != nil
         }()
 #if DEBUG
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in

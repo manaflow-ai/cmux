@@ -2,6 +2,40 @@ import AppKit
 import Bonsplit
 import Foundation
 
+enum SplitShortcutTargetSource: Equatable {
+    case focusedTerminal
+    case activeSelection
+}
+
+struct SplitShortcutTarget: Equatable {
+    let workspaceId: UUID
+    let panelId: UUID
+    let source: SplitShortcutTargetSource
+}
+
+func splitShortcutTarget(
+    focusedTerminalWorkspaceId: UUID?,
+    focusedTerminalPanelId: UUID?,
+    activeWorkspaceId: UUID?,
+    activeFocusedPanelId: UUID?
+) -> SplitShortcutTarget? {
+    if let focusedTerminalWorkspaceId, let focusedTerminalPanelId {
+        return SplitShortcutTarget(
+            workspaceId: focusedTerminalWorkspaceId,
+            panelId: focusedTerminalPanelId,
+            source: .focusedTerminal
+        )
+    }
+    if let activeWorkspaceId, let activeFocusedPanelId {
+        return SplitShortcutTarget(
+            workspaceId: activeWorkspaceId,
+            panelId: activeFocusedPanelId,
+            source: .activeSelection
+        )
+    }
+    return nil
+}
+
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
