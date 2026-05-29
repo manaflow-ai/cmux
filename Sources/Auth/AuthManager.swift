@@ -212,7 +212,6 @@ final class AuthManager: ObservableObject {
     private var signOutCancelledBrowserSignInAttemptState: String?
     private var authMutationGeneration: UInt64 = 0
     private var currentAuthMutationKind: AuthMutationKind?
-    private static let defaultBrowserSignInTimeout: TimeInterval = 5 * 60
 
     private enum AuthMutationKind {
         case restore
@@ -226,7 +225,7 @@ final class AuthManager: ObservableObject {
     }
     #endif
 
-    func beginSignIn(timeout: TimeInterval = AuthManager.defaultBrowserSignInTimeout) {
+    func beginSignIn(timeout: TimeInterval = 300) {
         lastSignInError = nil
         loginPollTask?.cancel()
         let signInState = UUID().uuidString
