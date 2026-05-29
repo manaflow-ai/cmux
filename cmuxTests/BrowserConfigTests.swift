@@ -2961,10 +2961,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         private(set) var showCount = 0
         private(set) var hideCount = 0
         private(set) var closeCount = 0
+        private(set) var events: [String] = []
         private let hideBehavior: HideBehavior
         private let requiresAttachmentToShow: Bool
         private var visible = false
         private var attached = false
+        private var frontendAttachedForTesting = false
         private weak var frontendWebView: WKWebView?
 
         init(
@@ -2992,25 +2994,29 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         }
 
         @objc func attach() {
+            events.append("attach")
             attachCount += 1
             attached = true
             show()
         }
 
         @objc func show() {
+            events.append("show")
             showCount += 1
             guard !requiresAttachmentToShow ||
-                (attached && frontendWebView?.window != nil) else { return }
+                (attached && (frontendAttachedForTesting || frontendWebView?.window != nil)) else { return }
             visible = true
         }
 
         @objc func hide() {
+            events.append("hide")
             hideCount += 1
             guard hideBehavior == .hides else { return }
             visible = false
         }
 
         @objc func close() {
+            events.append("close")
             closeCount += 1
             visible = false
             attached = false
@@ -3022,6 +3028,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         func setFrontendWebView(_ webView: WKWebView?) {
             frontendWebView = webView
+        }
+
+        func setFrontendAttachedForTesting(_ attached: Bool) {
+            frontendAttachedForTesting = attached
         }
     }
 
@@ -3608,18 +3618,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.contentView?.addSubview(host)
         panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: host.bounds.height)
         host.addSubview(panel.webView)
-        let inspectorView = WKInspectorProbeView(
-            frame: NSRect(x: 180, y: 0, width: 180, height: host.bounds.height)
-        )
-        host.addSubview(inspectorView)
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: inspectorView.bounds,
-            configuration: WKWebViewConfiguration()
-        )
-        inspectorView.addSubview(frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        inspector.setFrontendAttachedForTesting(true)
         XCTAssertNotNil(panel.webView.window)
-        XCTAssertNotNil(frontendWebView.window)
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -3632,7 +3632,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.isDeveloperToolsVisible())
 
         panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-layout-reentry")
+        let eventCountBeforeRestore = inspector.events.count
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        let restoreEvents = Array(inspector.events.dropFirst(eventCountBeforeRestore))
 
         XCTAssertTrue(
             inspector.isAttached(),
@@ -3640,6 +3642,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.attachCount, 2)
+        XCTAssertEqual(
+            Array(restoreEvents.prefix(2)),
+            ["attach", "show"],
+            "Reveal after split/layout reentry must attach before the first restore show attempt"
+        )
     }
 
     func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {
