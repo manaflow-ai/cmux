@@ -914,10 +914,6 @@ img.ProseMirror-separator {
   margin: 0;
 }
 
-.ProseMirror p + p {
-  margin-top: 4px;
-}
-
 .ProseMirror .placeholder {
   pointer-events: none;
   user-select: none;
