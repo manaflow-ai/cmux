@@ -118,6 +118,7 @@ extension AppDelegate {
                 sessionWindowSnapshot: windowEntry.snapshot,
                 shouldActivate: shouldActivate,
                 closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds,
+                remapClosedWorkspaceWindowIdsFromSnapshot: false,
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager

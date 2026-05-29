@@ -7525,6 +7525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         closedWindowHistoryWorkspaceIds: [UUID] = [],
+        remapClosedWorkspaceWindowIdsFromSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -7543,7 +7544,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
                 )
             }
-            if let originalWindowId = sessionWindowSnapshot.windowId {
+            if remapClosedWorkspaceWindowIdsFromSnapshot,
+               let originalWindowId = sessionWindowSnapshot.windowId {
                 ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
