@@ -186,17 +186,17 @@ async function initializeCodeViewWorkerPool() {
   }
   observeWorkerPool(pool);
   if (pool?.initialize) {
-    startupMonitor.waitFor(pool.initialize())
-      .then(() => {
-        startupMonitor.dispose();
-        if (workerPool === pool) {
-          recordWorkerPoolStats(pool.getStats?.());
-        }
-      })
-      .catch((error) => {
-        startupMonitor.dispose();
-        handleWorkerPoolStartupFailure(pool, error);
-      });
+    try {
+      await startupMonitor.waitFor(pool.initialize());
+      startupMonitor.dispose();
+      if (workerPool === pool) {
+        recordWorkerPoolStats(pool.getStats?.());
+      }
+    } catch (error) {
+      startupMonitor.dispose();
+      handleWorkerPoolStartupFailure(pool, error);
+      return null;
+    }
   } else {
     startupMonitor.dispose();
   }
@@ -480,18 +480,10 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     model.pendingItems.push(item);
     model.pendingItemById.set(item.id, item);
     model.itemIdToFile.set(item.id, { fileOrder, path });
-    model.itemIdByTreePath.set(treePath, item.id);
-    model.treePathByItemId.set(item.id, treePath);
     model.diffStats.addedLines += stats.added;
     model.diffStats.deletedLines += stats.deleted;
     model.diffStats.fileCount += 1;
     model.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
-    const previousStats = previousState == null
-      ? undefined
-      : fileStats(previousState.currentItem.fileDiff ?? {});
-    if (previousState != null && !sameFileStats(previousStats, stats)) {
-      model.pendingStatsChanged = true;
-    }
     if (path.length > 0) {
       if (previousState == null) {
         model.paths.push(treePath);
@@ -519,10 +511,6 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
       const itemMetadata = model.itemIdToFile.get(oldId);
       model.itemIdToFile.delete(oldId);
       model.itemIdToFile.set(newId, itemMetadata);
-    }
-    if (model.treePathByItemId.has(oldId)) {
-      model.treePathByItemId.delete(oldId);
-      model.treePathByItemId.set(newId, treePath);
     }
     if (model.pendingItemById.has(oldId)) {
       const pendingItem = model.pendingItemById.get(oldId);
@@ -751,6 +739,7 @@ async function streamPatchIntoCodeView({ CodeView, parsePatchFiles, processFile,
     streamMetrics.treeRefreshCount += 1;
     currentTreeSource = createFileTreeSourceFromModel(diffModel);
     refreshFileExplorerSource(currentTreeSource, treesModule);
+    updateDiffStatsFromModel(diffModel);
     updateToolbarState();
     recordStreamMetrics(streamMetrics);
   }
@@ -992,7 +981,6 @@ function createStreamingDiffModel() {
     fileIndex: 0,
     gitStatusByPath: new Map(),
     itemIdToFile: new Map(),
-    itemIdByTreePath: new Map(),
     lastTreeSource: undefined,
     nextCollisionSuffixByBase: new Map(),
     items: [],
@@ -1003,8 +991,6 @@ function createStreamingDiffModel() {
     pendingGitStatusSetByPath: new Map(),
     pendingItems: [],
     pendingItemById: new Map(),
-    pendingStatsChanged: false,
-    treePathByItemId: new Map(),
   };
 }
 
@@ -1012,17 +998,13 @@ function createFileTreeSourceFromModel(model) {
   const previousSource = model.lastTreeSource;
   const gitStatusPatch = buildGitStatusPatch(model);
   const source = {
-    diffStats: { ...model.diffStats },
     gitStatus: Array.from(model.gitStatusByPath.values()),
-    gitStatusPatch,
+    gitStatusPatch: previousSource == null ? undefined : gitStatusPatch,
     pathCount: model.paths.length,
     paths: model.paths,
     pathToItemId: model.pathToItemId,
     previousSource,
-    statsChanged: model.pendingStatsChanged,
-    treePathByItemId: model.treePathByItemId,
   };
-  model.pendingStatsChanged = false;
   model.lastTreeSource = source;
   return source;
 }
@@ -1644,7 +1626,7 @@ function refreshPierreFileTree(source, treesModule) {
     } else {
       fileTree.setGitStatus(source.gitStatus);
     }
-  } else if (resetTree || source.statsChanged === true) {
+  } else if (resetTree) {
     fileTree.setGitStatus(source.gitStatus);
   }
 }
@@ -1653,7 +1635,6 @@ function createFileTreeSource(items) {
   const entries = buildTreeEntries(items);
   const paths = entries.map((entry) => entry.path);
   const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
-  const treePathByItemId = new Map(entries.map((entry) => [entry.item.id, entry.path]));
   return {
     entries,
     gitStatus: entries
@@ -1662,7 +1643,6 @@ function createFileTreeSource(items) {
     pathCount: paths.length,
     paths,
     pathToItemId,
-    treePathByItemId,
   };
 }
 
@@ -2072,10 +2052,6 @@ function fileStats(fileDiff) {
   return stats;
 }
 
-function sameFileStats(previousStats, stats) {
-  return previousStats?.added === stats.added && previousStats?.deleted === stats.deleted;
-}
-
 function icon(name) {
   const paths = {
     background: '<rect x="4" y="4" width="12" height="12" rx="2"/><path d="M7 8h6"/><path d="M7 12h6"/>',
@@ -2190,4 +2166,3 @@ function shikiThemeFromGhostty(theme) {
     ],
   };
 }
-
