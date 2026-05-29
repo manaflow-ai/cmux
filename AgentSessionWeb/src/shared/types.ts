@@ -65,6 +65,7 @@ export type AgentSessionCopy = {
   addFilesAndMore: string;
   addPhotosAndFiles: string;
   removeAttachment: string;
+  copyOutput: string;
   browseWeb: string;
   autoContext: string;
   includeIdeContext: string;

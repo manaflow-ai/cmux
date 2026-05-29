@@ -535,6 +535,10 @@ select {
   --edge-fade-distance: 2rem;
 }
 
+.codex-tool-output-copy:focus-visible {
+  opacity: 1;
+}
+
 @keyframes codex-tool-activity-pulse {
   0%,
   100% {

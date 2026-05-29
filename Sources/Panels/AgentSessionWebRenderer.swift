@@ -426,6 +426,10 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.removeAttachment",
                             defaultValue: "Remove attachment"
                         ),
+                        "copyOutput": String(
+                            localized: "agentSession.web.copyOutput",
+                            defaultValue: "Copy output"
+                        ),
                         "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
                         "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
                         "includeIdeContext": String(

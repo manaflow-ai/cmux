@@ -54,6 +54,7 @@ const context: AppContext = {
     addFilesAndMore: "Add files and more",
     addPhotosAndFiles: "Add photos & files",
     removeAttachment: "Remove attachment",
+    copyOutput: "Copy output",
     browseWeb: "Browse web",
     autoContext: "Context",
     includeIdeContext: "Include IDE context",
