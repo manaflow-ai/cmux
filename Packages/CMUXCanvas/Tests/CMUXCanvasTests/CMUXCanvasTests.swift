@@ -27,13 +27,12 @@ final class CMUXCanvasTests: XCTestCase {
             ),
             .live
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
                 preferSnapshot: true,
                 hasLiveTexture: true,
                 hasSnapshotTexture: false
-            ),
-            .live
+            )
         )
         XCTAssertNil(
             CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(

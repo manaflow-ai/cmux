@@ -13,8 +13,8 @@ public enum CanvasSurfaceTextureSourceSelectionPolicy {
         hasLiveTexture: Bool,
         hasSnapshotTexture: Bool
     ) -> CanvasSurfaceTextureKind? {
-        if preferSnapshot, hasSnapshotTexture {
-            return .snapshot
+        if preferSnapshot {
+            return hasSnapshotTexture ? .snapshot : nil
         }
         if hasLiveTexture {
             return .live
