@@ -661,10 +661,10 @@ enum FilePreviewKindResolver {
     ]
 
     private static let textExtensions: Set<String> = [
-        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "env",
+        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "plist", "py",
-        "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
+        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
+        "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
     ]
 
@@ -717,8 +717,8 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
-        if needsSniffBeforeTextOrMedia(url: url) {
-            return .needsSniff
+        if let textResolution = knownTextResolutionBeforeMedia(for: url) {
+            return textResolution
         }
 
         if let type = UTType(filenameExtension: ext),
@@ -743,17 +743,8 @@ enum FilePreviewKindResolver {
             return .resolved(.quickLook)
         }
 
-        if needsSniffBeforeTextOrMedia(url: url) {
-            if sniffLooksLikeText(url: url) {
-                return .resolved(.text)
-            }
-            if looksLikeMPEGTransportStream(url: url) {
-                return .resolved(.media)
-            }
-            if let mediaMode = contentTypes(for: url).lazy.compactMap({ mediaMode(for: $0) }).first {
-                return .resolved(mediaMode)
-            }
-            return .needsSniff
+        if let textResolution = knownTextResolutionBeforeMedia(for: url) {
+            return textResolution
         }
 
         for type in contentTypes(for: url) {
@@ -818,20 +809,30 @@ enum FilePreviewKindResolver {
         return false
     }
 
-    private static func needsSniffBeforeTextOrMedia(url: URL) -> Bool {
+    private static func knownTextResolutionBeforeMedia(for url: URL) -> Resolution? {
         let filename = url.lastPathComponent.lowercased()
         let ext = url.pathExtension.lowercased()
-        if ext == "ts" {
-            return true
-        }
-        guard textFilenames.contains(filename) || textExtensions.contains(ext),
-              let type = UTType(filenameExtension: ext) else {
-            return false
+        guard ext != "plist",
+              textFilenames.contains(filename) || textExtensions.contains(ext) else {
+            return nil
         }
 
-        return mediaMode(for: type) != nil
-            && !type.conforms(to: .text)
-            && !type.conforms(to: .sourceCode)
+        guard let type = UTType(filenameExtension: ext),
+              let mediaMode = mediaMode(for: type),
+              !type.conforms(to: .text),
+              !type.conforms(to: .sourceCode) else {
+            return .resolved(.text)
+        }
+
+        // Source extensions can collide with system audio/video UTIs (.ts, .mts).
+        // Decide from a small content sample before QuickLook can pick its movie generator.
+        if sniffLooksLikeText(url: url) {
+            return .resolved(.text)
+        }
+        if looksLikeMPEGTransportStream(url: url) {
+            return .resolved(.media)
+        }
+        return .resolved(mediaMode)
     }
 
     private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
@@ -842,8 +843,7 @@ enum FilePreviewKindResolver {
     }
 
     private static func looksLikeMPEGTransportStream(url: URL) -> Bool {
-        guard url.pathExtension.lowercased() == "ts",
-              let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
 
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
