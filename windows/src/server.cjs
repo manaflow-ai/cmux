@@ -24,7 +24,13 @@ const workspaceColors = [
   "oklch(76% 0.15 82)",
   "oklch(68% 0.18 330)",
   "oklch(70% 0.14 195)",
-  "oklch(64% 0.17 28)"
+  "oklch(64% 0.17 28)",
+  "oklch(74% 0.18 305)",
+  "oklch(72% 0.17 230)",
+  "oklch(74% 0.12 35)",
+  "oklch(80% 0.1 115)",
+  "oklch(66% 0.13 175)",
+  "oklch(86% 0.11 70)"
 ];
 
 function id(prefix) {

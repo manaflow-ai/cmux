@@ -80,6 +80,47 @@ body.theme-blueprint {
   --color-line: oklch(32% 0.04 245);
 }
 
+body.theme-harbor {
+  --color-canvas: oklch(13% 0.02 205);
+  --color-chrome: oklch(18% 0.026 205);
+  --color-rail: oklch(16% 0.024 205);
+  --color-pane: oklch(17% 0.02 205);
+  --color-pane-warm: oklch(21% 0.03 205);
+  --color-pane-active: oklch(25% 0.034 205);
+  --color-line: oklch(34% 0.032 205);
+}
+
+body.theme-orchid {
+  --color-canvas: oklch(13% 0.022 315);
+  --color-chrome: oklch(18% 0.028 315);
+  --color-rail: oklch(16% 0.026 315);
+  --color-pane: oklch(17% 0.022 315);
+  --color-pane-warm: oklch(21% 0.03 315);
+  --color-pane-active: oklch(25% 0.036 315);
+  --color-line: oklch(34% 0.035 315);
+}
+
+body.theme-ember {
+  --color-canvas: oklch(13% 0.018 35);
+  --color-chrome: oklch(18% 0.024 35);
+  --color-rail: oklch(16% 0.022 35);
+  --color-pane: oklch(17% 0.02 35);
+  --color-pane-warm: oklch(21% 0.028 35);
+  --color-pane-active: oklch(25% 0.034 35);
+  --color-line: oklch(34% 0.035 35);
+}
+
+body.theme-paper {
+  --color-canvas: oklch(17% 0.006 95);
+  --color-chrome: oklch(22% 0.008 95);
+  --color-rail: oklch(20% 0.008 95);
+  --color-pane: oklch(21% 0.007 95);
+  --color-pane-warm: oklch(25% 0.011 95);
+  --color-pane-active: oklch(29% 0.012 95);
+  --color-line: oklch(38% 0.014 95);
+  --color-muted: oklch(74% 0.015 95);
+}
+
 button,
 input {
   font: inherit;
@@ -92,7 +133,7 @@ button {
 .shell {
   position: relative;
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr) 0;
+  grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr) 0;
   width: 100vw;
   height: 100vh;
   background: var(--color-canvas);
@@ -136,23 +177,28 @@ button {
 }
 
 .shell.inspector-open {
-  grid-template-columns: 232px minmax(0, 1fr) 318px;
+  grid-template-columns: var(--sidebar-width, 232px) minmax(0, 1fr) 318px;
 }
 
 .shell.sidebar-collapsed.inspector-open {
   grid-template-columns: 0 minmax(0, 1fr) 318px;
 }
 
-.shell.density-compact {
-  grid-template-columns: 204px minmax(0, 1fr) 0;
-}
-
-.shell.density-compact.inspector-open {
-  grid-template-columns: 204px minmax(0, 1fr) 318px;
-}
-
 .shell.hide-tabs .surface-tabs {
   display: none;
+}
+
+.shell.density-compact .workspace-row {
+  min-height: 64px;
+}
+
+.shell.density-compact .surface-tab {
+  height: 30px;
+  min-width: 112px;
+}
+
+.shell.density-compact .pane {
+  grid-template-rows: 28px minmax(0, 1fr);
 }
 
 .shell.hide-status .statusbar {
@@ -254,9 +300,11 @@ button {
 
 .rail-button {
   height: 26px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 800;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 720;
 }
 
 .rail-button:hover,
@@ -864,7 +912,7 @@ button {
 .terminal-host {
   width: 100%;
   height: 100%;
-  padding: 8px 9px;
+  padding: var(--terminal-padding, 8px) calc(var(--terminal-padding, 8px) + 1px);
   background: var(--color-pane);
 }
 

@@ -8,7 +8,9 @@ const defaultSettings = {
   showStatusbar: true,
   showAdvanced: false,
   performanceMode: false,
+  sidebarWidth: 232,
   terminalFontSize: 13,
+  terminalPadding: 8,
   terminalScrollback: 12000
 };
 
@@ -16,7 +18,11 @@ const themeOptions = [
   ["cmux", "cmux"],
   ["graphite", "Graphite"],
   ["forest", "Forest"],
-  ["blueprint", "Blueprint"]
+  ["blueprint", "Blueprint"],
+  ["harbor", "Harbor"],
+  ["orchid", "Orchid"],
+  ["ember", "Ember"],
+  ["paper", "Paper Dark"]
 ];
 
 const accentOptions = [
@@ -25,7 +31,13 @@ const accentOptions = [
   "oklch(78% 0.15 82)",
   "oklch(68% 0.18 330)",
   "oklch(70% 0.14 195)",
-  "oklch(64% 0.17 28)"
+  "oklch(64% 0.17 28)",
+  "oklch(74% 0.18 305)",
+  "oklch(72% 0.17 230)",
+  "oklch(74% 0.12 35)",
+  "oklch(80% 0.1 115)",
+  "oklch(66% 0.13 175)",
+  "oklch(86% 0.11 70)"
 ];
 
 const backgroundPresets = [
@@ -132,7 +144,9 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.showStatusbar = next.showStatusbar !== false;
   next.showAdvanced = Boolean(next.showAdvanced);
   next.performanceMode = Boolean(next.performanceMode);
+  next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
+  next.terminalPadding = clamp(next.terminalPadding, 0, 16);
   return next;
 }
 
@@ -179,10 +193,12 @@ function backgroundCss(value) {
 }
 
 function applySettings() {
-  document.body.classList.remove("theme-graphite", "theme-forest", "theme-blueprint");
+  document.body.classList.remove(...themeOptions.filter(([id]) => id !== "cmux").map(([id]) => `theme-${id}`));
   if (state.settings.theme !== "cmux") document.body.classList.add(`theme-${state.settings.theme}`);
   document.documentElement.style.setProperty("--color-accent", state.settings.accent);
   document.documentElement.style.setProperty("--color-accent-hover", state.settings.accent);
+  elements.shell.style.setProperty("--sidebar-width", `${state.settings.sidebarWidth}px`);
+  elements.shell.style.setProperty("--terminal-padding", `${state.settings.terminalPadding}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
   elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
   elements.shell.classList.toggle("hide-status", !state.settings.showStatusbar);
@@ -1118,6 +1134,19 @@ function renderSettingsInspector() {
   densitySelect.value = state.settings.density;
   densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
   layoutSection.append(settingRow("Density", densitySelect));
+  const sidebarWidthRange = document.createElement("input");
+  sidebarWidthRange.className = "setting-control";
+  sidebarWidthRange.type = "range";
+  sidebarWidthRange.min = "188";
+  sidebarWidthRange.max = "304";
+  sidebarWidthRange.step = "4";
+  sidebarWidthRange.value = String(state.settings.sidebarWidth);
+  const sidebarWidthRow = settingRow(`Sidebar ${state.settings.sidebarWidth}px`, sidebarWidthRange);
+  sidebarWidthRange.oninput = () => {
+    updateSettings({ sidebarWidth: Number(sidebarWidthRange.value) });
+    sidebarWidthRow.querySelector(".setting-label").textContent = `Sidebar ${state.settings.sidebarWidth}px`;
+  };
+  layoutSection.append(sidebarWidthRow);
   layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
   layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
   layoutSection.append(settingRow("Toolbar shortcuts", toggleInput(state.settings.showAdvanced, (checked) => updateSettings({ showAdvanced: checked }))));
@@ -1131,8 +1160,24 @@ function renderSettingsInspector() {
   fontRange.min = "10";
   fontRange.max = "22";
   fontRange.value = String(state.terminalFontSize);
-  fontRange.oninput = () => updateSettings({ terminalFontSize: Number(fontRange.value) });
-  terminalSection.append(settingRow(`Text size ${state.terminalFontSize}px`, fontRange));
+  const fontRow = settingRow(`Text size ${state.terminalFontSize}px`, fontRange);
+  fontRange.oninput = () => {
+    updateSettings({ terminalFontSize: Number(fontRange.value) });
+    fontRow.querySelector(".setting-label").textContent = `Text size ${state.terminalFontSize}px`;
+  };
+  terminalSection.append(fontRow);
+  const paddingRange = document.createElement("input");
+  paddingRange.className = "setting-control";
+  paddingRange.type = "range";
+  paddingRange.min = "0";
+  paddingRange.max = "16";
+  paddingRange.value = String(state.settings.terminalPadding);
+  const paddingRow = settingRow(`Padding ${state.settings.terminalPadding}px`, paddingRange);
+  paddingRange.oninput = () => {
+    updateSettings({ terminalPadding: Number(paddingRange.value) });
+    paddingRow.querySelector(".setting-label").textContent = `Padding ${state.settings.terminalPadding}px`;
+  };
+  terminalSection.append(paddingRow);
   const scrollbackRange = document.createElement("input");
   scrollbackRange.className = "setting-control";
   scrollbackRange.type = "range";
@@ -1140,8 +1185,12 @@ function renderSettingsInspector() {
   scrollbackRange.max = "50000";
   scrollbackRange.step = "2000";
   scrollbackRange.value = String(state.settings.terminalScrollback);
-  scrollbackRange.oninput = () => updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
-  terminalSection.append(settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange));
+  const scrollbackRow = settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange);
+  scrollbackRange.oninput = () => {
+    updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
+    scrollbackRow.querySelector(".setting-label").textContent = `Scrollback ${state.settings.terminalScrollback}`;
+  };
+  terminalSection.append(scrollbackRow);
   const restart = document.createElement("button");
   restart.className = "notification-action";
   restart.textContent = "Restart active terminal";
