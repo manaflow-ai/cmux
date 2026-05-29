@@ -525,7 +525,11 @@ function SessionSurface({
         : h(
             "span",
             { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
-            h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+            h(
+              "span",
+              { className: "model-display flex min-w-0 items-center gap-1 tabular-nums" },
+              h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+            ),
             reasoningEffortLabel
               ? h(
                   "span",
