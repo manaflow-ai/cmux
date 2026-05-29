@@ -339,29 +339,28 @@ final class AuthManagerSignOutTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        let client = AuthManagerSuspendingSignOutTestClient()
         let tokenStore = AuthManagerSignOutTestTokenStore()
         await tokenStore.setTokens(accessToken: "old-access", refreshToken: "old-refresh")
         let manager = AuthManager(
-            client: client,
+            client: AuthManagerSignOutTestClient(),
             tokenStore: tokenStore,
             settingsStore: AuthSettingsStore(userDefaults: defaults)
         )
         await manager.awaitBootstrapped()
 
+        await tokenStore.suspendNextClearTokensIfCurrent()
         async let signOutCompletion: Void = manager.signOut()
-        await Task.yield()
-        await client.waitForSignOutStarted()
+        await tokenStore.waitForSuspendedClearTokensIfCurrent()
 
         let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=new-refresh&stack_access=new-access"))
         do {
             try await manager.handleCallbackURL(callbackURL)
         } catch {
-            await client.resumeSignOut()
+            await tokenStore.resumeSuspendedClearTokensIfCurrent()
             await signOutCompletion
             throw error
         }
-        await client.resumeSignOut()
+        await tokenStore.resumeSuspendedClearTokensIfCurrent()
         await signOutCompletion
 
         XCTAssertTrue(manager.isAuthenticated)
@@ -384,48 +383,15 @@ private struct AuthManagerSignOutTestClient: AuthClientProtocol {
     func signOut() async throws {}
 }
 
-private actor AuthManagerSuspendingSignOutTestClient: AuthClientProtocol {
-    private var signOutContinuation: CheckedContinuation<Void, Never>?
-    private var signOutStartedContinuation: CheckedContinuation<Void, Never>?
-
-    func currentUser() async throws -> CMUXAuthUser? {
-        nil
-    }
-
-    func listTeams() async throws -> [AuthTeamSummary] {
-        []
-    }
-
-    func signOut() async throws {
-        await withCheckedContinuation { continuation in
-            signOutContinuation = continuation
-            signOutStartedContinuation?.resume()
-            signOutStartedContinuation = nil
-        }
-    }
-
-    func waitForSignOutStarted() async {
-        if signOutContinuation != nil {
-            return
-        }
-        await withCheckedContinuation { continuation in
-            signOutStartedContinuation = continuation
-        }
-    }
-
-    func resumeSignOut() {
-        let continuation = signOutContinuation
-        signOutContinuation = nil
-        continuation?.resume()
-    }
-}
-
 private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {
     private var accessToken: String?
     private var refreshToken: String?
     private var shouldSuspendNextSetTokens = false
     private var suspendedSetTokensContinuation: CheckedContinuation<Void, Never>?
     private var suspendedSetTokensWaiter: CheckedContinuation<Void, Never>?
+    private var shouldSuspendNextClearTokensIfCurrent = false
+    private var suspendedClearTokensIfCurrentContinuation: CheckedContinuation<Void, Never>?
+    private var suspendedClearTokensIfCurrentWaiter: CheckedContinuation<Void, Never>?
 
     func suspendNextSetTokens() {
         shouldSuspendNextSetTokens = true
@@ -444,6 +410,26 @@ private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {
         shouldSuspendNextSetTokens = false
         let continuation = suspendedSetTokensContinuation
         suspendedSetTokensContinuation = nil
+        continuation?.resume()
+    }
+
+    func suspendNextClearTokensIfCurrent() {
+        shouldSuspendNextClearTokensIfCurrent = true
+    }
+
+    func waitForSuspendedClearTokensIfCurrent() async {
+        if suspendedClearTokensIfCurrentContinuation != nil {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            suspendedClearTokensIfCurrentWaiter = continuation
+        }
+    }
+
+    func resumeSuspendedClearTokensIfCurrent() {
+        shouldSuspendNextClearTokensIfCurrent = false
+        let continuation = suspendedClearTokensIfCurrentContinuation
+        suspendedClearTokensIfCurrentContinuation = nil
         continuation?.resume()
     }
 
@@ -470,6 +456,28 @@ private actor AuthManagerSignOutTestTokenStore: StackAuthTokenStoreProtocol {
     func clearTokens() async {
         accessToken = nil
         refreshToken = nil
+    }
+
+    @discardableResult
+    func clearTokensIfCurrent(accessToken expectedAccessToken: String?, refreshToken expectedRefreshToken: String?) async -> Bool {
+        if shouldSuspendNextClearTokensIfCurrent {
+            await withCheckedContinuation { continuation in
+                suspendedClearTokensIfCurrentContinuation = continuation
+                suspendedClearTokensIfCurrentWaiter?.resume()
+                suspendedClearTokensIfCurrentWaiter = nil
+            }
+        }
+
+        let matches: Bool
+        if let expectedRefreshToken {
+            matches = refreshToken == expectedRefreshToken
+        } else {
+            matches = refreshToken == nil && accessToken == expectedAccessToken
+        }
+        guard matches else { return false }
+        accessToken = nil
+        refreshToken = nil
+        return true
     }
 
     func compareAndSet(

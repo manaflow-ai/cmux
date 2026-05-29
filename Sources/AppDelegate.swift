@@ -6024,6 +6024,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = contextForMainWindow(NSApp.mainWindow) {
             return context
         }
+        for window in NSApp.orderedWindows where isMainTerminalWindow(window) {
+            if let context = contextForMainWindow(window) {
+                return context
+            }
+        }
         if let activeManager = tabManager,
            let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
             return activeContext
@@ -6058,24 +6063,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if let preferredWindow,
-           let preferredContext = contextForMainTerminalWindow(preferredWindow),
-           toggle(preferredContext) {
-            return true
-        }
-        if let keyWindow = NSApp.keyWindow,
-           let keyContext = contextForMainTerminalWindow(keyWindow),
-           toggle(keyContext) {
-            return true
-        }
-        if let mainWindow = NSApp.mainWindow,
-           let mainContext = contextForMainTerminalWindow(mainWindow),
-           toggle(mainContext) {
-            return true
-        }
-        if let activeManager = tabManager,
-           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
-           toggle(activeContext) {
+        if let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+           toggle(context) {
             return true
         }
         for fallbackContext in Array(mainWindowContexts.values) where toggle(fallbackContext) {
