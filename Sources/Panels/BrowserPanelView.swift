@@ -7539,13 +7539,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.webView = webView
 
         Self.clearPortalCallbacks(for: nsView)
-        let hostOwnsPortal = rendersInCanvas
-            ? updateUsingCanvasInlineHosting(nsView, context: context, webView: webView)
-            : (
-                useLocalInlineHosting
-                    ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
-                    : updateUsingWindowPortal(nsView, context: context, webView: webView)
-            )
+        let hostOwnsPortal = useLocalInlineHosting && !rendersInCanvas
+            ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
+            : updateUsingWindowPortal(nsView, context: context, webView: webView)
         if hostOwnsPortal {
             panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
         }
