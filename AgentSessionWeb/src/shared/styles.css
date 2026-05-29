@@ -49,7 +49,9 @@
   --color-token-scrollbar-slider-background: color-mix(in srgb, var(--agent-muted) 24%, transparent);
   --color-token-scrollbar-slider-hover-background: color-mix(in srgb, var(--agent-muted) 38%, transparent);
   --color-token-scrollbar-slider-active-background: color-mix(in srgb, var(--agent-muted) 54%, transparent);
-  --shadow-xl-spread: 0 16px 48px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0px 2px 4px -1px #00000014;
+  --shadow-xl: 0px 8px 16px -4px #0000001f;
+  --shadow-xl-spread: 0px 0px 0px 0.5px var(--tw-shadow-color, var(--color-token-border)), var(--shadow-xl);
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 14px;
@@ -72,6 +74,7 @@
   --spacing-token-button-composer: calc(var(--spacing) * 7);
   --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
   --spacing-token-button-composer-gap: var(--spacing);
+  --h-token-button-composer-gap: var(--spacing-token-button-composer-gap);
 }
 
 @property --top-fade {
@@ -722,12 +725,12 @@ select {
 
 .h-token-button-composer {
   height: var(--spacing-token-button-composer);
-  gap: var(--spacing-token-button-composer-gap);
+  gap: var(--h-token-button-composer-gap);
 }
 
 .h-token-button-composer-sm {
   height: var(--spacing-token-button-composer-sm);
-  gap: var(--spacing-token-button-composer-gap);
+  gap: var(--h-token-button-composer-gap);
 }
 
 .size-token-button-composer {
@@ -740,19 +743,44 @@ select {
   height: var(--spacing-token-button-composer-sm);
 }
 
-.icon-2xs {
+.icon-3xs {
+  width: 10px;
+  height: 10px;
+}
+
+.icon-xxs {
   width: 12px;
   height: 12px;
 }
 
-.icon-xs {
+.icon-2xs {
   width: 14px;
   height: 14px;
 }
 
-.icon-sm {
+.icon-xs {
   width: 16px;
   height: 16px;
+}
+
+.icon-sm {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-base {
+  width: 20px;
+  height: 20px;
+}
+
+.icon-md {
+  width: 24px;
+  height: 24px;
+}
+
+.icon-lg {
+  width: 28px;
+  height: 28px;
 }
 
 .cursor-interaction {
