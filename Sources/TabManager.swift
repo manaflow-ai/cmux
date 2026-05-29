@@ -6426,7 +6426,10 @@ class TabManager: ObservableObject {
 
     /// Place a freshly-created group where its first child already was.
     /// This keeps "New Group from Selection" visually stable while still
-    /// making every affected group contiguous and anchor-first.
+    /// making every affected group contiguous and anchor-first. It
+    /// intentionally preserves cross-section order instead of applying the
+    /// older all-groups-before-ungrouped tier ordering, because changing that
+    /// outer position is the jump this creation path is avoiding.
     private func placeNewWorkspaceGroupAtCreationPosition(
         groupId: UUID,
         anchorId: UUID,
@@ -6460,6 +6463,8 @@ class TabManager: ObservableObject {
 
     /// Rebuild `tabs` by walking a desired workspace order and emitting each
     /// workspace group as one contiguous run at its first encountered member.
+    /// Use this only for flows whose contract is to preserve outer position;
+    /// use `normalizeWorkspaceGroupContiguity` for tier-order normalization.
     private func normalizeWorkspaceGroupRunsPreservingOrder(_ desiredIds: [UUID]) {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let knownGroupIds = Set(groupsById.keys)
