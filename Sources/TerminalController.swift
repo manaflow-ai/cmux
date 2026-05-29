@@ -3782,6 +3782,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCanvasDrag(params: params))
         case "debug.canvas.pan":
             return v2Result(id: id, self.v2DebugCanvasPan(params: params))
+        case "debug.canvas.native_surface_presentation":
+            return v2Result(id: id, self.v2DebugCanvasNativeSurfacePresentation(params: params))
         case "debug.canvas.resize":
             return v2Result(id: id, self.v2DebugCanvasResize(params: params))
         case "debug.canvas.viewport":
@@ -4086,6 +4088,7 @@ class TerminalController {
             "debug.mouse.drag",
             "debug.canvas.drag",
             "debug.canvas.pan",
+            "debug.canvas.native_surface_presentation",
             "debug.canvas.resize",
             "debug.canvas.viewport",
             "debug.canvas.wheel_zoom",
@@ -15897,6 +15900,47 @@ class TerminalController {
                 "dy": dy,
                 "presentation_scale": CanvasViewportZoom.presentationScale(for: after),
                 "scale": after.scale
+            ])
+        }
+    }
+
+    private func v2DebugCanvasNativeSurfacePresentation(params: [String: Any]) -> V2CallResult {
+        let shouldFreeze = v2Bool(params, "freeze") ?? true
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "not_found", message: "Window not found", data: nil)
+        }
+
+        return v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+
+            var terminalCount = 0
+            var browserCount = 0
+            for panel in workspace.panels.values {
+                if let terminalPanel = panel as? TerminalPanel {
+                    terminalCount += 1
+                    if shouldFreeze {
+                        TerminalWindowPortalRegistry.freezeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+                    } else {
+                        TerminalWindowPortalRegistry.resumeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+                    }
+                    continue
+                }
+                if let browserPanel = panel as? BrowserPanel {
+                    browserCount += 1
+                    if shouldFreeze {
+                        BrowserWindowPortalRegistry.freezeCanvasSurfacePresentation(webView: browserPanel.webView)
+                    } else {
+                        BrowserWindowPortalRegistry.resumeCanvasSurfacePresentation(webView: browserPanel.webView)
+                    }
+                }
+            }
+
+            return .ok([
+                "freeze": shouldFreeze,
+                "terminal_count": terminalCount,
+                "browser_count": browserCount
             ])
         }
     }

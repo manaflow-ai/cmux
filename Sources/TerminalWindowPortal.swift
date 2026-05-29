@@ -1340,6 +1340,19 @@ final class WindowTerminalPortal: NSObject {
         canvasClipViewsByHostedId[hostedId]?.isHidden = hidden
     }
 
+    private func parkFrozenCanvasSurface(forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView?) {
+        let parkedViews = [canvasClipViewsByHostedId[hostedId], hostedView].compactMap { $0 }
+        guard !parkedViews.isEmpty else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for parkedView in parkedViews {
+            let parkingFrame = CanvasNativeSurfaceParkingPolicy.parkingFrame(preserving: parkedView.frame)
+            guard !Self.rectApproximatelyEqual(parkedView.frame, parkingFrame) else { continue }
+            parkedView.frame = parkingFrame
+        }
+        CATransaction.commit()
+    }
+
     private func setCanvasSurfaceFrozen(_ frozen: Bool, forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView?) {
         let alpha: CGFloat = frozen ? 0 : 1
         hostedView?.alphaValue = alpha
@@ -1350,6 +1363,7 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 canvasClipViewsByHostedId[hostedId]?.isHidden = false
             }
+            parkFrozenCanvasSurface(forHostedId: hostedId, hostedView: hostedView)
         }
     }
 
@@ -1750,6 +1764,11 @@ final class WindowTerminalPortal: NSObject {
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
+            return
+        }
+        if canvasSurfacePresentationFrozenHostedIds.contains(hostedId) {
+            resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
+            setCanvasSurfaceFrozen(true, forHostedId: hostedId, hostedView: hostedView)
             return
         }
         guard let anchorView = entry.anchorView, let window else {
@@ -2289,18 +2308,21 @@ final class WindowTerminalPortal: NSObject {
             if let hostedView = subview as? GhosttySurfaceScrollView,
                entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
                !hostedView.isHidden,
+               hostedView.alphaValue > 0.01,
                hostedView.frame.contains(point) {
                 return (hostedView, hostedView.convert(point, from: hostView))
             }
 
             guard let clipView = subview as? WindowTerminalCanvasClipView,
                   !clipView.isHidden,
+                  clipView.alphaValue > 0.01,
                   clipView.frame.contains(point) else { continue }
             let pointInClip = clipView.convert(point, from: hostView)
             for child in clipView.subviews.reversed() {
                 guard let hostedView = child as? GhosttySurfaceScrollView,
                       entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
                       !hostedView.isHidden,
+                      hostedView.alphaValue > 0.01,
                       hostedView.frame.contains(pointInClip) else { continue }
                 return (hostedView, hostedView.convert(pointInClip, from: clipView))
             }

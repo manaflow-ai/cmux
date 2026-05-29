@@ -248,6 +248,21 @@ public enum CanvasNativeSurfaceParkingPolicy {
         }
         return .unmount
     }
+
+    public static func parkingFrame(
+        preserving frame: CGRect,
+        offset: CGFloat = 100_000
+    ) -> CGRect {
+        let width = frame.size.width.isFinite && frame.size.width > 0 ? frame.size.width : 1
+        let height = frame.size.height.isFinite && frame.size.height > 0 ? frame.size.height : 1
+        let resolvedOffset = max(1, offset.isFinite ? offset : 100_000)
+        return CGRect(
+            x: -resolvedOffset - width,
+            y: -resolvedOffset - height,
+            width: width,
+            height: height
+        )
+    }
 }
 
 public struct CanvasSurfaceDescriptor: Identifiable, Codable, Sendable, Equatable {

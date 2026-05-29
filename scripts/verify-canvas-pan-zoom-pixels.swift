@@ -104,6 +104,7 @@ let tagSlug = sanitizePath(tag)
 let socketPath = "/tmp/cmux-debug-\(tagSlug).sock"
 let allowVisibleTarget = arguments.contains("--allow-visible-target")
     || ProcessInfo.processInfo.environment["CMUX_ALLOW_VISIBLE_PROBE_TARGET"] == "1"
+let useCurrentWindow = arguments.contains("--use-current-window")
 let stressCount: Int = {
     guard let index = arguments.firstIndex(of: "--stress"),
           index + 1 < arguments.count,
@@ -596,7 +597,18 @@ func refFromCreateOutput(_ output: String, prefix: String) throws -> String {
     return ref
 }
 
-func ensureProbeWindow() throws -> String {
+func ensureProbeWindow() throws -> String? {
+    if useCurrentWindow {
+        if let createdWindowRef {
+            return createdWindowRef
+        }
+        let window = try cli(["current-window"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !window.isEmpty else {
+            throw ProbeError(message: "Could not resolve current window for --use-current-window")
+        }
+        createdWindowRef = window
+        return window
+    }
     if let createdWindowRef {
         return createdWindowRef
     }
@@ -607,12 +619,15 @@ func ensureProbeWindow() throws -> String {
 
 func createProbeWorkspace(name: String) throws -> String {
     let window = try ensureProbeWindow()
-    let workspace = try workspaceRefFromCreateOutput(try cli([
+    var args = [
         "new-workspace",
-        "--window", window,
         "--name", name,
         "--focus", "true"
-    ]))
+    ]
+    if let window {
+        args += ["--window", window]
+    }
+    let workspace = try workspaceRefFromCreateOutput(try cli(args))
     createdWorkspaceRefs.append(workspace)
     try focusWorkspace(workspace)
     return workspace
@@ -624,7 +639,7 @@ func cleanupCreatedProbeState() {
     }
     createdWorkspaceRefs.removeAll()
 
-    if let window = createdWindowRef {
+    if let window = createdWindowRef, !useCurrentWindow {
         _ = try? cli(["close-window", "--window", window])
         createdWindowRef = nil
     }
@@ -692,11 +707,12 @@ func selectedPanelID(panelType: String? = nil) throws -> String {
     return panelID
 }
 
-func readPanelText(panelID: String, lines: Int = 40) throws -> String {
+func readPanelText(workspace: String, panelID: String, lines: Int = 40) throws -> String {
     let response = try cliJSON([
         "rpc",
         "surface.read_text",
         try jsonString([
+            "workspace_id": workspace,
             "surface_id": panelID,
             "scrollback": true,
             "lines": lines,
@@ -712,22 +728,31 @@ func waitForSelectedTerminalPrompt(workspace: String) throws -> String {
     try focusWorkspace(workspace)
     let panelID = try selectedPanelID(panelType: "terminal")
     var lastText = ""
+    var lastError: Error?
     for _ in 0..<50 {
-        lastText = try readPanelText(panelID: panelID)
+        do {
+            lastText = try readPanelText(workspace: workspace, panelID: panelID)
+            lastError = nil
+        } catch {
+            lastError = error
+            Thread.sleep(forTimeInterval: 0.2)
+            continue
+        }
         if lastText.contains("λ") || lastText.contains("$") || lastText.contains("%") {
             return panelID
         }
         Thread.sleep(forTimeInterval: 0.2)
     }
-    throw ProbeError(message: "Timed out waiting for terminal prompt in panel \(panelID). Last text: \(lastText)")
+    throw ProbeError(message: "Timed out waiting for terminal prompt in panel \(panelID). Last text: \(lastText). Last error: \(lastError.map(String.init(describing:)) ?? "none")")
 }
 
-func sendTextToSelectedPanel(_ text: String, panelType: String? = nil) throws {
+func sendTextToSelectedPanel(_ text: String, workspace: String, panelType: String? = nil) throws {
     let panelID = try selectedPanelID(panelType: panelType)
     let response = try cliJSON([
         "rpc",
         "surface.send_text",
         try jsonString([
+            "workspace_id": workspace,
             "surface_id": panelID,
             "text": text,
         ]),
@@ -1312,8 +1337,7 @@ do {
                 panDY: 32,
                 prepareAfterResize: {
                     try focusWorkspace(terminalWorkspace)
-                    _ = try waitForSelectedTerminalPrompt(workspace: terminalWorkspace)
-                    try sendTextToSelectedPanel(terminalTUICommand() + "\n", panelType: "terminal")
+                    try sendTextToSelectedPanel(terminalTUICommand() + "\n", workspace: terminalWorkspace, panelType: "terminal")
                 }
             )
         } else {

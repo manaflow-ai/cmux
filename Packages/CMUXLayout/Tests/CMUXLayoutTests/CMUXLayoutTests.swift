@@ -5303,6 +5303,25 @@ final class CMUXLayoutTests: XCTestCase {
         )
     }
 
+    func testCanvasNativeSurfaceParkingPolicyParksOffscreenWithoutResizing() {
+        let frame = CGRect(x: 240, y: 160, width: 640, height: 420)
+        let parked = CanvasNativeSurfaceParkingPolicy.parkingFrame(preserving: frame, offset: 10_000)
+
+        XCTAssertEqual(parked.size, frame.size)
+        XCTAssertLessThan(parked.maxX, -9_999)
+        XCTAssertLessThan(parked.maxY, -9_999)
+    }
+
+    func testCanvasNativeSurfaceParkingPolicySanitizesInvalidSize() {
+        let parked = CanvasNativeSurfaceParkingPolicy.parkingFrame(
+            preserving: CGRect(x: CGFloat.nan, y: CGFloat.infinity, width: CGFloat.nan, height: -20),
+            offset: CGFloat.nan
+        )
+
+        XCTAssertEqual(parked.size, CGSize(width: 1, height: 1))
+        XCTAssertEqual(parked.origin, CGPoint(x: -100_001, y: -100_001))
+    }
+
     func testCanvasScrollPassthroughPolicyUsesLiveNativeContentFrames() {
         let itemID = LayoutItemID()
         let overlay = CanvasNativeOverlay(

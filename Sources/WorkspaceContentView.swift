@@ -2798,6 +2798,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation,
                 allowLiveTextureFallback: !presentation.usesUnifiedTexturePresentation
             )
+            let surfaceTextureSourceIDs = Set(surfaceTextureSources.map(\.id))
             let metalScene = CanvasScene(presentation: presentation)
             let visibleItems = presentation.presentationSurfaces.map(\.item)
             let transform = metalScene.transform
@@ -2815,7 +2816,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 transform: transform,
                 scale: scale,
                 renderModes: renderModes,
-                activeItemID: activeItemID
+                activeItemID: activeItemID,
+                surfaceTextureSourceIDs: surfaceTextureSourceIDs
             )
             let usesUnifiedTexturePresentation = presentation.usesUnifiedTexturePresentation
 
@@ -3107,7 +3109,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         transform: CanvasTransform,
         scale: CGFloat,
         renderModes: [LayoutItemID: CanvasRenderMode],
-        activeItemID: LayoutItemID?
+        activeItemID: LayoutItemID?,
+        surfaceTextureSourceIDs: Set<LayoutItemID>
     ) -> [WorkspaceCanvasCardSnapshot] {
         let focusedCanvasItemID = controller.focusedCanvasItemID
         let paneActionsEnabled = controller.configuration.allowSplits
@@ -3119,7 +3122,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 ?? String(localized: "canvas.card.untitled", defaultValue: "Untitled Surface")
             let renderMode = renderModes[item.id] ?? .previewTexture
             let previewImage = selected.flatMap { canvasPreviewImages[$0.id] }
-            let hasSurfaceTexture = selected.map { hasCanvasSurfaceTexture(for: $0) } ?? false
+            let hasSurfaceTexture = surfaceTextureSourceIDs.contains(item.id)
             let addressText = selected.map { browserPreviewAddressText(for: $0) } ?? "about:blank"
             let itemFrame = item.frame
             return WorkspaceCanvasCardSnapshot(
@@ -3174,9 +3177,9 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
             let snapshotImage = canvasPreviewImages[selected.id].flatMap { Self.cgImage(from: $0) }
             let liveSurface = (workspace.panel(for: selected.id) as? TerminalPanel)?.hostedView.currentCanvasIOSurface()
+            let preferSnapshot = preferFrozenPreviewTextures || snapshotImage != nil
             switch CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
-                preferSnapshot: preferFrozenPreviewTextures,
-                preferLiveTexture: preferFrozenPreviewTextures && liveSurface != nil,
+                preferSnapshot: preferSnapshot,
                 allowLiveTextureFallback: allowLiveTextureFallback,
                 hasLiveTexture: liveSurface != nil,
                 hasSnapshotTexture: snapshotImage != nil
