@@ -232,6 +232,7 @@ const state = {
   paletteOpen: false,
   paletteIndex: 0,
   dragPanelId: null,
+  zoomedPanelId: null,
   contextMenu: null,
   resizing: null,
   renderFrame: 0,
@@ -449,6 +450,7 @@ const commands = [
   { id: "terminal.clear", label: "Clear Active Terminal", shortcut: "Ctrl+K", run: () => clearActiveTerminal() },
   { id: "terminal.restart", label: "Restart Active Terminal", shortcut: "Ctrl+Shift+R", run: () => restartActiveTerminal() },
   { id: "terminal.close", label: "Close Active Pane", shortcut: "Ctrl+W", run: () => closeActivePanel() },
+  { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserPrompt() },
@@ -468,6 +470,11 @@ function activeWorkspace() {
 function activePanel() {
   const workspace = activeWorkspace();
   return workspace?.panels.find((panel) => panel.id === workspace.activePanelId) || workspace?.panels[0];
+}
+
+function zoomedPanelForWorkspace(workspace = activeWorkspace()) {
+  if (!workspace || !state.zoomedPanelId) return null;
+  return workspace.panels.find((panel) => panel.id === state.zoomedPanelId) || null;
 }
 
 function allPanels() {
@@ -539,19 +546,21 @@ function render(previousState) {
   const workspace = activeWorkspace();
   const panelCount = workspace?.panels.length || 0;
   const attentionCount = allAttentionPanels().length;
+  const zoomedPanel = zoomedPanelForWorkspace(workspace);
 
   elements.workspaceHeading.textContent = workspace?.title || "Workspace";
   elements.workspaceSubheading.textContent = workspace
     ? `${workspace.cwdShort || "no directory"}`
     : "Ready";
   elements.statusSummary.textContent = workspace
-    ? `${workspace.title} · ${panelCount ? `${panelCount} panel${panelCount === 1 ? "" : "s"}` : "home"} · ${attentionCount} attention`
+    ? `${workspace.title} · ${zoomedPanel ? "focus" : panelCount ? `${panelCount} panel${panelCount === 1 ? "" : "s"}` : "home"} · ${attentionCount} attention`
     : "cmux Windows";
   elements.statusPipe.textContent = state.data.pipeName || "pipe unavailable";
   elements.statusPty.textContent = state.data.ptyAvailable ? "ConPTY ready" : "process pipe fallback";
 
   elements.shell.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
   elements.shell.classList.toggle("inspector-open", Boolean(state.inspectorMode));
+  elements.shell.classList.toggle("pane-zoomed", Boolean(zoomedPanel));
   applySettings();
   renderWorkspaces();
   renderSurfaceTabs(workspace);
@@ -726,7 +735,7 @@ function createSurfaceTab() {
 
 function updateSurfaceTab(button, workspace, panel) {
   button.dataset.panelId = panel.id;
-  button.className = `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.needsAttention ? " has-attention" : ""}`;
+  button.className = `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.id === state.zoomedPanelId ? " is-zoomed" : ""}${panel.needsAttention ? " has-attention" : ""}`;
   button.style.setProperty("--tab-color", panel.color || workspace.color || "var(--color-accent)");
   button.querySelector(".surface-label").textContent = panel.type === "browser"
     ? hostnameOf(panel.url)
@@ -767,7 +776,10 @@ function renderPanes(workspace) {
     return;
   }
   elements.paneGrid.classList.toggle("direction-down", workspace.splitDirection === "down");
-  const panelIds = new Set(panels.map((panel) => panel.id));
+  const zoomedPanel = zoomedPanelForWorkspace(workspace);
+  const visiblePanels = zoomedPanel ? [zoomedPanel] : panels;
+  elements.paneGrid.classList.toggle("is-zoomed", Boolean(zoomedPanel));
+  const panelIds = new Set(visiblePanels.map((panel) => panel.id));
   const livePanelIds = allPanelIds();
   for (const child of [...elements.paneGrid.children]) {
     if (child.classList.contains("pane") && !panelIds.has(child.dataset.panelId)) {
@@ -781,8 +793,8 @@ function renderPanes(workspace) {
   }
 
   const nodes = [];
-  for (const [index, panel] of panels.entries()) {
-    if (index > 0) nodes.push(getPaneSplitter(workspace, panels[index - 1], panel));
+  for (const [index, panel] of visiblePanels.entries()) {
+    if (index > 0) nodes.push(getPaneSplitter(workspace, visiblePanels[index - 1], panel));
     let pane = elements.paneGrid.querySelector(`[data-panel-id="${panel.id}"]`) || state.paneCache.get(panel.id);
     if (!pane) {
       pane = createPane(panel);
@@ -791,6 +803,7 @@ function renderPanes(workspace) {
     pane.dataset.panelId = panel.id;
     pane.style.setProperty("--panel-color", panel.color || workspace.color || "var(--color-accent)");
     pane.classList.toggle("is-active", panel.id === workspace.activePanelId);
+    pane.classList.toggle("is-zoomed", panel.id === state.zoomedPanelId);
     pane.classList.toggle("has-attention", panel.needsAttention);
     pane.classList.toggle("is-browser", panel.type === "browser");
     pane.classList.toggle("is-terminal", panel.type === "terminal");
@@ -798,6 +811,9 @@ function renderPanes(workspace) {
     pane.querySelector(".pane-title").textContent = panel.type === "browser"
       ? panel.url || "Browser"
       : panelTitle(panel);
+    const zoomButton = pane.querySelector(".zoom");
+    zoomButton.textContent = panel.id === state.zoomedPanelId ? "[]" : "[ ]";
+    zoomButton.title = panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane";
     if (panel.type === "terminal") {
       ensureTerminal(panel, pane.querySelector(".pane-body"));
       const terminal = state.terminals.get(panel.id);
@@ -917,6 +933,7 @@ function createPane(panel) {
       <div class="pane-toolbar">
         <button class="pane-tool split-right" title="Split right">+</button>
         <button class="pane-tool split-down" title="Split down">▾</button>
+        <button class="pane-tool zoom" title="Focus pane">[ ]</button>
         <button class="pane-tool font-down" title="Smaller terminal text">A-</button>
         <button class="pane-tool font-up" title="Larger terminal text">A+</button>
         <button class="pane-tool restart" title="Restart terminal">R</button>
@@ -946,6 +963,10 @@ function createPane(panel) {
   pane.querySelector(".split-down").onclick = (event) => {
     event.stopPropagation();
     createPanel("terminal", "down");
+  };
+  pane.querySelector(".zoom").onclick = (event) => {
+    event.stopPropagation();
+    togglePaneZoom(pane.dataset.panelId);
   };
   pane.querySelector(".font-down").onclick = (event) => {
     event.stopPropagation();
@@ -1008,6 +1029,7 @@ function clearAllDropTargets() {
 }
 
 function cleanupPanel(panelId) {
+  if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   const terminal = state.terminals.get(panelId);
   if (terminal) {
     terminal.disposed = true;
@@ -1849,6 +1871,7 @@ function showPanelContextMenu(event, panel) {
   actions.append(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    contextMenuButton(panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
     contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
@@ -1931,6 +1954,7 @@ function showToolbarMenu(event) {
   actions.className = "context-actions";
   actions.append(
     contextMenuButton("Split down", () => createPanel("terminal", "down")),
+    contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
     contextMenuButton("Change workspace color", cycleWorkspaceColor),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
@@ -2137,6 +2161,7 @@ function optimisticFocusPanel(panelId) {
 function optimisticClosePanel(panelId) {
   const found = findPanelState(panelId);
   if (!found) return false;
+  if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   found.workspace.panels = found.workspace.panels.filter((candidate) => candidate.id !== panelId);
   found.workspace.activePanelId = found.workspace.panels[0]?.id || null;
   refreshWorkspaceCounts(found.workspace);
@@ -2270,6 +2295,20 @@ async function focusPanel(panelId) {
 function focusTerminalSession(panelId) {
   const terminal = state.terminals.get(panelId);
   if (terminal) setTimeout(() => terminal.term.focus(), 20);
+}
+
+function togglePaneZoom(panelId = activePanel()?.id) {
+  if (!panelId) return;
+  const found = findPanelState(panelId);
+  if (!found) return;
+  const zoomingIn = state.zoomedPanelId !== panelId;
+  state.zoomedPanelId = zoomingIn ? panelId : null;
+  found.workspace.activePanelId = panelId;
+  state.data.activeWorkspaceId = found.workspace.id;
+  render();
+  focusTerminalSession(panelId);
+  const session = state.terminals.get(panelId);
+  if (session) setTimeout(() => scheduleFitTerminal(session), 30);
 }
 
 function toggleSidebar() {
@@ -2515,6 +2554,9 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && event.shiftKey && key === "r") {
     event.preventDefault();
     restartActiveTerminal();
+  } else if (event.ctrlKey && event.shiftKey && key === "m") {
+    event.preventDefault();
+    togglePaneZoom();
   } else if (event.ctrlKey && key === "w") {
     const workspace = activeWorkspace();
     if (workspace?.activePanelId) {

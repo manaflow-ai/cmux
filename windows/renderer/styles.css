@@ -712,6 +712,11 @@ button {
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-accent) 22%, transparent);
 }
 
+.surface-tab.is-zoomed .surface-dot {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-warning) 22%, transparent);
+}
+
 .surface-label {
   min-width: 0;
   overflow: hidden;
@@ -783,6 +788,10 @@ button {
   flex-direction: column;
 }
 
+.pane-grid.is-zoomed {
+  flex-direction: row;
+}
+
 .pane {
   position: relative;
   flex: 1 1 0;
@@ -831,6 +840,12 @@ button {
 
 .pane.is-active {
   border-color: var(--panel-color, var(--color-line-strong));
+}
+
+.pane.is-zoomed {
+  min-width: 0;
+  min-height: 0;
+  border-color: var(--panel-color, var(--color-accent));
 }
 
 .pane.has-attention {
