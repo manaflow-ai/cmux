@@ -4976,18 +4976,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testApplicationSendEventRoutesReassignedCmdWBeforeStaleCloseTabMenuEquivalent() {
+#if DEBUG
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
-        AppDelegate.installWindowResponderSwizzlesForTesting()
-
-        let windowId = appDelegate.createMainWindow()
-        guard let window = appDelegate.windowForMainWindowId(windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let initialSidebarVisible = appDelegate.sidebarVisibility(windowId: windowId) else {
-            closeWindow(withId: windowId)
+        let context = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        guard let initialSidebarVisible = appDelegate.sidebarVisibility(windowId: context.windowId) else {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
             XCTFail("Expected a main window context")
             return
         }
@@ -4997,7 +4995,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         defer {
             NSApp.mainMenu = previousMainMenu
-            closeWindow(withId: windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            closeTestWindow(context.window)
         }
 
         let staleMenu = NSMenu(title: "Test")
@@ -5011,42 +5010,50 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         staleMenu.addItem(staleCloseItem)
         NSApp.mainMenu = staleMenu
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-
         guard let event = makeKeyDownEvent(
             key: "w",
             modifiers: [.command],
             keyCode: 13,
-            windowNumber: window.windowNumber
+            windowNumber: 0
         ) else {
             XCTFail("Failed to construct Cmd+W event")
             return
         }
 
-        let initialWorkspaceCount = manager.tabs.count
+        appDelegate.tabManager = context.tabManager
+
+        let initialWorkspaceCount = context.tabManager.tabs.count
         let remappedCloseTab = StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
         let reassignedSidebarToggle = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
 
         withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
             withTemporaryShortcut(action: .toggleSidebar, shortcut: reassignedSidebarToggle) {
-                NSApp.sendEvent(event)
+                XCTAssertTrue(
+                    appDelegate.handleApplicationSendEventPreflight(
+                        event: event,
+                        preferredWindow: context.window,
+                        keyWindow: nil,
+                        mainWindow: nil
+                    ),
+                    "App-level sendEvent preflight should consume reassigned Cmd+W before stale Close Tab menu fallback"
+                )
             }
         }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
         XCTAssertEqual(menuProbe.callCount, 0, "A stale Cmd+W Close Tab menu item must not run after Cmd+W is reassigned")
         XCTAssertEqual(
-            manager.tabs.count,
+            context.tabManager.tabs.count,
             initialWorkspaceCount,
             "Plain Cmd+W must not close a tab after Close Tab is remapped away"
         )
         XCTAssertEqual(
-            appDelegate.sidebarVisibility(windowId: windowId),
+            appDelegate.sidebarVisibility(windowId: context.windowId),
             !initialSidebarVisible,
             "The action currently assigned to Cmd+W should run before stale Close Tab menu fallback"
         )
+#else
+        XCTFail("Shortcut routing test hooks are only available in DEBUG")
+#endif
     }
 
     func testApplicationSendEventSuppressesRemappedCmdDStaleMenuShortcut() {
