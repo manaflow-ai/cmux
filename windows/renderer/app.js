@@ -8,6 +8,7 @@ import {
   terminalCursorStyles,
   terminalFontOptions,
   terminalProfiles,
+  toolbarModeOptions,
   themeOptions
 } from "./config.js";
 
@@ -110,6 +111,9 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
+  if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
+    next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
+  }
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
@@ -118,7 +122,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
-  next.showAdvanced = Boolean(next.showAdvanced);
+  next.showAdvanced = next.toolbarMode === "expanded";
   next.performanceMode = Boolean(next.performanceMode);
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
   next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
@@ -186,6 +190,9 @@ function applySettings() {
   elements.shell.style.setProperty("--terminal-font-family", terminalFontStack());
   elements.shell.style.setProperty("--terminal-padding", `${state.settings.terminalPadding}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
+  elements.shell.classList.toggle("toolbar-compact", state.settings.toolbarMode === "compact");
+  elements.shell.classList.toggle("toolbar-standard", state.settings.toolbarMode === "standard");
+  elements.shell.classList.toggle("toolbar-expanded", state.settings.toolbarMode === "expanded");
   elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
   elements.shell.classList.toggle("hide-status", !state.settings.showStatusbar);
   elements.shell.classList.toggle("show-advanced", state.settings.showAdvanced);
@@ -1336,6 +1343,17 @@ function renderSettingsInspector() {
   densitySelect.value = state.settings.density;
   densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
   layoutSection.append(settingRow("Density", densitySelect));
+  const toolbarSelect = document.createElement("select");
+  toolbarSelect.className = "setting-select";
+  for (const [value, label] of toolbarModeOptions) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    toolbarSelect.append(option);
+  }
+  toolbarSelect.value = state.settings.toolbarMode;
+  toolbarSelect.onchange = () => updateSettings({ toolbarMode: toolbarSelect.value });
+  layoutSection.append(settingRow("Toolbar", toolbarSelect, false, "top bar command strip compact standard expanded shortcuts actions"));
   const sidebarWidthRange = document.createElement("input");
   sidebarWidthRange.className = "setting-control";
   sidebarWidthRange.type = "range";
@@ -1351,7 +1369,6 @@ function renderSettingsInspector() {
   layoutSection.append(sidebarWidthRow);
   layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
   layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
-  layoutSection.append(settingRow("Toolbar shortcuts", toggleInput(state.settings.showAdvanced, (checked) => updateSettings({ showAdvanced: checked }))));
   layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
   appendSettingsSection(nodes, "layout", layoutSection);
 

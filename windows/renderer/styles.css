@@ -600,14 +600,6 @@ button {
   padding: 0 1px;
 }
 
-.advanced-tool {
-  display: none;
-}
-
-.shell.show-advanced .advanced-tool {
-  display: inline-flex;
-}
-
 .command-strip::-webkit-scrollbar {
   display: none;
 }
@@ -624,6 +616,52 @@ button {
   color: var(--color-text);
   white-space: nowrap;
   flex: 0 0 auto;
+}
+
+.command-strip .advanced-tool {
+  display: none;
+}
+
+.shell.show-advanced .command-strip .advanced-tool {
+  display: inline-flex;
+}
+
+.tool-icon {
+  min-width: 14px;
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-weight: 760;
+  line-height: 1;
+}
+
+.tool-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell.toolbar-compact .command-strip {
+  gap: 4px;
+}
+
+.shell.toolbar-compact .tool-button {
+  width: 32px;
+  padding: 0;
+  gap: 0;
+}
+
+.shell.toolbar-compact .tool-button .tool-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.shell.toolbar-standard .tool-button {
+  max-width: 112px;
 }
 
 .native-window-controls {

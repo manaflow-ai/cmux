@@ -5,6 +5,7 @@ export const defaultSettings = {
   backgroundOpacity: 16,
   browserHomeUrl: "https://www.bing.com",
   density: "comfortable",
+  toolbarMode: "compact",
   showTabs: true,
   showStatusbar: true,
   showAdvanced: false,
@@ -99,6 +100,12 @@ export const terminalFontOptions = [
   ["mono", "System monospace", "ui-monospace, \"Cascadia Mono\", Consolas, monospace"]
 ];
 
+export const toolbarModeOptions = [
+  ["compact", "Compact", "Icon-only main actions for the cleanest top bar."],
+  ["standard", "Standard", "Named main actions with advanced tools tucked away."],
+  ["expanded", "Expanded", "Show every toolbar shortcut on the top bar."]
+];
+
 export const terminalAppearanceKeys = new Set([
   "theme",
   "accent",
@@ -122,6 +129,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 16,
       density: "comfortable",
+      toolbarMode: "compact",
       showTabs: true,
       showStatusbar: true,
       showAdvanced: false,
@@ -144,6 +152,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 10,
       density: "compact",
+      toolbarMode: "compact",
       showTabs: true,
       showStatusbar: false,
       showAdvanced: false,
@@ -166,6 +175,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 0,
       density: "compact",
+      toolbarMode: "compact",
       showTabs: true,
       showStatusbar: false,
       showAdvanced: false,
@@ -188,6 +198,7 @@ export const settingsPresets = [
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 24,
       density: "comfortable",
+      toolbarMode: "standard",
       showTabs: true,
       showStatusbar: true,
       showAdvanced: false,
