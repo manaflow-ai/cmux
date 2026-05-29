@@ -139,6 +139,18 @@ final class ClosedItemHistoryStore: ObservableObject {
     private var didFinishPersistedRecordsLoad: Bool
     private var needsPersistenceAfterPersistedRecordsLoad = false
     private var shouldDiscardPersistedRecordsOnLoad = false
+    private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
+
+    private enum PendingPersistedRecordMutation {
+        case remapPanelWorkspaceIds(
+            oldWorkspaceId: UUID,
+            newWorkspaceId: UUID,
+            panelIdMap: [UUID: UUID]
+        )
+        case remapPanelAnchorIds(oldPanelId: UUID, newPanelId: UUID)
+        case remapWorkspaceWindowIds(oldWindowId: UUID, newWindowId: UUID)
+        case removePanelRecords(workspaceIds: Set<UUID>)
+    }
 
     init(
         capacity: Int? = nil,
@@ -267,36 +279,19 @@ final class ClosedItemHistoryStore: ObservableObject {
         panelIdMap: [UUID: UUID] = [:]
     ) {
         guard oldWorkspaceId != newWorkspaceId else { return }
-        func remapAnchor(_ panelId: UUID?) -> UUID? {
-            guard let panelId else { return nil }
-            return panelIdMap[panelId] ?? panelId
-        }
-        var didUpdate = false
-        let remappedRecords = records.map { record in
-            guard case .panel(let panelEntry) = record.entry,
-                  panelEntry.workspaceId == oldWorkspaceId else {
-                return record
-            }
-            didUpdate = true
-            let fallbackSplitPlacement = panelEntry.fallbackSplitPlacement.map {
-                ClosedPanelSplitPlacement(
-                    orientation: $0.orientation,
-                    insertFirst: $0.insertFirst,
-                    anchorPanelId: remapAnchor($0.anchorPanelId)
-                )
-            }
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
-                workspaceId: newWorkspaceId,
-                paneId: panelEntry.paneId,
-                paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
-                restoreInOriginalPane: false,
-                tabIndex: panelEntry.tabIndex,
-                snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
-            )))
-        }
-        if didUpdate {
-            records = remappedRecords
+        queuePersistedRecordMutationIfLoading(.remapPanelWorkspaceIds(
+            oldWorkspaceId: oldWorkspaceId,
+            newWorkspaceId: newWorkspaceId,
+            panelIdMap: panelIdMap
+        ))
+        let result = Self.recordsByRemappingPanelWorkspaceIds(
+            records,
+            from: oldWorkspaceId,
+            to: newWorkspaceId,
+            panelIdMap: panelIdMap
+        )
+        if result.didUpdate {
+            records = result.records
             revision &+= 1
             persistRecords()
         }
@@ -304,38 +299,13 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func remapPanelAnchorIds(from oldPanelId: UUID, to newPanelId: UUID) {
         guard oldPanelId != newPanelId else { return }
-        var didUpdate = false
-        let remappedRecords = records.map { record in
-            guard case .panel(let panelEntry) = record.entry else { return record }
-            let paneAnchorPanelId = panelEntry.paneAnchorPanelId == oldPanelId
-                ? newPanelId
-                : panelEntry.paneAnchorPanelId
-            let fallbackSplitPlacement = panelEntry.fallbackSplitPlacement.map { placement in
-                let anchorPanelId = placement.anchorPanelId == oldPanelId
-                    ? newPanelId
-                    : placement.anchorPanelId
-                return ClosedPanelSplitPlacement(
-                    orientation: placement.orientation,
-                    insertFirst: placement.insertFirst,
-                    anchorPanelId: anchorPanelId
-                )
-            }
-            if paneAnchorPanelId != panelEntry.paneAnchorPanelId ||
-                fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
-                didUpdate = true
-            }
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
-                workspaceId: panelEntry.workspaceId,
-                paneId: panelEntry.paneId,
-                paneAnchorPanelId: paneAnchorPanelId,
-                restoreInOriginalPane: panelEntry.restoreInOriginalPane,
-                tabIndex: panelEntry.tabIndex,
-                snapshot: panelEntry.snapshot,
-                fallbackSplitPlacement: fallbackSplitPlacement
-            )))
-        }
-        if didUpdate {
-            records = remappedRecords
+        queuePersistedRecordMutationIfLoading(.remapPanelAnchorIds(
+            oldPanelId: oldPanelId,
+            newPanelId: newPanelId
+        ))
+        let result = Self.recordsByRemappingPanelAnchorIds(records, from: oldPanelId, to: newPanelId)
+        if result.didUpdate {
+            records = result.records
             revision &+= 1
             persistRecords()
         }
@@ -343,22 +313,13 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func remapWorkspaceWindowIds(from oldWindowId: UUID, to newWindowId: UUID) {
         guard oldWindowId != newWindowId else { return }
-        var didUpdate = false
-        let remappedRecords = records.map { record in
-            guard case .workspace(let workspaceEntry) = record.entry,
-                  workspaceEntry.windowId == oldWindowId else {
-                return record
-            }
-            didUpdate = true
-            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspaceEntry.workspaceId,
-                windowId: newWindowId,
-                workspaceIndex: workspaceEntry.workspaceIndex,
-                snapshot: workspaceEntry.snapshot
-            )))
-        }
-        if didUpdate {
-            records = remappedRecords
+        queuePersistedRecordMutationIfLoading(.remapWorkspaceWindowIds(
+            oldWindowId: oldWindowId,
+            newWindowId: newWindowId
+        ))
+        let result = Self.recordsByRemappingWorkspaceWindowIds(records, from: oldWindowId, to: newWindowId)
+        if result.didUpdate {
+            records = result.records
             revision &+= 1
             persistRecords()
         }
@@ -366,12 +327,10 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func removePanelRecords(forWorkspaceIds workspaceIds: Set<UUID>) {
         guard !workspaceIds.isEmpty else { return }
-        let originalCount = records.count
-        records.removeAll { record in
-            guard case .panel(let panelEntry) = record.entry else { return false }
-            return workspaceIds.contains(panelEntry.workspaceId)
-        }
-        if records.count != originalCount {
+        queuePersistedRecordMutationIfLoading(.removePanelRecords(workspaceIds: workspaceIds))
+        let result = Self.recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
+        if result.didUpdate {
+            records = result.records
             revision &+= 1
             persistRecords()
         }
@@ -418,7 +377,14 @@ final class ClosedItemHistoryStore: ObservableObject {
             let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
             guard let self else { return }
             if !shouldDiscardPersistedRecordsOnLoad {
+                var loadedRecords = loadedRecords
+                let didMutateLoadedRecords = applyPendingPersistedRecordMutations(to: &loadedRecords)
                 mergeLoadedPersistedRecords(loadedRecords)
+                if didMutateLoadedRecords {
+                    needsPersistenceAfterPersistedRecordsLoad = true
+                }
+            } else {
+                pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
             }
             didFinishPersistedRecordsLoad = true
             shouldDiscardPersistedRecordsOnLoad = false
@@ -427,6 +393,153 @@ final class ClosedItemHistoryStore: ObservableObject {
                 persistRecords()
             }
         }
+    }
+
+    private func queuePersistedRecordMutationIfLoading(_ mutation: PendingPersistedRecordMutation) {
+        guard !didFinishPersistedRecordsLoad else { return }
+        pendingPersistedRecordMutations.append(mutation)
+    }
+
+    @discardableResult
+    private func applyPendingPersistedRecordMutations(to loadedRecords: inout [ClosedItemHistoryRecord]) -> Bool {
+        guard !pendingPersistedRecordMutations.isEmpty else { return false }
+        var didUpdate = false
+        for mutation in pendingPersistedRecordMutations {
+            let result = Self.recordsByApplying(mutation, to: loadedRecords)
+            loadedRecords = result.records
+            didUpdate = didUpdate || result.didUpdate
+        }
+        pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
+        return didUpdate
+    }
+
+    private static func recordsByApplying(
+        _ mutation: PendingPersistedRecordMutation,
+        to records: [ClosedItemHistoryRecord]
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        switch mutation {
+        case .remapPanelWorkspaceIds(let oldWorkspaceId, let newWorkspaceId, let panelIdMap):
+            return recordsByRemappingPanelWorkspaceIds(
+                records,
+                from: oldWorkspaceId,
+                to: newWorkspaceId,
+                panelIdMap: panelIdMap
+            )
+        case .remapPanelAnchorIds(let oldPanelId, let newPanelId):
+            return recordsByRemappingPanelAnchorIds(records, from: oldPanelId, to: newPanelId)
+        case .remapWorkspaceWindowIds(let oldWindowId, let newWindowId):
+            return recordsByRemappingWorkspaceWindowIds(records, from: oldWindowId, to: newWindowId)
+        case .removePanelRecords(let workspaceIds):
+            return recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
+        }
+    }
+
+    private static func recordsByRemappingPanelWorkspaceIds(
+        _ records: [ClosedItemHistoryRecord],
+        from oldWorkspaceId: UUID,
+        to newWorkspaceId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        func remapAnchor(_ panelId: UUID?) -> UUID? {
+            guard let panelId else { return nil }
+            return panelIdMap[panelId] ?? panelId
+        }
+        var didUpdate = false
+        let remappedRecords = records.map { record in
+            guard case .panel(let panelEntry) = record.entry,
+                  panelEntry.workspaceId == oldWorkspaceId else {
+                return record
+            }
+            didUpdate = true
+            let fallbackSplitPlacement = panelEntry.fallbackSplitPlacement.map {
+                ClosedPanelSplitPlacement(
+                    orientation: $0.orientation,
+                    insertFirst: $0.insertFirst,
+                    anchorPanelId: remapAnchor($0.anchorPanelId)
+                )
+            }
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: newWorkspaceId,
+                paneId: panelEntry.paneId,
+                paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
+                restoreInOriginalPane: false,
+                tabIndex: panelEntry.tabIndex,
+                snapshot: panelEntry.snapshot,
+                fallbackSplitPlacement: fallbackSplitPlacement
+            )))
+        }
+        return (remappedRecords, didUpdate)
+    }
+
+    private static func recordsByRemappingPanelAnchorIds(
+        _ records: [ClosedItemHistoryRecord],
+        from oldPanelId: UUID,
+        to newPanelId: UUID
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        var didUpdate = false
+        let remappedRecords = records.map { record in
+            guard case .panel(let panelEntry) = record.entry else { return record }
+            let paneAnchorPanelId = panelEntry.paneAnchorPanelId == oldPanelId
+                ? newPanelId
+                : panelEntry.paneAnchorPanelId
+            let fallbackSplitPlacement = panelEntry.fallbackSplitPlacement.map { placement in
+                let anchorPanelId = placement.anchorPanelId == oldPanelId
+                    ? newPanelId
+                    : placement.anchorPanelId
+                return ClosedPanelSplitPlacement(
+                    orientation: placement.orientation,
+                    insertFirst: placement.insertFirst,
+                    anchorPanelId: anchorPanelId
+                )
+            }
+            if paneAnchorPanelId != panelEntry.paneAnchorPanelId ||
+                fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
+                didUpdate = true
+            }
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: panelEntry.workspaceId,
+                paneId: panelEntry.paneId,
+                paneAnchorPanelId: paneAnchorPanelId,
+                restoreInOriginalPane: panelEntry.restoreInOriginalPane,
+                tabIndex: panelEntry.tabIndex,
+                snapshot: panelEntry.snapshot,
+                fallbackSplitPlacement: fallbackSplitPlacement
+            )))
+        }
+        return (remappedRecords, didUpdate)
+    }
+
+    private static func recordsByRemappingWorkspaceWindowIds(
+        _ records: [ClosedItemHistoryRecord],
+        from oldWindowId: UUID,
+        to newWindowId: UUID
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        var didUpdate = false
+        let remappedRecords = records.map { record in
+            guard case .workspace(let workspaceEntry) = record.entry,
+                  workspaceEntry.windowId == oldWindowId else {
+                return record
+            }
+            didUpdate = true
+            return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspaceEntry.workspaceId,
+                windowId: newWindowId,
+                workspaceIndex: workspaceEntry.workspaceIndex,
+                snapshot: workspaceEntry.snapshot
+            )))
+        }
+        return (remappedRecords, didUpdate)
+    }
+
+    private static func recordsByRemovingPanelRecords(
+        _ records: [ClosedItemHistoryRecord],
+        forWorkspaceIds workspaceIds: Set<UUID>
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        let filteredRecords = records.filter { record in
+            guard case .panel(let panelEntry) = record.entry else { return true }
+            return !workspaceIds.contains(panelEntry.workspaceId)
+        }
+        return (filteredRecords, filteredRecords.count != records.count)
     }
 
     private func mergeLoadedPersistedRecords(_ loadedRecords: [ClosedItemHistoryRecord]) {

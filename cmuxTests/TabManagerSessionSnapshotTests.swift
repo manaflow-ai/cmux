@@ -1151,6 +1151,69 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ])
     }
 
+    func testClosedItemHistoryAsyncLoadReplaysQueuedPanelWorkspaceRemap() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-remap-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        panelSnapshot.customTitle = "Persisted Closed Tab"
+        let oldWorkspaceId = workspace.id
+        let newWorkspaceId = UUID()
+        let oldPanelId = panelSnapshot.id
+        let newPanelId = UUID()
+        let recordId = UUID()
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        seedStore.push(ClosedItemHistoryRecord(
+            id: recordId,
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: oldWorkspaceId,
+                paneId: UUID(),
+                paneAnchorPanelId: oldPanelId,
+                tabIndex: 0,
+                snapshot: panelSnapshot,
+                fallbackSplitPlacement: ClosedPanelSplitPlacement(
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    anchorPanelId: oldPanelId
+                )
+            ))
+        ))
+
+        let loadingStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: false,
+            persistsRecordsSynchronously: true
+        )
+        loadingStore.remapPanelWorkspaceIds(
+            from: oldWorkspaceId,
+            to: newWorkspaceId,
+            panelIdMap: [oldPanelId: newPanelId]
+        )
+
+        waitForClosedHistoryCount(1, in: loadingStore)
+
+        let remappedRecord = try XCTUnwrap(loadingStore.removeRecord(id: recordId)?.record)
+        guard case .panel(let entry) = remappedRecord.entry else {
+            return XCTFail("Expected persisted panel record")
+        }
+        XCTAssertEqual(entry.workspaceId, newWorkspaceId)
+        XCTAssertEqual(entry.paneAnchorPanelId, newPanelId)
+        XCTAssertEqual(entry.fallbackSplitPlacement?.anchorPanelId, newPanelId)
+        XCTAssertFalse(entry.restoreInOriginalPane)
+    }
+
     func testSessionRestoreRemapsPersistedClosedPanelWorkspaceIds() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
