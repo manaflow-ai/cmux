@@ -2798,8 +2798,8 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let surfaceTextureSources = canvasSurfaceTextureSources(
                 for: presentation.visibleItems,
                 renderModes: renderModes,
-                preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation && !canvasCameraNativeSurfacesParked,
-                allowLiveTextureFallback: canvasCameraNativeSurfacesParked
+                preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation,
+                allowLiveTextureFallback: true
             )
             let metalScene = CanvasScene(presentation: presentation)
             let visibleItems = presentation.presentationSurfaces.map(\.item)

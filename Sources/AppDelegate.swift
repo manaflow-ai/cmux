@@ -6468,6 +6468,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return browserResult
         }
 
+        if let event,
+           let browserResult = startBrowserFindForShortcutBrowserContext(event, context: context) {
+            return browserResult
+        }
+
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
@@ -6499,6 +6504,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
               let workspace = context.tabManager.selectedWorkspace,
               let browserPanel = workspace.browserPanel(for: panelId) else {
+            return nil
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
+    }
+
+    @discardableResult
+    private func startBrowserFindForShortcutBrowserContext(_ event: NSEvent, context: MainWindowContext) -> Bool? {
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let target = context.keyboardFocusCoordinator.findShortcutTarget(
+            currentResponder: window?.firstResponder
+        )
+        guard target == .mainPanelFind else { return nil }
+        guard let browserPanel = shortcutEventBrowserPanel(event) else { return nil }
+        guard let workspace = context.tabManager.selectedWorkspace,
+              workspace.browserPanel(for: browserPanel.id) != nil else {
             return nil
         }
 

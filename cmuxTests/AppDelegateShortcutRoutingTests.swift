@@ -3471,6 +3471,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(terminalPanel.searchState)
     }
 
+    func testCmdFUsesBrowserFindWhenWebViewOwnsResponderButTerminalPanelIsFocused() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected terminal and browser panels")
+            return
+        }
+
+        let webView = browserPanel.webView
+        let originalSuperview = webView.superview
+        let originalFrame = webView.frame
+        if webView.superview !== contentView {
+            webView.removeFromSuperview()
+            contentView.addSubview(webView)
+        }
+        webView.frame = NSRect(x: 8, y: 8, width: 640, height: 360)
+        defer {
+            if webView.superview === contentView {
+                webView.removeFromSuperview()
+            }
+            originalSuperview?.addSubview(webView)
+            webView.frame = originalFrame
+        }
+
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, terminalPanel.id)
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+        XCTAssertNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+F should use browser find when browser web content owns first responder"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNotNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
+    }
+
     func testOmnibarArrowSelectionUsesResponderResolvedPanelWhenTrackedFocusWasCleared() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
