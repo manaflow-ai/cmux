@@ -971,6 +971,7 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
               h(UserMessageText, { copy, text: entry.text }),
             )
           : null,
+        hasText ? h(UserMessageActions, { copy, text: entry.text }) : null,
       );
     }
     case "assistant":
@@ -1128,6 +1129,59 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
       onClick: copyOutput,
     },
     isCopied ? checkIcon("icon-2xs") : copyIcon("icon-2xs"),
+  );
+}
+
+function UserMessageActions({ copy, text }: { copy?: AgentSessionCopy; text: string }) {
+  const [isCopied, setIsCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  const copyLabel = copy?.copyUserMessage ?? "";
+  const copiedLabel = copy?.copiedUserMessage ?? "";
+  const activeLabel = isCopied ? copiedLabel : copyLabel;
+  const buttonRef = useCallback((node: HTMLButtonElement | null) => {
+    if (node !== null || resetTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = null;
+  }, []);
+  const copyMessage = useCallback(() => {
+    const content = text.trim();
+    if (!content) {
+      return;
+    }
+    const writePromise = navigator.clipboard?.writeText(content);
+    void writePromise?.catch(() => undefined);
+    setIsCopied(true);
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+    resetTimerRef.current = window.setTimeout(() => {
+      setIsCopied(false);
+      resetTimerRef.current = null;
+    }, 1500);
+  }, [text]);
+
+  return h(
+    "div",
+    { className: "codex-user-message-actions flex flex-row-reverse items-center gap-1" },
+    h(
+      "div",
+      { className: "mr-1 ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" },
+      h(
+        "button",
+        {
+          ref: buttonRef,
+          type: "button",
+          className:
+            `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+          "aria-label": activeLabel,
+          title: activeLabel,
+          onClick: copyMessage,
+        },
+        isCopied ? checkIcon("icon-xs") : copyIcon("icon-xs"),
+      ),
+    ),
   );
 }
 
