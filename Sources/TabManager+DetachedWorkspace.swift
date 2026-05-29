@@ -78,8 +78,10 @@ extension TabManager {
             // are just initial labels; pinning them would block OSC-driven
             // `applyProcessTitle` updates from reaching the workspace row. See
             // https://github.com/manaflow-ai/cmux/issues/4946.
-            if let customTitle, !customTitle.isEmpty {
-                newWorkspace.setCustomTitle(customTitle)
+            if let normalizedCustomTitle = customTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !normalizedCustomTitle.isEmpty {
+                newWorkspace.setCustomTitle(normalizedCustomTitle)
             }
             wireClosedBrowserTracking(for: newWorkspace)
 
