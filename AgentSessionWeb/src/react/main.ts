@@ -339,6 +339,8 @@ function SessionSurface({
     setIsPlanMode((value) => !value);
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
+    setProviderMenuOpen(false);
+    setMenuKind(null);
     editorRef.current?.focus();
   };
   const enablePlanModeFromSuggestion = () => {
@@ -536,6 +538,7 @@ function SessionSurface({
     placeholder: state.context?.copy.promptPlaceholder ?? "",
     onAutocompleteChange: updateComposerAutocomplete,
     onAutocompleteKeyDown: handleComposerAutocompleteKey,
+    onPlanModeShortcut: togglePlanMode,
     onTextChange: (input: string) => dispatch({ type: "setInput", input }),
     onSubmit: submit,
     onTriggerToken: (token: "@" | "$") => {

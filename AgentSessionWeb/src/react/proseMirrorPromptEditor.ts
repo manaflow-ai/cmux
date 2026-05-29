@@ -3,7 +3,7 @@ import { Schema, type Node as ProseMirrorNode } from "prosemirror-model";
 import { splitBlock } from "prosemirror-commands";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
-import { isComposingEnter } from "../shared/keyboard";
+import { isComposingEnter, isPlanModeShortcut } from "../shared/keyboard";
 import { promptMentionMarkdown } from "../shared/promptMentions";
 
 export type PromptMention = {
@@ -156,6 +156,7 @@ type PromptEditorProps = {
   minHeight?: string;
   onAutocompleteChange?: (state: PromptAutocompleteState | null) => void;
   onAutocompleteKeyDown?: (key: PromptAutocompleteKey) => boolean;
+  onPlanModeShortcut?: () => void;
   onSubmit: () => void;
   onTextChange: (text: string) => void;
   onTriggerToken?: (token: "@" | "$") => void;
@@ -172,6 +173,7 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       minHeight = "2.75rem",
       onAutocompleteChange,
       onAutocompleteKeyDown,
+      onPlanModeShortcut,
       onSubmit,
       onTextChange,
       onTriggerToken,
@@ -186,12 +188,14 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
     const latestSubmitRef = useRef(onSubmit);
     const latestAutocompleteChangeRef = useRef(onAutocompleteChange);
     const latestAutocompleteKeyDownRef = useRef(onAutocompleteKeyDown);
+    const latestPlanModeShortcutRef = useRef(onPlanModeShortcut);
     const latestTextChangeRef = useRef(onTextChange);
     const latestTriggerTokenRef = useRef(onTriggerToken);
     const latestTextRef = useRef(value);
     latestSubmitRef.current = onSubmit;
     latestAutocompleteChangeRef.current = onAutocompleteChange;
     latestAutocompleteKeyDownRef.current = onAutocompleteKeyDown;
+    latestPlanModeShortcutRef.current = onPlanModeShortcut;
     latestTextChangeRef.current = onTextChange;
     latestTriggerTokenRef.current = onTriggerToken;
 
@@ -258,6 +262,11 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
         handleKeyDown(_view, event) {
           if (isComposingEnter(event, _view.composing)) {
             return false;
+          }
+          if (isPlanModeShortcut(event) && latestPlanModeShortcutRef.current) {
+            event.preventDefault();
+            latestPlanModeShortcutRef.current();
+            return true;
           }
           if (isAutocompleteKey(event.key) && latestAutocompleteKeyDownRef.current?.(event.key)) {
             event.preventDefault();
