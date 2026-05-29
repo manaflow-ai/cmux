@@ -299,7 +299,7 @@ function refreshTerminalAppearance() {
     session.term.options.cursorStyle = state.settings.terminalCursorStyle;
     session.term.options.cursorBlink = state.settings.terminalCursorBlink;
     session.term.options.theme = terminalTheme();
-    scheduleFitTerminal(session);
+    scheduleFitTerminal(session, true);
   }
 }
 
@@ -974,10 +974,13 @@ function ensureTerminal(panel, body) {
     resizeObserver: null,
     disposed: false,
     lastFitCols: 0,
-    lastFitRows: 0
+    lastFitRows: 0,
+    lastHostWidth: 0,
+    lastHostHeight: 0,
+    forceFit: false
   };
 
-  socket.addEventListener("open", () => scheduleFitTerminal(session));
+  socket.addEventListener("open", () => scheduleFitTerminal(session, true));
   socket.addEventListener("message", (event) => {
     if (session.disposed) return;
     const message = JSON.parse(event.data);
@@ -995,7 +998,7 @@ function ensureTerminal(panel, body) {
   session.resizeObserver = new ResizeObserver(() => scheduleFitTerminal(session));
   session.resizeObserver.observe(host);
   setTimeout(() => {
-    scheduleFitTerminal(session);
+    scheduleFitTerminal(session, true);
     if (panel.id === activeWorkspace()?.activePanelId) term.focus();
   }, 60);
   state.terminals.set(panel.id, session);
@@ -1022,8 +1025,10 @@ function flushTerminalOutput(session) {
   if (session.queue) scheduleTerminalOutputFlush(session);
 }
 
-function scheduleFitTerminal(session) {
-  if (session.disposed || session.fitFrame) return;
+function scheduleFitTerminal(session, force = false) {
+  if (session.disposed) return;
+  if (force) session.forceFit = true;
+  if (session.fitFrame) return;
   session.fitFrame = requestAnimationFrame(() => {
     session.fitFrame = 0;
     fitTerminal(session);
@@ -1032,8 +1037,22 @@ function scheduleFitTerminal(session) {
 
 function fitTerminal(session) {
   if (session.disposed || !isTerminalHostVisible(session)) return;
+  const width = session.host.clientWidth;
+  const height = session.host.clientHeight;
+  if (
+    !session.forceFit
+    && session.lastFitCols
+    && session.lastFitRows
+    && session.lastHostWidth === width
+    && session.lastHostHeight === height
+  ) {
+    return;
+  }
   try {
     session.fitAddon.fit();
+    session.forceFit = false;
+    session.lastHostWidth = width;
+    session.lastHostHeight = height;
     if (
       session.socket.readyState === WebSocket.OPEN
       && (session.term.cols !== session.lastFitCols || session.term.rows !== session.lastFitRows)
@@ -2499,7 +2518,7 @@ function togglePaneZoom(panelId = activePanel()?.id) {
   render();
   focusTerminalSession(panelId);
   const session = state.terminals.get(panelId);
-  if (session) setTimeout(() => scheduleFitTerminal(session), 30);
+  if (session) setTimeout(() => scheduleFitTerminal(session, true), 30);
 }
 
 function toggleSidebar() {
