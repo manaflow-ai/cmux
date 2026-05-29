@@ -447,7 +447,7 @@ function SessionSurface({
       "button",
       {
         className:
-          `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`,
+          `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
         type: "button",
         disabled: !canSelect,
         "aria-haspopup": "menu",
@@ -470,18 +470,20 @@ function SessionSurface({
           }
         },
       },
-      h(
-        "span",
-        { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
-        h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
-        reasoningEffortLabel && !intelligenceCollapse.hideLabel
-          ? h(
-              "span",
-              { className: "composer-footer__label--sm shrink-0 text-token-description-foreground" },
-              reasoningEffortLabel,
-            )
-          : null,
-      ),
+      intelligenceCollapse.hideLabel
+        ? reasoningHighIcon("icon-2xs")
+        : h(
+            "span",
+            { className: "model-picker-content flex max-w-40 min-w-0 items-center gap-1.5" },
+            h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+            reasoningEffortLabel
+              ? h(
+                  "span",
+                  { className: "composer-footer__label--sm shrink-0 text-token-description-foreground" },
+                  reasoningEffortLabel,
+                )
+              : null,
+          ),
       h(
         "span",
         {
@@ -1758,16 +1760,15 @@ function micIcon() {
   );
 }
 
-function speedometerIcon() {
+function reasoningHighIcon(className = "icon-sm") {
   return h(
     "svg",
-    { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
-      d: "M2.5 10.25a5.5 5.5 0 1 1 11 0M8 10.25l2.45-3.05M4.35 10.25h7.3",
+      d: "M10 5.14295V14.8441M10 5.14295C10 1.98209 14.8475 1.94468 14.8475 5.07797L14.8473 5.1067C17.1367 5.43539 18.0436 7.54498 16.4225 9.14006C17.8633 10.5577 17.3503 13.9054 15.4449 14.6301C14.8475 17.6527 10.8056 18.4821 10 14.8441M10 5.14295C10 1.98209 5.15249 1.94468 5.15249 5.07797L5.15265 5.1067C2.86325 5.43539 1.95642 7.54498 3.57746 9.14006C2.13674 10.5577 2.64974 13.9054 4.5551 14.6301C5.15249 17.6527 9.19444 18.4821 10 14.8441",
       stroke: "currentColor",
-      strokeWidth: "1.35",
-      strokeLinecap: "round",
       strokeLinejoin: "round",
+      strokeWidth: "1.33",
     }),
   );
 }
