@@ -1050,6 +1050,7 @@ private final class CanvasPanEventMonitorView: NSView {
 
             switch wheelGestureState.action(
                 hasCommandModifier: isCommandWheel,
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
                 isMomentum: isMomentum,
                 didEndMomentum: didEndMomentum
             ) {
@@ -3773,6 +3774,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
 
         if let browserPanel = panel as? BrowserPanel {
+            if let image = Self.snapshotImage(of: browserPanel.webView) {
+                setCanvasPreviewImage(image, for: selected.id)
+                return
+            }
             guard browserCanCaptureCanvasPreviewSnapshot(browserPanel) else { return }
             guard force || !canvasPreviewSnapshotRequests.contains(selected.id) else { return }
             canvasPreviewSnapshotRequests.insert(selected.id)

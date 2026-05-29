@@ -5079,6 +5079,30 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(state.isConsumingCommandWheelMomentum)
     }
 
+    func testCanvasWheelGestureKeepsPreciseTrackpadScrollAsPanWhenCommandFlagAppears() {
+        var state = CanvasWheelGestureState()
+
+        XCTAssertEqual(
+            state.action(
+                hasCommandModifier: true,
+                hasPreciseScrollingDeltas: true,
+                isMomentum: false,
+                didEndMomentum: false
+            ),
+            .pan
+        )
+        XCTAssertFalse(state.isConsumingCommandWheelMomentum)
+        XCTAssertEqual(
+            state.action(
+                hasCommandModifier: false,
+                hasPreciseScrollingDeltas: true,
+                isMomentum: true,
+                didEndMomentum: false
+            ),
+            .pan
+        )
+    }
+
     func testCanvasCameraInteractionStaysActiveUntilPhasedScrollSettles() {
         var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 2)
 

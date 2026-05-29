@@ -11,10 +11,12 @@ public struct CanvasWheelGestureState: Sendable, Equatable {
 
     public mutating func action(
         hasCommandModifier: Bool,
+        hasPreciseScrollingDeltas: Bool = false,
         isMomentum: Bool,
         didEndMomentum: Bool
     ) -> CanvasWheelGestureAction {
-        if hasCommandModifier {
+        let canUseCommandWheelZoom = hasCommandModifier && !hasPreciseScrollingDeltas
+        if canUseCommandWheelZoom {
             isConsumingCommandWheelMomentum = true
             if didEndMomentum {
                 isConsumingCommandWheelMomentum = false
