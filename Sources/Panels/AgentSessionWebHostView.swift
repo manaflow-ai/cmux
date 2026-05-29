@@ -62,7 +62,7 @@ final class AgentSessionWebHostView: NSView {
         guard state != lastReportedGeometryState else { return }
         guard !hasPendingGeometryNotification else { return }
         hasPendingGeometryNotification = true
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             self?.notifyGeometryChangedIfNeeded()
         }
     }
