@@ -581,6 +581,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return result
         }
 
+        func storedHermesSession() throws -> [String: Any] {
+            let storeURL = root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        }
+
         let start = runHermesHook(
             "session-start",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
@@ -633,13 +640,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Hermes approval notification to mark needs input, saw \(approvalCommands)"
         )
 
-        let storeURL = root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        let session = try storedHermesSession()
         XCTAssertEqual(session["lastSubtitle"] as? String, "Permission")
         XCTAssertEqual(session["lastBody"] as? String, "recursive delete: rm -rf build")
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+
+        let responseCommandStart = state.commands.count
+        let response = runHermesHook(
+            "approval-response",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"approved":true}}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+        XCTAssertEqual(response.stdout, "{}\n")
+
+        let responseCommands = Array(state.commands.dropFirst(responseCommandStart))
+        XCTAssertTrue(
+            responseCommands.contains { $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)") },
+            "Expected Hermes approval response to clear the approval notification, saw \(responseCommands)"
+        )
+        XCTAssertTrue(
+            responseCommands.contains { $0.contains("set_status hermes-agent Running") },
+            "Expected Hermes approval response to restore running status, saw \(responseCommands)"
+        )
+
+        let responseSession = try storedHermesSession()
+        XCTAssertNil(responseSession["lastSubtitle"])
+        XCTAssertNil(responseSession["lastBody"])
+        XCTAssertNil(responseSession["lastNotificationStatus"])
+        XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
     }
 
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
