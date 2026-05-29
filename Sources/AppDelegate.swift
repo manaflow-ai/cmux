@@ -6442,7 +6442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+    func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil, event: NSEvent? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
@@ -6475,7 +6475,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
-            result = context.tabManager.startSearch()
+            if let event,
+               let browserResult = startBrowserFindForShortcutEvent(event, context: context) {
+                result = browserResult
+            } else {
+                result = context.tabManager.startSearch()
+            }
         case .none:
             result = false
         }
@@ -6487,6 +6492,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return result
+    }
+
+    @discardableResult
+    private func startBrowserFindForShortcutEvent(_ event: NSEvent, context: MainWindowContext) -> Bool? {
+        guard let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
+              let workspace = context.tabManager.selectedWorkspace,
+              let browserPanel = workspace.browserPanel(for: panelId) else {
+            return nil
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
     }
 
     @discardableResult
@@ -12408,7 +12426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if activateFocusedCanvasItemForShortcutIfNeeded(event: event, normalizedFlags: normalizedFlags) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
@@ -14032,7 +14050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
