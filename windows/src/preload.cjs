@@ -35,5 +35,8 @@ contextBridge.exposeInMainWorld("cmuxNative", {
   },
   pickBackgroundImage() {
     return ipcRenderer.invoke("background:pick-image");
+  },
+  pickWorkspaceFolder() {
+    return ipcRenderer.invoke("workspace:pick-folder");
   }
 });

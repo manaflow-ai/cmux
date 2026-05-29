@@ -87,6 +87,19 @@ function sanitizeShellPath(value) {
   return String(value || "").trim().slice(0, 512);
 }
 
+function sanitizeDirectoryPath(value, fallback = process.cwd()) {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  const resolved = path.resolve(raw);
+  try {
+    return fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()
+      ? resolved
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function executableExists(candidate) {
   if (!candidate) return false;
   if (candidate.includes("\\") || candidate.includes("/") || path.isAbsolute(candidate)) {
@@ -342,11 +355,12 @@ class CmuxWindowsRuntime {
           workspaces: parsed.workspaces.map((workspace) => ({
             ...workspace,
             color: workspace.color || workspaceColors[0],
-            cwd: workspace.cwd || process.cwd(),
+            cwd: sanitizeDirectoryPath(workspace.cwd),
             panels: Array.isArray(workspace.panels) && workspace.panels.length > 0
               ? workspace.panels.map((panel) => ({
                 ...panel,
                 color: panel.color || "",
+                cwd: sanitizeDirectoryPath(panel.cwd || workspace.cwd),
                 shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
                 shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
                 runtime: this,
@@ -400,14 +414,15 @@ class CmuxWindowsRuntime {
     fs.writeFileSync(this.sessionFile, JSON.stringify(payload, null, 2));
   }
 
-  newWorkspace(title) {
+  newWorkspace(title, options = {}) {
     const workspaceId = id("workspace");
-    const panel = this.newPanel("terminal", workspaceId);
+    const cwd = sanitizeDirectoryPath(options.cwd);
+    const panel = this.newPanel("terminal", workspaceId, { cwd });
     return {
       id: workspaceId,
       title: title || "Workspace",
       color: workspaceColors[this.state?.workspaces?.length % workspaceColors.length || 0],
-      cwd: process.cwd(),
+      cwd,
       activePanelId: panel.id,
       splitDirection: "right",
       panels: [panel]
@@ -445,9 +460,8 @@ class CmuxWindowsRuntime {
   serializeWorkspace(workspace) {
     const terminalPanels = workspace.panels.filter((panel) => panel.type === "terminal");
     const browserPanels = workspace.panels.filter((panel) => panel.type === "browser");
-    const primaryTerminal = terminalPanels[0];
     const latestNotification = workspace.panels.find((panel) => panel.needsAttention)?.notificationText || "";
-    const cwd = primaryTerminal?.cwd || workspace.cwd || process.cwd();
+    const cwd = workspace.cwd || terminalPanels[0]?.cwd || process.cwd();
     return {
       id: workspace.id,
       title: workspace.title,
@@ -504,10 +518,24 @@ class CmuxWindowsRuntime {
     return workspace;
   }
 
+  createWorkspaceFromOptions(options = {}) {
+    const cwd = sanitizeDirectoryPath(options.cwd);
+    const title = options.title || path.basename(cwd) || `Workspace ${this.state.workspaces.length + 1}`;
+    const workspace = this.newWorkspace(title, { cwd });
+    workspace.activePanelId = workspace.panels[0]?.id || null;
+    this.state.workspaces.push(workspace);
+    this.state.activeWorkspaceId = workspace.id;
+    this.persistAndBroadcast();
+    return workspace;
+  }
+
   createPanel(workspaceId, type, options = {}) {
     const workspace = this.state.workspaces.find((candidate) => candidate.id === workspaceId)
       || this.activeWorkspace();
-    const panel = this.newPanel(type || "terminal", workspace.id, options);
+    const panel = this.newPanel(type || "terminal", workspace.id, {
+      ...options,
+      cwd: sanitizeDirectoryPath(options.cwd || workspace.cwd)
+    });
     workspace.cwd = panel.cwd || workspace.cwd;
     workspace.panels.push(panel);
     workspace.activePanelId = panel.id;
@@ -622,6 +650,11 @@ class CmuxWindowsRuntime {
       const color = String(updates.color || "").trim();
       if (isSafeColorValue(color)) workspace.color = color;
     }
+    if (Object.hasOwn(updates, "cwd")) {
+      const cwd = sanitizeDirectoryPath(updates.cwd, "");
+      if (!cwd) return false;
+      workspace.cwd = cwd;
+    }
     this.persistAndBroadcast();
     return true;
   }
@@ -693,7 +726,7 @@ class CmuxWindowsRuntime {
       }
       if (request.method === "POST" && url.pathname === "/api/workspaces") {
         const body = await readBody(request);
-        writeJSON(response, 200, this.serializeWorkspace(this.createWorkspace(body.title)));
+        writeJSON(response, 200, this.serializeWorkspace(this.createWorkspaceFromOptions(body)));
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/session/reset") {
@@ -926,7 +959,9 @@ class CmuxWindowsRuntime {
       case "workspace.list":
         return this.serializedState().workspaces;
       case "workspace.create":
-        return this.serializeWorkspace(this.createWorkspace(params.title));
+        return this.serializeWorkspace(this.createWorkspaceFromOptions(params));
+      case "workspace.update":
+        return { ok: this.updateWorkspace(params.workspaceId || this.state.activeWorkspaceId, params) };
       case "workspace.rename":
         return { ok: this.renameWorkspace(params.workspaceId || this.state.activeWorkspaceId, params.title) };
       case "workspace.close":

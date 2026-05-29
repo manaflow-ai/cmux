@@ -41,13 +41,16 @@ function pipeRoundTrip(command) {
   const state = await stateResponse.json();
   assert(state.workspaces.length === 1, "expected one initial workspace");
 
+  const workspaceCwd = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-cwd-${process.pid}-`));
   const workspaceResponse = await fetch(`${info.url}api/workspaces`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "Smoke" })
+    body: JSON.stringify({ title: "Smoke", cwd: workspaceCwd })
   });
   assert(workspaceResponse.ok, "workspace create failed");
   const workspace = await workspaceResponse.json();
+  assert(workspace.cwd === workspaceCwd, "workspace cwd should use requested folder");
+  assert(workspace.panels[0]?.cwd === workspaceCwd, "initial workspace panel should inherit requested folder");
 
   const terminalResponse = await fetch(`${info.url}api/panels`, {
     method: "POST",
@@ -56,6 +59,7 @@ function pipeRoundTrip(command) {
   });
   assert(terminalResponse.ok, "terminal create failed");
   const terminal = await terminalResponse.json();
+  assert(terminal.cwd === workspaceCwd, "new terminal should inherit workspace folder");
 
   const restartResponse = await fetch(`${info.url}api/panels/${terminal.id}/restart`, {
     method: "POST"

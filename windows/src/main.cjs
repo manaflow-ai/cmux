@@ -213,6 +213,14 @@ if (!hasLock) {
     const filePath = result.canceled ? "" : result.filePaths[0];
     return filePath ? pathToFileURL(filePath).href : "";
   });
+  ipcMain.handle("workspace:pick-folder", async () => {
+    if (!mainWindow) return "";
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose workspace folder",
+      properties: ["openDirectory", "createDirectory"]
+    });
+    return result.canceled ? "" : result.filePaths[0] || "";
+  });
 
   app.on("second-instance", () => {
     if (!mainWindow) return;

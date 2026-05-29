@@ -236,6 +236,11 @@ function formatLineHeight(value) {
   return Number(value).toFixed(2);
 }
 
+function folderName(folderPath) {
+  const parts = String(folderPath || "").split(/[\\/]+/).filter(Boolean);
+  return parts.at(-1) || "Workspace";
+}
+
 function settingsRenderSignature(settings = state.settings) {
   return [
     settings.theme,
@@ -565,8 +570,10 @@ function scheduleTerminalAppearanceRefresh() {
 
 const commands = [
   { id: "workspace.new", label: "New Workspace", shortcut: "Ctrl+N", run: () => createWorkspace() },
+  { id: "workspace.newFromFolder", label: "New Workspace From Folder", shortcut: "", run: () => createWorkspaceFromFolder() },
   { id: "workspace.rename", label: "Rename Workspace", shortcut: "", run: () => renameActiveWorkspace() },
   { id: "workspace.color", label: "Change Workspace Color", shortcut: "", run: () => cycleWorkspaceColor() },
+  { id: "workspace.changeFolder", label: "Change Workspace Folder", shortcut: "", run: () => chooseWorkspaceFolder() },
   { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
@@ -1710,6 +1717,21 @@ function renderSettingsInspector() {
     });
     titleInput.addEventListener("blur", () => renameWorkspaceTo(titleInput.value));
     workspaceSection.append(settingRow("Name", titleInput));
+    const folderInput = document.createElement("input");
+    folderInput.className = "setting-control";
+    folderInput.readOnly = true;
+    folderInput.value = workspace?.cwdShort || workspace?.cwd || "";
+    folderInput.title = workspace?.cwd || "";
+    workspaceSection.append(settingRow("Folder", folderInput, true, "workspace folder directory cwd path"));
+    const folderActions = document.createElement("div");
+    folderActions.className = "settings-actions";
+    folderActions.dataset.settingsSearch = normalizeSettingsQuery("workspace folder directory cwd choose open new");
+    folderActions.append(
+      settingsActionButton("Choose folder", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker"),
+      settingsActionButton("Open folder", () => openWorkspaceFolder(), "", "workspace folder explorer directory"),
+      settingsActionButton("New from folder", () => createWorkspaceFromFolder(), "", "workspace folder new directory")
+    );
+    workspaceSection.append(folderActions);
     workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
     workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
     nodes.push(workspaceSection);
@@ -2574,10 +2596,12 @@ function showWorkspaceContextMenu(event, workspace) {
   actions.append(
     contextMenuButton(isActive ? "Focused" : "Focus", () => focusWorkspace(workspace.id), isActive),
     contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title)),
+    contextMenuButton("Change folder", () => chooseWorkspaceFolder(workspace), !workspace.id),
     contextMenuButton("Open folder", () => openWorkspaceFolder(workspace), !workspace.cwd),
     contextMenuButton("New terminal here", () => createPanel("terminal", "right", { workspaceId: workspace.id })),
     contextMenuButton("Open browser here", () => openBrowserPrompt(workspace.id)),
     contextMenuButton("New workspace", () => createWorkspace()),
+    contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
     contextMenuButton("Close workspace", () => closeWorkspaceById(workspace.id), false, "danger")
   );
   const colors = document.createElement("div");
@@ -2621,7 +2645,9 @@ function showToolbarMenu(event) {
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
     contextMenuButton("Change workspace color", cycleWorkspaceColor),
+    contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !activeWorkspace()),
     contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
+    contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
@@ -2789,6 +2815,14 @@ function paletteEntries() {
         run: () => openWorkspaceFolder(workspace)
       });
     }
+    entries.push({
+      id: `workspace.changeFolder.${workspace.id}`,
+      label: `Change folder: ${workspace.title || "Workspace"}`,
+      meta: workspace.cwdShort || workspace.cwd || "",
+      shortcut: "Folder",
+      search: normalizeSettingsQuery(`change choose set folder directory cwd workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
+      run: () => chooseWorkspaceFolder(workspace)
+    });
     for (const [panelIndex, panel] of workspace.panels.entries()) {
       const label = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
       entries.push({
@@ -2824,12 +2858,33 @@ function runPaletteCommand(entry) {
   entry.run();
 }
 
-async function createWorkspace() {
+async function createWorkspace(options = {}) {
   await api("/api/workspaces", {
     method: "POST",
-    body: JSON.stringify({ title: `Workspace ${state.data.workspaces.length + 1}` })
+    body: JSON.stringify({
+      title: options.title || `Workspace ${state.data.workspaces.length + 1}`,
+      cwd: options.cwd
+    })
   });
   await loadState();
+}
+
+async function createWorkspaceFromFolder() {
+  const folder = await pickWorkspaceFolder();
+  if (!folder) return;
+  await createWorkspace({
+    title: folderName(folder),
+    cwd: folder
+  });
+  toast("Workspace created from folder.");
+}
+
+async function pickWorkspaceFolder() {
+  if (!window.cmuxNative?.pickWorkspaceFolder) {
+    toast("Folder picker is available in the desktop app.");
+    return "";
+  }
+  return await window.cmuxNative.pickWorkspaceFolder();
 }
 
 async function renameActiveWorkspace() {
@@ -2880,6 +2935,24 @@ async function openWorkspaceFolder(workspace = activeWorkspace()) {
   toast(ok ? "Workspace folder opened." : "Workspace folder could not be opened.");
 }
 
+async function chooseWorkspaceFolder(workspace = activeWorkspace()) {
+  if (!workspace) return;
+  const folder = await pickWorkspaceFolder();
+  if (!folder) return;
+  await setWorkspaceFolder(folder, workspace.id);
+}
+
+async function setWorkspaceFolder(cwd, workspaceId = activeWorkspace()?.id) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace || !cwd) return;
+  await api(`/api/workspaces/${workspace.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ cwd })
+  });
+  await loadState();
+  toast("Workspace folder updated.");
+}
+
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
@@ -2916,6 +2989,7 @@ async function createPanel(type, direction = "right", options = {}) {
       direction,
       shellProfile: type === "terminal" ? shellProfile : undefined,
       shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
+      cwd: options.cwd || workspace.cwd,
       url: type === "browser" ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl) : undefined
     })
   });
