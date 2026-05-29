@@ -62,6 +62,7 @@ const CODEX_BUTTON_COMPOSER_SM = "h-token-button-composer-sm px-1.5 py-0 text-sm
 const CODEX_BUTTON_UNIFORM = "aspect-square items-center justify-center !px-0";
 const CODEX_SUBMIT_BUTTON =
   "focus-visible:outline-token-button-background cursor-interaction size-token-button-composer flex items-center justify-center rounded-full p-0.5 transition-opacity focus-visible:outline-2 bg-token-foreground";
+const USER_MESSAGE_COLLAPSED_LINE_COUNT = 20;
 
 type ComposerMenuKind = "mention" | "skill" | null;
 type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
@@ -967,10 +968,7 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
                 className:
                   "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
               },
-              h("div", {
-                className: "text-size-chat mb-px",
-                dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
-              }),
+              h(UserMessageText, { copy, text: entry.text }),
             )
           : null,
       );
@@ -1131,6 +1129,46 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
     },
     isCopied ? checkIcon("icon-2xs") : copyIcon("icon-2xs"),
   );
+}
+
+function UserMessageText({ copy, text }: { copy?: AgentSessionCopy; text: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const shouldCollapse = shouldCollapseUserMessage(text);
+  const isCollapsed = shouldCollapse && !isExpanded;
+  const showMoreLabel = copy?.showMore ?? "";
+  const showLessLabel = copy?.showLess ?? "";
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded((current) => !current);
+  }, []);
+
+  return h(
+    "div",
+    { className: "flex flex-col items-end gap-1" },
+    h("div", {
+      className: "codex-user-message-content text-size-chat relative w-full min-w-0 mb-px",
+      "data-collapsed": isCollapsed ? "true" : undefined,
+      dangerouslySetInnerHTML: { __html: renderPlainTextHTML(text) },
+    }),
+    shouldCollapse
+      ? h(
+          "button",
+          {
+            type: "button",
+            "aria-expanded": isExpanded,
+            className:
+              "codex-user-message-toggle text-size-chat mt-1.5 inline-flex cursor-interaction items-center gap-1 self-start text-token-description-foreground hover:text-token-foreground",
+            onClick: toggleExpanded,
+          },
+          h("span", null, isExpanded ? showLessLabel : showMoreLabel),
+          chevronIcon(`icon-2xs${isExpanded ? " rotate-180" : ""}`),
+        )
+      : null,
+  );
+}
+
+function shouldCollapseUserMessage(text: string) {
+  const explicitLineCount = text.split(/\r\n|\r|\n/).length;
+  return explicitLineCount > USER_MESSAGE_COLLAPSED_LINE_COUNT || text.length > 1600;
 }
 
 function UserMessageAttachmentTray({ attachments }: { attachments: ComposerAttachment[] }) {
@@ -2180,10 +2218,10 @@ function reasoningHighIcon(className = "icon-sm") {
   );
 }
 
-function chevronIcon() {
+function chevronIcon(className = "icon-2xs") {
   return h(
     "svg",
-    { className: "icon-2xs", width: "20", height: "21", viewBox: "0 0 20 21", fill: "none", "aria-hidden": true },
+    { className, width: "20", height: "21", viewBox: "0 0 20 21", fill: "none", "aria-hidden": true },
     h("path", {
       d: "M15.2793 7.71101C15.539 7.45131 15.961 7.45131 16.2207 7.71101C16.4804 7.97071 16.4804 8.39272 16.2207 8.65242L10.4707 14.4024C10.211 14.6621 9.78902 14.6621 9.52932 14.4024L3.77932 8.65242L3.69436 8.54792C3.52385 8.28979 3.55205 7.93828 3.77932 7.71101C4.00659 7.48374 4.3581 7.45554 4.61623 7.62605L4.72073 7.71101L10 12.9903L15.2793 7.71101Z",
       fill: "currentColor",

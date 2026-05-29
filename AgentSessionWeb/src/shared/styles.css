@@ -340,6 +340,20 @@ select {
   background: color-mix(in srgb, var(--color-token-foreground) 5%, transparent);
 }
 
+.codex-user-message-content[data-collapsed="true"] {
+  display: -webkit-box;
+  max-height: 20lh;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 20;
+}
+
+.codex-user-message-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .codex-assistant-turn {
   display: flex;
   justify-content: flex-start;

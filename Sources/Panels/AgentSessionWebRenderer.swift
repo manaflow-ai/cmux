@@ -430,6 +430,14 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.copyOutput",
                             defaultValue: "Copy output"
                         ),
+                        "showMore": String(
+                            localized: "agentSession.web.showMore",
+                            defaultValue: "Show more"
+                        ),
+                        "showLess": String(
+                            localized: "agentSession.web.showLess",
+                            defaultValue: "Show less"
+                        ),
                         "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
                         "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
                         "includeIdeContext": String(
