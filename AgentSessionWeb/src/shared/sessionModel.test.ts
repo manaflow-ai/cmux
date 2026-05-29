@@ -828,6 +828,22 @@ test("late send failures do not overwrite a requested stop", () => {
   expect(state).toBe(stopping);
 });
 
+test("session-scoped failures do not overwrite a requested stop", () => {
+  const stopping = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "stopping" as const,
+    runningSessionId: "session-1",
+    requestedStopSessionId: "session-1",
+  };
+  const state = reduceSession(stopping, {
+    type: "failedForSession",
+    sessionId: "session-1",
+    message: "Native bridge request failed.",
+  });
+
+  expect(state).toBe(stopping);
+});
+
 test("send failures for the active running session keep stop available", () => {
   const running = {
     ...reduceSession(initialState("react"), { type: "context", context }),

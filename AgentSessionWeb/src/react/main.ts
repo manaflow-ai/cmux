@@ -412,6 +412,7 @@ function SessionSurface({
     if (isPickingFiles) {
       return;
     }
+    const sessionId = state.runningSessionId;
     setIsPickingFiles(true);
     setMenuKind(null);
     setMenuQuery("");
@@ -437,7 +438,8 @@ function SessionSurface({
       setAttachments((existing) => dedupeAttachments([...existing, ...nextAttachments]));
       editorRef.current?.focus();
     } catch (error) {
-      dispatch({ type: "failed", message: messageForError(error, state) });
+      const message = messageForError(error, state);
+      dispatch(sessionId ? { type: "failedForSession", sessionId, message } : { type: "failed", message });
     } finally {
       setIsPickingFiles(false);
     }

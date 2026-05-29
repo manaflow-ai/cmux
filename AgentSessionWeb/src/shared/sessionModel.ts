@@ -56,6 +56,7 @@ export type Action =
   | { type: "startAccepted"; sessionId: string }
   | { type: "stopping"; sessionId: string }
   | { type: "failed"; message: string }
+  | { type: "failedForSession"; sessionId: string; message: string }
   | { type: "sendFailed"; sessionId: string; message: string }
   | { type: "stopFailed"; sessionId: string; message: string }
   | { type: "stopped" }
@@ -138,6 +139,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         log: appendLog(state, "error", action.message),
         transcript: appendNoticeTranscript(state, action.message, "error"),
       };
+    case "failedForSession":
     case "sendFailed":
       if (state.runningSessionId !== action.sessionId || state.requestedStopSessionId === action.sessionId) {
         return state;
