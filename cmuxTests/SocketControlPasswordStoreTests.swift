@@ -349,15 +349,20 @@ final class AuthManagerSignOutTests: XCTestCase {
         )
         await manager.awaitBootstrapped()
 
-        let signOutTask = Task { @MainActor in
-            await manager.signOut()
-        }
+        async let signOutCompletion: Void = manager.signOut()
+        await Task.yield()
         await client.waitForSignOutStarted()
 
         let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=new-refresh&stack_access=new-access"))
-        try await manager.handleCallbackURL(callbackURL)
+        do {
+            try await manager.handleCallbackURL(callbackURL)
+        } catch {
+            await client.resumeSignOut()
+            await signOutCompletion
+            throw error
+        }
         await client.resumeSignOut()
-        await signOutTask.value
+        await signOutCompletion
 
         XCTAssertTrue(manager.isAuthenticated)
         let storedAccessToken = await tokenStore.getStoredAccessToken()
