@@ -16,14 +16,14 @@ check_warp_runner() {
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]]/ { in_job=0 }
-    in_job && /runs-on:.*warp-macos-.*-arm64/ { saw_warp=1 }
-    in_job && /os: warp-macos-.*-arm64/ { saw_warp=1 }
+    in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64)/ { saw_warp=1 }
+    in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64)/ { saw_warp=1 }
     END { exit !(saw_warp) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must use a WarpBuild runner"
+    echo "FAIL: $job in $(basename "$file") must use a paid macOS runner"
     exit 1
   fi
-  echo "PASS: $job WarpBuild runner is present"
+  echo "PASS: $job paid macOS runner is present"
 }
 
 check_e2e_runner_fallbacks() {
