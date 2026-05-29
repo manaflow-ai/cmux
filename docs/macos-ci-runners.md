@@ -35,7 +35,7 @@ gh variable list --repo manaflow-ai/cmux
 
 ## Manual runs
 
-`perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input. An explicit choice wins over the repo variable; leaving it on the default uses `MACOS_RUNNER_15`. `test-e2e.yml` also keeps `depot-macos-*` choices and a Depot identity guard for GUI-activation runs.
+`perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that defaults to `auto`. `auto` (and the empty `pull_request` case for perf) follows `MACOS_RUNNER_15` then the Warp fallback, so flipping the repo variable also redirects these workflows. An explicit choice wins over the variable; both dropdowns expose `warp-macos-15-arm64-6x` / `warp-macos-26-arm64-6x` so an operator can pick Warp directly during a Blacksmith outage. `test-e2e.yml` also keeps `depot-macos-*` choices and a Depot identity guard for GUI-activation runs.
 
 ## Guard
 
