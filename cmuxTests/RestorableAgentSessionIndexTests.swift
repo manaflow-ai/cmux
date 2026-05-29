@@ -377,8 +377,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             "Deeply nested worktree under .claude/worktrees"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/repo/.worktrees/ADAGENT-358"),
-            "-Users-me-git-repo--worktrees-ADAGENT-358",
+            RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/repo/.worktrees/feat-x"),
+            "-Users-me-git-repo--worktrees-feat-x",
             "Worktree under .worktrees alternative convention"
         )
     }
@@ -404,7 +404,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
-        let sessionId = "11111111-2222-3333-4444-555555555555"
+        let sessionId = "session-dot-encoding"
         try writeClaudeTranscript(sessionId: sessionId, cwd: cwd, projectsDir: projectsDir)
 
         let originalClaudeConfigDir = getenv("CLAUDE_CONFIG_DIR").map { String(cString: $0) }
