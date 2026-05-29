@@ -3428,7 +3428,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(browserPanel.showDeveloperTools())
         XCTAssertEqual(inspector.closeCount, 0)
 
-        let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+        let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: inspectorWindow, from: nil)
 
         XCTAssertTrue(handled)
         XCTAssertEqual(

@@ -6687,7 +6687,17 @@ extension BrowserPanel {
             forceDeveloperToolsRefreshOnNextAttach = false
             return
         }
-        guard !isDeveloperToolsTransitionInFlight else { return }
+        let transitionTargetVisible =
+            pendingDeveloperToolsTransitionTargetVisible ??
+            developerToolsTransitionTargetVisible ??
+            preferredDeveloperToolsVisible
+        let canForceRefreshDuringVisibleTransition =
+            forceDeveloperToolsRefreshOnNextAttach &&
+            isDeveloperToolsTransitionInFlight &&
+            transitionTargetVisible
+        guard !isDeveloperToolsTransitionInFlight || canForceRefreshDuringVisibleTransition else {
+            return
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
