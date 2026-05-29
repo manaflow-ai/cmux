@@ -59,7 +59,7 @@ struct SidebarWorkspaceGroupHeaderView: View {
                 .onAppear {
                     rowHeight = max(proxy.size.height, 1)
                 }
-                .onChange(of: proxy.size.height) { newHeight in
+                .onChange(of: proxy.size.height) { _, newHeight in
                     rowHeight = max(newHeight, 1)
                 }
         }
