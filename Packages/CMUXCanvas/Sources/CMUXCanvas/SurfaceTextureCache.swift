@@ -7,6 +7,25 @@ public enum CanvasSurfaceTextureKind: String, Codable, Sendable, Equatable {
     case snapshot
 }
 
+public enum CanvasSurfaceTextureSourceSelectionPolicy {
+    public static func selectedKind(
+        preferSnapshot: Bool,
+        hasLiveTexture: Bool,
+        hasSnapshotTexture: Bool
+    ) -> CanvasSurfaceTextureKind? {
+        if preferSnapshot, hasSnapshotTexture {
+            return .snapshot
+        }
+        if hasLiveTexture {
+            return .live
+        }
+        if hasSnapshotTexture {
+            return .snapshot
+        }
+        return nil
+    }
+}
+
 public enum CanvasTextureContentMode: String, Codable, Sendable, Equatable {
     case fit
     case fill

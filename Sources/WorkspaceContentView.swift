@@ -3166,30 +3166,27 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                   let selected = selectedTab(for: item) else {
                 return nil
             }
-            if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
-               let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
-                return CanvasSurfaceTextureSource(id: item.id, surface: surface, contentMode: .stretch)
-            }
-            if preferFrozenPreviewTextures,
-               let image = canvasPreviewImages[selected.id],
-               let cgImage = Self.cgImage(from: image) {
+            let snapshotImage = canvasPreviewImages[selected.id].flatMap { Self.cgImage(from: $0) }
+            let liveSurface = (workspace.panel(for: selected.id) as? TerminalPanel)?.hostedView.currentCanvasIOSurface()
+            switch CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
+                preferSnapshot: preferFrozenPreviewTextures,
+                hasLiveTexture: liveSurface != nil,
+                hasSnapshotTexture: snapshotImage != nil
+            ) {
+            case .snapshot:
+                guard let snapshotImage else { return nil }
                 return CanvasSurfaceTextureSource(
                     id: item.id,
-                    image: cgImage,
+                    image: snapshotImage,
                     generation: canvasPreviewImageGenerations[selected.id] ?? 0,
                     contentMode: .stretch
                 )
+            case .live:
+                guard let liveSurface else { return nil }
+                return CanvasSurfaceTextureSource(id: item.id, surface: liveSurface, contentMode: .stretch)
+            case nil:
+                return nil
             }
-            if let image = canvasPreviewImages[selected.id],
-               let cgImage = Self.cgImage(from: image) {
-                return CanvasSurfaceTextureSource(
-                    id: item.id,
-                    image: cgImage,
-                    generation: canvasPreviewImageGenerations[selected.id] ?? 0,
-                    contentMode: .stretch
-                )
-            }
-            return nil
         }
     }
 

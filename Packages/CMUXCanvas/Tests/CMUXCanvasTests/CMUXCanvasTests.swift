@@ -10,6 +10,40 @@ import Metal
 import XCTest
 
 final class CMUXCanvasTests: XCTestCase {
+    func testTextureSourceSelectionPrefersSnapshotDuringCameraMotion() {
+        XCTAssertEqual(
+            CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
+                preferSnapshot: true,
+                hasLiveTexture: true,
+                hasSnapshotTexture: true
+            ),
+            .snapshot
+        )
+        XCTAssertEqual(
+            CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
+                preferSnapshot: false,
+                hasLiveTexture: true,
+                hasSnapshotTexture: true
+            ),
+            .live
+        )
+        XCTAssertEqual(
+            CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
+                preferSnapshot: true,
+                hasLiveTexture: true,
+                hasSnapshotTexture: false
+            ),
+            .live
+        )
+        XCTAssertNil(
+            CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
+                preferSnapshot: true,
+                hasLiveTexture: false,
+                hasSnapshotTexture: false
+            )
+        )
+    }
+
 #if canImport(Metal)
     func testMetalTexturePipelineUsesPremultipliedAlphaBlending() {
         let descriptor = MTLRenderPipelineDescriptor()
