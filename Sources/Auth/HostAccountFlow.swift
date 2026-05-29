@@ -30,7 +30,7 @@ final class HostAccountFlow: AccountFlow {
     private let authManager: AuthManager
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
-    init(authManager: AuthManager = .shared) {
+    init(authManager: AuthManager) {
         self.authManager = authManager
         self.currentIdentity = Self.identity(from: authManager.currentUser)
         self.availableTeams = authManager.availableTeams.map { team in
