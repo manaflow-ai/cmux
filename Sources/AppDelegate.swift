@@ -6463,13 +6463,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
-        if let window {
-            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
-        }
-
         if let event,
            let browserResult = startBrowserFindForShortcutEvent(event, context: context) {
             return browserResult
+        }
+
+        if let window {
+            mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
         let target = context.keyboardFocusCoordinator.findShortcutTarget(
