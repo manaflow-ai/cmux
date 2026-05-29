@@ -204,6 +204,7 @@ final class AuthManager: ObservableObject {
     }
 
     private var loginPollTask: Task<Void, Never>?
+    private var browserSignInTimeoutTask: Task<Void, Never>?
     private var nextBrowserSignInAttemptID: UInt64 = 0
     private var activeBrowserSignInAttemptID: UInt64?
     private var activeBrowserSignInAttemptState: String?
@@ -211,6 +212,7 @@ final class AuthManager: ObservableObject {
     private var signOutCancelledBrowserSignInAttemptState: String?
     private var authMutationGeneration: UInt64 = 0
     private var currentAuthMutationKind: AuthMutationKind?
+    private static let defaultBrowserSignInTimeout: TimeInterval = 5 * 60
 
     private enum AuthMutationKind {
         case restore
@@ -224,13 +226,14 @@ final class AuthManager: ObservableObject {
     }
     #endif
 
-    func beginSignIn() {
+    func beginSignIn(timeout: TimeInterval = Self.defaultBrowserSignInTimeout) {
         lastSignInError = nil
         loginPollTask?.cancel()
         let signInState = UUID().uuidString
         let callbackURL = AuthEnvironment.authCallbackURL(state: signInState)
         let signInURL = AuthEnvironment.signInURL(callbackURL: callbackURL)
-        _ = startBrowserSignInAttempt(state: signInState)
+        let attemptID = startBrowserSignInAttempt(state: signInState)
+        scheduleBrowserSignInTimeout(attemptID: attemptID, timeout: timeout)
         authLog("auth.browserSignIn begin url=\(Self.redactedURLDescription(signInURL))")
         urlOpener(signInURL)
     }
@@ -247,7 +250,7 @@ final class AuthManager: ObservableObject {
     /// $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn()
+        beginSignIn(timeout: timeout)
         if !isLoading { return isAuthenticated }
         let signedIn = await waitForSignInSettled(timeout: timeout)
         if signedIn || isAuthenticated {
@@ -418,9 +421,16 @@ final class AuthManager: ObservableObject {
         let callbackState = AuthCallbackRouter.callbackState(from: url)
         let callbackPayload = AuthCallbackRouter.callbackPayload(from: url)
 
-        if let activeState = activeBrowserSignInAttemptState,
-           callbackState != activeState {
-            authLog("auth.browserSignIn ignored stale callback state=\(callbackState ?? "nil")")
+        if let cancelledState = signOutCancelledBrowserSignInAttemptState,
+           callbackState == cancelledState {
+            signOutCancelledBrowserSignInAttemptID = nil
+            signOutCancelledBrowserSignInAttemptState = nil
+            authLog("auth.browserSignIn ignored callback cancelledBySignOut state=\(callbackState ?? "nil")")
+            return
+        }
+
+        guard callbackState == activeBrowserSignInAttemptState else {
+            authLog("auth.browserSignIn ignored stale callback state=\(callbackState ?? "nil") activeState=\(activeBrowserSignInAttemptState ?? "nil")")
             return
         }
 
@@ -431,13 +441,6 @@ final class AuthManager: ObservableObject {
                 finishBrowserSignInAttempt(browserSignInAttemptID)
             }
             throw error
-        }
-        if let cancelledState = signOutCancelledBrowserSignInAttemptState,
-           payload.state == cancelledState {
-            signOutCancelledBrowserSignInAttemptID = nil
-            signOutCancelledBrowserSignInAttemptState = nil
-            authLog("auth.browserSignIn ignored callback cancelledBySignOut state=\(payload.state ?? "nil")")
-            return
         }
         defer {
             if let browserSignInAttemptID {
@@ -930,8 +933,24 @@ final class AuthManager: ObservableObject {
             && signOutCancelledBrowserSignInAttemptID != attemptID
     }
 
+    private func scheduleBrowserSignInTimeout(attemptID: UInt64, timeout: TimeInterval) {
+        browserSignInTimeoutTask?.cancel()
+        let maxSeconds: Double = 24 * 60 * 60
+        let clamped = max(0, min(timeout, maxSeconds))
+        browserSignInTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.isCurrentBrowserSignInAttempt(attemptID) else {
+                return
+            }
+            self.lastSignInError = .signInTimedOut
+            self.finishBrowserSignInAttempt(attemptID)
+        }
+    }
+
     private func finishBrowserSignInAttempt(_ attemptID: UInt64) {
         guard activeBrowserSignInAttemptID == attemptID else { return }
+        browserSignInTimeoutTask?.cancel()
+        browserSignInTimeoutTask = nil
         isLoading = false
         activeBrowserSignInAttemptID = nil
         activeBrowserSignInAttemptState = nil
@@ -942,6 +961,8 @@ final class AuthManager: ObservableObject {
     }
 
     private func cancelBrowserSignInForSignOut() {
+        browserSignInTimeoutTask?.cancel()
+        browserSignInTimeoutTask = nil
         if let attemptID = activeBrowserSignInAttemptID {
             signOutCancelledBrowserSignInAttemptID = attemptID
             signOutCancelledBrowserSignInAttemptState = activeBrowserSignInAttemptState

@@ -44,6 +44,79 @@ struct AuthManagerExternalBrowserSignInTests {
         #expect(afterAuthReturnTo.contains("state="))
         #expect(isLoadingAfterBegin)
     }
+
+    @Test
+    func beginSignInTimesOutWhenBrowserCallbackDoesNotReturn() async throws {
+        let suiteName = "AuthManagerExternalBrowserSignInTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = AuthManager(
+            client: AuthManagerExternalBrowserSignInTestClient(),
+            tokenStore: AuthManagerExternalBrowserSignInTestTokenStore(),
+            settingsStore: AuthSettingsStore(userDefaults: defaults),
+            urlOpener: { _ in }
+        )
+        await manager.awaitBootstrapped()
+
+        manager.beginSignIn(timeout: 0)
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(!manager.isLoading)
+        #expect(manager.userFacingSignInErrorMessage == AuthManagerError.signInTimedOut.userFacingMessage)
+    }
+
+    @Test
+    func stateBearingCallbackAfterTimeoutIsIgnored() async throws {
+        let suiteName = "AuthManagerExternalBrowserSignInTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var openedURL: URL?
+        let tokenStore = AuthManagerExternalBrowserSignInTestTokenStore()
+        let manager = AuthManager(
+            client: AuthManagerExternalBrowserSignInTestClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults),
+            urlOpener: { url in
+                openedURL = url
+            }
+        )
+        await manager.awaitBootstrapped()
+
+        manager.beginSignIn(timeout: 0)
+        let signInURL = try #require(openedURL)
+        let state = try #require(callbackState(fromSignInURL: signInURL))
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        let staleCallbackURL = try #require(
+            URL(string: "cmux://auth-callback?stack_refresh=refresh&stack_access=access&state=\(state)")
+        )
+        try await manager.handleCallbackURL(staleCallbackURL)
+
+        #expect(!manager.isAuthenticated)
+        #expect(await tokenStore.getStoredAccessToken() == nil)
+        #expect(await tokenStore.getStoredRefreshToken() == nil)
+    }
+
+    private func callbackState(fromSignInURL url: URL) -> String? {
+        let signInComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let afterAuthReturnTo = signInComponents?.queryItems?
+            .first { $0.name == "after_auth_return_to" }?
+            .value
+        let afterAuthComponents = afterAuthReturnTo.flatMap {
+            URLComponents(string: $0)
+        }
+        let nativeReturnTo = afterAuthComponents?.queryItems?
+            .first { $0.name == "native_app_return_to" }?
+            .value
+        let nativeComponents = nativeReturnTo.flatMap {
+            URLComponents(string: $0)
+        }
+        return nativeComponents?.queryItems?
+            .first { $0.name == "state" }?
+            .value
+    }
 }
 
 private struct AuthManagerExternalBrowserSignInTestClient: AuthClientProtocol {
