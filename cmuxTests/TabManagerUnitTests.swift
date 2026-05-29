@@ -3147,45 +3147,52 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
-    func testReopenDoesNotRetargetUnrelatedWorkspaceWhenOriginalWorkspaceDeleted() {
+    func testReopenLegacyStackDropsSnapshotWhenOriginalWorkspaceIsGone() {
         let manager = TabManager()
-        guard let originalWorkspace = manager.selectedWorkspace,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")) else {
-            XCTFail("Expected initial workspace and browser panel")
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected initial workspace")
             return
         }
+        let panelsBefore = workspace.panels.count
 
+        let staleSnapshot = ClosedBrowserPanelRestoreSnapshot(
+            workspaceId: UUID(),
+            url: URL(string: "https://example.com/stale-from-deleted-workspace"),
+            profileID: nil,
+            originalPaneId: UUID(),
+            originalTabIndex: 0,
+            fallbackSplitOrientation: .horizontal,
+            fallbackSplitInsertFirst: false,
+            fallbackAnchorPaneId: UUID()
+        )
+        workspace.onClosedBrowserPanel?(staleSnapshot)
+        XCTAssertNotNil(manager.mostRecentLegacyClosedBrowserPanelClosedAt())
+
+        XCTAssertFalse(manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack())
         drainMainQueue()
-        XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
-        drainMainQueue()
 
-        let currentWorkspace = manager.addWorkspace()
-        let currentPanelCountBefore = currentWorkspace.panels.count
-        manager.closeWorkspace(originalWorkspace, recordHistory: false)
-
-        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
-        XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))
-
-        XCTAssertFalse(manager.reopenMostRecentlyClosedBrowserPanel())
-        drainMainQueue()
-
-        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
-        XCTAssertEqual(currentWorkspace.panels.count, currentPanelCountBefore)
-        XCTAssertFalse(isFocusedPanelBrowser(in: currentWorkspace))
+        XCTAssertEqual(workspace.panels.count, panelsBefore)
+        XCTAssertNil(manager.mostRecentLegacyClosedBrowserPanelClosedAt())
     }
 
-    func testClosingWorkspacePrunesItsBrowserSnapshotsFromLegacyStack() {
+    func testCloseWorkspacePrunesLegacyStackSnapshotsForThatWorkspace() {
         let manager = TabManager()
-        guard let originalWorkspace = manager.selectedWorkspace,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stack-leak")) else {
-            XCTFail("Expected initial workspace and browser panel")
+        guard let originalWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected initial workspace")
             return
         }
 
-        drainMainQueue()
-        XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
-        drainMainQueue()
-
+        let snapshot = ClosedBrowserPanelRestoreSnapshot(
+            workspaceId: originalWorkspace.id,
+            url: URL(string: "https://example.com/stack-leak"),
+            profileID: nil,
+            originalPaneId: UUID(),
+            originalTabIndex: 0,
+            fallbackSplitOrientation: .horizontal,
+            fallbackSplitInsertFirst: false,
+            fallbackAnchorPaneId: UUID()
+        )
+        originalWorkspace.onClosedBrowserPanel?(snapshot)
         XCTAssertNotNil(manager.mostRecentLegacyClosedBrowserPanelClosedAt())
 
         _ = manager.addWorkspace()
