@@ -581,7 +581,7 @@ function SessionSurface({
       isSelected: isPlanMode,
       onClick: togglePlanMode,
     }),
-    isPlanMode
+    !isSingleLineComposer && isPlanMode
       ? h(ComposerModeIndicator, {
           icon: sparkleIcon("icon-xs"),
           label: state.context?.copy.skillPlan ?? "Plan",
@@ -651,6 +651,13 @@ function SessionSurface({
     { className: "flex min-w-0 shrink-0 items-center justify-end gap-2" },
     secondaryControls,
     permissionsControl(true),
+    isSingleLineComposer && isPlanMode
+      ? h(ComposerModeIndicator, {
+          icon: sparkleIcon("icon-xs"),
+          label: state.context?.copy.skillPlan ?? "Plan",
+          onClear: () => setIsPlanMode(false),
+        })
+      : null,
     actionCluster,
   );
   const composerInputWrapper = h(
