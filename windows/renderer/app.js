@@ -450,6 +450,8 @@ const commands = [
   { id: "terminal.clear", label: "Clear Active Terminal", shortcut: "Ctrl+K", run: () => clearActiveTerminal() },
   { id: "terminal.restart", label: "Restart Active Terminal", shortcut: "Ctrl+Shift+R", run: () => restartActiveTerminal() },
   { id: "terminal.close", label: "Close Active Pane", shortcut: "Ctrl+W", run: () => closeActivePanel() },
+  { id: "terminal.closeOthers", label: "Close Other Panes", shortcut: "", run: () => closeOtherPanes() },
+  { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
   { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
@@ -1863,6 +1865,7 @@ function showPanelContextMenu(event, panel) {
   const found = findPanelState(panel.id);
   if (!found) return;
   const index = found.workspace.panels.findIndex((candidate) => candidate.id === panel.id);
+  const panesToRight = found.workspace.panels.slice(index + 1);
   const title = document.createElement("div");
   title.className = "context-title";
   title.textContent = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
@@ -1874,6 +1877,8 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton(panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
+    contextMenuButton("Close other panes", () => closeOtherPanes(panel.id), found.workspace.panels.length <= 1, "danger"),
+    contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger"),
     contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
   );
   const colors = document.createElement("div");
@@ -1955,6 +1960,7 @@ function showToolbarMenu(event) {
   actions.append(
     contextMenuButton("Split down", () => createPanel("terminal", "down")),
     contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
+    contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
     contextMenuButton("Change workspace color", cycleWorkspaceColor),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
@@ -2234,14 +2240,14 @@ function optimisticFocusPanel(panelId) {
   return true;
 }
 
-function optimisticClosePanel(panelId) {
+function optimisticClosePanel(panelId, renderNow = true) {
   const found = findPanelState(panelId);
   if (!found) return false;
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   found.workspace.panels = found.workspace.panels.filter((candidate) => candidate.id !== panelId);
   found.workspace.activePanelId = found.workspace.panels[0]?.id || null;
   refreshWorkspaceCounts(found.workspace);
-  render();
+  if (renderNow) render();
   return true;
 }
 
@@ -2297,6 +2303,36 @@ async function closePanel(panelId) {
   } catch {
     await loadState();
   }
+}
+
+async function closePanelsById(panelIds) {
+  const ids = [...new Set(panelIds.filter(Boolean))];
+  if (ids.length === 0) return;
+  let changed = false;
+  for (const panelId of ids) {
+    changed = optimisticClosePanel(panelId, false) || changed;
+  }
+  if (changed) render();
+  try {
+    await Promise.all(ids.map((panelId) => api(`/api/panels/${panelId}`, { method: "DELETE" })));
+  } finally {
+    await loadState();
+  }
+}
+
+async function closeOtherPanes(panelId = activePanel()?.id) {
+  const found = findPanelState(panelId);
+  if (!found) return;
+  await closePanelsById(found.workspace.panels
+    .filter((candidate) => candidate.id !== panelId)
+    .map((candidate) => candidate.id));
+}
+
+async function closePanesToRight(panelId = activePanel()?.id) {
+  const found = findPanelState(panelId);
+  if (!found) return;
+  const index = found.workspace.panels.findIndex((candidate) => candidate.id === panelId);
+  await closePanelsById(found.workspace.panels.slice(index + 1).map((candidate) => candidate.id));
 }
 
 async function updatePanel(panelId, updates) {

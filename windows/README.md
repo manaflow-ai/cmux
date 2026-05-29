@@ -39,7 +39,7 @@ Implemented in this milestone:
 - Native Windows window controls, draggable split dividers, terminal font-size controls, restart, and close-to-empty workspace home state.
 - Settings panel with search, category navigation, one-click setup presets, expanded themes/accent palettes, workspace names/colors, built-in/custom backgrounds, browser home page, import/export/reset, density, sidebar width, tabs/status bar visibility, toolbar shortcut visibility, performance mode, terminal font family, text size, line height, padding, cursor style/blink, default shell profile, and terminal scrollback.
 - Compact Tools menu for workspace/session actions so the default top bar stays simple.
-- Chrome-style surface tabs with a new-tab button, drag reordering, workspace drop targets, right-click rename/duplicate/focus/move/close actions, and per-tab colors.
+- Chrome-style surface tabs with a new-tab button, drag reordering, workspace drop targets, right-click rename/duplicate/focus/move/close/close-others actions, and per-tab colors.
 - Browser panes with address/search normalization, back/forward/reload/home controls, open-external fallback, and configurable home page.
 - Workspace right-click menus for focus, rename, color, new terminal/browser, new workspace, and close actions.
 - Pane drag/drop docking hints for left, right, top, and bottom terminal placement, active-pane focus mode, and optimistic workspace/tab updates so moves, closes, and focus changes feel immediate.
