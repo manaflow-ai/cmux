@@ -1436,19 +1436,37 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #if DEBUG
     private func updateTestingAccessibilityState() {
         let ghosttyReadText = accessibilityRenderedTextForTesting()
-        let labelText: String?
-        if let ghosttyReadText,
-           !ghosttyReadText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            labelText = ghosttyReadText
-        } else if !testingAccessibilityOutputMirror.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            labelText = testingAccessibilityOutputMirror
-        } else {
-            labelText = nil
-        }
+        let labelText = Self.preferredTestingAccessibilityLabel(
+            ghosttyText: ghosttyReadText,
+            mirroredText: testingAccessibilityOutputMirror
+        )
         if let labelText {
             accessibilityLabel = labelText
         }
         accessibilityValue = rendererLayerDiagnosticsForTesting()
+    }
+
+    private static func preferredTestingAccessibilityLabel(
+        ghosttyText: String?,
+        mirroredText: String
+    ) -> String? {
+        let candidates = [ghosttyText, mirroredText]
+            .compactMap { $0 }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return candidates.max { lhs, rhs in
+            testingAccessibilitySignalScore(lhs) < testingAccessibilitySignalScore(rhs)
+        }
+    }
+
+    private static func testingAccessibilitySignalScore(_ text: String) -> Int {
+        text.unicodeScalars.reduce(0) { score, scalar in
+            switch scalar {
+            case "\n", "\r", "\t":
+                score
+            default:
+                scalar.properties.isWhitespace ? score : score + 1
+            }
+        }
     }
 
     private func appendTestingAccessibilityOutput(_ data: Data) {

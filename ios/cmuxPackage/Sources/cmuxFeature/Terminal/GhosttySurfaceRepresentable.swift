@@ -63,12 +63,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
-            store?.registerTerminalByteSink(surfaceID: surfaceID) { [weak surfaceView] data in
-                surfaceView?.processOutput(data)
-            }
             #if DEBUG
             installSoakInputScriptIfNeeded(surfaceView: surfaceView)
             #endif
+            store?.registerTerminalByteSink(surfaceID: surfaceID) { [weak surfaceView] data in
+                surfaceView?.processOutput(data)
+            }
         }
 
         func detach() {
