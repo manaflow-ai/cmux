@@ -7,6 +7,11 @@ final class CodexAppServerSession {
     typealias ActivitySink = (_ activity: [String: Any]) -> Void
     typealias FailureSink = (_ details: String?) -> Void
 
+    private struct QueuedInput {
+        let text: String
+        let permissionMode: AgentSessionPermissionMode
+    }
+
     private let workingDirectory: String?
     private let writeData: DataWriter
     private let outputSink: OutputSink
@@ -17,7 +22,7 @@ final class CodexAppServerSession {
     private var didInitialize = false
     private var threadStartRequestID: Int?
     private var threadID: String?
-    private var queuedInputs: [String] = []
+    private var queuedInputs: [QueuedInput] = []
     private var stdoutBuffer = ""
     private var didFailStartup = false
 
@@ -52,19 +57,19 @@ final class CodexAppServerSession {
         )
     }
 
-    func submit(_ text: String) throws {
+    func submit(_ text: String, permissionMode: AgentSessionPermissionMode = .standard) throws {
         guard !text.isEmpty else { return }
         guard !didFailStartup else {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
         guard let threadID else {
-            queuedInputs.append(text)
+            queuedInputs.append(QueuedInput(text: text, permissionMode: permissionMode))
             if didInitialize {
                 try startThreadIfNeeded()
             }
             return
         }
-        try sendTurnStart(threadID: threadID, text: text)
+        try sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
     }
 
     func consumeStdout(_ text: String) {
@@ -389,7 +394,11 @@ final class CodexAppServerSession {
         queuedInputs.removeAll()
         for input in inputs {
             do {
-                try sendTurnStart(threadID: threadID, text: input)
+                try sendTurnStart(
+                    threadID: threadID,
+                    text: input.text,
+                    permissionMode: input.permissionMode
+                )
             } catch {
                 emitCodexRPCFailure(error)
             }
@@ -423,19 +432,27 @@ final class CodexAppServerSession {
         failureSink(details)
     }
 
-    private func sendTurnStart(threadID: String, text: String) throws {
-        _ = try sendRequest(
-            method: "turn/start",
-            params: [
-                "threadId": threadID,
-                "input": [
-                    [
-                        "type": "text",
-                        "text": text,
-                        "text_elements": []
-                    ]
+    private func sendTurnStart(
+        threadID: String,
+        text: String,
+        permissionMode: AgentSessionPermissionMode
+    ) throws {
+        var params: [String: Any] = [
+            "threadId": threadID,
+            "input": [
+                [
+                    "type": "text",
+                    "text": text,
+                    "text_elements": []
                 ]
             ]
+        ]
+        for (key, value) in permissionMode.codexTurnOverrides {
+            params[key] = value
+        }
+        _ = try sendRequest(
+            method: "turn/start",
+            params: params
         )
     }
 
@@ -516,5 +533,30 @@ final class CodexAppServerSession {
 
     private static func unknownWarningMessage() -> String {
         String(localized: "agentSession.codex.warning.unknown", defaultValue: "Codex app-server reported a warning.")
+    }
+}
+
+enum AgentSessionPermissionMode: String {
+    case standard = "default"
+    case autoReview = "auto-review"
+    case fullAccess = "full-access"
+    case custom
+
+    var codexTurnOverrides: [String: Any] {
+        switch self {
+        case .standard, .custom:
+            return [:]
+        case .autoReview:
+            return [
+                "approvalPolicy": "on-request",
+                "approvalsReviewer": "auto_review"
+            ]
+        case .fullAccess:
+            return [
+                "approvalPolicy": "never",
+                "approvalsReviewer": "user",
+                "sandboxPolicy": ["type": "dangerFullAccess"]
+            ]
+        }
     }
 }

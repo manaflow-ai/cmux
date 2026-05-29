@@ -677,6 +677,43 @@ test("send waits until provider is running after start is accepted", async () =>
   expect(actions).toHaveLength(0);
 });
 
+test("send includes selected permission mode", async () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    input: "needs access",
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const messages: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const globalWithWindow = globalThis as typeof globalThis & { window?: Window };
+  const originalWindow = globalWithWindow.window;
+  globalWithWindow.window = {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          async postMessage(message: unknown) {
+            messages.push(message as { method: string; params: Record<string, unknown> });
+            return { ok: true, value: { sent: true } };
+          },
+        },
+      },
+    },
+  } as Window;
+
+  try {
+    await sendInput(running, () => {}, { permissionMode: "full-access" });
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalWithWindow.window;
+    } else {
+      globalWithWindow.window = originalWindow;
+    }
+  }
+
+  expect(messages[0]?.method).toBe("provider.writeLine");
+  expect(messages[0]?.params.permissionMode).toBe("full-access");
+});
+
 test("stop preserves running session until provider exit arrives", () => {
   const running = {
     ...reduceSession(initialState("react"), { type: "context", context }),

@@ -410,7 +410,7 @@ struct CodexAppServerSessionTests {
         let threadParams = try #require(threadStart["params"] as? [String: Any])
         expectEqual(threadParams["cwd"] as? String, "/tmp/cmux-agent-session-test")
 
-        try session.submit("hello codex")
+        try session.submit("hello codex", permissionMode: .fullAccess)
         expectEqual(sentLines.count, 3, "Prompt should queue until thread/start returns a thread id.")
 
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
@@ -418,6 +418,10 @@ struct CodexAppServerSessionTests {
         expectEqual(turnStart["method"] as? String, "turn/start")
         let turnParams = try #require(turnStart["params"] as? [String: Any])
         expectEqual(turnParams["threadId"] as? String, "thread-1")
+        expectEqual(turnParams["approvalPolicy"] as? String, "never")
+        expectEqual(turnParams["approvalsReviewer"] as? String, "user")
+        let sandboxPolicy = try #require(turnParams["sandboxPolicy"] as? [String: Any])
+        expectEqual(sandboxPolicy["type"] as? String, "dangerFullAccess")
         let input = try #require(turnParams["input"] as? [[String: Any]])
         expectEqual(input.first?["type"] as? String, "text")
         expectEqual(input.first?["text"] as? String, "hello codex")
@@ -425,6 +429,33 @@ struct CodexAppServerSessionTests {
         for line in sentLines {
             expectTrue(line.hasPrefix("{"), "Codex app-server stdin must stay JSON-RPC, got \(line)")
         }
+    }
+
+    @Test
+    func testAutoReviewPermissionModeAddsCodexReviewerOverride() throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in }
+        )
+
+        try session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try session.submit("please review", permissionMode: .autoReview)
+
+        let turnStart = jsonLine(sentLines[3])
+        expectEqual(turnStart["method"] as? String, "turn/start")
+        let turnParams = try #require(turnStart["params"] as? [String: Any])
+        expectEqual(turnParams["threadId"] as? String, "thread-1")
+        expectEqual(turnParams["approvalPolicy"] as? String, "on-request")
+        expectEqual(turnParams["approvalsReviewer"] as? String, "auto_review")
+        expectNil(turnParams["sandboxPolicy"])
     }
 
     @Test

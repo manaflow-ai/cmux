@@ -43,6 +43,7 @@ import type {
   AgentSessionAttachment,
   AgentSessionCopy,
   AgentSessionRateLimitRow,
+  ComposerPermissionMode,
   ProviderId,
 } from "../shared/types";
 import {
@@ -73,7 +74,6 @@ const SHELL_OUTPUT_BOTTOM_FADE_STYLE: React.CSSProperties = {
 };
 
 type ComposerMenuKind = "mention" | "skill" | null;
-type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
 
 type FooterControlSpec = {
   canHideLabel: boolean;
@@ -288,6 +288,7 @@ function SessionSurface({
   const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
+  const canConfigurePermissions = provider?.id === "codex";
   const modelLabel = codexModelLabel(provider);
   const reasoningEffortLabel =
     provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
@@ -347,6 +348,7 @@ function SessionSurface({
       attachments,
       clearInput: state.input,
       displayText: state.input,
+      permissionMode: canConfigurePermissions ? permissionMode : "default",
       text,
     }).then((didSend) => {
       if (didSend) {
@@ -599,22 +601,24 @@ function SessionSurface({
     },
   });
   const permissionsControl = (hideLabel = false) =>
-    h(PermissionsDropdown, {
-      copy: state.context?.copy,
-      hideLabel,
-      isEnabled: true,
-      isOpen: permissionsMenuOpen,
-      mode: permissionMode,
-      onModeChange: setPermissionMode,
-      onOpenChange: (isOpen: boolean) => {
-        setPermissionsMenuOpen(isOpen);
-        if (isOpen) {
-          setAddContextMenuOpen(false);
-          setProviderMenuOpen(false);
-          setMenuKind(null);
-        }
-      },
-    });
+    canConfigurePermissions
+      ? h(PermissionsDropdown, {
+          copy: state.context?.copy,
+          hideLabel,
+          isEnabled: true,
+          isOpen: permissionsMenuOpen,
+          mode: permissionMode,
+          onModeChange: setPermissionMode,
+          onOpenChange: (isOpen: boolean) => {
+            setPermissionsMenuOpen(isOpen);
+            if (isOpen) {
+              setAddContextMenuOpen(false);
+              setProviderMenuOpen(false);
+              setMenuKind(null);
+            }
+          },
+        })
+      : null;
   const leftControls = h(
     "div",
     { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },

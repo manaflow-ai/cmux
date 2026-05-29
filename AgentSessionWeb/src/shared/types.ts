@@ -2,6 +2,8 @@ export type ProviderId = "codex" | "claude" | "opencode";
 
 export type RendererKind = "react" | "solid";
 
+export type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
+
 export type ProviderInfo = {
   id: ProviderId;
   displayName: string;

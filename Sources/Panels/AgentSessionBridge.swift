@@ -50,6 +50,14 @@ struct AgentSessionBridgeRequest {
         }
         return provider
     }
+
+    func permissionMode() -> AgentSessionPermissionMode {
+        guard let rawValue = string("permissionMode"),
+              let mode = AgentSessionPermissionMode(rawValue: rawValue) else {
+            return .standard
+        }
+        return mode
+    }
 }
 
 enum AgentSessionBridgeError: LocalizedError {

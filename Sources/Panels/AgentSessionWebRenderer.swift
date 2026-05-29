@@ -642,6 +642,7 @@ extension AgentSessionWebRenderer {
             case "provider.writeLine":
                 try await processStore.writeLine(
                     sessionId: request.requiredString("sessionId"),
+                    permissionMode: request.permissionMode(),
                     text: request.requiredRawString("text")
                 )
                 return ["sent": true]

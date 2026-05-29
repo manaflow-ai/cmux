@@ -1,7 +1,14 @@
 import { callNative } from "./bridge";
 import { makeClientId } from "./ids";
 import { applyAgentTheme } from "./theme";
-import type { AgentEvent, AgentSessionAttachment, AppContext, ProviderId, ProviderInfo } from "./types";
+import type {
+  AgentEvent,
+  AgentSessionAttachment,
+  AppContext,
+  ComposerPermissionMode,
+  ProviderId,
+  ProviderInfo,
+} from "./types";
 
 export type LogEntry = {
   id: string;
@@ -258,6 +265,7 @@ export async function sendInput(
     attachments?: AgentSessionAttachment[];
     clearInput?: string;
     displayText?: string;
+    permissionMode?: ComposerPermissionMode;
     text?: string;
   } = {},
 ): Promise<boolean> {
@@ -269,6 +277,7 @@ export async function sendInput(
   const sessionId = state.runningSessionId;
   try {
     await callNative("provider.writeLine", {
+      permissionMode: options.permissionMode ?? "default",
       sessionId,
       text: submittedInput,
     });
