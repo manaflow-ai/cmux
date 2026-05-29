@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Network
 import CFNetwork
 import SQLite3
@@ -4019,6 +4019,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
+                self.postCanvasPreviewInvalidation()
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -5064,7 +5065,7 @@ final class BrowserPanel: Panel, ObservableObject {
         closeDeveloperToolsForTeardown()
 
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
-        // bonsplit/SwiftUI reshuffles views during close.
+        // workspaceLayout/SwiftUI reshuffles views during close.
         unfocus()
         cancelPendingInteractiveBrowserPrompts(reason: "close")
         closeBackgroundPreloadHost(reason: "close")
@@ -6802,7 +6803,15 @@ extension BrowserPanel {
 
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+        guard webView.window != nil,
+              !webView.isHidden,
+              webView.bounds.width > 1,
+              webView.bounds.height > 1 else {
+            completion(nil)
+            return
+        }
         let config = WKSnapshotConfiguration()
+        config.rect = webView.bounds
         webView.takeSnapshot(with: config) { image, error in
             if let error = error {
                 NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
@@ -6811,6 +6820,10 @@ extension BrowserPanel {
             }
             completion(image)
         }
+    }
+
+    private func postCanvasPreviewInvalidation() {
+        NotificationCenter.default.post(name: .browserCanvasPreviewDidChange, object: id)
     }
 
     /// Execute JavaScript

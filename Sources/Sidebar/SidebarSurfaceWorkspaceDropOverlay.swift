@@ -1,23 +1,23 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import SwiftUI
 
-struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
+struct SidebarSurfaceWorkspaceDropOverlay: NSViewRepresentable {
     let currentSelectedTabId: () -> UUID?
     let sidebarIndexForTabId: (UUID) -> Int?
-    let moveToExistingWorkspace: (UUID, BonsplitTabDragPayload.Transfer) -> Bool
-    let moveToNewWorkspace: (Int, BonsplitTabDragPayload.Transfer) -> UUID?
+    let moveToExistingWorkspace: (UUID, SurfaceTabDragPayload.Transfer) -> Bool
+    let moveToNewWorkspace: (Int, SurfaceTabDragPayload.Transfer) -> UUID?
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var dropIndicator: SidebarDropIndicator?
     let updateAutoscroll: () -> Void
     let targets: [SidebarDropPlanner.WorkspaceDropTarget]
 
-    func makeNSView(context: Context) -> SidebarBonsplitTabWorkspaceDropView {
-        SidebarBonsplitTabWorkspaceDropView()
+    func makeNSView(context: Context) -> SidebarCMUXLayoutTabWorkspaceDropView {
+        SidebarCMUXLayoutTabWorkspaceDropView()
     }
 
-    func updateNSView(_ nsView: SidebarBonsplitTabWorkspaceDropView, context: Context) {
+    func updateNSView(_ nsView: SidebarCMUXLayoutTabWorkspaceDropView, context: Context) {
         nsView.targets = targets
         nsView.canPerformAction = { action, transfer in
             guard let app = AppDelegate.shared else {
@@ -25,13 +25,13 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
             }
             switch action {
             case .existingWorkspace(let workspaceId):
-                if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
                    source.workspaceId == workspaceId {
                     return true
                 }
-                return app.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
+                return app.canMoveCMUXLayoutTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
             case .newWorkspace:
-                return app.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
+                return app.canMoveCMUXLayoutTabToNewWorkspace(tabId: transfer.tab.id)
             }
         }
         nsView.updateAutoscroll = updateAutoscroll
@@ -62,15 +62,15 @@ struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
     }
 }
 
-final class SidebarBonsplitTabWorkspaceDropView: NSView {
-    private static let pasteboardType = NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier)
+final class SidebarCMUXLayoutTabWorkspaceDropView: NSView {
+    private static let pasteboardType = NSPasteboard.PasteboardType(SurfaceTabDragPayload.typeIdentifier)
 
     var targets: [SidebarDropPlanner.WorkspaceDropTarget] = []
-    var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
+    var canPerformAction: (SidebarDropPlanner.WorkspaceDropAction, SurfaceTabDragPayload.Transfer) -> Bool = { _, _ in false }
     var updateAutoscroll: () -> Void = {}
     var setDropIndicator: (SidebarDropIndicator?) -> Void = { _ in }
-    var performExistingWorkspaceMove: (UUID, BonsplitTabDragPayload.Transfer) -> Bool = { _, _ in false }
-    var performNewWorkspaceMove: (Int, SidebarDropIndicator, BonsplitTabDragPayload.Transfer) -> Bool = { _, _, _ in false }
+    var performExistingWorkspaceMove: (UUID, SurfaceTabDragPayload.Transfer) -> Bool = { _, _ in false }
+    var performNewWorkspaceMove: (Int, SidebarDropIndicator, SurfaceTabDragPayload.Transfer) -> Bool = { _, _, _ in false }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
@@ -185,10 +185,10 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     private func acceptedTransfer(
         _ sender: any NSDraggingInfo,
         action: SidebarDropPlanner.WorkspaceDropAction?
-    ) -> BonsplitTabDragPayload.Transfer? {
+    ) -> SurfaceTabDragPayload.Transfer? {
         let pasteboard = sender.draggingPasteboard
         guard pasteboard.types?.contains(Self.pasteboardType) == true,
-              let transfer = BonsplitTabDragPayload.transfer(from: pasteboard),
+              let transfer = SurfaceTabDragPayload.transfer(from: pasteboard),
               let action,
               canPerformAction(action, transfer) else {
             return nil
@@ -205,7 +205,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
         guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
             return false
         }
-        guard BonsplitTabDragPayload.canRouteWorkspaceDrop(
+        guard SurfaceTabDragPayload.canRouteWorkspaceDrop(
             pasteboardTypes: NSPasteboard(name: .drag).types
         ) else { return false }
         return true

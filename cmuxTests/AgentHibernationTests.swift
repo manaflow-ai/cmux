@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import Bonsplit
+import CMUXLayout
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -911,7 +911,7 @@ final class AgentHibernationTests: XCTestCase {
         let detached = try XCTUnwrap(source.detachSurface(panelId: panelId))
 
         let destination = Workspace()
-        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.focusedPaneId)
+        let destinationPaneId = try XCTUnwrap(destination.layoutController.focusedPaneId)
         XCTAssertEqual(
             destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
             panelId

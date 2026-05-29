@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import SwiftUI
 
 struct NotificationsPage: View {

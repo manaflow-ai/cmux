@@ -1,5 +1,5 @@
 extension Workspace {
     func didProgrammaticallyChangeSplitGeometry() {
-        splitTabBar(bonsplitController, didChangeGeometry: bonsplitController.layoutSnapshot())
+        splitTabBar(layoutController, didChangeGeometry: layoutController.layoutSnapshot())
     }
 }

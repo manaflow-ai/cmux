@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import Bonsplit
+import CMUXLayout
 import OSLog
 
 private let closedItemHistoryLogger = Logger(
@@ -9,7 +9,7 @@ private let closedItemHistoryLogger = Logger(
 )
 
 struct ClosedPanelSplitPlacement: Codable {
-    let orientation: SplitOrientation
+    let orientation: LayoutOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }

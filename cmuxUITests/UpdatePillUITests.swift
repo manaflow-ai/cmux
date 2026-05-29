@@ -307,7 +307,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
     func testTitlebarShortcutHintsAlignWithoutShiftingControls() {
         let (baselineApp, baselineDataPath) = launchApp()
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: baselineApp, timeout: 8.0))
-        XCTAssertTrue(waitForBonsplitSetupReady(atPath: baselineDataPath, timeout: 8.0))
+        XCTAssertTrue(waitForCMUXLayoutSetupReady(atPath: baselineDataPath, timeout: 8.0))
 
         let baselineToggle = element(in: baselineApp, identifier: "titlebarControl.toggleSidebar")
         let baselineNotifications = element(in: baselineApp, identifier: "titlebarControl.showNotifications")
@@ -325,7 +325,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         let (hintedApp, hintedDataPath) = launchApp(alwaysShowShortcutHints: true)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: hintedApp, timeout: 8.0))
-        XCTAssertTrue(waitForBonsplitSetupReady(atPath: hintedDataPath, timeout: 8.0))
+        XCTAssertTrue(waitForCMUXLayoutSetupReady(atPath: hintedDataPath, timeout: 8.0))
 
         let hintedToggle = element(in: hintedApp, identifier: "titlebarControl.toggleSidebar")
         let hintedNotifications = element(in: hintedApp, identifier: "titlebarControl.showNotifications")
@@ -374,8 +374,8 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         let dataPath = "/tmp/cmux-ui-test-titlebar-shortcut-hints-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"] = dataPath
         if alwaysShowShortcutHints {
             app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         }
@@ -407,13 +407,13 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         }
     }
 
-    private func waitForBonsplitSetupReady(atPath path: String, timeout: TimeInterval) -> Bool {
+    private func waitForCMUXLayoutSetupReady(atPath path: String, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
-            loadBonsplitSetupData(atPath: path)?["ready"] == "1"
+            loadCMUXLayoutSetupData(atPath: path)?["ready"] == "1"
         }
     }
 
-    private func loadBonsplitSetupData(atPath path: String) -> [String: String]? {
+    private func loadCMUXLayoutSetupData(atPath path: String) -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return nil

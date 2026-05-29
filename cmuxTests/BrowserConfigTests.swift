@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 import Network
 
@@ -1738,11 +1738,11 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     func testCopyPayloadUsesPersistedValues() {
         let defaults = makeIsolatedDefaults()
         defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
-        defaults.set(BrowserDevToolsIconColorOption.bonsplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
+        defaults.set(BrowserDevToolsIconColorOption.workspaceLayoutActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
 
         let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
         XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
-        XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
+        XCTAssertTrue(payload.contains("browserDevToolsIconColor=workspaceLayoutActive"))
     }
 }
 
@@ -2839,7 +2839,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
     func testResetSidebarContextClearsBrowserPanelsIntoNewTabState() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
-        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneId = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let contextPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let browser = try XCTUnwrap(
             workspace.newBrowserSurface(
@@ -3813,7 +3813,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneDropZone: nil,
             searchOverlay: nil,
             omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
+            paneTopChromeHeight: 0,
+            rendersInCanvas: false
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -3857,7 +3858,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneDropZone: nil,
             searchOverlay: nil,
             omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
+            paneTopChromeHeight: 0,
+            rendersInCanvas: false
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -3970,7 +3972,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneDropZone: nil,
             searchOverlay: nil,
             omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
+            paneTopChromeHeight: 0,
+            rendersInCanvas: false
         )
 
         let window = NSWindow(
@@ -3991,7 +3994,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let visibleHosting = NSHostingView(rootView: representable)
         visibleHosting.frame = contentView.bounds
-        visibleHosting.autoresizingMask = [.width, .height]
+        visibleHosting.autoresizingMask = NSView.AutoresizingMask([.width, .height])
         contentView.addSubview(visibleHosting)
         defer { visibleHosting.removeFromSuperview() }
         window.makeKeyAndOrderFront(nil)
@@ -4026,7 +4029,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let detachedRoot = NSView(frame: visibleHosting.frame)
         let offWindowHosting = NSHostingView(rootView: representable)
         offWindowHosting.frame = detachedRoot.bounds
-        offWindowHosting.autoresizingMask = [.width, .height]
+        offWindowHosting.autoresizingMask = NSView.AutoresizingMask([.width, .height])
         detachedRoot.addSubview(offWindowHosting)
         defer { offWindowHosting.removeFromSuperview() }
         detachedRoot.layoutSubtreeIfNeeded()
@@ -4062,7 +4065,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             paneDropZone: nil,
             searchOverlay: nil,
             omnibarSuggestions: nil,
-            paneTopChromeHeight: 0
+            paneTopChromeHeight: 0,
+            rendersInCanvas: false
         )
 
         let window = NSWindow(
@@ -4107,7 +4111,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let replacementHosting = NSHostingView(rootView: representable)
         replacementHosting.frame = contentView.bounds
-        replacementHosting.autoresizingMask = [.width, .height]
+        replacementHosting.autoresizingMask = NSView.AutoresizingMask([.width, .height])
         contentView.addSubview(replacementHosting, positioned: .above, relativeTo: narrowHosting)
         contentView.layoutSubtreeIfNeeded()
         replacementHosting.layoutSubtreeIfNeeded()

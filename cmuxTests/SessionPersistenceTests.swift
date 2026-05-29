@@ -1,4 +1,5 @@
 import Darwin
+import CMUXLayout
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -14,6 +15,39 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresFreeformCanvasState() throws {
+        let workspace = Workspace()
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false)
+        )
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightPanel.id))
+
+        workspace.enterCanvasOverview(policy: .freeform)
+        let rightItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: rightPaneId))
+        let movedFrame = PixelRect(x: 320, y: 180, width: 880, height: 540)
+        let movedViewport = CanvasViewport(
+            visibleRect: PixelRect(x: 96, y: 128, width: 1_600, height: 900),
+            scale: 0.5
+        )
+        workspace.layoutController.moveCanvasItem(rightItem.id, to: movedFrame)
+        workspace.layoutController.setCanvasViewport(movedViewport)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.canvas?.policy, .freeform)
+        XCTAssertEqual(snapshot.canvas?.viewport, movedViewport)
+        XCTAssertTrue(snapshot.canvas?.items.contains { $0.frame == movedFrame } == true)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredCanvas = restored.layoutController.canvasSnapshot()
+
+        XCTAssertEqual(restoredCanvas.policy, .freeform)
+        XCTAssertEqual(restoredCanvas.viewport, movedViewport)
+        XCTAssertTrue(restoredCanvas.items.contains { $0.frame == movedFrame })
+    }
+
+    @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)
@@ -24,7 +58,7 @@ final class SessionPersistenceTests: XCTestCase {
         try "# hello\n".write(to: markdownURL, atomically: true, encoding: .utf8)
 
         let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneId = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let panel = try XCTUnwrap(
             workspace.newMarkdownSurface(
                 inPane: paneId,
@@ -119,7 +153,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(restoredNotification.isRead)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
         let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
-        XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
+        XCTAssertEqual(restored.layoutController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
         XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
         XCTAssertTrue(store.notificationMenuSnapshot.hasNotifications)
@@ -1654,7 +1688,7 @@ final class SessionPersistenceTests: XCTestCase {
             isPinned: true,
             currentDirectory: "/tmp",
             focusedPanelId: nil,
-            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            layout: .pane(SessionPanePaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
             panels: [],
             statusEntries: [],
             logEntries: [],

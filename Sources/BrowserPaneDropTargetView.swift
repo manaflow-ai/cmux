@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 import WebKit
 
@@ -20,7 +20,7 @@ final class BrowserPaneDropTargetView: NSView {
         super.init(frame: frameRect)
         registerForDraggedTypes(Array(Set([
             DragOverlayRoutingPolicy.filePreviewTransferType,
-            DragOverlayRoutingPolicy.bonsplitTabTransferType,
+            DragOverlayRoutingPolicy.workspaceLayoutTabTransferType,
         ]).union(PasteboardFileURLReader.fileURLPasteboardTypes)))
     }
 
@@ -47,10 +47,10 @@ final class BrowserPaneDropTargetView: NSView {
         let fileDropWantsPreview = fileDropBehavior == .preview
         let shouldCaptureFileDrop = fileDropBehavior != nil
         let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
-        let hasBonsplitTransfer = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        let hasCMUXLayoutTransfer = DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
         let shouldCaptureFilePreviewTransfer = hasFilePreviewTransfer && (!hasFileURL || fileDropWantsPreview)
-        let shouldCaptureBonsplitTransfer = hasBonsplitTransfer && !hasFilePreviewTransfer
-        guard shouldCaptureBonsplitTransfer || shouldCaptureFilePreviewTransfer || shouldCaptureFileDrop else { return false }
+        let shouldCaptureCMUXLayoutTransfer = hasCMUXLayoutTransfer && !hasFilePreviewTransfer
+        guard shouldCaptureCMUXLayoutTransfer || shouldCaptureFilePreviewTransfer || shouldCaptureFileDrop else { return false }
 
         return true
     }
@@ -204,7 +204,7 @@ final class BrowserPaneDropTargetView: NSView {
 #endif
                 return true
             case .move(let tabId, let workspaceId, let targetPane, let splitTarget):
-                let moved = AppDelegate.shared?.moveBonsplitTab(
+                let moved = AppDelegate.shared?.moveCMUXLayoutTab(
                     tabId: tabId,
                     toWorkspace: workspaceId,
                     targetPane: targetPane,
@@ -236,7 +236,7 @@ final class BrowserPaneDropTargetView: NSView {
 #endif
             return false
         }
-        let handled = workspace.handleExternalFileDrop(BonsplitController.ExternalFileDropRequest(
+        let handled = workspace.handleExternalFileDrop(WorkspaceLayoutController.ExternalFileDropRequest(
             urls: urls,
             destination: PaneDropRouting.filePreviewDestination(
                 targetPane: dropContext.paneId,
@@ -365,7 +365,7 @@ final class BrowserPaneDropTargetView: NSView {
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
         let windowPoint = convert(point, to: nil)
-        return BonsplitTabBarPassThrough
+        return WorkspaceLayoutTabBarPassThrough
             .shouldPassThroughToPaneTabBar(windowPoint: windowPoint, below: self)
             .result
     }
@@ -389,7 +389,7 @@ final class BrowserPaneDropTargetView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) {
-        let hasTransferType = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        let hasTransferType = DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         guard hasTransferType || hasFileURL || capture else { return }
 

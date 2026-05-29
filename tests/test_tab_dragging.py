@@ -509,7 +509,7 @@ def test_new_surfaces(client: cmux) -> TestResult:
     """Test creating new surfaces in a pane."""
     result = TestResult("New Surfaces")
     markers = [
-        Path(tempfile.gettempdir()) / f"cmux_bonsplit{i}_{os.getpid()}"
+        Path(tempfile.gettempdir()) / f"cmux_workspace_layout{i}_{os.getpid()}"
         for i in range(3)
     ]
 

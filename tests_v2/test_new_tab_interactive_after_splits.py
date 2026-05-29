@@ -190,7 +190,7 @@ def main() -> int:
         c.new_workspace()
         time.sleep(0.35)
 
-        # Create a multi-pane layout to exercise bonsplit/SwiftUI focus races.
+        # Create a multi-pane layout to exercise CMUXLayout/SwiftUI focus races.
         for _ in range(4):
             c.new_split("right")
             time.sleep(0.25)

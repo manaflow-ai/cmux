@@ -1356,7 +1356,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         invalidPanelSnapshot.filePreview = nil
         invalidPanelSnapshot.rightSidebarTool = nil
         invalidWorkspaceSnapshot.panels = [invalidPanelSnapshot]
-        invalidWorkspaceSnapshot.layout = .pane(SessionPaneLayoutSnapshot(
+        invalidWorkspaceSnapshot.layout = .pane(SessionPanePaneLayoutSnapshot(
             panelIds: [invalidPanelSnapshot.id],
             selectedPanelId: invalidPanelSnapshot.id
         ))
@@ -1914,7 +1914,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected split pane IDs")
             return
         }
-        let layoutBefore = workspace.bonsplitController.layoutSnapshot()
+        let layoutBefore = workspace.layoutController.layoutSnapshot()
         guard let leftPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == leftPaneBefore.id.uuidString })?.frame,
               let rightPaneBeforeFrame = layoutBefore.panes.first(where: { $0.paneId == rightPaneBefore.id.uuidString })?.frame else {
             XCTFail("Expected pane frames before shortcut split")
@@ -1930,7 +1930,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         workspace.focusPanel(rightPanel.id)
-        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected Bonsplit selection to stay on the right pane")
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected CMUXLayout selection to stay on the right pane")
         leftPanel.hostedView.suppressReparentFocus()
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
         leftPanel.hostedView.clearSuppressReparentFocus()
@@ -1957,7 +1957,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected pane IDs after shortcut split")
             return
         }
-        let layoutAfter = workspace.bonsplitController.layoutSnapshot()
+        let layoutAfter = workspace.layoutController.layoutSnapshot()
         guard let newPaneFrame = layoutAfter.panes.first(where: { $0.paneId == newPaneId.id.uuidString })?.frame,
               let rightPaneAfterFrame = layoutAfter.panes.first(where: { $0.paneId == rightPaneAfter.id.uuidString })?.frame else {
             XCTFail("Expected pane frames after shortcut split")
@@ -2667,7 +2667,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ),
             0,
             accuracy: 0.5,
-            "Manually hosted minimal windows already have zero safe area, so the Bonsplit strip must not be pulled offscreen"
+            "Manually hosted minimal windows already have zero safe area, so the CMUXLayout strip must not be pulled offscreen"
         )
 
         XCTAssertEqual(
@@ -2712,7 +2712,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testWindowChromeTitlebarHeightClampsToSharedRange() {
-        [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.bonsplitTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
+        [WindowChromeMetrics.appTitlebarHeight, WindowChromeMetrics.workspaceLayoutTabBarHeight, WindowChromeMetrics.secondaryTitlebarHeight, MinimalModeChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.titlebarHeight, RightSidebarChromeMetrics.secondaryBarHeight].forEach { XCTAssertEqual($0, WindowChromeMetrics.sharedChromeBarHeight) }
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
@@ -2807,8 +2807,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         // Recreate the regression shape: the window chrome state says minimal +
-        // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
-        sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
+        // collapsed sidebar, but the selected workspace's live CMUXLayout inset is stale.
+        sourceWorkspace.layoutController.configuration.appearance.tabBarLeadingInset = 0
 
         guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
@@ -2823,7 +2823,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            newWorkspace.layoutController.configuration.appearance.tabBarLeadingInset,
             80,
             accuracy: 0.5,
             "New minimal-mode workspaces should reserve traffic-light space immediately even when the source workspace inset is stale"
@@ -2871,7 +2871,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // No RunLoop spin before reading the inset — the seed must be applied by the
         // time createMainWindow returns, not lazily after onAppear runs.
         XCTAssertEqual(
-            initialWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset,
+            initialWorkspace.layoutController.configuration.appearance.tabBarLeadingInset,
             80,
             accuracy: 0.5,
             "New minimal-mode windows with collapsed sidebar should reserve traffic-light space on the initial workspace before first render"
@@ -3597,6 +3597,189 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertNotNil(manager.focusedBrowserPanel?.searchState)
         XCTAssertEqual(appDelegate.fileExplorerState?.mode, initialMode)
+    }
+
+    func testCmdFUsesBrowserFindWhenOmnibarOwnsResponderButTerminalPanelIsFocused() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected terminal and browser panels")
+            return
+        }
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
+        field.identifier = browserOmnibarTextFieldIdentifier
+        field.panelId = browserPanelId
+        field.stringValue = "example.com"
+        contentView.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            field.removeFromSuperview()
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertNotNil(field.currentEditor())
+        browserPanel.noteAddressBarFocused()
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertNotNil(field.currentEditor())
+        XCTAssertNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+F should use browser find when the omnibar owns first responder"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNotNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+    }
+
+    func testCmdFUsesBrowserFindWhenWebViewOwnsResponderButTerminalPanelIsFocused() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected terminal and browser panels")
+            return
+        }
+
+        let webView = browserPanel.webView
+        let originalSuperview = webView.superview
+        let originalFrame = webView.frame
+        if webView.superview !== contentView {
+            webView.removeFromSuperview()
+            contentView.addSubview(webView)
+        }
+        webView.frame = NSRect(x: 8, y: 8, width: 640, height: 360)
+        defer {
+            if webView.superview === contentView {
+                webView.removeFromSuperview()
+            }
+            originalSuperview?.addSubview(webView)
+            webView.frame = originalFrame
+        }
+
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, terminalPanel.id)
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        XCTAssertTrue(window.firstResponder === webView)
+        XCTAssertNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+F should use browser find when browser web content owns first responder"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNotNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
+    }
+
+    func testCmdFUsesTrackedAddressBarBrowserWhenTerminalResponderStoleFocusDuringNavigation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected terminal and browser panels")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+        XCTAssertEqual(appDelegate.focusedBrowserAddressBarPanelId(), browserPanelId)
+
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, terminalPanel.id)
+        XCTAssertNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+F should keep the address-bar browser as find owner during navigation handoff"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNotNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
     }
 
     func testOmnibarArrowSelectionUsesResponderResolvedPanelWhenTrackedFocusWasCleared() {
@@ -5572,6 +5755,81 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #else
         XCTFail("shortcutLookupObserver is only available in DEBUG")
         #endif
+    }
+
+    func testCanvasZoomRoutingUsesConfiguredShortcutSettings() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let tabManager = appDelegate.tabManager,
+              let workspace = tabManager.selectedWorkspace else {
+            XCTFail("Expected test window and selected workspace")
+            return
+        }
+
+        let remappedZoomOut = StoredShortcut(
+            key: "z",
+            command: true,
+            shift: false,
+            option: true,
+            control: false,
+            keyCode: 6
+        )
+        KeyboardShortcutSettings.setShortcut(remappedZoomOut, for: .browserZoomOut)
+
+        workspace.enterCanvasOverview(policy: .freeform)
+        let initialScale = workspace.setCanvasOverviewScale(0.84)
+
+        guard let defaultZoomOut = makeKeyDownEvent(
+            key: "-",
+            modifiers: [.command],
+            keyCode: 27,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct default zoom-out event")
+            return
+        }
+
+        #if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: defaultZoomOut))
+        #else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        #endif
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, initialScale, accuracy: 0.001)
+
+        var observedActions: [KeyboardShortcutSettings.Action] = []
+        #if DEBUG
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            observedActions.append(action)
+        }
+        #else
+        XCTFail("shortcutLookupObserver is only available in DEBUG")
+        #endif
+
+        guard let remappedEvent = makeKeyDownEvent(
+            shortcut: remappedZoomOut,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct remapped zoom-out event")
+            return
+        }
+
+        #if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: remappedEvent))
+        #else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        #endif
+        XCTAssertLessThan(workspace.layoutController.canvasViewport.scale, initialScale)
+        XCTAssertTrue(
+            observedActions.contains(.browserZoomOut),
+            "Canvas zoom routing must consult KeyboardShortcutSettings instead of matching default zoom literals"
+        )
     }
 
     // MARK: - Browser find shortcut routing tests

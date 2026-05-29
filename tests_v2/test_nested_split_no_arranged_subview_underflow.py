@@ -51,16 +51,16 @@ def main() -> int:
         time.sleep(0.1)
 
         # Only measure underflow during the nested split.
-        c.reset_bonsplit_underflow_count()
+        c.reset_workspaceLayout_underflow_count()
 
         # Second split: nested split inside the right pane.
         c.new_split("right")
         time.sleep(0.2)
 
-        underflows = c.bonsplit_underflow_count()
+        underflows = c.workspaceLayout_underflow_count()
         if underflows != 0:
             shot = _take_screenshot(c, "nested_split_underflow")
-            raise cmuxError(f"bonsplit arranged-subview underflow observed ({underflows}); screenshot: {shot}")
+            raise cmuxError(f"CMUXLayout arranged-subview underflow observed ({underflows}); screenshot: {shot}")
 
         print("PASS: nested split did not underflow arrangedSubviews")
         return 0

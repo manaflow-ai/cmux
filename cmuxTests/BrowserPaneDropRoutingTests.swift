@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-import Bonsplit
+import CMUXLayout
 import WebKit
 
 #if canImport(cmux_DEV)
@@ -131,13 +131,13 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
     func testHitTestingCapturesOnlyForRelevantDragEvents() {
         XCTAssertTrue(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                pasteboardTypes: [DragOverlayRoutingPolicy.workspaceLayoutTabTransferType],
                 eventType: .cursorUpdate
             )
         )
         XCTAssertFalse(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                pasteboardTypes: [DragOverlayRoutingPolicy.workspaceLayoutTabTransferType],
                 eventType: .leftMouseDown
             )
         )
@@ -239,7 +239,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
     }
 
     func testDecodePasteboardUsesDedicatedFilePreviewTransferType() throws {
-        let realTabPasteboard = try makeBonsplitPanePayloadPasteboard(
+        let realTabPasteboard = try makeSurfacePanePayloadPasteboard(
             kind: "filePreview",
             includesFilePreviewTransferType: false
         )
@@ -247,7 +247,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertFalse(realTabTransfer.isFilePreview)
         XCTAssertEqual(realTabTransfer.kind, "filePreview")
 
-        let syntheticPasteboard = try makeBonsplitPanePayloadPasteboard(
+        let syntheticPasteboard = try makeSurfacePanePayloadPasteboard(
             kind: "filePreview",
             includesFilePreviewTransferType: true
         )
@@ -364,7 +364,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
         ])
         pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
-        pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType)
 
         XCTAssertFalse(DragOverlayRoutingPolicy.hasFileURL(pasteboard.types))
 
@@ -402,7 +402,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         }
     }
 
-    private func makeBonsplitPanePayloadPasteboard(
+    private func makeSurfacePanePayloadPasteboard(
         kind: String?,
         includesFilePreviewTransferType: Bool
     ) throws -> NSPasteboard {
@@ -419,7 +419,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        pasteboard.setData(data, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        pasteboard.setData(data, forType: DragOverlayRoutingPolicy.workspaceLayoutTabTransferType)
         if includesFilePreviewTransferType {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }

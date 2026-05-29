@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 import WebKit
 
@@ -32,7 +32,7 @@ extension BrowserPaneDropTargetView: FileDropPaneTarget {
 }
 
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
-/// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
+/// handle file/URL drags from Finder. Nested NSHostingController layers (created by workspaceLayout's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
 /// embedded terminal views. This overlay sits above the entire content view hierarchy and
 /// intercepts file drags, forwarding drops to the GhosttyNSView under the cursor.
@@ -45,6 +45,7 @@ final class FileDropOverlayView: NSView {
     private var isForwardingMouseEvent = false
     private weak var forwardedMouseDragTarget: NSView?
     private var forwardedMouseDragButton: ForwardedMouseDragButton?
+    private var localPointerDragButton: ForwardedMouseDragButton?
     /// The WKWebView currently receiving forwarded drag events, so we can
     /// synthesize draggingExited/draggingEntered as the cursor moves.
     weak var activeDragWebView: WKWebView?
@@ -109,11 +110,51 @@ final class FileDropOverlayView: NSView {
         }
     }
 
+    private func mouseButtonMask(for button: ForwardedMouseDragButton) -> Int {
+        switch button {
+        case .left:
+            return 1 << 0
+        case .right:
+            return 1 << 1
+        case .other(let buttonNumber):
+            return 1 << max(0, buttonNumber)
+        }
+    }
+
+    private func clearLocalPointerDragIfReleased() {
+        guard let localPointerDragButton else { return }
+        if (NSEvent.pressedMouseButtons & mouseButtonMask(for: localPointerDragButton)) == 0 {
+            self.localPointerDragButton = nil
+        }
+    }
+
+    private func shouldSuppressFileDropCaptureForLocalPointerEvent(_ event: NSEvent?) -> Bool {
+        guard let event, let eventButton = dragButton(for: event) else {
+            clearLocalPointerDragIfReleased()
+            return false
+        }
+        if shouldTrackForwardedMouseDragStart(for: event.type) {
+            localPointerDragButton = eventButton
+            return true
+        }
+        if shouldTrackForwardedMouseDragEnd(for: event.type) {
+            let wasTracked = localPointerDragButton != nil
+            localPointerDragButton = nil
+            return wasTracked
+        }
+        clearLocalPointerDragIfReleased()
+        if localPointerDragButton == eventButton {
+            return true
+        }
+        return false
+    }
+
     // MARK: Hit-testing — participation is routed by DragOverlayRoutingPolicy so
-    // file-drop, bonsplit tab drags, and sidebar tab reorder drags cannot conflict.
+    // file-drop, workspaceLayout tab drags, and sidebar tab reorder drags cannot conflict.
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let eventType = NSApp.currentEvent?.type
+        let currentEvent = NSApp.currentEvent
+        let eventType = currentEvent?.type
         guard WindowInputRoutingContext.allowsFileDropOverlayHitTesting(eventType: eventType) else {
 #if DEBUG
             logHitTestDecision(
@@ -125,8 +166,9 @@ final class FileDropOverlayView: NSView {
             return nil
         }
 
+        let suppressForLocalPointerDrag = shouldSuppressFileDropCaptureForLocalPointerEvent(currentEvent)
         let pb = NSPasteboard(name: .drag)
-        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
+        let shouldCapture = !suppressForLocalPointerDrag && DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
             pasteboardTypes: pb.types,
             eventType: eventType
         )
@@ -137,8 +179,11 @@ final class FileDropOverlayView: NSView {
             shouldCapture: shouldCapture
         )
 #endif
+        if shouldDeferFileDropOverlayToWorkspaceCanvasResize(at: point, eventType: eventType) {
+            return nil
+        }
         guard shouldCapture else { return nil }
-        if shouldDeferFileDropOverlayToBonsplitTabBar(at: point) {
+        if shouldDeferFileDropOverlayToWorkspaceLayoutTabBar(at: point) {
             return nil
         }
 

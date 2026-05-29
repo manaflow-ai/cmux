@@ -16,7 +16,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.layoutController.allPaneIds.first)
         let remainingPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
         sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "Build logs")
@@ -41,7 +41,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(result.paneId, destinationWorkspace.paneId(forPanelId: movedPanel.id)?.id)
     }
 
-    func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
+    func testMoveBrowserCMUXLayoutTabToNewWorkspaceRequestsAddressBarFocus() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
@@ -49,7 +49,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.layoutController.allPaneIds.first)
         let browserPanel = try XCTUnwrap(
             sourceWorkspace.newBrowserSurface(
                 inPane: sourcePaneId,
@@ -61,7 +61,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         browserPanel.noteWebViewFocused()
         XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.webView))
 
-        let result = try XCTUnwrap(app.moveBonsplitTabToNewWorkspace(
+        let result = try XCTUnwrap(app.moveCMUXLayoutTabToNewWorkspace(
             tabId: browserTabId,
             focus: true,
             focusWindow: false
@@ -91,7 +91,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertNotNil(sourceWorkspace.panels[onlyPanelId])
     }
 
-    func testMoveTerminalBonsplitTabToExistingWorkspaceClosesEmptiedSourceWorkspace() throws {
+    func testMoveTerminalCMUXLayoutTabToExistingWorkspaceClosesEmptiedSourceWorkspace() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
@@ -100,13 +100,13 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
 
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
-        let movedBonsplitTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
+        let movedCMUXLayoutTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
         let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
         let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
 
-        XCTAssertTrue(app.canMoveBonsplitTab(tabId: movedBonsplitTabId, toWorkspace: destinationWorkspace.id))
-        XCTAssertTrue(app.moveBonsplitTab(
-            tabId: movedBonsplitTabId,
+        XCTAssertTrue(app.canMoveCMUXLayoutTab(tabId: movedCMUXLayoutTabId, toWorkspace: destinationWorkspace.id))
+        XCTAssertTrue(app.moveCMUXLayoutTab(
+            tabId: movedCMUXLayoutTabId,
             toWorkspace: destinationWorkspace.id,
             focus: false,
             focusWindow: false

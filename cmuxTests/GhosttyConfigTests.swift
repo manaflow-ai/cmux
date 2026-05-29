@@ -1328,7 +1328,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 }
 
 final class WindowChromeSeparatorColorTests: XCTestCase {
-    func testDarkChromeSeparatorMatchesBonsplitDerivation() {
+    func testDarkChromeSeparatorMatchesCMUXLayoutDerivation() {
         guard let backgroundColor = NSColor(hex: "#272822") else {
             XCTFail("Expected valid test color")
             return
@@ -1343,7 +1343,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
         XCTAssertEqual(rgba.alpha, CGFloat(0.36), accuracy: 0.0001)
     }
 
-    func testLightChromeSeparatorMatchesBonsplitDerivation() {
+    func testLightChromeSeparatorMatchesCMUXLayoutDerivation() {
         guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
             XCTFail("Expected valid test color")
             return
@@ -1371,7 +1371,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
+    func testWorkspaceLayoutChromeHexIncludesAlphaWhenTranslucent() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -1379,11 +1379,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        let hex = Workspace.workspaceLayoutChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
         XCTAssertEqual(hex, "#1122337F")
     }
 
-    func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
+    func testWorkspaceLayoutChromeHexOmitsAlphaWhenOpaque() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -1391,11 +1391,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = Workspace.workspaceLayoutChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
-    func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
+    func testWorkspaceLayoutChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -1403,7 +1403,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(
+        let hex = Workspace.workspaceLayoutChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
@@ -1411,7 +1411,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(hex, "#1122337F")
     }
 
-    func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
+    func testWorkspaceLayoutChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -1419,7 +1419,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = Workspace.workspaceLayoutChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
@@ -1431,7 +1431,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
-    func testBonsplitChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
+    func testWorkspaceLayoutChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -1439,7 +1439,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = Workspace.workspaceLayoutChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
@@ -2287,7 +2287,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {
         let source = Workspace()
-        let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let sourcePaneId = try XCTUnwrap(source.layoutController.allPaneIds.first)
         let sourceBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
         let localStore = sourceBrowser.webView.configuration.websiteDataStore
         XCTAssertTrue(localStore === WKWebsiteDataStore.default())
@@ -2308,7 +2308,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destination.layoutController.allPaneIds.first)
         let destinationBrowser = try XCTUnwrap(destination.newBrowserSurface(inPane: destinationPaneId, focus: false))
         let destinationStore = destinationBrowser.webView.configuration.websiteDataStore
         XCTAssertFalse(destinationStore === WKWebsiteDataStore.default())
@@ -2340,14 +2340,14 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let sourcePaneId = try XCTUnwrap(source.layoutController.allPaneIds.first)
         let movedBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
         let remainingRemoteBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
         let remoteStore = remainingRemoteBrowser.webView.configuration.websiteDataStore
         XCTAssertFalse(remoteStore === WKWebsiteDataStore.default())
 
         let destination = Workspace()
-        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destination.layoutController.allPaneIds.first)
         let detached = try XCTUnwrap(source.detachSurface(panelId: movedBrowser.id))
         let attachedPanelId = try XCTUnwrap(
             destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false)
@@ -2361,7 +2361,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
     func testNewTerminalSurfaceStaysRemoteWhileBrowserPanelsKeepWorkspaceRemote() throws {
         let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneId = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let initialTerminalId = try XCTUnwrap(workspace.focusedPanelId)
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -2754,7 +2754,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
             profileID: nil,
             originalPaneId: UUID(),
             originalTabIndex: index,
-            fallbackSplitOrientation: .horizontal,
+            fallbackLayoutOrientation: .horizontal,
             fallbackSplitInsertFirst: false,
             fallbackAnchorPaneId: UUID()
         )

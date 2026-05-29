@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import Bonsplit
+import CMUXLayout
 
 extension TerminalController {
     enum V2PaneResizeDirection: String {
@@ -116,7 +116,7 @@ extension TerminalController {
 
         var candidates: [V2PaneResizeCandidate] = []
         let trace = v2PaneResizeCollectCandidates(
-            node: workspace.bonsplitController.treeSnapshot(),
+            node: workspace.layoutController.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
@@ -128,7 +128,7 @@ extension TerminalController {
         let targetFraction = targetPixels / candidate.axisPixels
         let requested = candidate.paneInFirstChild ? targetFraction : (1 - targetFraction)
         let clamped = min(max(requested, 0.1), 0.9)
-        guard workspace.bonsplitController.setDividerPosition(
+        guard workspace.layoutController.setDividerPosition(
             clamped,
             forSplit: candidate.splitId,
             fromExternal: true

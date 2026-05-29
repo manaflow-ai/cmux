@@ -1,6 +1,6 @@
 import SwiftUI
 import Foundation
-import Bonsplit
+import CMUXLayout
 import AppKit
 
 /// View that renders the appropriate panel view based on panel type
@@ -13,6 +13,7 @@ struct PanelContentView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let isSplit: Bool
+    let rendersInCanvas: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
@@ -24,6 +25,7 @@ struct PanelContentView: View {
 
     var body: some View {
         renderedPanel
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay {
                 paneDropTargetOverlay
             }
@@ -58,6 +60,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    rendersInCanvas: rendersInCanvas,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

@@ -1,5 +1,5 @@
 import XCTest
-import Bonsplit
+import CMUXLayout
 import AppKit
 import SwiftUI
 
@@ -80,7 +80,7 @@ private func waitForWorkspaceSplitView(
     )
     return try XCTUnwrap(
         firstWorkspaceDescendant(ofType: NSSplitView.self, in: hostingView),
-        "Expected rendered Bonsplit NSSplitView",
+        "Expected rendered CMUXLayout NSSplitView",
         file: file,
         line: line
     )
@@ -88,7 +88,7 @@ private func waitForWorkspaceSplitView(
 
 @MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
-    func testCustomLayoutSplitRatioSurvivesInitialBonsplitViewLayout() throws {
+    func testCustomLayoutSplitRatioSurvivesInitialWorkspaceLayoutViewLayout() throws {
         let workspace = Workspace()
         let expectedDividerPosition = 0.33
         let layout = CmuxLayoutNode.split(CmuxSplitDefinition(
@@ -106,16 +106,16 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
         workspace.applyCustomLayout(layout, baseCwd: NSTemporaryDirectory())
 
-        let modelSplitBeforeRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
+        let modelSplitBeforeRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.layoutController.treeSnapshot()).first)
         XCTAssertEqual(
             modelSplitBeforeRender.dividerPosition,
             expectedDividerPosition,
             accuracy: 0.000_1,
-            "cmux.json split ratio should be applied to the Bonsplit model before rendering"
+            "cmux.json split ratio should be applied to the CMUXLayout model before rendering"
         )
 
         let hostingView = NSHostingView(
-            rootView: BonsplitView(controller: workspace.bonsplitController) { _, _ in
+            rootView: WorkspaceLayoutView(controller: workspace.layoutController) { _, _ in
                 Color.clear
             } emptyPane: { _ in
                 Color.clear
@@ -143,12 +143,12 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             accuracy: 0.03
         )
 
-        let modelSplitAfterRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
+        let modelSplitAfterRender = try XCTUnwrap(workspaceSplitNodes(in: workspace.layoutController.treeSnapshot()).first)
         XCTAssertEqual(
             modelSplitAfterRender.dividerPosition,
             expectedDividerPosition,
             accuracy: 0.000_1,
-            "Bonsplit initial view layout should not rewrite the cmux.json split ratio back to 0.5"
+            "CMUXLayout initial view layout should not rewrite the cmux.json split ratio back to 0.5"
         )
     }
 
@@ -193,7 +193,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             tmuxStartCommand,
             "Programmatic tmux-compatible splits must preserve the original tmux command for pane format queries"
         )
-        guard let split = workspaceSplitNodes(in: workspace.bonsplitController.treeSnapshot()).first else {
+        guard let split = workspaceSplitNodes(in: workspace.layoutController.treeSnapshot()).first else {
             XCTFail("Expected split terminal panel to create a split node")
             return
         }
@@ -208,7 +208,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
     func testNewTerminalSurfaceCarriesRequestedWorkingDirectoryAndStartupCommand() {
         let workspace = Workspace()
-        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+        guard let paneId = workspace.layoutController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
             return
         }
@@ -273,7 +273,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
 
     func testSessionSnapshotDoesNotPersistGenericTmuxStartCommand() throws {
         let workspace = Workspace()
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let genericCommand = "sleep 600"
         let panel = try XCTUnwrap(workspace.newTerminalSurface(
             inPane: paneId,

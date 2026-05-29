@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 func browserOmnibarSelectionDeltaForControlNavigation(
@@ -786,23 +786,24 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 
 enum WindowMoveSuppressionReason: String {
     case folderDrag
-    case bonsplitPaneTabDrag
+    case workspaceLayoutPaneTabDrag
 }
 
-func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
+func shouldSuppressWindowMoveForWorkspaceLayoutPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
     guard event.type == .leftMouseDown else {
         return false
     }
 
-    return BonsplitTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
+    return WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window) ||
+        WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
 }
 
 func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {
     if shouldSuppressWindowMoveForFolderDrag(window: window, event: event) {
         return .folderDrag
     }
-    if shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event) {
-        return .bonsplitPaneTabDrag
+    if shouldSuppressWindowMoveForWorkspaceLayoutPaneTabDrag(window: window, event: event) {
+        return .workspaceLayoutPaneTabDrag
     }
     return nil
 }

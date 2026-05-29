@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import Bonsplit
+import CMUXLayout
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -1607,11 +1607,11 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
 }
 
-enum SessionSplitOrientation: String, Codable, Sendable {
+enum SessionLayoutOrientation: String, Codable, Sendable {
     case horizontal
     case vertical
 
-    init(_ orientation: SplitOrientation) {
+    init(_ orientation: LayoutOrientation) {
         switch orientation {
         case .horizontal:
             self = .horizontal
@@ -1620,7 +1620,7 @@ enum SessionSplitOrientation: String, Codable, Sendable {
         }
     }
 
-    var splitOrientation: SplitOrientation {
+    var splitOrientation: LayoutOrientation {
         switch self {
         case .horizontal:
             return .horizontal
@@ -1630,21 +1630,21 @@ enum SessionSplitOrientation: String, Codable, Sendable {
     }
 }
 
-struct SessionPaneLayoutSnapshot: Codable, Sendable {
+struct SessionPanePaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
 }
 
-struct SessionSplitLayoutSnapshot: Codable, Sendable {
-    var orientation: SessionSplitOrientation
+struct SessionSplitPaneLayoutSnapshot: Codable, Sendable {
+    var orientation: SessionLayoutOrientation
     var dividerPosition: Double
-    var first: SessionWorkspaceLayoutSnapshot
-    var second: SessionWorkspaceLayoutSnapshot
+    var first: SessionWorkspacePaneLayoutSnapshot
+    var second: SessionWorkspacePaneLayoutSnapshot
 }
 
-indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
-    case pane(SessionPaneLayoutSnapshot)
-    case split(SessionSplitLayoutSnapshot)
+indirect enum SessionWorkspacePaneLayoutSnapshot: Codable, Sendable {
+    case pane(SessionPanePaneLayoutSnapshot)
+    case split(SessionSplitPaneLayoutSnapshot)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -1657,9 +1657,9 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
         let type = try container.decode(String.self, forKey: .type)
         switch type {
         case "pane":
-            self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
+            self = .pane(try container.decode(SessionPanePaneLayoutSnapshot.self, forKey: .pane))
         case "split":
-            self = .split(try container.decode(SessionSplitLayoutSnapshot.self, forKey: .split))
+            self = .split(try container.decode(SessionSplitPaneLayoutSnapshot.self, forKey: .split))
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unsupported layout node type: \(type)")
         }
@@ -1676,6 +1676,21 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
             try container.encode(split, forKey: .split)
         }
     }
+}
+
+struct SessionCanvasItemSnapshot: Codable, Sendable {
+    var panelIds: [UUID]
+    var selectedPanelId: UUID?
+    var frame: PixelRect
+    var zIndex: Int
+    var isNativeResolution: Bool?
+}
+
+struct SessionCanvasSnapshot: Codable, Sendable {
+    var policy: CanvasLayoutPolicy
+    var viewport: CanvasViewport
+    var items: [SessionCanvasItemSnapshot]
+    var isActive: Bool? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1695,13 +1710,14 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
-    var layout: SessionWorkspaceLayoutSnapshot
+    var layout: SessionWorkspacePaneLayoutSnapshot
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    var canvas: SessionCanvasSnapshot? = nil
 }
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {

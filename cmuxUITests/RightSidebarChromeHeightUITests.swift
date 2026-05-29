@@ -10,9 +10,9 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: dataPath)
 
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
         app.launch()
         defer { app.terminate() }
@@ -47,7 +47,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         }
         XCTAssertEqual(secondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected secondary bar to match the right sidebar mode bar. geometry=\(geometry)")
         XCTAssertEqual(secondaryBarHeight, 28, accuracy: 0.5, "Expected right sidebar chrome to use the standard minimal-mode lane height. geometry=\(geometry)")
-        XCTAssertGreaterThanOrEqual(alphaTab.frame.height, CGFloat(secondaryBarHeight), "Expected Bonsplit pane tab hit target to cover the compact chrome lane. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
+        XCTAssertGreaterThanOrEqual(alphaTab.frame.height, CGFloat(secondaryBarHeight), "Expected CMUXLayout pane tab hit target to cover the compact chrome lane. geometry=\(geometry) alphaTab=\(alphaTab.frame)")
 
         let controlHeightKeys = [
             "rightSidebarModeControl_sessionsHeight",
@@ -93,9 +93,9 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: dataPath)
 
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += [
             "-workspacePresentationMode", "minimal",
             "-sidebarMatchTerminalBackground", "true",

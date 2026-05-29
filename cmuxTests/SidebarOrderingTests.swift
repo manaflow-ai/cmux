@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 
 #if canImport(cmux_DEV)

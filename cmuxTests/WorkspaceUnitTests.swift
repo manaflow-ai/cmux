@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+import CMUXLayout
 import UserNotifications
 import Combine
 
@@ -2991,6 +2991,192 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(defaultInsertedIndex, explicitInsertedIndex)
     }
 
+    func testNewWorkspaceStartsInCanvasMainView() {
+        let workspace = Workspace()
+
+        XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(workspace.layoutController.canvasLayoutPolicy, .freeform)
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testSessionRestorePreservesInactiveCanvasOverviewState() {
+        let source = Workspace()
+        source.exitCanvasOverview()
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.canvas?.isActive, false)
+
+        let restored = Workspace()
+        XCTAssertTrue(restored.layoutController.isCanvasOverviewActive)
+        _ = restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertFalse(restored.layoutController.isCanvasOverviewActive)
+    }
+
+    func testSessionRestorePreservesActiveCanvasOverviewState() {
+        let source = Workspace()
+        source.enterCanvasOverview(policy: .freeform)
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.canvas?.isActive, true)
+
+        let restored = Workspace()
+        restored.exitCanvasOverview()
+        _ = restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertTrue(restored.layoutController.isCanvasOverviewActive)
+    }
+
+    func testCanvasActivationKeepsCanvasMainViewAndRestoresNativeScale() throws {
+        let workspace = Workspace()
+        let focusedItemID = try XCTUnwrap(workspace.layoutController.focusedCanvasItemID)
+
+        workspace.layoutController.setCanvasViewportScale(0.5)
+        XCTAssertTrue(workspace.activateCanvasItem(focusedItemID))
+
+        XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testCanvasActivationScrollsMovedItemIntoView() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: true
+            )
+        )
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserPanel.id))
+        let browserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+        workspace.layoutController.moveCanvasItem(
+            browserItem.id,
+            to: PixelRect(x: 1_216, y: 0, width: 1_200, height: 800)
+        )
+        workspace.layoutController.setCanvasViewport(
+            CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1)
+        )
+
+        XCTAssertTrue(workspace.activateCanvasItem(browserItem.id))
+
+        let movedBrowserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+        let visibleRect = CGRect(
+            x: workspace.layoutController.canvasViewport.visibleRect.x,
+            y: workspace.layoutController.canvasViewport.visibleRect.y,
+            width: workspace.layoutController.canvasViewport.visibleRect.width,
+            height: workspace.layoutController.canvasViewport.visibleRect.height
+        )
+        let browserRect = CGRect(
+            x: movedBrowserItem.frame.x,
+            y: movedBrowserItem.frame.y,
+            width: movedBrowserItem.frame.width,
+            height: movedBrowserItem.frame.height
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(browserRect).width,
+            browserRect.width * 0.72
+        )
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testFocusedCanvasSplitScrollsCreatedPanelIntoView() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.layoutController.setCanvasViewport(
+            CanvasViewport(visibleRect: PixelRect(x: 0, y: 0, width: 1_200, height: 800), scale: 1)
+        )
+
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: true
+            )
+        )
+
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserPanel.id))
+        let browserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+        let visibleRect = CGRect(
+            x: workspace.layoutController.canvasViewport.visibleRect.x,
+            y: workspace.layoutController.canvasViewport.visibleRect.y,
+            width: workspace.layoutController.canvasViewport.visibleRect.width,
+            height: workspace.layoutController.canvasViewport.visibleRect.height
+        )
+        let browserRect = CGRect(
+            x: browserItem.frame.x,
+            y: browserItem.frame.y,
+            width: browserItem.frame.width,
+            height: browserItem.frame.height
+        )
+
+        XCTAssertEqual(workspace.layoutController.focusedCanvasItemID, browserItem.id)
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(browserRect).width,
+            browserRect.width * 0.72
+        )
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testCanvasPreparePanelForNativeInputFocusesPanelItemAndRestoresNativeScale() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let sourceItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: sourcePaneId))
+        let browserPanel = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                focus: true
+            )
+        )
+        let browserPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserPanel.id))
+        let browserItem = try XCTUnwrap(workspace.layoutController.canvasItem(forPane: browserPaneId))
+
+        workspace.layoutController.enterCanvasOverview(policy: .freeform, scale: 0.5)
+        XCTAssertTrue(workspace.layoutController.focusCanvasItem(sourceItem.id))
+
+        XCTAssertTrue(workspace.prepareCanvasPanelForNativeInput(browserPanel.id))
+
+        XCTAssertTrue(workspace.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(workspace.layoutController.focusedCanvasItemID, browserItem.id)
+        XCTAssertEqual(workspace.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+        let visibleRect = CGRect(
+            x: workspace.layoutController.canvasViewport.visibleRect.x,
+            y: workspace.layoutController.canvasViewport.visibleRect.y,
+            width: workspace.layoutController.canvasViewport.visibleRect.width,
+            height: workspace.layoutController.canvasViewport.visibleRect.height
+        )
+        let browserRect = CGRect(
+            x: browserItem.frame.x,
+            y: browserItem.frame.y,
+            width: browserItem.frame.width,
+            height: browserItem.frame.height
+        )
+        XCTAssertGreaterThanOrEqual(
+            visibleRect.intersection(browserRect).width,
+            browserRect.width * 0.72
+        )
+        XCTAssertEqual(workspace.layoutController.canvasSceneSnapshot().activeMountDirective?.renderMode, .liveNative1x)
+    }
+
+    func testSelectedCanvasModeCarriesIntoNewWorkspaceAtNativeScale() {
+        let manager = TabManager()
+        guard let source = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        source.layoutController.enterCanvasOverview(policy: .freeform, scale: 0.58)
+
+        let inserted = manager.addWorkspace()
+
+        XCTAssertTrue(inserted.layoutController.isCanvasOverviewActive)
+        XCTAssertEqual(inserted.layoutController.canvasLayoutPolicy, .freeform)
+        XCTAssertEqual(inserted.layoutController.canvasViewport.scale, 1.0, accuracy: 0.001)
+    }
+
     func testAddWorkspaceEndOverrideAlwaysAppends() {
         let manager = makeManagerWithThreeWorkspaces()
         let baselineCount = manager.tabs.count
@@ -4171,7 +4357,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
-        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
+        guard let sourcePaneId = workspace.layoutController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
             return
         }
@@ -4340,7 +4526,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the new split panel to be selected before simulating stale focus state"
         )
 
-        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
+        // Simulate the split-pane failure mode: CMUXLayout already points at the right panel,
         // but the active terminal state is still stale on the left panel.
         leftPanel.surface.setFocus(true)
         leftPanel.hostedView.setActive(true)
@@ -4399,7 +4585,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the clicked split pane to already be selected before simulating stale focus state"
         )
 
-        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
+        // Simulate the ghost-terminal race: the right pane is selected in CMUXLayout, but stale
         // active state remains on the left and the right pane's AppKit focus callback never fires
         // after split reparent/layout churn.
         leftPanel.surface.setFocus(true)
@@ -4629,7 +4815,7 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         }
 
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspaceLayoutPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
 
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -4698,7 +4884,7 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         appDelegate.notificationStore = notificationStore
         AppFocusState.overrideIsFocused = true
         defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
-        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        defaults.set(TmuxOverlayExperimentTarget.workspaceLayoutPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
 
         guard let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
@@ -4738,14 +4924,14 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
 
 @MainActor
 final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
-    private final class RejectingCreateTabDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+    private final class RejectingCreateTabDelegate: WorkspaceLayoutDelegate {
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldCreateTab tab: CMUXLayout.SurfaceTab, inPane pane: PaneID) -> Bool {
             false
         }
     }
 
-    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+    private final class RejectingSplitPaneDelegate: WorkspaceLayoutDelegate {
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldSplitPane pane: PaneID, orientation: LayoutOrientation) -> Bool {
             false
         }
     }
@@ -4754,7 +4940,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let workspace = Workspace()
         let profileA = try makeTemporaryBrowserProfile(named: "Alpha")
         let profileB = try makeTemporaryBrowserProfile(named: "Beta")
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let browserA = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -4778,8 +4964,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         )
 
         let leftSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserA.id))
-        workspace.bonsplitController.focusPane(paneId)
-        workspace.bonsplitController.selectTab(leftSurfaceId)
+        workspace.layoutController.focusPane(paneId)
+        workspace.layoutController.selectTab(leftSurfaceId)
 
         let created = try XCTUnwrap(
             workspace.newBrowserSurface(
@@ -4800,7 +4986,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
         let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         _ = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -4811,7 +4997,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
 
         let rejectingDelegate = RejectingCreateTabDelegate()
-        workspace.bonsplitController.delegate = rejectingDelegate
+        workspace.layoutController.delegate = rejectingDelegate
         let created = workspace.newBrowserSurface(
             inPane: paneId,
             focus: false,
@@ -4831,7 +5017,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
         let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let browser = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -4842,7 +5028,7 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
 
         let rejectingDelegate = RejectingSplitPaneDelegate()
-        workspace.bonsplitController.delegate = rejectingDelegate
+        workspace.layoutController.delegate = rejectingDelegate
         let created = workspace.newBrowserSplit(
             from: browser.id,
             orientation: .horizontal,
@@ -4862,8 +5048,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
-    private final class RejectingCreateTabDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+    private final class RejectingCreateTabDelegate: WorkspaceLayoutDelegate {
+        func splitTabBar(_ controller: WorkspaceLayoutController, shouldCreateTab tab: CMUXLayout.SurfaceTab, inPane pane: PaneID) -> Bool {
             false
         }
     }
@@ -4877,7 +5063,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     }
 
     private func rootSplit(in workspace: Workspace) throws -> ExternalSplitNode {
-        switch workspace.bonsplitController.treeSnapshot() {
+        switch workspace.layoutController.treeSnapshot() {
         case .split(let split):
             return split
         case .pane:
@@ -4972,7 +5158,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Detaching the last surface should not auto-create a replacement panel"
         )
         XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: paneId).count, 0)
 
         drainMainQueue()
         drainMainQueue()
@@ -5008,13 +5194,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(detachedTerminalPanel.workspaceId, source.id)
 
         let destination = Workspace()
-        guard let destinationPaneId = destination.bonsplitController.focusedPaneId else {
+        guard let destinationPaneId = destination.layoutController.focusedPaneId else {
             XCTFail("Expected destination pane")
             return
         }
 
         let rejectingDelegate = RejectingCreateTabDelegate()
-        destination.bonsplitController.delegate = rejectingDelegate
+        destination.layoutController.delegate = rejectingDelegate
 
         let attachedPanelId = destination.attachDetachedSurface(
             detached,
@@ -5089,7 +5275,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         let destination = Workspace()
-        guard let destinationPane = destination.bonsplitController.allPaneIds.first else {
+        guard let destinationPane = destination.layoutController.allPaneIds.first else {
             XCTFail("Expected destination pane")
             return
         }
@@ -5103,7 +5289,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
 
         guard let attachedTabId = destination.surfaceIdFromPanelId(panelId),
-              let attachedTab = destination.bonsplitController.tab(attachedTabId) else {
+              let attachedTab = destination.layoutController.tab(attachedTabId) else {
             XCTFail("Expected attached tab mapping")
             return
         }
@@ -5132,16 +5318,16 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
         guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
               let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
-              let splitTab = workspace.bonsplitController
+              let splitTab = workspace.layoutController
               .tabs(inPane: splitPaneId)
               .first(where: { $0.id == splitTabId }) else {
             XCTFail("Expected split pane/tab mapping")
             return
         }
 
-        // Simulate one delayed stale split-selection callback from bonsplit.
+        // Simulate one delayed stale split-selection callback from workspaceLayout.
         DispatchQueue.main.async {
-            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+            workspace.splitTabBar(workspace.layoutController, didSelectTab: splitTab, inPane: splitPaneId)
         }
 
         drainMainQueue()
@@ -5154,14 +5340,51 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus split to reassert the pre-split focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.focusedPaneId,
+            workspace.layoutController.focusedPaneId,
             originalPaneId,
             "Expected focused pane to converge back to the pre-split pane"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to converge back to the pre-split focused panel"
+        )
+    }
+
+    func testDragToSplitAppliesMovedBackgroundTabSelection() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+        guard let movedPanel = workspace.newBrowserSurface(inPane: originalPaneId, focus: false),
+              let movedTabId = workspace.surfaceIdFromPanelId(movedPanel.id) else {
+            XCTFail("Expected background browser surface")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, originalFocusedPanelId)
+
+        guard let newPaneId = workspace.layoutController.splitPane(
+            originalPaneId,
+            orientation: .horizontal,
+            movingTab: movedTabId,
+            insertFirst: false
+        ) else {
+            XCTFail("Expected drag-to-split to create a new pane")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.layoutController.focusedPaneId, newPaneId)
+        XCTAssertEqual(workspace.layoutController.selectedTab(inPane: newPaneId)?.id, movedTabId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            movedPanel.id,
+            "Drag-to-split should apply the moved tab selection so native portal/focus state follows the new pane"
         )
     }
 
@@ -5218,7 +5441,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus terminal surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to stay on the original focused panel"
         )
@@ -5248,7 +5471,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus browser surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             workspace.surfaceIdFromPanelId(originalFocusedPanelId),
             "Expected selected tab to stay on the original focused panel"
         )
@@ -5285,19 +5508,19 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Expected non-focus right sidebar tool surface creation to preserve the existing focused panel"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.layoutController.selectedTab(inPane: originalPaneId)?.id,
             originalTabId,
             "Expected selected tab to stay on the original focused panel"
         )
         XCTAssertEqual(
-            workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
+            workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.layoutController.tab($0)?.kind },
             Workspace.SurfaceKind.rightSidebarTool
         )
     }
 
     func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {
         let workspace = Workspace()
-        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+        guard let paneId = workspace.layoutController.focusedPaneId else {
             XCTFail("Expected focused pane")
             return
         }
@@ -5386,7 +5609,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertNotEqual(forkPanel.id, sourcePanelId)
         XCTAssertEqual(workspace.terminalPanel(for: sourcePanelId)?.id, sourcePanel.id)
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
         XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
@@ -5426,7 +5649,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             )
 
             XCTAssertNotEqual(forkPanel.id, sourcePanelId)
-            XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+            XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
             XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
             XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
             XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
@@ -5614,7 +5837,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
         XCTAssertEqual(initialRemoteSessionCount, 1)
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let initialInput = "codex resume session-drop\n"
 
         let splitPanel = try XCTUnwrap(
@@ -5862,7 +6085,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             autoConnect: false
         )
         let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let paneId = try XCTUnwrap(workspace.layoutController.focusedPaneId)
         let localPanel = try XCTUnwrap(
             workspace.splitPaneWithNewTerminal(
                 targetPane: paneId,
@@ -6356,7 +6579,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "branch2", isDirty: false)
 
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch1", "branch2"])
-        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(leftPaneId))
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
     }
 
@@ -6425,12 +6648,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Fork should land in the same pane as the source tab, not a split pane"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.allPaneIds.count,
+            workspace.layoutController.allPaneIds.count,
             1,
             "Fork creates a sibling tab, not a new pane"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            workspace.layoutController.tabs(inPane: sourcePaneId).count,
             2,
             "Pane should now host both the source and forked tabs"
         )
@@ -6455,7 +6678,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let trailingPanel = try XCTUnwrap(
             workspace.newTerminalSurface(inPane: sourcePaneId, focus: false)
         )
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: sourcePaneId).count, 2)
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: sourcePaneId).count, 2)
 
         let snapshot = makeForkableClaudeSnapshot()
         let forkPanel = try XCTUnwrap(
@@ -6467,7 +6690,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             )
         )
 
-        let tabIdsInOrder = workspace.bonsplitController.tabs(inPane: sourcePaneId).map(\.id)
+        let tabIdsInOrder = workspace.layoutController.tabs(inPane: sourcePaneId).map(\.id)
         let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
         let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanel.id))
         let trailingTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(trailingPanel.id))
@@ -6544,12 +6767,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertTrue(workspace.canForkAgentConversationFromPanel(sourcePanelId))
 
         let anchorTab = try XCTUnwrap(
-            workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
+            workspace.layoutController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
         )
 
         workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .forkConversation,
+            workspace.layoutController,
+            didRequestSurfaceContextAction: .forkConversation,
             for: anchorTab,
             inPane: sourcePaneId
         )
@@ -6557,7 +6780,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
         XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
         let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
         XCTAssertEqual(
             forkPanel.surface.initialInput,
             snapshot.forkCommand.map { $0 + "\n" },
@@ -6572,7 +6795,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     }
 
     func testForkConversationContextMenuNewTabActionCreatesSiblingTab() throws {
-        // Drive the same code path the bonsplit context menu triggers, end-to-end,
+        // Drive the same code path the CMUXLayout context menu triggers, end-to-end,
         // to lock in that the menu wiring stays connected.
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -6580,23 +6803,23 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
         workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
 
-        let tabs = workspace.bonsplitController.tabs(inPane: sourcePaneId)
+        let tabs = workspace.layoutController.tabs(inPane: sourcePaneId)
         let anchorTab = try XCTUnwrap(tabs.first { $0.id == anchorTabId })
 
         workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .forkConversationNewTab,
+            workspace.layoutController,
+            didRequestSurfaceContextAction: .forkConversationNewTab,
             for: anchorTab,
             inPane: sourcePaneId
         )
 
         XCTAssertEqual(
-            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            workspace.layoutController.tabs(inPane: sourcePaneId).count,
             2,
             "Fork Conversation New Tab context action should spawn a sibling tab"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.allPaneIds.count,
+            workspace.layoutController.allPaneIds.count,
             1,
             "Fork Conversation New Tab should not create a split pane"
         )
@@ -6621,23 +6844,23 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.setRestoredAgentSnapshotForTesting(makeForkableClaudeSnapshot(), panelId: sourcePanelId)
 
         let anchorTab = try XCTUnwrap(
-            workspace.bonsplitController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
+            workspace.layoutController.tabs(inPane: sourcePaneId).first { $0.id == anchorTabId }
         )
 
         workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .forkConversation,
+            workspace.layoutController,
+            didRequestSurfaceContextAction: .forkConversation,
             for: anchorTab,
             inPane: sourcePaneId
         )
 
         XCTAssertEqual(
-            workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
+            workspace.layoutController.tabs(inPane: sourcePaneId).count,
             2,
             "Configured default should control the primary Fork Conversation context action"
         )
         XCTAssertEqual(
-            workspace.bonsplitController.allPaneIds.count,
+            workspace.layoutController.allPaneIds.count,
             1,
             "Configured New Tab default should keep the fork in the source pane"
         )

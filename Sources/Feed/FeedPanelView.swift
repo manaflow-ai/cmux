@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import CMUXWorkstream
 import SwiftUI
 #if DEBUG
@@ -103,7 +103,7 @@ struct FeedPanelView: View {
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
-        .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
+        .reportRightSidebarChromeGeometryForCMUXLayoutUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
     private var controlBarContent: some View {

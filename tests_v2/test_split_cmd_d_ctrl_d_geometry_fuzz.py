@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fuzz regression: rapid Cmd+D / Ctrl+D churn must not shift the outer bonsplit container frame.
+Fuzz regression: rapid Cmd+D / Ctrl+D churn must not shift the outer workspaceLayout container frame.
 
 This targets the user-reported visual shift/flash while spamming split + close.
 We treat any drift in x/y/width/height of the outer container frame as a failure.
@@ -136,7 +136,7 @@ def main() -> int:
         c.activate_app()
         time.sleep(0.2)
 
-        c.reset_bonsplit_underflow_count()
+        c.reset_workspaceLayout_underflow_count()
         c.reset_empty_panel_count()
 
         initial = _warm_start_split(c)
@@ -191,9 +191,9 @@ def main() -> int:
                 if SAMPLE_INTERVAL_S > 0:
                     time.sleep(rng.uniform(0.0, SAMPLE_INTERVAL_S))
 
-        underflows = c.bonsplit_underflow_count()
+        underflows = c.workspaceLayout_underflow_count()
         if ASSERT_NO_UNDERFLOW and underflows != 0:
-            raise cmuxError(f"bonsplit arranged-subview underflow observed during fuzz run: {underflows}")
+            raise cmuxError(f"CMUXLayout arranged-subview underflow observed during fuzz run: {underflows}")
 
         flashes = c.empty_panel_count()
         if ASSERT_NO_EMPTY_PANEL and flashes != 0:

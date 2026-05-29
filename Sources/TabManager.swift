@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 import Foundation
-import Bonsplit
+import CMUXLayout
 import CoreVideo
 import Combine
 import CoreServices
@@ -2611,11 +2611,11 @@ class TabManager: ObservableObject {
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?
     ) {
-        // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
+        // Sidebar-toggle relayout updates the live CMUXLayout leading inset so minimal-mode
         // workspaces reserve traffic-light space. New workspaces need that same inset
         // copied immediately because creation itself does not trigger the resync path.
         let inheritedLeadingInset = currentWindowTabBarLeadingInset
-            ?? sourceWorkspace?.bonsplitController.configuration.appearance.tabBarLeadingInset
+            ?? sourceWorkspace?.layoutController.configuration.appearance.tabBarLeadingInset
         guard let inheritedLeadingInset else { return }
         applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
     }
@@ -2629,8 +2629,8 @@ class TabManager: ObservableObject {
     }
 
     private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
-        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-            workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
+        if workspace.layoutController.configuration.appearance.tabBarLeadingInset != inset {
+            workspace.layoutController.configuration.appearance.tabBarLeadingInset = inset
         }
     }
 
@@ -2726,6 +2726,18 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
+            if select,
+               let sourceWorkspace,
+               sourceWorkspace.layoutController.isCanvasOverviewActive {
+                let inheritedScale = max(
+                    sourceWorkspace.layoutController.canvasViewport.scale,
+                    Workspace.defaultCanvasOverviewScale
+                )
+                newWorkspace.layoutController.enterCanvasOverview(
+                    policy: sourceWorkspace.layoutController.canvasLayoutPolicy,
+                    scale: inheritedScale
+                )
+            }
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }
@@ -5380,7 +5392,7 @@ class TabManager: ObservableObject {
         workspace: Workspace?
     ) -> TerminalPanel? {
         guard let workspace else { return nil }
-        // Prefer cached/published panel state here instead of walking live Bonsplit focus
+        // Prefer cached/published panel state here instead of walking live CMUXLayout focus
         // during Cmd+N; rapid workspace creation can observe transient pane/tab selection.
         let panels = workspace.panels
         var candidates: [TerminalPanel] = []
@@ -5513,7 +5525,7 @@ class TabManager: ObservableObject {
             return nil
         }
         // Use cached directory state only; avoiding live focus traversal keeps workspace
-        // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
+        // creation resilient when CMUXLayout is in the middle of a rapid Cmd+N churn.
         if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
             return currentDirectory
         }
@@ -7172,13 +7184,13 @@ class TabManager: ObservableObject {
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             return nil
         }
 
-        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
+        let tabsInPane = workspace.layoutController.tabs(inPane: paneId)
         guard !tabsInPane.isEmpty else { return nil }
-        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
+        guard let selectedTabId = workspace.layoutController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
             return nil
         }
 
@@ -7421,8 +7433,8 @@ class TabManager: ObservableObject {
             return
         }
 
-        let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
-            partial + tab.bonsplitController.tabs(inPane: paneId).count
+        let workspaceLayoutTabCount = tab.layoutController.allPaneIds.reduce(0) { partial, paneId in
+            partial + tab.layoutController.tabs(inPane: paneId).count
         }
         let panelKind: String = {
             guard let panel = tab.panels[panelId] else { return "missing" }
@@ -7435,7 +7447,7 @@ class TabManager: ObservableObject {
         cmuxDebugLog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
+            "panelCount=\(tab.panels.count) workspaceLayoutTabs=\(workspaceLayoutTabCount) " +
             "closeWorkspaceOnLastSurface=\(closesWorkspaceOnLastSurfaceShortcut ? 1 : 0)"
         )
 #endif
@@ -7468,10 +7480,10 @@ class TabManager: ObservableObject {
             return workspace.panels.keys.first
         }
 
-        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        let candidatePane = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first
         if let candidatePane,
-           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
-                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
+           let selectedTabId = workspace.layoutController.selectedTab(inPane: candidatePane)?.id
+                ?? workspace.layoutController.tabs(inPane: candidatePane).first?.id,
            let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
            workspace.panels[panelId] != nil {
             return panelId
@@ -8193,7 +8205,7 @@ class TabManager: ObservableObject {
         if workspace.panels[surfaceOrPanelId] != nil {
             return surfaceOrPanelId
         }
-        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelId))
+        return workspace.panelIdFromSurfaceId(SurfaceID(uuid: surfaceOrPanelId))
     }
 
     func selectNextTab() {
@@ -8456,7 +8468,7 @@ class TabManager: ObservableObject {
         )
     }
 
-    /// Refresh Bonsplit right-side action button tooltips for all workspaces.
+    /// Refresh CMUXLayout right-side action button tooltips for all workspaces.
     func refreshSplitButtonTooltips() {
         for workspace in tabs {
             workspace.refreshSplitButtonTooltips()
@@ -8626,7 +8638,7 @@ class TabManager: ObservableObject {
     }
 
     private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
-        tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
+        tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(SurfaceID(uuid: surfaceId)) ?? surfaceId
     }
 
     private func focusHistoryEntryIsValid(_ entry: FocusHistoryEntry) -> Bool {
@@ -8903,20 +8915,20 @@ class TabManager: ObservableObject {
         return true
     }
 
-    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
+    /// Resize split - not directly supported by workspaceLayout, but we can adjust divider positions
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
         guard amount > 0,
               let tab = tabs.first(where: { $0.id == tabId }),
               let paneId = tab.paneId(forPanelId: surfaceId) else { return false }
 
         let paneUUID = paneId.id
-        guard tab.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
+        guard tab.layoutController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
             return false
         }
 
         var candidates: [ResizeSplitCandidate] = []
         let trace = resizeSplitCollectCandidates(
-            node: tab.bonsplitController.treeSnapshot(),
+            node: tab.layoutController.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
@@ -8934,7 +8946,7 @@ class TabManager: ObservableObject {
         let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+        return tab.layoutController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
     /// Toggle zoom on a panel.
@@ -9029,7 +9041,7 @@ class TabManager: ObservableObject {
     func newBrowserSplit(
         tabId: UUID,
         fromPanelId: UUID,
-        orientation: SplitOrientation,
+        orientation: LayoutOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
@@ -9127,7 +9139,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+        guard let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first,
               let browserPanel = workspace.newBrowserSurface(
                   inPane: paneId,
                   url: url,
@@ -9402,24 +9414,24 @@ class TabManager: ObservableObject {
         _ snapshot: ClosedBrowserPanelRestoreSnapshot,
         in workspace: Workspace
     ) -> UUID? {
-        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
+        if let originalPane = workspace.layoutController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
            let browserPanel = workspace.newBrowserSurface(
                inPane: originalPane,
                url: snapshot.url,
                focus: true,
                preferredProfileID: snapshot.profileID
            ) {
-            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+            let tabCount = workspace.layoutController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
             _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
             return browserPanel.id
         }
 
-        if let orientation = snapshot.fallbackSplitOrientation,
+        if let orientation = snapshot.fallbackLayoutOrientation,
            let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
-           let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
-           let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
+           let anchorPane = workspace.layoutController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
+           let anchorTab = workspace.layoutController.selectedTab(inPane: anchorPane) ?? workspace.layoutController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
            let browserPanelId = workspace.newBrowserSplit(
                from: anchorPanelId,
@@ -9431,7 +9443,7 @@ class TabManager: ObservableObject {
             return browserPanelId
         }
 
-        guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let focusedPane = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             return nil
         }
         return workspace.newBrowserSurface(
@@ -9451,7 +9463,7 @@ class TabManager: ObservableObject {
 
     /// Ensure AppKit first responder matches the currently focused terminal panel.
     /// This keeps real keyboard events (including Ctrl+D) on the same panel as the
-    /// bonsplit focus indicator after rapid split topology changes.
+    /// workspaceLayout focus indicator after rapid split topology changes.
     func ensureFocusedTerminalFirstResponder() {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId,
@@ -9461,7 +9473,7 @@ class TabManager: ObservableObject {
 
     /// Reconcile keyboard routing before terminal control shortcuts (e.g. Ctrl+D).
     ///
-    /// Source of truth for pane focus is bonsplit's focused pane + selected tab.
+    /// Source of truth for pane focus is workspaceLayout's focused pane + selected tab.
     /// Keyboard delivery must converge AppKit first responder to that model state, not mutate
     /// the model from whatever first responder happened to be during reparenting transitions.
     func reconcileFocusedPanelFromFirstResponderForKeyboard() {
@@ -9752,7 +9764,7 @@ class TabManager: ObservableObject {
                     "bottomLeftPanelId": bottomLeft.id.uuidString,
                     "topRightPanelId": topRight.id.uuidString,
                     "bottomRightPanelId": bottomRight.id.uuidString,
-                    "createdPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "createdPaneCount": String(tab.layoutController.allPaneIds.count),
                     "createdPanelCount": String(tab.panels.count)
                 ], at: path)
 
@@ -9765,11 +9777,11 @@ class TabManager: ObservableObject {
                 tab.closePanel(bottomRight.id, force: true)
 
 
-                // Capture final state after Bonsplit/AppKit/Ghostty geometry reconciliation.
+                // Capture final state after CMUXLayout/AppKit/Ghostty geometry reconciliation.
                 // We avoid sleep-based timing and converge over a few main-actor turns.
                  @MainActor func collectSplitCloseRightState() -> (data: [String: String], settled: Bool) {
-                    let paneIds = tab.bonsplitController.allPaneIds
-                    let bonsplitTabCount = tab.bonsplitController.allTabIds.count
+                    let paneIds = tab.layoutController.allPaneIds
+                    let workspaceLayoutTabCount = tab.layoutController.allTabIds.count
                     let panelCount = tab.panels.count
 
                     var missingSelectedTabCount = 0
@@ -9780,7 +9792,7 @@ class TabManager: ObservableObject {
                     var selectedTerminalSurfaceNilCount = 0
 
                     for paneId in paneIds {
-                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
+                        guard let selected = tab.layoutController.selectedTab(inPane: paneId) else {
                             missingSelectedTabCount += 1
                             continue
                         }
@@ -9816,7 +9828,7 @@ class TabManager: ObservableObject {
                     return (
                         data: [
                             "finalPaneCount": String(paneIds.count),
-                            "finalBonsplitTabCount": String(bonsplitTabCount),
+                            "finalCMUXLayoutTabCount": String(workspaceLayoutTabCount),
                             "finalPanelCount": String(panelCount),
                             "missingSelectedTabCount": String(missingSelectedTabCount),
                             "missingPanelMappingCount": String(missingPanelMappingCount),
@@ -9834,8 +9846,8 @@ class TabManager: ObservableObject {
                         window.contentView?.layoutSubtreeIfNeeded()
                         window.contentView?.displayIfNeeded()
                     }
-                    for paneId in tab.bonsplitController.allPaneIds {
-                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+                    for paneId in tab.layoutController.allPaneIds {
+                        guard let selected = tab.layoutController.selectedTab(inPane: paneId),
                               let terminal = tab.panel(for: selected.id) as? TerminalPanel else {
                             continue
                         }
@@ -10059,9 +10071,9 @@ class TabManager: ObservableObject {
             )
 
             let paneStateTrace: String = {
-                tab.bonsplitController.allPaneIds.map { paneId in
-                    let tabs = tab.bonsplitController.tabs(inPane: paneId)
-                    let selected = tab.bonsplitController.selectedTab(inPane: paneId)
+                tab.layoutController.allPaneIds.map { paneId in
+                    let tabs = tab.layoutController.tabs(inPane: paneId)
+                    let selected = tab.layoutController.selectedTab(inPane: paneId)
                     let selectedId = selected.map { String(describing: $0.id) } ?? "nil"
                     let selectedPanelId = selected.flatMap { tab.panelIdFromSurfaceId($0.id) }
                     let selectedPanelLive: String = {
@@ -11313,6 +11325,7 @@ extension Notification.Name {
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
+    static let browserCanvasPreviewDidChange = Notification.Name("cmux.browserCanvasPreviewDidChange")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")

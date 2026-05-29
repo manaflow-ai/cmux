@@ -20,13 +20,13 @@ extension AppDelegate {
         return sourceWorkspace.panels.count > 1
     }
 
-    func canMoveBonsplitTabToNewWorkspace(tabId: UUID) -> Bool {
-        guard let located = locateBonsplitSurface(tabId: tabId) else { return false }
+    func canMoveCMUXLayoutTabToNewWorkspace(tabId: UUID) -> Bool {
+        guard let located = locateCMUXLayoutSurface(tabId: tabId) else { return false }
         return canMoveSurfaceToNewWorkspace(panelId: located.panelId)
     }
 
-    func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
-        guard let located = locateBonsplitSurface(tabId: tabId),
+    func canMoveCMUXLayoutTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
+        guard let located = locateCMUXLayoutSurface(tabId: tabId),
               let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
               sourceWorkspace.panels[located.panelId] != nil,
               let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
@@ -44,8 +44,8 @@ extension AppDelegate {
         )
     }
 
-    func workspaceMoveTargets(forBonsplitTab tabId: UUID) -> [WorkspaceMoveTarget] {
-        guard let located = locateBonsplitSurface(tabId: tabId) else { return [] }
+    func workspaceMoveTargets(forCMUXLayoutTab tabId: UUID) -> [WorkspaceMoveTarget] {
+        guard let located = locateCMUXLayoutSurface(tabId: tabId) else { return [] }
         return workspaceMoveTargets(
             excludingWorkspaceId: located.workspaceId,
             referenceWindowId: located.windowId
@@ -53,7 +53,7 @@ extension AppDelegate {
     }
 
     @discardableResult
-    func moveBonsplitTabToNewWorkspace(
+    func moveCMUXLayoutTabToNewWorkspace(
         tabId: UUID,
         destinationManager: TabManager? = nil,
         title: String? = nil,
@@ -62,7 +62,7 @@ extension AppDelegate {
         placementOverride: NewWorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
-        guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
+        guard let located = locateCMUXLayoutSurface(tabId: tabId) else { return nil }
         return moveSurfaceToNewWorkspace(
             panelId: located.panelId,
             destinationManager: destinationManager,

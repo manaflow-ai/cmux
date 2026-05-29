@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
@@ -51,7 +51,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         }
     }
 
-    var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
+    var workspaceLayoutAction: WorkspaceLayoutConfiguration.SplitActionButton.Action? {
         switch self {
         case .newWorkspace, .cloudVM:
             return nil

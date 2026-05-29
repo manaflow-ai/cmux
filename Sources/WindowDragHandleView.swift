@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import SwiftUI
 
 enum WindowMouseMovedEventsCoordinator {
@@ -431,6 +431,61 @@ protocol MinimalModeTitlebarControlHitRegionProviding: AnyObject {
 
 protocol MinimalModeSidebarControlActionHitRegionProviding: MinimalModeTitlebarControlHitRegionProviding {
     func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot?
+}
+
+protocol WorkspaceLayoutTabItemHitRegionProviding: AnyObject {
+    func containsWorkspaceLayoutTabItemHit(localPoint: NSPoint) -> Bool
+}
+
+enum WorkspaceLayoutTabItemHitRegionRegistry {
+    private static let lock = NSLock()
+    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+
+    static func register(_ view: NSView) {
+        lock.lock()
+        registeredViews.add(view)
+        lock.unlock()
+    }
+
+    static func unregister(_ view: NSView) {
+        lock.lock()
+        registeredViews.remove(view)
+        lock.unlock()
+    }
+
+    private static func snapshot() -> [NSView] {
+        lock.lock()
+        let views = registeredViews.allObjects
+        lock.unlock()
+        return views
+    }
+
+    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+
+    static func containsWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+            let localPoint = view.convert(windowPoint, from: nil)
+            let localBounds = view.bounds.insetBy(dx: -epsilon, dy: -epsilon)
+            guard localBounds.contains(localPoint) else { continue }
+            if let provider = view as? WorkspaceLayoutTabItemHitRegionProviding {
+                if provider.containsWorkspaceLayoutTabItemHit(localPoint: localPoint) {
+                    return true
+                }
+            } else {
+                return true
+            }
+        }
+        return false
+    }
 }
 
 enum MinimalModeTitlebarControlHitRegionRegistry {
@@ -1002,7 +1057,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
     eventType: NSEvent.EventType
 ) {
     let env = ProcessInfo.processInfo.environment
-    guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+    guard env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1" else { return }
     let defaults = UserDefaults.standard
     let isMinimal = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
     let isFullScreen = window.styleMask.contains(.fullScreen)
@@ -1024,7 +1079,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
             locationInWindow,
             in: window
         )
-    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH") { payload in
         let count = (payload["minimalSidebarHoverEventCount"] as? String).flatMap(Int.init) ?? 0
         payload["minimalSidebarHoverEventCount"] = String(count + 1)
         payload["minimalSidebarHoverEventType"] = String(describing: eventType)
@@ -1074,10 +1129,11 @@ func windowDragHandleShouldCaptureHit(
     if let dragHandleWindow,
        eventType == .leftMouseDown {
         let windowPoint = dragHandleView.convert(point, to: nil)
-        if BonsplitTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
+        if WorkspaceLayoutTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) ||
+            WorkspaceLayoutSurfaceTabHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
             #if DEBUG
             cmuxDebugLog(
-                "titlebar.dragHandle.hitTest capture=false reason=bonsplitPaneTab point=\(windowDragHandleFormatPoint(point))"
+                "titlebar.dragHandle.hitTest capture=false reason=workspaceLayoutPaneTab point=\(windowDragHandleFormatPoint(point))"
             )
             #endif
             return false
@@ -1670,8 +1726,8 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
             }
 
             #if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1" {
+                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH") { payload in
                     let count = (payload["minimalTitlebarEventSurfaceMouseDownCount"] as? String).flatMap(Int.init) ?? 0
                     payload["minimalTitlebarEventSurfaceMouseDownCount"] = String(count + 1)
                     payload["minimalTitlebarEventSurfaceLastPoint"] = windowDragHandleFormatPoint(locationInWindow)

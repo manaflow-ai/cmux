@@ -1,0 +1,1380 @@
+#!/usr/bin/env swift
+
+import AppKit
+import Darwin
+import Foundation
+
+struct CommandError: Error, CustomStringConvertible {
+    let command: String
+    let status: Int32
+    let output: String
+
+    var description: String {
+        "\(command) exited \(status)\n\(output)"
+    }
+}
+
+struct ProbeError: Error, CustomStringConvertible {
+    let message: String
+
+    var description: String { message }
+}
+
+struct PixelBounds: Codable, Equatable {
+    var minX: Int
+    var minY: Int
+    var maxX: Int
+    var maxY: Int
+    var count: Int
+
+    var width: Int { maxX - minX + 1 }
+    var height: Int { maxY - minY + 1 }
+}
+
+struct PixelRect: Codable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+}
+
+struct PanelGeometry {
+    var viewFrame: PixelRect
+    var portalFrameInWindow: PixelRect?
+    var portalContainerBounds: PixelRect?
+    var nativeFrameInContainer: PixelRect?
+    var nativeBounds: PixelRect?
+}
+
+struct PixelSize {
+    var width: Int
+    var height: Int
+}
+
+struct MarkerResult: Codable {
+    var before: PixelBounds
+    var afterPan: PixelBounds
+    var afterZoom: PixelBounds
+    var panDX: Double
+    var panDY: Double
+    var sequencePanDX: Double
+    var sequencePanDY: Double
+    var zoomWidthRatio: Double
+    var zoomHeightRatio: Double
+}
+
+struct SurfaceResult: Codable {
+    var surface: String
+    var beforeScreenshot: String
+    var afterPanScreenshot: String
+    var afterEdgePanScreenshot: String
+    var afterZoomScreenshot: String
+    var nativeViewFrame: PixelRect
+    var expectedPanDX: Double
+    var expectedPanDY: Double
+    var expectedEdgePanDX: Double
+    var expectedEdgePanDY: Double
+    var viewportScale: Double
+    var markers: [String: MarkerResult]
+}
+
+struct VerificationResult: Codable {
+    var tag: String
+    var artifactDirectory: String
+    var terminal: SurfaceResult?
+    var browser: SurfaceResult?
+}
+
+struct ProbeColor {
+    var name: String
+    var minimumPixels: Int
+    var minimumInset: Int
+    var threshold: (CGFloat, CGFloat, CGFloat, CGFloat) -> Bool
+}
+
+let arguments = Array(CommandLine.arguments.dropFirst())
+guard let tagIndex = arguments.firstIndex(of: "--tag"),
+      tagIndex + 1 < arguments.count else {
+    fputs("Usage: verify-canvas-pan-zoom-pixels.swift --tag <probe-tag> [--surface terminal|browser|both] [--out-dir <path>] [--stress <count>] [--allow-visible-target]\n", stderr)
+    exit(2)
+}
+
+let tag = arguments[tagIndex + 1]
+let tagSlug = sanitizePath(tag)
+let socketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+let allowVisibleTarget = arguments.contains("--allow-visible-target")
+    || ProcessInfo.processInfo.environment["CMUX_ALLOW_VISIBLE_PROBE_TARGET"] == "1"
+let useCurrentWindow = arguments.contains("--use-current-window")
+let stressCount: Int = {
+    guard let index = arguments.firstIndex(of: "--stress"),
+          index + 1 < arguments.count,
+          let value = Int(arguments[index + 1]) else { return 1 }
+    return max(1, value)
+}()
+let selectedSurfaceMode: String = {
+    guard let index = arguments.firstIndex(of: "--surface"),
+          index + 1 < arguments.count else { return "both" }
+    return arguments[index + 1]
+}()
+guard ["terminal", "browser", "both"].contains(selectedSurfaceMode) else {
+    fputs("Invalid --surface \(selectedSurfaceMode). Expected terminal, browser, or both.\n", stderr)
+    exit(2)
+}
+let outDirectory: URL = {
+    if let outIndex = arguments.firstIndex(of: "--out-dir"), outIndex + 1 < arguments.count {
+        return URL(fileURLWithPath: arguments[outIndex + 1], isDirectory: true)
+    }
+    let stamp = ISO8601DateFormatter().string(from: Date())
+        .replacingOccurrences(of: ":", with: "-")
+    return URL(fileURLWithPath: "/tmp/cmux-canvas-pan-zoom-pixels-\(tag)-\(stamp)", isDirectory: true)
+}()
+
+let rootURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+let cliURL = rootURL.appendingPathComponent("scripts/cmux-debug-cli.sh")
+let terminalProbeBinaryURL = outDirectory.appendingPathComponent("cmux-size-tui-probe")
+let fileManager = FileManager.default
+var createdWorkspaceRefs: [String] = []
+var createdWindowRef: String?
+var lastScreenshotScale = 1.0
+
+let terminalProbes = [
+    ProbeColor(name: "border", minimumPixels: 150, minimumInset: 12) { red, green, blue, _ in
+        blue > 0.72 && green > 0.62 && red < 0.50
+    },
+    ProbeColor(name: "red", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
+        red > 0.75 && green < 0.60 && blue < 0.50
+    },
+    ProbeColor(name: "green", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
+        green > 0.60 && green > red + 0.20 && green > blue + 0.15
+    },
+    ProbeColor(name: "blue", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
+        blue > 0.80 && blue > red + 0.40 && blue > green + 0.35
+    }
+]
+
+let browserProbes = [
+    ProbeColor(name: "border", minimumPixels: 150, minimumInset: 12) { red, green, blue, _ in
+        blue > 0.72 && green > 0.62 && red < 0.50
+    },
+    ProbeColor(name: "red", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
+        red > 0.75 && green < 0.60 && blue < 0.50
+    },
+    ProbeColor(name: "green", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
+        green > 0.60 && green > red + 0.20 && green > blue + 0.15
+    },
+    ProbeColor(name: "blue", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
+        blue > 0.80 && red < 0.36 && green < 0.50
+    }
+]
+
+func run(_ executable: String, _ args: [String], environment: [String: String] = [:]) throws -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = args
+    process.currentDirectoryURL = rootURL
+    var env = ProcessInfo.processInfo.environment
+    for (key, value) in environment {
+        env[key] = value
+    }
+    process.environment = env
+
+    let outputURL = outDirectory.appendingPathComponent("command-output-\(UUID().uuidString).log")
+    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+    let outputHandle = try FileHandle(forWritingTo: outputURL)
+    defer {
+        try? outputHandle.close()
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+    process.standardOutput = outputHandle
+    process.standardError = outputHandle
+    try process.run()
+    let timeoutSeconds = Double(ProcessInfo.processInfo.environment["CMUX_CANVAS_VERIFIER_COMMAND_TIMEOUT_SEC"] ?? "") ?? 75
+    let timeoutLock = NSLock()
+    var timedOut = false
+    let timeout = DispatchWorkItem {
+        timeoutLock.lock()
+        defer { timeoutLock.unlock() }
+        guard process.isRunning else { return }
+        timedOut = true
+        process.terminate()
+    }
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds, execute: timeout)
+    process.waitUntilExit()
+    timeout.cancel()
+    try? outputHandle.close()
+
+    let data = (try? Data(contentsOf: outputURL)) ?? Data()
+    let output = String(data: data, encoding: .utf8) ?? ""
+    timeoutLock.lock()
+    let didTimeOut = timedOut
+    timeoutLock.unlock()
+    if didTimeOut {
+        throw CommandError(
+            command: ([executable] + args).joined(separator: " "),
+            status: process.terminationStatus,
+            output: "Timed out after \(timeoutSeconds)s\n\(output)"
+        )
+    }
+    guard process.terminationStatus == 0 else {
+        throw CommandError(
+            command: ([executable] + args).joined(separator: " "),
+            status: process.terminationStatus,
+            output: output
+        )
+    }
+    return output.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func cli(_ args: [String]) throws -> String {
+    try run(
+        cliURL.path,
+        ["--socket", socketPath] + args,
+        environment: [
+            "CMUX_TAG": tagSlug,
+            "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "60",
+        ]
+    )
+}
+
+func cliJSON(_ args: [String]) throws -> [String: Any] {
+    let output = try cli(args)
+    guard let data = output.data(using: .utf8),
+          let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        throw ProbeError(message: "Expected JSON from \(args.joined(separator: " ")), got: \(output)")
+    }
+    return object
+}
+
+func jsonString(_ object: [String: Any]) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    guard let string = String(data: data, encoding: .utf8) else {
+        throw ProbeError(message: "Could not encode JSON object: \(object)")
+    }
+    return string
+}
+
+func javaScriptStringLiteral(_ value: String) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: [value], options: [])
+    guard let arrayLiteral = String(data: data, encoding: .utf8),
+          arrayLiteral.count >= 2 else {
+        throw ProbeError(message: "Could not encode JavaScript string literal")
+    }
+    return String(arrayLiteral.dropFirst().dropLast())
+}
+
+func shellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+func sanitizePath(_ value: String) -> String {
+    let lower = value.lowercased()
+    var output = ""
+    var lastWasDash = false
+    for scalar in lower.unicodeScalars {
+        if CharacterSet.alphanumerics.contains(scalar) {
+            output.unicodeScalars.append(scalar)
+            lastWasDash = false
+        } else if !lastWasDash {
+            output.append("-")
+            lastWasDash = true
+        }
+    }
+    let trimmed = output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return trimmed.isEmpty ? "agent" : trimmed
+}
+
+func isDisposableAutomationTag(_ value: String) -> Bool {
+    let slug = sanitizePath(value)
+    return slug.hasPrefix("probe-")
+        || slug.hasPrefix("verify-")
+        || slug.hasPrefix("e2e-")
+        || slug.hasPrefix("test-")
+        || slug.hasPrefix("ci-")
+        || slug.contains("-probe")
+        || slug.contains("-verify")
+}
+
+func isUnixSocket(_ path: String) -> Bool {
+    var info = stat()
+    guard lstat(path, &info) == 0 else { return false }
+    return (info.st_mode & S_IFMT) == S_IFSOCK
+}
+
+func requireDisposableAutomationTarget() throws {
+    guard allowVisibleTarget || isDisposableAutomationTag(tagSlug) else {
+        throw ProbeError(
+            message: """
+            Refusing to run canvas verifier against non-disposable tag '\(tag)'.
+            Use a dedicated probe tag, for example:
+              ./scripts/reload.sh --tag probe-canvas --launch
+              scripts/verify-canvas-pan-zoom-pixels.swift --tag probe-canvas
+            Override only for intentional local debugging with --allow-visible-target.
+            """
+        )
+    }
+    guard isUnixSocket(socketPath) else {
+        throw ProbeError(message: "Tagged probe socket is not available at \(socketPath). Launch the probe tag first.")
+    }
+}
+
+func verifyScreenshotRPCAvailable() throws {
+    _ = try screenshot(label: "preflight")
+}
+
+func buildTerminalProbeBinary() throws {
+    try fileManager.createDirectory(at: outDirectory, withIntermediateDirectories: true)
+    _ = try run(
+        rootURL.appendingPathComponent("scripts/build-cmux-size-tui.sh").path,
+        ["--output", terminalProbeBinaryURL.path]
+    )
+}
+
+func jsonDouble(_ value: Any?) -> Double? {
+    if let double = value as? Double { return double }
+    if let int = value as? Int { return Double(int) }
+    if let number = value as? NSNumber { return number.doubleValue }
+    return nil
+}
+
+func pixelRect(_ object: Any?) -> PixelRect? {
+    guard let frame = object as? [String: Any],
+          let x = jsonDouble(frame["x"]),
+          let y = jsonDouble(frame["y"]),
+          let width = jsonDouble(frame["width"]),
+          let height = jsonDouble(frame["height"]),
+          width > 1,
+          height > 1 else {
+        return nil
+    }
+    return PixelRect(x: x, y: y, width: width, height: height)
+}
+
+func screenshot(label: String) throws -> URL {
+    var params: [String: Any] = ["label": label]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    let object = try cliJSON(["rpc", "debug.window.screenshot", try jsonString(params)])
+    if let scale = jsonDouble(object["backing_scale"]), scale > 0 {
+        lastScreenshotScale = scale
+    }
+    guard let path = object["path"] as? String else {
+        throw ProbeError(message: "debug.window.screenshot returned no path: \(object)")
+    }
+    return URL(fileURLWithPath: path)
+}
+
+func imageSize(_ url: URL) throws -> PixelSize {
+    let data = try Data(contentsOf: url)
+    guard let rep = NSBitmapImageRep(data: data) else {
+        throw ProbeError(message: "Failed to decode PNG at \(url.path)")
+    }
+    return PixelSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+}
+
+func copyArtifact(_ source: URL, named name: String) throws -> URL {
+    try fileManager.createDirectory(at: outDirectory, withIntermediateDirectories: true)
+    let target = outDirectory.appendingPathComponent(name)
+    if fileManager.fileExists(atPath: target.path) {
+        try fileManager.removeItem(at: target)
+    }
+    try fileManager.copyItem(at: source, to: target)
+    return target
+}
+
+func integerCrop(_ crop: PixelRect?, imageWidth: Int, imageHeight: Int) -> (xRange: Range<Int>, yRange: Range<Int>) {
+    guard let crop else {
+        return (0..<imageWidth, 0..<imageHeight)
+    }
+    let minX = max(0, Int(floor(crop.x)))
+    let minY = max(0, Int(floor(crop.y)))
+    let maxX = min(imageWidth, Int(ceil(crop.x + crop.width)))
+    let maxY = min(imageHeight, Int(ceil(crop.y + crop.height)))
+    return (minX..<max(minX, maxX), minY..<max(minY, maxY))
+}
+
+func detectionCrop(around viewFrame: PixelRect) -> PixelRect {
+    PixelRect(
+        x: max(0, viewFrame.x - 4),
+        y: 80,
+        width: viewFrame.width + 96,
+        height: 10_000
+    )
+}
+
+func canvasContentCrop(startingNear viewFrame: PixelRect) -> PixelRect {
+    let startX = max(0, viewFrame.x + 8)
+    return PixelRect(
+        x: startX,
+        y: 80,
+        width: 10_000,
+        height: 10_000
+    )
+}
+
+func scaled(_ rect: PixelRect, by scale: Double) -> PixelRect {
+    PixelRect(
+        x: rect.x * scale,
+        y: rect.y * scale,
+        width: rect.width * scale,
+        height: rect.height * scale
+    )
+}
+
+func pixelScale(for geometry: PanelGeometry, viewportSize: PixelSize) -> Double {
+    if let portal = geometry.portalFrameInWindow,
+       let container = geometry.portalContainerBounds {
+        let windowWidth = portal.x + container.width
+        if windowWidth > 1 {
+            return Double(viewportSize.width) / windowWidth
+        }
+    }
+    let fallbackWidth = geometry.viewFrame.x + geometry.viewFrame.width
+    if fallbackWidth > 1 {
+        return Double(viewportSize.width) / fallbackWidth
+    }
+    return 1
+}
+
+func logicalViewportSize(from pixelSize: PixelSize) -> PixelSize {
+    let scale = max(1, lastScreenshotScale)
+    return PixelSize(
+        width: max(1, Int((Double(pixelSize.width) / scale).rounded())),
+        height: max(1, Int((Double(pixelSize.height) / scale).rounded()))
+    )
+}
+
+func detectBounds(in url: URL, probe: ProbeColor, crop: PixelRect? = nil) throws -> PixelBounds {
+    let data = try Data(contentsOf: url)
+    guard let rep = NSBitmapImageRep(data: data) else {
+        throw ProbeError(message: "Failed to decode PNG at \(url.path)")
+    }
+    guard rep.bitsPerSample == 8,
+          !rep.isPlanar,
+          rep.samplesPerPixel >= 3,
+          let bitmapData = rep.bitmapData else {
+        return try detectBoundsWithColorConversion(in: url, probe: probe, crop: crop, rep: rep)
+    }
+
+    var minX = Int.max
+    var minY = Int.max
+    var maxX = Int.min
+    var maxY = Int.min
+    var count = 0
+    let cropRanges = integerCrop(crop, imageWidth: rep.pixelsWide, imageHeight: rep.pixelsHigh)
+    let pixelStride = max(1, rep.bitsPerPixel / 8)
+    let maxChannelOffset = pixelStride - 1
+
+    for y in cropRanges.yRange {
+        let row = bitmapData.advanced(by: y * rep.bytesPerRow)
+        for x in cropRanges.xRange {
+            let pixel = row.advanced(by: x * pixelStride)
+            let red = CGFloat(pixel[0]) / 255
+            let green = CGFloat(pixel[min(1, maxChannelOffset)]) / 255
+            let blue = CGFloat(pixel[min(2, maxChannelOffset)]) / 255
+            let alpha = rep.hasAlpha && maxChannelOffset >= 3 ? CGFloat(pixel[3]) / 255 : 1
+            if probe.threshold(red, green, blue, alpha) {
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+                count += 1
+            }
+        }
+    }
+
+    guard count > 0 else {
+        throw ProbeError(message: "No \(probe.name) pixels in \(url.path)")
+    }
+    return PixelBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY, count: count)
+}
+
+func detectBoundsWithColorConversion(
+    in url: URL,
+    probe: ProbeColor,
+    crop: PixelRect?,
+    rep: NSBitmapImageRep
+) throws -> PixelBounds {
+    var minX = Int.max
+    var minY = Int.max
+    var maxX = Int.min
+    var maxY = Int.min
+    var count = 0
+    let colorSpace = NSColorSpace.deviceRGB
+    let cropRanges = integerCrop(crop, imageWidth: rep.pixelsWide, imageHeight: rep.pixelsHigh)
+
+    for y in cropRanges.yRange {
+        for x in cropRanges.xRange {
+            guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(colorSpace) else {
+                continue
+            }
+            if probe.threshold(color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent) {
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+                count += 1
+            }
+        }
+    }
+
+    guard count > 0 else {
+        throw ProbeError(message: "No \(probe.name) pixels in \(url.path)")
+    }
+    return PixelBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY, count: count)
+}
+
+func boundsAreInset(_ bounds: PixelBounds, in url: URL, minimumInset: Int, crop: PixelRect? = nil) throws -> Bool {
+    guard minimumInset > 0 else { return true }
+    let size = try imageSize(url)
+    _ = crop
+    return bounds.minX >= minimumInset
+        && bounds.minY >= minimumInset
+        && bounds.maxX <= size.width - minimumInset
+        && bounds.maxY <= size.height - minimumInset
+}
+
+func detectAll(in url: URL, probes: [ProbeColor], crop: PixelRect? = nil) throws -> [String: PixelBounds] {
+    var result: [String: PixelBounds] = [:]
+    for probe in probes {
+        let bounds = try detectBounds(in: url, probe: probe, crop: crop)
+        guard bounds.count >= probe.minimumPixels else {
+            throw ProbeError(message: "\(probe.name) had \(bounds.count) pixels, expected at least \(probe.minimumPixels), in \(url.path)")
+        }
+        guard try boundsAreInset(bounds, in: url, minimumInset: probe.minimumInset, crop: crop) else {
+            throw ProbeError(message: "\(probe.name) is clipped at screenshot edge in \(url.path): \(bounds)")
+        }
+        result[probe.name] = bounds
+    }
+    return result
+}
+
+func waitForAll(label: String, probes: [ProbeColor], crop: PixelRect? = nil) throws -> URL {
+    var lastPath: URL?
+    var lastError: Error?
+    for attempt in 0..<24 {
+        let path = try screenshot(label: "\(label)_\(attempt)")
+        lastPath = path
+        do {
+            _ = try detectAll(in: path, probes: probes, crop: crop)
+            return path
+        } catch {
+            lastError = error
+            Thread.sleep(forTimeInterval: 0.12)
+        }
+    }
+    throw ProbeError(message: "Timed out waiting for probes in \(lastPath?.path ?? "no screenshot"): \(lastError.map(String.init(describing:)) ?? "unknown")")
+}
+
+func workspaceRefFromCreateOutput(_ output: String) throws -> String {
+    try refFromCreateOutput(output, prefix: "workspace:")
+}
+
+func windowRefFromCreateOutput(_ output: String) throws -> String {
+    try refFromCreateOutput(output, prefix: "window:")
+}
+
+func surfaceRefFromCreateOutput(_ output: String) throws -> String {
+    try refFromCreateOutput(output, prefix: "surface:")
+}
+
+func refFromCreateOutput(_ output: String, prefix: String) throws -> String {
+    let tokens = output.split(whereSeparator: { $0.isWhitespace })
+    if let match = tokens.last(where: { $0.hasPrefix(prefix) }) {
+        return String(match)
+    }
+    guard let match = tokens.last else {
+        throw ProbeError(message: "Could not parse \(prefix) ref from: \(output)")
+    }
+    let ref = String(match)
+    guard ref.hasPrefix(prefix) else {
+        if prefix == "window:",
+           UUID(uuidString: ref) != nil {
+            return ref
+        }
+        throw ProbeError(message: "Expected \(prefix) ref, got: \(output)")
+    }
+    return ref
+}
+
+func ensureProbeWindow() throws -> String? {
+    if useCurrentWindow {
+        if let createdWindowRef {
+            return createdWindowRef
+        }
+        let window = try cli(["current-window"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !window.isEmpty else {
+            throw ProbeError(message: "Could not resolve current window for --use-current-window")
+        }
+        createdWindowRef = window
+        return window
+    }
+    if let createdWindowRef {
+        return createdWindowRef
+    }
+    let window = try windowRefFromCreateOutput(try cli(["new-window"]))
+    createdWindowRef = window
+    return window
+}
+
+func createProbeWorkspace(name: String) throws -> String {
+    let window = try ensureProbeWindow()
+    var args = [
+        "new-workspace",
+        "--name", name,
+        "--focus", "true"
+    ]
+    if let window {
+        args += ["--window", window]
+    }
+    let workspace = try workspaceRefFromCreateOutput(try cli(args))
+    createdWorkspaceRefs.append(workspace)
+    try focusWorkspace(workspace)
+    return workspace
+}
+
+func cleanupCreatedProbeState() {
+    for workspace in createdWorkspaceRefs.reversed() {
+        _ = try? cli(["close-workspace", "--workspace", workspace])
+    }
+    createdWorkspaceRefs.removeAll()
+
+    if let window = createdWindowRef, !useCurrentWindow {
+        _ = try? cli(["close-window", "--window", window])
+        createdWindowRef = nil
+    }
+}
+
+func focusWorkspace(_ workspace: String) throws {
+    var args = ["select-workspace", "--workspace", workspace]
+    if let window = createdWindowRef {
+        args += ["--window", window]
+    }
+    _ = try cli(args)
+    try waitForFocusedWorkspace(workspace)
+}
+
+func waitForFocusedWorkspace(_ workspace: String) throws {
+    var args = ["current-workspace", "--id-format", "both"]
+    if let window = createdWindowRef {
+        args += ["--window", window]
+    }
+    var lastOutput = ""
+    for _ in 0..<40 {
+        lastOutput = (try? cli(args)) ?? ""
+        if lastOutput.contains(workspace) {
+            return
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    throw ProbeError(message: "Timed out waiting for focused workspace \(workspace), last current-workspace output: \(lastOutput)")
+}
+
+func currentSurfaceRef() throws -> String {
+    var args = ["identify", "--id-format", "both"]
+    if let window = createdWindowRef {
+        args += ["--window", window]
+    }
+    let object = try cliJSON(args)
+    guard let focused = object["focused"] as? [String: Any],
+          let ref = focused["surface_ref"] as? String else {
+        throw ProbeError(message: "Could not resolve focused surface ref: \(object)")
+    }
+    return ref
+}
+
+func debugLayout() throws -> [String: Any] {
+    var params: [String: Any] = [:]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    return try cliJSON(["rpc", "debug.layout", try jsonString(params)])
+}
+
+func selectedPanelID(panelType: String? = nil) throws -> String {
+    let object = try debugLayout()
+    guard let layout = object["layout"] as? [String: Any],
+          let panels = layout["selectedPanels"] as? [[String: Any]] else {
+        throw ProbeError(message: "Could not read selected panels from debug.layout: \(object)")
+    }
+    let panel = panels.first { panel in
+        guard let panelType else { return true }
+        return panel["panelType"] as? String == panelType
+    }
+    guard let panelID = panel?["panelId"] as? String else {
+        throw ProbeError(message: "Could not read selected panel id from debug.layout: \(object)")
+    }
+    return panelID
+}
+
+func readPanelText(workspace: String, panelID: String, lines: Int = 40) throws -> String {
+    let response = try cliJSON([
+        "rpc",
+        "surface.read_text",
+        try jsonString([
+            "workspace_id": workspace,
+            "surface_id": panelID,
+            "scrollback": true,
+            "lines": lines,
+        ]),
+    ])
+    guard let text = response["text"] as? String else {
+        throw ProbeError(message: "surface.read_text returned no text for panel \(panelID): \(response)")
+    }
+    return text
+}
+
+func waitForSelectedTerminalPrompt(workspace: String) throws -> String {
+    try focusWorkspace(workspace)
+    let panelID = try selectedPanelID(panelType: "terminal")
+    var lastText = ""
+    var lastError: Error?
+    for _ in 0..<50 {
+        do {
+            lastText = try readPanelText(workspace: workspace, panelID: panelID)
+            lastError = nil
+        } catch {
+            lastError = error
+            Thread.sleep(forTimeInterval: 0.2)
+            continue
+        }
+        if lastText.contains("λ") || lastText.contains("$") || lastText.contains("%") {
+            return panelID
+        }
+        Thread.sleep(forTimeInterval: 0.2)
+    }
+    throw ProbeError(message: "Timed out waiting for terminal prompt in panel \(panelID). Last text: \(lastText). Last error: \(lastError.map(String.init(describing:)) ?? "none")")
+}
+
+func sendTextToSelectedPanel(_ text: String, workspace: String, panelType: String? = nil) throws {
+    let panelID = try selectedPanelID(panelType: panelType)
+    let response = try cliJSON([
+        "rpc",
+        "surface.send_text",
+        try jsonString([
+            "workspace_id": workspace,
+            "surface_id": panelID,
+            "text": text,
+        ]),
+    ])
+    guard response["surface_id"] as? String == panelID else {
+        throw ProbeError(message: "surface.send_text failed for panel \(panelID): \(response)")
+    }
+}
+
+func viewportSize(for workspace: String) throws -> PixelSize {
+    try focusWorkspace(workspace)
+    return try imageSize(screenshot(label: "viewport_probe"))
+}
+
+func setCanvasViewport(scale: Double, workspace: String, viewportSize: PixelSize) throws -> [String: Any] {
+    try focusWorkspace(workspace)
+    let logicalViewport = logicalViewportSize(from: viewportSize)
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "x": 0,
+        "y": 0,
+        "width": logicalViewport.width,
+        "height": logicalViewport.height,
+        "scale": scale,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    return try cliJSON(["rpc", "debug.canvas.viewport", try jsonString(params)])
+}
+
+func panCanvas(workspace: String, viewportSize: PixelSize, dx: Double, dy: Double) throws {
+    let logicalViewport = logicalViewportSize(from: viewportSize)
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "dx": dx,
+        "dy": dy,
+        "viewport_width": logicalViewport.width,
+        "viewport_height": logicalViewport.height,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    _ = try cliJSON(["rpc", "debug.canvas.pan", try jsonString(params)])
+}
+
+func zoomOut(workspace: String, viewportSize: PixelSize) throws -> Double {
+    let logicalViewport = logicalViewportSize(from: viewportSize)
+    let anchorX = max(1, logicalViewport.width / 2)
+    let anchorY = max(1, logicalViewport.height / 2)
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "start_scale": 1,
+        "delta_y": -12,
+        "repeat": 24,
+        "viewport_width": logicalViewport.width,
+        "viewport_height": logicalViewport.height,
+        "anchor_x": anchorX,
+        "anchor_y": anchorY,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    let object = try cliJSON(["rpc", "debug.canvas.wheel_zoom", try jsonString(params)])
+    guard let scale = jsonDouble(object["end_scale"]) else {
+        throw ProbeError(message: "debug.canvas.wheel_zoom returned no end_scale: \(object)")
+    }
+    return scale
+}
+
+func resizeFocusedCanvasItem(
+    workspace: String,
+    viewportSize: PixelSize,
+    width targetWidth: Double = 620,
+    height targetHeight: Double = 460
+) throws {
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
+    let object = try debugLayout()
+    guard let layout = object["layout"] as? [String: Any],
+          let items = layout["canvasItems"] as? [[String: Any]],
+          let frame = items.first?["frame"] as? [String: Any],
+          let width = jsonDouble(frame["width"]),
+          let height = jsonDouble(frame["height"]) else {
+        throw ProbeError(message: "Could not read canvas item frame from debug.layout: \(object)")
+    }
+    let dx = targetWidth - width
+    let dy = targetHeight - height
+    guard abs(dx) > 0.5 || abs(dy) > 0.5 else { return }
+    var params: [String: Any] = [
+        "workspace_id": workspace,
+        "handle": "bottomRight",
+        "dx": dx,
+        "dy": dy,
+    ]
+    if let window = createdWindowRef {
+        params["window_id"] = window
+    }
+    _ = try cliJSON(["rpc", "debug.canvas.resize", try jsonString(params)])
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
+}
+
+func selectedPanelGeometry() throws -> PanelGeometry {
+    let object = try debugLayout()
+    guard let layout = object["layout"] as? [String: Any],
+          let panels = layout["selectedPanels"] as? [[String: Any]],
+          let panel = panels.first else {
+        throw ProbeError(message: "Could not read selected panel view frame from debug.layout: \(object)")
+    }
+
+    for key in ["portalFrameInWindow", "viewFrame"] {
+        guard let frame = pixelRect(panel[key]) else {
+            continue
+        }
+        return PanelGeometry(
+            viewFrame: frame,
+            portalFrameInWindow: pixelRect(panel["portalFrameInWindow"]),
+            portalContainerBounds: pixelRect(panel["portalContainerBounds"]),
+            nativeFrameInContainer: pixelRect(panel["nativeFrameInContainer"]),
+            nativeBounds: pixelRect(panel["nativeBounds"])
+        )
+    }
+
+    throw ProbeError(message: "Could not read selected panel portal/view frame from debug.layout: \(object)")
+}
+
+func selectedPanelType() throws -> String? {
+    let object = try debugLayout()
+    guard let layout = object["layout"] as? [String: Any] else {
+        return nil
+    }
+    guard let panels = layout["selectedPanels"] as? [[String: Any]],
+          let first = panels.first else {
+        return nil
+    }
+    return first["panelType"] as? String
+}
+
+func waitForSelectedPanelType(_ panelType: String) throws {
+    var lastType = "nil"
+    for _ in 0..<40 {
+        if let type = try selectedPanelType() {
+            lastType = type
+            if type == panelType {
+                return
+            }
+        }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    throw ProbeError(message: "Timed out waiting for selected panel type \(panelType), last type: \(lastType)")
+}
+
+func selectedPanelViewFrame() throws -> PixelRect {
+    try selectedPanelGeometry().viewFrame
+}
+
+func assertBorderMatchesNativeView(
+    surface: String,
+    border: PixelBounds,
+    viewFrame: PixelRect,
+    screenshotURL: URL
+) throws {
+    let screenshotSize = try imageSize(screenshotURL)
+    let expectedTop = Double(screenshotSize.height) - viewFrame.y - viewFrame.height
+    let tolerance = surface.hasPrefix("terminal") ? 36.0 : 12.0
+    let deltas = [
+        abs(Double(border.minX) - viewFrame.x),
+        abs(Double(border.minY) - expectedTop),
+        abs(Double(border.width) - viewFrame.width),
+        abs(Double(border.height) - viewFrame.height)
+    ]
+    guard deltas.allSatisfy({ $0 <= tolerance }) else {
+        throw ProbeError(message: "\(surface) border is not synced with native view frame. border=\(border), viewFrame=\(viewFrame), screenshotHeight=\(screenshotSize.height), expectedTop=\(expectedTop), deltas=\(deltas)")
+    }
+}
+
+func assertPan(surface: String, marker: String, before: PixelBounds, after: PixelBounds, dx: Double, dy: Double) throws {
+    let translationTolerance = 9.0
+    let sizeTolerance = 8
+    let actualDX = Double(after.minX - before.minX)
+    let actualDY = Double(after.minY - before.minY)
+    guard abs(actualDX - dx) <= translationTolerance,
+          abs(actualDY - dy) <= translationTolerance,
+          abs(after.width - before.width) <= sizeTolerance,
+          abs(after.height - before.height) <= sizeTolerance else {
+        throw ProbeError(message: "\(surface) \(marker) pan mismatch. expected=(\(dx),\(dy)) actual=(\(actualDX),\(actualDY)) before=\(before) after=\(after)")
+    }
+}
+
+func assertIncrementalPanSequence(
+    surface: String,
+    workspace: String,
+    viewportSize: PixelSize,
+    probes: [ProbeColor],
+    baseline: [String: PixelBounds],
+    crop: PixelRect,
+    steps: [(dx: Double, dy: Double)],
+    pixelScale: Double
+) throws -> [String: PixelBounds] {
+    var cumulativeDX = 0.0
+    var cumulativeDY = 0.0
+    var latest = baseline
+    for (index, step) in steps.enumerated() {
+        cumulativeDX += step.dx
+        cumulativeDY += step.dy
+        try panCanvas(workspace: workspace, viewportSize: viewportSize, dx: step.dx, dy: step.dy)
+        latest = try waitForExpectedPan(
+            surface: surface,
+            label: "\(surface)_sequence_pan_\(index)",
+            markerSuffix: "sequence-\(index)",
+            probes: probes,
+            baseline: baseline,
+            crop: crop,
+            dx: cumulativeDX * pixelScale,
+            dy: cumulativeDY * pixelScale
+        ).bounds
+    }
+    return latest
+}
+
+func waitForExpectedPan(
+    surface: String,
+    label: String,
+    markerSuffix: String,
+    probes: [ProbeColor],
+    baseline: [String: PixelBounds],
+    crop: PixelRect?,
+    dx: Double,
+    dy: Double
+) throws -> (url: URL, bounds: [String: PixelBounds]) {
+    var lastPath: URL?
+    var lastError: Error?
+    for attempt in 0..<24 {
+        let path = try screenshot(label: "\(label)_\(attempt)")
+        lastPath = path
+        do {
+            let bounds = try detectAll(in: path, probes: probes, crop: crop)
+            for probe in probes {
+                guard let beforeBounds = baseline[probe.name],
+                      let afterBounds = bounds[probe.name] else {
+                    throw ProbeError(message: "\(surface) missing \(probe.name) pan bounds")
+                }
+                try assertPan(
+                    surface: surface,
+                    marker: "\(probe.name)-\(markerSuffix)",
+                    before: beforeBounds,
+                    after: afterBounds,
+                    dx: dx,
+                    dy: dy
+                )
+            }
+            return (path, bounds)
+        } catch {
+            lastError = error
+            Thread.sleep(forTimeInterval: 0.04)
+        }
+    }
+    throw ProbeError(message: "\(surface) did not reach expected pan for \(markerSuffix) in \(lastPath?.path ?? "no screenshot"): \(lastError.map(String.init(describing:)) ?? "unknown")")
+}
+
+func nativeSizeForClipInvariant(surface: String, geometry: PanelGeometry) throws -> PixelRect {
+    if surface.hasPrefix("browser"), let nativeFrame = geometry.nativeFrameInContainer {
+        return nativeFrame
+    }
+    if let nativeBounds = geometry.nativeBounds {
+        return nativeBounds
+    }
+    if let nativeFrame = geometry.nativeFrameInContainer {
+        return nativeFrame
+    }
+    throw ProbeError(message: "\(surface) debug.layout did not include native portal geometry: \(geometry)")
+}
+
+func assertViewportClipPreservesNativeSize(
+    surface: String,
+    before: PanelGeometry,
+    after: PanelGeometry
+) throws {
+    let beforeNative = try nativeSizeForClipInvariant(surface: surface, geometry: before)
+    let afterNative = try nativeSizeForClipInvariant(surface: surface, geometry: after)
+    let tolerance = 4.0
+    let widthDelta = abs(afterNative.width - beforeNative.width)
+    let heightDelta = abs(afterNative.height - beforeNative.height)
+    guard widthDelta <= tolerance, heightDelta <= tolerance else {
+        throw ProbeError(message: "\(surface) native surface resized while viewport clipped. before=\(beforeNative) after=\(afterNative) deltas=(\(widthDelta),\(heightDelta))")
+    }
+
+    guard let beforePortal = before.portalFrameInWindow,
+          let afterPortal = after.portalFrameInWindow else {
+        throw ProbeError(message: "\(surface) missing portal frame while checking viewport clip. before=\(before) after=\(after)")
+    }
+    let clippedEnough =
+        afterPortal.width <= beforePortal.width - 40 ||
+        afterPortal.height <= beforePortal.height - 40
+    guard clippedEnough else {
+        throw ProbeError(message: "\(surface) did not move far enough out of viewport to prove clipping. beforePortal=\(beforePortal) afterPortal=\(afterPortal)")
+    }
+}
+
+func assertZoom(surface: String, marker: String, before: PixelBounds, after: PixelBounds, scale: Double) throws -> (Double, Double) {
+    let tolerance = 0.10
+    let widthRatio = Double(after.width) / Double(before.width)
+    let heightRatio = Double(after.height) / Double(before.height)
+    guard abs(widthRatio - scale) <= tolerance,
+          abs(heightRatio - scale) <= tolerance else {
+        throw ProbeError(message: "\(surface) \(marker) zoom mismatch. expected=\(scale) actual=(\(widthRatio),\(heightRatio)) before=\(before) after=\(after)")
+    }
+    return (widthRatio, heightRatio)
+}
+
+func terminalTUICommand() -> String {
+    "\(shellQuote(terminalProbeBinaryURL.path)) --probe-pattern --interval 0.016"
+}
+
+func browserHTML() -> String {
+    """
+    <html>
+      <body style="margin:0;background:#151515;overflow:hidden">
+        <div style="position:absolute;inset:0;border:14px solid rgb(0,180,255);box-sizing:border-box"></div>
+        <div id="probe-red" style="position:absolute;left:72px;top:82px;width:150px;height:96px;background:rgb(255,64,32)"></div>
+        <div id="probe-green" style="position:absolute;left:322px;top:168px;width:190px;height:118px;background:rgb(0,255,80)"></div>
+        <div id="probe-blue" style="position:absolute;left:168px;top:332px;width:172px;height:110px;background:rgb(40,80,255)"></div>
+      </body>
+    </html>
+    """
+}
+
+func browserInstallProbeScript() throws -> String {
+    "document.open();document.write(\(try javaScriptStringLiteral(browserHTML())));document.close();"
+}
+
+func browserProbeURL() throws -> URL {
+    let htmlURL = outDirectory.appendingPathComponent("browser-probe.html")
+    try browserHTML().write(to: htmlURL, atomically: true, encoding: .utf8)
+    return htmlURL
+}
+
+func forceBrowserPaint(surface: String) throws {
+    let paintURL = outDirectory.appendingPathComponent("browser-paint-\(UUID().uuidString).png")
+    _ = try cli(["browser", "--surface", surface, "screenshot", "--out", paintURL.path])
+    try? fileManager.removeItem(at: paintURL)
+}
+
+func makeTerminalWorkspace() throws -> String {
+    try createProbeWorkspace(name: "canvas-terminal-pan-zoom-probe")
+}
+
+func makeBrowserWorkspace() throws -> String {
+    let workspace = try createProbeWorkspace(name: "canvas-browser-pan-zoom-probe")
+    let probeURL = try browserProbeURL()
+    let surface = try surfaceRefFromCreateOutput(try cli([
+        "new-surface",
+        "--type", "browser",
+        "--workspace", workspace,
+        "--url", probeURL.absoluteString,
+        "--focus", "true"
+    ]))
+    try focusWorkspace(workspace)
+    _ = try cli(["browser", "--surface", surface, "wait", "--url-contains", "browser-probe.html", "--timeout-ms", "5000"])
+    try waitForSelectedPanelType("browser")
+    _ = try cli(["browser", "--surface", surface, "wait", "--selector", "#probe-red", "--timeout-ms", "5000"])
+    try forceBrowserPaint(surface: surface)
+    Thread.sleep(forTimeInterval: 0.3)
+    return workspace
+}
+
+func runSurface(
+    surface: String,
+    workspace: String,
+    probes: [ProbeColor],
+    panDX: Double,
+    panDY: Double,
+    prepareAfterResize: (() throws -> Void)? = nil
+) throws -> SurfaceResult {
+    try focusWorkspace(workspace)
+    let viewport = try viewportSize(for: workspace)
+    try resizeFocusedCanvasItem(workspace: workspace, viewportSize: viewport)
+    try prepareAfterResize?()
+    Thread.sleep(forTimeInterval: 0.5)
+    let nativeGeometry = try selectedPanelGeometry()
+    let scaleFactor = lastScreenshotScale
+    let nativeFrame = scaled(nativeGeometry.viewFrame, by: scaleFactor)
+    let crop = canvasContentCrop(startingNear: nativeFrame)
+    let markerProbes = probes.filter { $0.name != "border" }
+
+    let beforeURL = try copyArtifact(
+        try waitForAll(label: "\(surface)_before", probes: markerProbes, crop: crop),
+        named: "\(surface)-before.png"
+    )
+    var before = try detectAll(in: beforeURL, probes: markerProbes, crop: crop)
+    if let borderProbe = probes.first(where: { $0.name == "border" }) {
+        let borderCrop = detectionCrop(around: nativeFrame)
+        before["border"] = try detectAll(in: beforeURL, probes: [borderProbe], crop: borderCrop)["border"]
+    }
+    guard let border = before["border"] else {
+        throw ProbeError(message: "\(surface) did not produce border probe")
+    }
+    try assertBorderMatchesNativeView(
+        surface: surface,
+        border: border,
+        viewFrame: nativeFrame,
+        screenshotURL: beforeURL
+    )
+
+    try panCanvas(workspace: workspace, viewportSize: viewport, dx: panDX, dy: panDY)
+    let afterPanResult = try waitForExpectedPan(
+        surface: surface,
+        label: "\(surface)_after_pan",
+        markerSuffix: "initial",
+        probes: markerProbes,
+        baseline: before,
+        crop: crop,
+        dx: panDX * scaleFactor,
+        dy: panDY * scaleFactor
+    )
+    let afterPanURL = try copyArtifact(
+        afterPanResult.url,
+        named: "\(surface)-after-pan.png"
+    )
+    let afterPan = afterPanResult.bounds
+
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.8)
+    let edgePanDX = 180.0
+    let edgePanDY = 32.0
+    let edgeBaselineFrame = scaled(try selectedPanelGeometry().viewFrame, by: scaleFactor)
+    let edgeCrop = canvasContentCrop(startingNear: edgeBaselineFrame)
+    let beforeEdgePanURL = try copyArtifact(
+        try waitForAll(label: "\(surface)_before_edge_pan", probes: markerProbes, crop: edgeCrop),
+        named: "\(surface)-before-edge-pan.png"
+    )
+    let beforeEdgePan = try detectAll(in: beforeEdgePanURL, probes: markerProbes, crop: edgeCrop)
+    try panCanvas(workspace: workspace, viewportSize: viewport, dx: edgePanDX, dy: edgePanDY)
+    let afterEdgePanResult = try waitForExpectedPan(
+        surface: surface,
+        label: "\(surface)_after_edge_pan",
+        markerSuffix: "edge",
+        probes: markerProbes,
+        baseline: beforeEdgePan,
+        crop: edgeCrop,
+        dx: edgePanDX * scaleFactor,
+        dy: edgePanDY * scaleFactor
+    )
+    let afterEdgePanURL = try copyArtifact(
+        afterEdgePanResult.url,
+        named: "\(surface)-after-edge-pan.png"
+    )
+    let afterEdgePan = afterEdgePanResult.bounds
+    for probe in markerProbes {
+        guard let beforeBounds = beforeEdgePan[probe.name],
+              let edgePanBounds = afterEdgePan[probe.name] else {
+            throw ProbeError(message: "\(surface) missing \(probe.name) edge pan bounds")
+        }
+        try assertPan(
+            surface: surface,
+            marker: "\(probe.name)-edge",
+            before: beforeBounds,
+            after: edgePanBounds,
+            dx: edgePanDX * scaleFactor,
+            dy: edgePanDY * scaleFactor
+        )
+    }
+
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
+    let sequenceBaselineFrame = scaled(try selectedPanelGeometry().viewFrame, by: scaleFactor)
+    let sequenceCrop = canvasContentCrop(startingNear: sequenceBaselineFrame)
+    let beforeSequencePanURL = try copyArtifact(
+        try waitForAll(label: "\(surface)_before_sequence_pan", probes: markerProbes, crop: sequenceCrop),
+        named: "\(surface)-before-sequence-pan.png"
+    )
+    let beforeSequencePan = try detectAll(in: beforeSequencePanURL, probes: markerProbes, crop: sequenceCrop)
+    let sequenceSteps: [(dx: Double, dy: Double)] = [
+        (dx: 18.0, dy: 7.0),
+        (dx: 13.0, dy: 5.0),
+        (dx: 21.0, dy: 9.0),
+        (dx: 16.0, dy: 4.0),
+        (dx: 11.0, dy: 7.0),
+    ]
+    let afterSequencePan = try assertIncrementalPanSequence(
+        surface: surface,
+        workspace: workspace,
+        viewportSize: viewport,
+        probes: markerProbes,
+        baseline: beforeSequencePan,
+        crop: sequenceCrop,
+        steps: sequenceSteps,
+        pixelScale: scaleFactor
+    )
+    let expectedSequenceDX = sequenceSteps.reduce(0.0) { $0 + $1.dx } * scaleFactor
+    let expectedSequenceDY = sequenceSteps.reduce(0.0) { $0 + $1.dy } * scaleFactor
+
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
+    let clipBaseline = try selectedPanelGeometry()
+    try panCanvas(workspace: workspace, viewportSize: viewport, dx: -360, dy: 0)
+    Thread.sleep(forTimeInterval: 0.12)
+    let clippedGeometry = try selectedPanelGeometry()
+    try assertViewportClipPreservesNativeSize(
+        surface: surface,
+        before: clipBaseline,
+        after: clippedGeometry
+    )
+
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
+    let scale = try zoomOut(workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
+    // Zoomed-out surfaces may be proxy previews while the native portal is hidden.
+    // Search the canvas content area, then validate the probe scale ratios below.
+    let zoomCrop = canvasContentCrop(startingNear: nativeFrame)
+    let afterZoomURL = try copyArtifact(
+        try waitForAll(label: "\(surface)_after_zoom", probes: markerProbes, crop: zoomCrop),
+        named: "\(surface)-after-zoom.png"
+    )
+    let afterZoom = try detectAll(in: afterZoomURL, probes: markerProbes, crop: zoomCrop)
+
+    var markerResults: [String: MarkerResult] = [:]
+    for probe in markerProbes {
+        guard let beforeBounds = before[probe.name],
+              let panBounds = afterPan[probe.name],
+              let zoomBounds = afterZoom[probe.name] else {
+            throw ProbeError(message: "\(surface) missing \(probe.name) bounds")
+        }
+        try assertPan(
+            surface: surface,
+            marker: probe.name,
+            before: beforeBounds,
+            after: panBounds,
+            dx: panDX * scaleFactor,
+            dy: panDY * scaleFactor
+        )
+        let ratios = try assertZoom(surface: surface, marker: probe.name, before: beforeBounds, after: zoomBounds, scale: scale)
+        markerResults[probe.name] = MarkerResult(
+            before: beforeBounds,
+            afterPan: panBounds,
+            afterZoom: zoomBounds,
+            panDX: Double(panBounds.minX - beforeBounds.minX),
+            panDY: Double(panBounds.minY - beforeBounds.minY),
+            sequencePanDX: beforeSequencePan[probe.name].flatMap { sequenceBefore in
+                afterSequencePan[probe.name].map { Double($0.minX - sequenceBefore.minX) }
+            } ?? expectedSequenceDX,
+            sequencePanDY: beforeSequencePan[probe.name].flatMap { sequenceBefore in
+                afterSequencePan[probe.name].map { Double($0.minY - sequenceBefore.minY) }
+            } ?? expectedSequenceDY,
+            zoomWidthRatio: ratios.0,
+            zoomHeightRatio: ratios.1
+        )
+    }
+
+    return SurfaceResult(
+        surface: surface,
+        beforeScreenshot: beforeURL.path,
+        afterPanScreenshot: afterPanURL.path,
+        afterEdgePanScreenshot: afterEdgePanURL.path,
+        afterZoomScreenshot: afterZoomURL.path,
+        nativeViewFrame: nativeFrame,
+        expectedPanDX: panDX * scaleFactor,
+        expectedPanDY: panDY * scaleFactor,
+        expectedEdgePanDX: edgePanDX * scaleFactor,
+        expectedEdgePanDY: edgePanDY * scaleFactor,
+        viewportScale: scale,
+        markers: markerResults
+    )
+}
+
+do {
+    try requireDisposableAutomationTarget()
+    try fileManager.createDirectory(at: outDirectory, withIntermediateDirectories: true)
+    try verifyScreenshotRPCAvailable()
+    defer { cleanupCreatedProbeState() }
+    try buildTerminalProbeBinary()
+    var lastResult: VerificationResult?
+    for iteration in 1...stressCount {
+        let terminal: SurfaceResult?
+        if selectedSurfaceMode == "terminal" || selectedSurfaceMode == "both" {
+            let terminalWorkspace = try makeTerminalWorkspace()
+            terminal = try runSurface(
+                surface: "terminal-\(iteration)",
+                workspace: terminalWorkspace,
+                probes: terminalProbes,
+                panDX: 84,
+                panDY: 32,
+                prepareAfterResize: {
+                    try focusWorkspace(terminalWorkspace)
+                    try sendTextToSelectedPanel(terminalTUICommand() + "\n", workspace: terminalWorkspace, panelType: "terminal")
+                }
+            )
+        } else {
+            terminal = nil
+        }
+
+        let browser: SurfaceResult?
+        if selectedSurfaceMode == "browser" || selectedSurfaceMode == "both" {
+            browser = try runSurface(
+                surface: "browser-\(iteration)",
+                workspace: try makeBrowserWorkspace(),
+                probes: browserProbes,
+                panDX: 84,
+                panDY: 32
+            )
+        } else {
+            browser = nil
+        }
+        lastResult = VerificationResult(
+            tag: tag,
+            artifactDirectory: outDirectory.path,
+            terminal: terminal,
+            browser: browser
+        )
+    }
+
+    guard let result = lastResult else {
+        throw ProbeError(message: "No verification iterations ran")
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(result)
+    let reportURL = outDirectory.appendingPathComponent("report.json")
+    try data.write(to: reportURL)
+    print(String(data: data, encoding: .utf8) ?? "")
+    print("PASS canvas pan/zoom pixel verifier wrote \(reportURL.path)")
+} catch {
+    fputs("FAIL canvas pan/zoom pixel verifier: \(error)\n", stderr)
+    exit(1)
+}

@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?
@@ -235,7 +235,7 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
 
 extension CmuxButtonIcon {
     func contextMenuImage(configSourcePath: String?, globalConfigPath: String) -> NSImage? {
-        switch bonsplitIcon(configSourcePath: configSourcePath, globalConfigPath: globalConfigPath) {
+        switch workspaceLayoutIcon(configSourcePath: configSourcePath, globalConfigPath: globalConfigPath) {
         case .systemImage(let symbolName):
             return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
         case .emoji(let value, let scale):

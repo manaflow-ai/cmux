@@ -7,7 +7,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-@testable import Bonsplit
+@testable import CMUXLayout
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -16,12 +16,12 @@ import UserNotifications
 @testable import cmux
 #endif
 
-private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+private final class FakeWorkspaceLayoutTabItemRegionView: NSView, WorkspaceLayoutTabItemHitRegionProviding {
     nonisolated(unsafe) var tabFrames: [CGRect] = []
 
     deinit {}
 
-    nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+    nonisolated func containsWorkspaceLayoutTabItemHit(localPoint: NSPoint) -> Bool {
         tabFrames.contains { $0.contains(localPoint) }
     }
 
@@ -612,7 +612,7 @@ final class InternalTabDragBundleDeclarationTests: XCTestCase {
 
         XCTAssertTrue(
             exported.contains("com.splittabbar.tabtransfer"),
-            "Expected app bundle to export bonsplit tab-transfer type, got \(exported)"
+            "Expected app bundle to export workspaceLayout tab-transfer type, got \(exported)"
         )
         XCTAssertTrue(
             exported.contains("com.cmux.sidebar-tab-reorder"),
@@ -1079,7 +1079,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
     }
 
-    func testDragHandleNeverCapturesRegisteredBonsplitPaneTab() {
+    func testDragHandleNeverCapturesRegisteredWorkspaceLayoutPaneTab() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
             styleMask: [.titled, .closable],
@@ -1098,11 +1098,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         let dragHandle = NSView(frame: container.bounds)
         container.addSubview(dragHandle)
 
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 82, width: 220, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 20, y: 82, width: 220, height: 30))
         tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
         container.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
-        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
+        defer { WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion) }
 
         let tabWindowPoint = tabRegion.convert(NSPoint(x: 48, y: 15), to: nil)
         let tabDragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
@@ -1129,7 +1129,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
-    func testTabBarEmptyChromeOverlayNeverCapturesRegisteredBonsplitPaneTabWhenFrameCacheIsEmpty() {
+    func testTabBarEmptyChromeOverlayNeverCapturesRegisteredWorkspaceLayoutPaneTabWhenFrameCacheIsEmpty() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
             styleMask: [.titled, .closable],
@@ -1147,11 +1147,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         dragZone.hitTestEventTypeOverride = .leftMouseDown
         contentView.addSubview(dragZone)
 
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 10, y: 72, width: 90, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 10, y: 72, width: 90, height: 30))
         tabRegion.tabFrames = [tabRegion.bounds]
         contentView.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
-        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
+        defer { WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion) }
 
         XCTAssertNil(
             dragZone.hitTest(NSPoint(x: 40, y: 15)),
@@ -1959,11 +1959,11 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         window.isMovable = true
 
         XCTAssertEqual(
-            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
-            .bonsplitPaneTabDrag
+            beginWindowMoveSuppressionSequence(window: window, reason: .workspaceLayoutPaneTabDrag),
+            .workspaceLayoutPaneTabDrag
         )
         XCTAssertFalse(window.isMovable)
-        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .workspaceLayoutPaneTabDrag)
 
         XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
 
@@ -2102,41 +2102,41 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: dragged))
     }
 
-    func testBonsplitPaneTabMouseDownSuppressesWindowMove() {
+    func testWorkspaceLayoutPaneTabMouseDownSuppressesWindowMove() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
         tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
         contentView.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
-        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
+        defer { WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion) }
 
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
 
-        XCTAssertTrue(shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event))
-        XCTAssertEqual(windowMoveSuppressionReason(window: window, event: event), .bonsplitPaneTabDrag)
+        XCTAssertTrue(shouldSuppressWindowMoveForWorkspaceLayoutPaneTabDrag(window: window, event: event))
+        XCTAssertEqual(windowMoveSuppressionReason(window: window, event: event), .workspaceLayoutPaneTabDrag)
     }
 
-    func testBonsplitPaneTabDragSequenceKeepsWindowImmovableUntilMouseUp() {
+    func testWorkspaceLayoutPaneTabDragSequenceKeepsWindowImmovableUntilMouseUp() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
         tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
         contentView.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
         defer {
             _ = finishWindowMoveSuppressionSequence(window: window)
-            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+            WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion)
         }
 
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
 
-        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .workspaceLayoutPaneTabDrag)
         XCTAssertFalse(window.isMovable)
         XCTAssertTrue(isWindowDragSuppressed(window: window))
-        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .workspaceLayoutPaneTabDrag)
 
         let draggedOutsideTab = makeMouseEvent(
             type: .leftMouseDragged,
@@ -2145,59 +2145,59 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         )
         XCTAssertEqual(
             beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: draggedOutsideTab),
-            .bonsplitPaneTabDrag
+            .workspaceLayoutPaneTabDrag
         )
         XCTAssertFalse(window.isMovable, "Window must remain immovable for the whole tab-drag mouse sequence")
         XCTAssertFalse(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: draggedOutsideTab))
 
         let up = makeMouseEvent(type: .leftMouseUp, location: tabPoint, window: window)
-        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: up), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: up), .workspaceLayoutPaneTabDrag)
         XCTAssertTrue(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: up))
-        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .workspaceLayoutPaneTabDrag)
         XCTAssertTrue(window.isMovable)
         XCTAssertFalse(isWindowDragSuppressed(window: window))
         XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
     }
 
-    func testBonsplitPaneTabSuppressionRestoresImmovableMainWindow() {
+    func testWorkspaceLayoutPaneTabSuppressionRestoresImmovableMainWindow() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = false
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
         tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
         contentView.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
         defer {
             _ = finishWindowMoveSuppressionSequence(window: window)
-            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+            WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion)
         }
 
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
 
-        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .workspaceLayoutPaneTabDrag)
         XCTAssertFalse(window.isMovable)
-        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .workspaceLayoutPaneTabDrag)
         XCTAssertFalse(
             window.isMovable,
             "Tab-drag suppression must not restore native AppKit window dragging when the main window baseline is immovable"
         )
     }
 
-    func testNewMouseDownReevaluatesAfterStaleBonsplitPaneTabSuppression() {
+    func testNewMouseDownReevaluatesAfterStaleWorkspaceLayoutPaneTabSuppression() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
         tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
         contentView.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
         defer {
             _ = finishWindowMoveSuppressionSequence(window: window)
-            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+            WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion)
         }
 
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
-        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .workspaceLayoutPaneTabDrag)
         XCTAssertFalse(window.isMovable)
 
         let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
@@ -2215,19 +2215,19 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
     }
 
-    func testBonsplitPaneTabSuppressionLeavesEmptyTabChromeDraggable() {
+    func testWorkspaceLayoutPaneTabSuppressionLeavesEmptyTabChromeDraggable() {
         let (window, contentView) = makeWindowWithContentView()
         window.isMovable = true
-        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        let tabRegion = FakeWorkspaceLayoutTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
         tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
         contentView.addSubview(tabRegion)
-        BonsplitTabItemHitRegionRegistry.register(tabRegion)
-        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+        WorkspaceLayoutTabItemHitRegionRegistry.register(tabRegion)
+        defer { WorkspaceLayoutTabItemHitRegionRegistry.unregister(tabRegion) }
 
         let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
 
-        XCTAssertFalse(shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event))
+        XCTAssertFalse(shouldSuppressWindowMoveForWorkspaceLayoutPaneTabDrag(window: window, event: event))
         XCTAssertNil(windowMoveSuppressionReason(window: window, event: event))
     }
 }
@@ -2609,12 +2609,12 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(dragID, preparedDragID)
         XCTAssertTrue(FilePreviewDragRegistry.shared.contains(id: dragID))
 
-        let bonsplitData = try XCTUnwrap(
-            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType) as? Data
+        let workspaceLayoutData = try XCTUnwrap(
+            writer.pasteboardPropertyList(forType: FilePreviewDragPasteboardWriter.workspaceLayoutTransferType) as? Data
         )
-        XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: bonsplitData), dragID)
+        XCTAssertEqual(FilePreviewDragPasteboardWriter.dragID(from: workspaceLayoutData), dragID)
         XCTAssertEqual(dragPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType), filePreviewData)
-        XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.bonsplitTransferType), filePreviewData)
+        XCTAssertEqual(dragPasteboard.data(forType: FilePreviewDragPasteboardWriter.workspaceLayoutTransferType), filePreviewData)
         XCTAssertEqual(dragPasteboard.string(forType: .fileURL), fileURL.absoluteString)
 
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: dragPasteboard)
@@ -3234,7 +3234,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
 
-        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: sourcePane,
             filePath: sourceURL.path,
@@ -3246,17 +3246,17 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             filePath: firstURL.path
         ))
         let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
-        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
-        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+        let paneCountAfterFirstOpen = workspace.layoutController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.layoutController.tabs(inPane: rightPane).count
 
         let secondPanel = try XCTUnwrap(workspace.openOrFocusFilePreviewSplit(
             from: sourcePanel.id,
             filePath: secondURL.path
         ))
 
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, paneCountAfterFirstOpen)
         XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
     }
 
     func testCmdClickMarkdownRoutingReusesRightSidePane() throws {
@@ -3272,7 +3272,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
 
-        let sourcePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let sourcePane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let sourcePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
             inPane: sourcePane,
             filePath: sourceURL.path,
@@ -3284,17 +3284,17 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             filePath: firstURL.path
         ))
         let rightPane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
-        let paneCountAfterFirstOpen = workspace.bonsplitController.allPaneIds.count
-        let rightTabsAfterFirstOpen = workspace.bonsplitController.tabs(inPane: rightPane).count
+        let paneCountAfterFirstOpen = workspace.layoutController.allPaneIds.count
+        let rightTabsAfterFirstOpen = workspace.layoutController.tabs(inPane: rightPane).count
 
         let secondPanel = try XCTUnwrap(workspace.openOrFocusMarkdownSplit(
             from: sourcePanel.id,
             filePath: secondURL.path
         ))
 
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, paneCountAfterFirstOpen)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, paneCountAfterFirstOpen)
         XCTAssertEqual(workspace.paneId(forPanelId: secondPanel.id)?.id, rightPane.id)
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: rightPane).count, rightTabsAfterFirstOpen + 1)
     }
 
     private func temporaryTextFile(
@@ -3374,55 +3374,55 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 }
 
 
-final class BonsplitTabDragPayloadTests: XCTestCase {
+final class SurfaceTabDragPayloadTests: XCTestCase {
     func testRejectsFilePreviewCompatibilityPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
+        let pasteboard = try makeSurfacePayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
 
         XCTAssertNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            SurfaceTabDragPayload.transfer(from: pasteboard),
             "Sidebar workspace drop targets should ignore file-preview drags instead of treating them as movable tabs"
         )
     }
 
     func testAcceptsRealFilePreviewTabPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview")
+        let pasteboard = try makeSurfacePayloadPasteboard(kind: "filePreview")
 
         XCTAssertNotNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
-            "Existing file-preview tabs should still move through normal Bonsplit tab drag paths"
+            SurfaceTabDragPayload.transfer(from: pasteboard),
+            "Existing file-preview tabs should still move through normal CMUXLayout tab drag paths"
         )
     }
 
     func testAcceptsRegularCurrentProcessTabPayload() throws {
-        let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
+        let pasteboard = try makeSurfacePayloadPasteboard(kind: nil)
 
-        XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
+        XCTAssertNotNil(SurfaceTabDragPayload.transfer(from: pasteboard))
     }
 
     func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() {
         XCTAssertTrue(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
+            SurfaceTabDragPayload.canRouteWorkspaceDrop(
+                pasteboardTypes: [DragOverlayRoutingPolicy.workspaceLayoutTabTransferType]
             )
         )
     }
 
     func testWorkspaceDropRoutingRejectsFilePreviewCompatibilityTransfer() {
         XCTAssertFalse(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
+            SurfaceTabDragPayload.canRouteWorkspaceDrop(
                 pasteboardTypes: [
                     DragOverlayRoutingPolicy.filePreviewTransferType,
-                    DragOverlayRoutingPolicy.bonsplitTabTransferType,
+                    DragOverlayRoutingPolicy.workspaceLayoutTabTransferType,
                 ]
             )
         )
     }
 
-    private func makeBonsplitPayloadPasteboard(
+    private func makeSurfacePayloadPasteboard(
         kind: String?,
         includesFilePreviewTransferType: Bool = false
     ) throws -> NSPasteboard {
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.bonsplit.\(UUID().uuidString)"))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.workspaceLayout.\(UUID().uuidString)"))
         pasteboard.clearContents()
 
         var tab: [String: Any] = ["id": UUID().uuidString]
@@ -3435,7 +3435,7 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier))
+        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(SurfaceTabDragPayload.typeIdentifier))
         if includesFilePreviewTransferType {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }

@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import os
 import UserNotifications
-import Bonsplit
+import CMUXLayout
 
 nonisolated private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -1318,7 +1318,7 @@ final class TerminalNotificationStore: ObservableObject {
             if workspace?.panels[surfaceId] != nil {
                 return surfaceId
             }
-            return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+            return workspace?.panelIdFromSurfaceId(SurfaceID(uuid: surfaceId))
         }
 
         return NotificationPolicyContext(

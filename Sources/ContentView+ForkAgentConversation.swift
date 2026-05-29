@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 extension ContentView {
@@ -285,8 +285,8 @@ enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Senda
 
     static let defaultDestination: AgentConversationForkDestination = .right
 
-    init(tabContextAction: TabContextAction) {
-        switch tabContextAction {
+    init(surfaceContextAction: SurfaceContextAction) {
+        switch surfaceContextAction {
         case .forkConversationLeft:
             self = .left
         case .forkConversationTop:
@@ -304,7 +304,7 @@ enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Senda
         }
     }
 
-    var tabContextAction: TabContextAction {
+    var surfaceContextAction: SurfaceContextAction {
         switch self {
         case .right:
             return .forkConversationRight

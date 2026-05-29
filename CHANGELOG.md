@@ -99,7 +99,7 @@ All notable changes to cmux are documented here.
 - Ignore inherited socket context from other cmux bundles ([b361e9a2](https://github.com/manaflow-ai/cmux/commit/b361e9a2fc04902864dda8197d82000d3330d3bb))
 - Preserve numbered shortcut stale-menu routing and remapped close defaults ([d198a962](https://github.com/manaflow-ai/cmux/commit/d198a96266990062d01a6d968158e64d773bd6a2), [f2b257fb](https://github.com/manaflow-ai/cmux/commit/f2b257fb452b59dc674da4cb91d9ea6e97538c88))
 - Clear restored unread on workspace resume and defer dismissal to focused panel ([b24cf548](https://github.com/manaflow-ai/cmux/commit/b24cf5484f26ef14cd1b90813c695607aad3b684), [f594d5a8](https://github.com/manaflow-ai/cmux/commit/f594d5a808dcf84a9c7492a03bf074071df85877))
-- Update Bonsplit minimal tab drag hit testing and keep titlebar drag handle out of pane tabs ([36fc880f](https://github.com/manaflow-ai/cmux/commit/36fc880fdd8a070a545fbb1febb04405543c00b6), [735dde1d](https://github.com/manaflow-ai/cmux/commit/735dde1dccd7e1902d13f1e46c1f99eff674f5cd))
+- Update CMUXLayout minimal tab drag hit testing and keep titlebar drag handle out of pane tabs ([36fc880f](https://github.com/manaflow-ai/cmux/commit/36fc880fdd8a070a545fbb1febb04405543c00b6), [735dde1d](https://github.com/manaflow-ai/cmux/commit/735dde1dccd7e1902d13f1e46c1f99eff674f5cd))
 - Gate process termination until launch succeeds and handle deferred cancellation edge cases ([a14ca57c](https://github.com/manaflow-ai/cmux/commit/a14ca57cd0621b5f0c9371bd0ac71bbf60243b90), [227305d5](https://github.com/manaflow-ai/cmux/commit/227305d522d49905c02ea4941e9578d7d1a70c7c))
 - Deduplicate shell wrapper installer ([a21a21c5](https://github.com/manaflow-ai/cmux/commit/a21a21c55fc26ebf59a5dcff29d30b6f71933ea2))
 
@@ -468,7 +468,7 @@ All notable changes to cmux are documented here.
 - Fix main-thread blocking in workspace PR refresh ([#3036](https://github.com/manaflow-ai/cmux/pull/3036))
 - Fix terminal blanking after OSC completion notifications ([#3048](https://github.com/manaflow-ai/cmux/pull/3048))
 - Fix blank terminal after workspace selection ([#3012](https://github.com/manaflow-ai/cmux/pull/3012))
-- Fix minimal-mode traffic-light inset, new-window Bonsplit tab bar, window routing, portal hit testing, drag pass-through, and pane tab rendering ([#3055](https://github.com/manaflow-ai/cmux/pull/3055), [#3150](https://github.com/manaflow-ai/cmux/pull/3150), [#3194](https://github.com/manaflow-ai/cmux/pull/3194), [#3399](https://github.com/manaflow-ai/cmux/pull/3399))
+- Fix minimal-mode traffic-light inset, new-window CMUXLayout tab bar, window routing, portal hit testing, drag pass-through, and pane tab rendering ([#3055](https://github.com/manaflow-ai/cmux/pull/3055), [#3150](https://github.com/manaflow-ai/cmux/pull/3150), [#3194](https://github.com/manaflow-ai/cmux/pull/3194), [#3399](https://github.com/manaflow-ai/cmux/pull/3399))
 - Drop stale merged PRs from the sidebar badge selection ([#3063](https://github.com/manaflow-ai/cmux/pull/3063))
 - Fix transparent titlebar backdrop matching and sidebar tint backdrop ownership ([#3179](https://github.com/manaflow-ai/cmux/pull/3179), [#3382](https://github.com/manaflow-ai/cmux/pull/3382))
 - Fix feedback editor scrolling ([#3182](https://github.com/manaflow-ai/cmux/pull/3182))
@@ -511,7 +511,7 @@ All notable changes to cmux are documented here.
 - Fix `cmux.json` named workspace colors ([#3149](https://github.com/manaflow-ai/cmux/pull/3149))
 - Keep selected workspace visible in the sidebar ([#3152](https://github.com/manaflow-ai/cmux/pull/3152))
 - Hide portals for unmounted workspaces ([#3155](https://github.com/manaflow-ai/cmux/pull/3155))
-- Fix Bonsplit tab bar height and selected tab separator ([#3331](https://github.com/manaflow-ai/cmux/pull/3331), [#3351](https://github.com/manaflow-ai/cmux/pull/3351))
+- Fix CMUXLayout tab bar height and selected tab separator ([#3331](https://github.com/manaflow-ai/cmux/pull/3331), [#3351](https://github.com/manaflow-ai/cmux/pull/3351))
 - Fix browser omnibar typing lag with many workspaces ([#3422](https://github.com/manaflow-ai/cmux/pull/3422))
 - Fix nightly codesigning for nested bundles, Sparkle executables, and dock tile plugin ([#2676](https://github.com/manaflow-ai/cmux/pull/2676), [#2677](https://github.com/manaflow-ai/cmux/pull/2677), [#2679](https://github.com/manaflow-ai/cmux/pull/2679), [#2680](https://github.com/manaflow-ai/cmux/pull/2680))
 
@@ -696,7 +696,7 @@ All notable changes to cmux are documented here.
 - Fix cursor movement on double-click selection ([#1709](https://github.com/manaflow-ai/cmux/pull/1709))
 - Fix doomscroll when reviewing scrollback ([#1616](https://github.com/manaflow-ai/cmux/pull/1616))
 - Fix browser panes rendering blank after reopen ([#2141](https://github.com/manaflow-ai/cmux/pull/2141))
-- Fix browser portal leaking to other tabs on Bonsplit tab switch ([#2000](https://github.com/manaflow-ai/cmux/pull/2000))
+- Fix browser portal leaking to other tabs on CMUXLayout tab switch ([#2000](https://github.com/manaflow-ai/cmux/pull/2000))
 - Fix browser freeze after pane split ([#1852](https://github.com/manaflow-ai/cmux/pull/1852))
 - Fix browser pane video fullscreen ([#1921](https://github.com/manaflow-ai/cmux/pull/1921))
 - Fix browser image copy pasteboard data ([#1850](https://github.com/manaflow-ai/cmux/pull/1850))
@@ -986,12 +986,12 @@ All notable changes to cmux are documented here.
 - `--help` flag on CLI subcommands ([#128](https://github.com/manaflow-ai/cmux/pull/128))
 - `--command` flag for `new-workspace` CLI command ([#121](https://github.com/manaflow-ai/cmux/pull/121))
 - `rename-tab` socket command ([#260](https://github.com/manaflow-ai/cmux/pull/260))
-- Remap-aware bonsplit tooltips and browser split shortcuts ([#200](https://github.com/manaflow-ai/cmux/pull/200))
+- Remap-aware workspaceLayout tooltips and browser split shortcuts ([#200](https://github.com/manaflow-ai/cmux/pull/200))
 
 ### Fixed
 - IME preedit anchor sizing ([#266](https://github.com/manaflow-ai/cmux/pull/266))
 - Cmd+Shift+T focus against deferred stale callbacks ([#267](https://github.com/manaflow-ai/cmux/pull/267))
-- Unknown Bonsplit tab context actions causing crash ([#264](https://github.com/manaflow-ai/cmux/pull/264))
+- Unknown CMUXLayout tab context actions causing crash ([#264](https://github.com/manaflow-ai/cmux/pull/264))
 - Socket CLI commands stealing macOS app focus ([#260](https://github.com/manaflow-ai/cmux/pull/260))
 - CLI unix socket lag from main-thread blocking ([#259](https://github.com/manaflow-ai/cmux/pull/259))
 - Main-thread notification cascade causing hangs ([#232](https://github.com/manaflow-ai/cmux/pull/232))
@@ -1003,7 +1003,7 @@ All notable changes to cmux are documented here.
 - Split dividers disappearing in tiny panes ([#250](https://github.com/manaflow-ai/cmux/pull/250))
 - Flaky browser download activity accounting ([#246](https://github.com/manaflow-ai/cmux/pull/246))
 - Drag overlay routing and terminal overlay regressions ([#218](https://github.com/manaflow-ai/cmux/pull/218))
-- Initial bonsplit split animation flicker
+- Initial workspaceLayout split animation flicker
 - Window top inset on new window creation ([#224](https://github.com/manaflow-ai/cmux/pull/224))
 - Cmd+Enter being routed as browser reload ([#213](https://github.com/manaflow-ai/cmux/pull/213))
 - Child-exit close for last-terminal workspaces ([#254](https://github.com/manaflow-ai/cmux/pull/254))

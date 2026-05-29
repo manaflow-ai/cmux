@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Combine
 import CmuxExtensionKit
 import ImageIO
@@ -25,6 +25,189 @@ private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (co
         return nil
     }
     return (themeFrame, contentView)
+}
+
+@MainActor
+enum WindowPortalClipRegistry {
+    private struct ClipSourceKey: Hashable {
+        var windowID: ObjectIdentifier
+        var sourceID: ObjectIdentifier
+    }
+
+    private static var visibleContentFramesBySource: [ClipSourceKey: CGRect] = [:]
+
+    static func setVisibleContentFrame(_ frameInWindow: CGRect?, for window: NSWindow, source: AnyObject) {
+        let key = ClipSourceKey(windowID: ObjectIdentifier(window), sourceID: ObjectIdentifier(source))
+        guard let frameInWindow,
+              frameInWindow.origin.x.isFinite,
+              frameInWindow.origin.y.isFinite,
+              frameInWindow.size.width.isFinite,
+              frameInWindow.size.height.isFinite,
+              frameInWindow.width > 1,
+              frameInWindow.height > 1 else {
+            visibleContentFramesBySource.removeValue(forKey: key)
+            return
+        }
+        visibleContentFramesBySource[key] = frameInWindow
+    }
+
+    static func clear(for window: NSWindow?, source: AnyObject) {
+        guard let window else { return }
+        visibleContentFramesBySource.removeValue(
+            forKey: ClipSourceKey(windowID: ObjectIdentifier(window), sourceID: ObjectIdentifier(source))
+        )
+    }
+
+    static func clippedCanvasPresentation(
+        _ presentation: CanvasSurfacePresentation,
+        in window: NSWindow
+    ) -> CanvasSurfacePresentation? {
+        guard let visibleContentFrame = visibleContentFrame(for: window) else {
+            return presentation
+        }
+        return presentation.clipped(to: visibleContentFrame)
+    }
+
+    private static func visibleContentFrame(for window: NSWindow) -> CGRect? {
+        let windowID = ObjectIdentifier(window)
+        let frames = visibleContentFramesBySource.compactMap { key, frame -> CGRect? in
+            key.windowID == windowID ? frame : nil
+        }
+        guard var visibleFrame = frames.first else { return nil }
+        for frame in frames.dropFirst() {
+            visibleFrame = visibleFrame.intersection(frame)
+            guard !visibleFrame.isNull,
+                  visibleFrame.width > 1,
+                  visibleFrame.height > 1 else {
+                return nil
+            }
+        }
+        return visibleFrame
+    }
+}
+
+struct PortalVisibleContentClipReporter: NSViewRepresentable {
+    var leadingInset: CGFloat
+    var trailingInset: CGFloat
+    var topInset: CGFloat
+    var bottomInset: CGFloat
+
+    func makeNSView(context: Context) -> PortalVisibleContentClipReportingView {
+        let view = PortalVisibleContentClipReportingView()
+        view.update(
+            leadingInset: leadingInset,
+            trailingInset: trailingInset,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: PortalVisibleContentClipReportingView, context: Context) {
+        nsView.update(
+            leadingInset: leadingInset,
+            trailingInset: trailingInset,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+    }
+
+    static func dismantleNSView(_ nsView: PortalVisibleContentClipReportingView, coordinator: ()) {
+        nsView.clearPublishedWindow()
+    }
+}
+
+final class PortalVisibleContentClipReportingView: NSView {
+    private var leadingInset: CGFloat = 0
+    private var trailingInset: CGFloat = 0
+    private var topInset: CGFloat = 0
+    private var bottomInset: CGFloat = 0
+    private var hasPendingPublish = false
+    private weak var publishedWindow: NSWindow?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(
+        leadingInset: CGFloat,
+        trailingInset: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) {
+        self.leadingInset = max(0, leadingInset.isFinite ? leadingInset : 0)
+        self.trailingInset = max(0, trailingInset.isFinite ? trailingInset : 0)
+        self.topInset = max(0, topInset.isFinite ? topInset : 0)
+        self.bottomInset = max(0, bottomInset.isFinite ? bottomInset : 0)
+        schedulePublish()
+    }
+
+    override func layout() {
+        super.layout()
+        schedulePublish()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        schedulePublish()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        schedulePublish()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        schedulePublish()
+    }
+
+    func clearPublishedWindow() {
+        WindowPortalClipRegistry.clear(for: publishedWindow, source: self)
+        publishedWindow = nil
+    }
+
+    private func schedulePublish() {
+        guard !hasPendingPublish else { return }
+        hasPendingPublish = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            hasPendingPublish = false
+            publish()
+        }
+    }
+
+    private func publish() {
+        guard let window else {
+            clearPublishedWindow()
+            return
+        }
+        if publishedWindow !== window {
+            clearPublishedWindow()
+            publishedWindow = window
+        }
+
+        let maxLeadingInset = min(leadingInset, max(0, bounds.width - 1))
+        let maxTrailingInset = min(trailingInset, max(0, bounds.width - maxLeadingInset - 1))
+        let maxBottomInset = min(bottomInset, max(0, bounds.height - 1))
+        let maxTopInset = min(topInset, max(0, bounds.height - maxBottomInset - 1))
+        let visibleBounds = CGRect(
+            x: bounds.minX + maxLeadingInset,
+            y: bounds.minY + maxBottomInset,
+            width: max(0, bounds.width - maxLeadingInset - maxTrailingInset),
+            height: max(0, bounds.height - maxTopInset - maxBottomInset)
+        )
+
+        guard visibleBounds.width > 1,
+              visibleBounds.height > 1 else {
+            WindowPortalClipRegistry.setVisibleContentFrame(nil, for: window, source: self)
+            return
+        }
+
+        WindowPortalClipRegistry.setVisibleContentFrame(convert(visibleBounds, to: nil), for: window, source: self)
+    }
 }
 
 enum CommandPaletteOverlayPromotionPolicy {
@@ -855,8 +1038,8 @@ enum MountedWorkspacePresentationPolicy {
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
-            isPanelVisible: isRenderedVisible,
-            renderOpacity: isRenderedVisible ? 1 : 0
+            isPanelVisible: isSelectedWorkspace,
+            renderOpacity: isSelectedWorkspace ? 1 : 0
         )
     }
 }
@@ -1327,9 +1510,9 @@ struct ContentView: View {
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay,
               let workspace = tabManager.selectedWorkspace else { return nil }
-        let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
-            cachedSnapshot: workspace.tmuxLayoutSnapshot,
-            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
+        let layoutSnapshot = WorkspaceContentView.effectiveTmuxPaneLayoutSnapshot(
+            cachedSnapshot: workspace.tmuxPaneLayoutSnapshot,
+            liveSnapshot: workspace.layoutController.layoutSnapshot()
         )
         let contentView = window.contentView
 
@@ -1340,7 +1523,7 @@ struct ContentView: View {
             unreadRects = layoutSnapshot.panes.compactMap { pane in
                 guard let selectedTabId = pane.selectedTabId,
                       let tabUUID = UUID(uuidString: selectedTabId),
-                      let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)),
+                      let panelId = workspace.panelIdFromSurfaceId(SurfaceID(uuid: tabUUID)),
                       let panel = workspace.panels[panelId] else {
                     return nil
                 }
@@ -2493,7 +2676,7 @@ struct ContentView: View {
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {
         guard mode.canOpenAsPane,
               let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             NSSound.beep()
             return
         }
@@ -2505,7 +2688,7 @@ struct ContentView: View {
 
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             return
         }
 
@@ -2632,6 +2815,15 @@ struct ContentView: View {
 
         return AnyView(
             layout
+                .background {
+                    PortalVisibleContentClipReporter(
+                        leadingInset: sidebarState.isVisible ? sidebarWidth : 0,
+                        trailingInset: rightSidebarWidth,
+                        topInset: 0,
+                        bottomInset: 0
+                    )
+                    .allowsHitTesting(false)
+                }
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
@@ -2757,7 +2949,7 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
-            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            AppDelegate.shared?.syncCMUXLayoutTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -3277,7 +3469,7 @@ struct ContentView: View {
             }
 
             refreshWindowChromeMetrics(for: window)
-            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+            // Keep content below the titlebar so drags on CMUXLayout's tab bar don't
             // get interpreted as window drags.
             // User settings decide whether window glass is active. The native Tahoe
             // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
@@ -3350,7 +3542,7 @@ struct ContentView: View {
         let mountedIdSet = Set(mountedWorkspaceIds)
         for workspace in currentTabs {
             workspace.setPortalRenderingEnabled(
-                mountedIdSet.contains(workspace.id),
+                mountedIdSet.contains(workspace.id) && workspace.id == effectiveSelectedId,
                 reason: "workspaceMount"
             )
         }
@@ -3624,6 +3816,9 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
+        if let workspace = tabManager.tabs.first(where: { $0.id == oldSelectedId }) {
+            workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoffStart")
+        }
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -6414,7 +6609,7 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
-                workspace.bonsplitController.allPaneIds.count > 1
+                workspace.layoutController.allPaneIds.count > 1
             )
             let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
@@ -7526,6 +7721,22 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.canvas",
+                title: constant(String(localized: "command.canvas.title", defaultValue: "Show Canvas")),
+                subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
+                keywords: ["canvas", "overview", "freeform", "niri", "columns", "move", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.canvasScrollingColumns",
+                title: constant(String(localized: "command.canvasScrollingColumns.title", defaultValue: "Arrange Canvas as Columns")),
+                subtitle: constant(String(localized: "command.canvas.subtitle", defaultValue: "Canvas")),
+                keywords: ["canvas", "columns", "scrolling", "niri", "arrange", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,
@@ -8141,6 +8352,27 @@ struct ContentView: View {
             if !tabManager.toggleFocusedSplitZoom() {
                 NSSound.beep()
             }
+        }
+        registry.register(commandId: "palette.canvas") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.enterCanvasOverview(policy: .freeform)
+        }
+        registry.register(commandId: "palette.canvasScrollingColumns") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.enterCanvasOverview(policy: .scrollingColumns)
+        }
+        registry.register(commandId: "palette.canvasFreeform") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            workspace.enterCanvasOverview(policy: .freeform)
         }
         registry.register(commandId: "palette.equalizeSplits") {
             if let workspace = tabManager.selectedWorkspace, !tabManager.equalizeSplits(tabId: workspace.id) {
@@ -10120,7 +10352,7 @@ struct VerticalTabsSidebar: View {
     }
 
     /// Adapter binding for unmigrated consumers (extension sidebar drop
-    /// delegates, bonsplit overlays) that still expect @Binding<UUID?>. Reads
+    /// delegates, workspaceLayout overlays) that still expect @Binding<UUID?>. Reads
     /// flow through `dragState.draggedTabId` so @Observable per-property
     /// tracking still applies to whoever calls the binding's get.
     private var draggedTabIdBinding: Binding<UUID?> {
@@ -10632,7 +10864,7 @@ struct VerticalTabsSidebar: View {
                             dragAutoScrollController: dragAutoScrollController,
                             topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                             tabDropDelegate: emptyAreaTabDropDelegate(),
-                            bonsplitDropIndicator: dropIndicatorBinding
+                            workspaceLayoutDropIndicator: dropIndicatorBinding
                         )
                         .frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -11400,7 +11632,7 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController,
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(),
-                bonsplitDropIndicator: dropIndicatorBinding
+                workspaceLayoutDropIndicator: dropIndicatorBinding
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -11430,7 +11662,7 @@ struct VerticalTabsSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
             GeometryReader { proxy in
-                SidebarBonsplitTabWorkspaceDropOverlay(
+                SidebarSurfaceWorkspaceDropOverlay(
                     currentSelectedTabId: {
                         tabManager.selectedTabId
                     },
@@ -11441,11 +11673,11 @@ struct VerticalTabsSidebar: View {
                         guard let app = AppDelegate.shared else {
                             return false
                         }
-                        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                        if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
                            source.workspaceId == workspaceId {
                             return true
                         }
-                        return app.moveBonsplitTab(
+                        return app.moveCMUXLayoutTab(
                             tabId: transfer.tab.id,
                             toWorkspace: workspaceId,
                             focus: true,
@@ -11454,7 +11686,7 @@ struct VerticalTabsSidebar: View {
                     },
                     moveToNewWorkspace: { insertionIndex, transfer in
                         guard let app = AppDelegate.shared,
-                              let result = app.moveBonsplitTabToNewWorkspace(
+                              let result = app.moveCMUXLayoutTabToNewWorkspace(
                                 tabId: transfer.tab.id,
                                 destinationManager: tabManager,
                                 focus: true,
@@ -13830,7 +14062,7 @@ private struct SidebarEmptyArea: View {
     // reference (snapshot-boundary rule).
     let topDropIndicatorVisible: Bool
     let tabDropDelegate: SidebarTabDropDelegate
-    let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
+    let workspaceLayoutDropIndicator: Binding<SidebarDropIndicator?>
 
     var body: some View {
         Color.clear
@@ -13846,11 +14078,11 @@ private struct SidebarEmptyArea: View {
             }
             .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
             .overlay {
-                SidebarBonsplitTabNewWorkspaceDropOverlay(
+                SidebarCMUXLayoutTabNewWorkspaceDropOverlay(
                     tabManager: tabManager,
                     selectedTabIds: $selectedTabIds,
                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dropIndicator: bonsplitDropIndicator
+                    dropIndicator: workspaceLayoutDropIndicator
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -14802,7 +15034,7 @@ struct TabItemView: View, Equatable {
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
-        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
+        .onDrop(of: SurfaceTabDragPayload.dropContentTypes, delegate: SidebarCMUXLayoutTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
             selectedTabIds: $selectedTabIds,
@@ -16414,7 +16646,7 @@ enum SidebarTabDragPayload {
 
 }
 
-enum BonsplitTabDragPayload {
+enum SurfaceTabDragPayload {
     static let typeIdentifier = "com.splittabbar.tabtransfer"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
@@ -16454,7 +16686,7 @@ enum BonsplitTabDragPayload {
     }
 
     static func canRouteWorkspaceDrop(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
             && !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
     }
 
@@ -16481,15 +16713,15 @@ enum BonsplitTabDragPayload {
     }
 }
 
-private struct SidebarBonsplitTabDropDelegate: DropDelegate {
+private struct SidebarCMUXLayoutTabDropDelegate: DropDelegate {
     let targetWorkspaceId: UUID
     let tabManager: TabManager
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
-        return BonsplitTabDragPayload.currentTransfer() != nil
+        guard info.hasItemsConforming(to: [SurfaceTabDragPayload.typeIdentifier]) else { return false }
+        return SurfaceTabDragPayload.currentTransfer() != nil
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -16499,18 +16731,18 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard validateDrop(info: info),
-              let transfer = BonsplitTabDragPayload.currentTransfer(),
+              let transfer = SurfaceTabDragPayload.currentTransfer(),
               let app = AppDelegate.shared else {
             return false
         }
 
-        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+        if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
            source.workspaceId == targetWorkspaceId {
             syncSidebarSelection()
             return true
         }
 
-        guard app.moveBonsplitTab(
+        guard app.moveCMUXLayoutTab(
             tabId: transfer.tab.id,
             toWorkspace: targetWorkspaceId,
             focus: true,
@@ -17299,7 +17531,7 @@ private struct WindowBackdropLayer: View {
             switch role {
             case .windowRoot:
                 Color(nsColor: backdropColor)
-            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
+            case .terminalCanvas, .workspaceLayoutChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
                 LayerBackedBackdropColor(color: backdropColor)
             }
         case let .sidebarMaterial(materialPolicy):

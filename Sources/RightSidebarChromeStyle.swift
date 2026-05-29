@@ -105,7 +105,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
             )
             .padding(.horizontal, horizontalPadding)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
             )
@@ -169,7 +169,7 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
                 width: RightSidebarChromeMetrics.headerIconFrameSize,
                 height: RightSidebarChromeMetrics.headerIconFrameSize
             )
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
                 keyPrefix: iconGeometryKeyPrefix,
                 isVisible: true
             )

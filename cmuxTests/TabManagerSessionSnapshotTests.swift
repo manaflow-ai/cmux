@@ -48,7 +48,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
@@ -66,7 +66,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(firstWorkspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
         let fallbackPanelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
@@ -87,7 +87,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testFocusHistoryFallbackKeepsForwardStackAfterQueuedSelectionFocus() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(firstWorkspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
         let fallbackPanelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
@@ -110,7 +110,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let fallbackPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
@@ -142,7 +142,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let fallbackPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
@@ -194,7 +194,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         }
         let revision = manager.focusHistoryRevision
 
-        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(leftPaneId))
 
         XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
         XCTAssertGreaterThan(notificationCount, 0)
@@ -255,7 +255,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         let secondSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(secondPanelId))
         XCTAssertNotEqual(secondSurfaceId.uuid, secondPanelId)
@@ -489,7 +489,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
         workspace.markCloseHistoryEligible(panelId: panelId)
@@ -506,7 +506,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testReopenClosedPanelRestoresUnreadIndicator() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         workspace.setPanelCustomTitle(panelId: panelId, title: "Unread Tab")
         workspace.restorePanelUnreadIndicator(panelId)
@@ -527,7 +527,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testReopenClosedPanelRestoresManualUnreadState() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         workspace.setPanelCustomTitle(panelId: panelId, title: "Manual Unread Tab")
         workspace.markPanelUnread(panelId)
@@ -548,7 +548,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: false)
-        let pane = try XCTUnwrap(secondWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(secondWorkspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(secondWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
         secondWorkspace.markCloseHistoryEligible(panelId: panelId)
@@ -590,7 +590,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
         XCTAssertTrue(manager.canNavigateForward)
 
-        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(firstWorkspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: false)?.id)
 
         firstWorkspace.markCloseHistoryEligible(panelId: panelId)
@@ -611,7 +611,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let secondWorkspace = manager.addWorkspace(select: true)
         secondWorkspace.setCustomTitle("Recovered")
         let originalSecondWorkspaceId = secondWorkspace.id
-        let pane = try XCTUnwrap(secondWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(secondWorkspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(secondWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
         secondWorkspace.markCloseHistoryEligible(panelId: closedPanelId)
@@ -649,19 +649,19 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
 
         drainMainQueue()
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
 
         workspace.markCloseHistoryEligible(panelId: splitBrowserId)
         XCTAssertTrue(workspace.closePanel(splitBrowserId, force: true))
         drainMainQueue()
         XCTAssertNil(workspace.panels[splitBrowserId])
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 1)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 1)
         XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         drainMainQueue()
 
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
         XCTAssertTrue(workspace.focusedPanelId.flatMap { workspace.panels[$0] } is BrowserPanel)
     }
 
@@ -677,18 +677,18 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         workspace.setPanelCustomTitle(panelId: splitTerminal.id, title: "Restored Terminal Split")
 
         drainMainQueue()
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
 
         workspace.markCloseHistoryEligible(panelId: splitTerminal.id)
         XCTAssertTrue(workspace.closePanel(splitTerminal.id, force: true))
         drainMainQueue()
         XCTAssertNil(workspace.panels[splitTerminal.id])
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 1)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 1)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         drainMainQueue()
 
-        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(workspace.layoutController.allPaneIds.count, 2)
         let restoredPanelId = try XCTUnwrap(
             workspace.panelCustomTitles.first(where: { $0.value == "Restored Terminal Split" })?.key
         )
@@ -710,8 +710,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         workspace.setPanelCustomTitle(panelId: secondTerminal.id, title: "Pane Closed Second")
 
         drainMainQueue()
-        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: splitPane).count, 2)
-        XCTAssertTrue(workspace.bonsplitController.closePane(splitPane))
+        XCTAssertEqual(workspace.layoutController.tabs(inPane: splitPane).count, 2)
+        XCTAssertTrue(workspace.layoutController.closePane(splitPane))
         drainMainQueue()
 
         XCTAssertNil(workspace.panels[splitTerminal.id])
@@ -740,13 +740,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
 
         drainMainQueue()
-        XCTAssertEqual(secondWorkspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(secondWorkspace.layoutController.allPaneIds.count, 2)
 
         secondWorkspace.markCloseHistoryEligible(panelId: splitBrowserId)
         XCTAssertTrue(secondWorkspace.closePanel(splitBrowserId, force: true))
         drainMainQueue()
         XCTAssertNil(secondWorkspace.panels[splitBrowserId])
-        XCTAssertEqual(secondWorkspace.bonsplitController.allPaneIds.count, 1)
+        XCTAssertEqual(secondWorkspace.layoutController.allPaneIds.count, 1)
 
         manager.closeWorkspace(secondWorkspace)
         XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
@@ -754,13 +754,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         let restoredWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         XCTAssertEqual(restoredWorkspace.customTitle, "Recovered Browser Split")
-        XCTAssertEqual(restoredWorkspace.bonsplitController.allPaneIds.count, 1)
+        XCTAssertEqual(restoredWorkspace.layoutController.allPaneIds.count, 1)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         drainMainQueue()
 
         XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
-        XCTAssertEqual(restoredWorkspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(restoredWorkspace.layoutController.allPaneIds.count, 2)
         XCTAssertTrue(restoredWorkspace.focusedPanelId.flatMap { restoredWorkspace.panels[$0] } is BrowserPanel)
     }
 
@@ -795,7 +795,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         secondWorkspace.markCloseHistoryEligible(panelId: anchorPanelId)
         XCTAssertTrue(secondWorkspace.closePanel(anchorPanelId, force: true))
         drainMainQueue()
-        XCTAssertEqual(secondWorkspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(secondWorkspace.layoutController.allPaneIds.count, 2)
 
         manager.closeWorkspace(secondWorkspace)
         XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
@@ -809,7 +809,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredWrongPanelId = try XCTUnwrap(
             restoredWorkspace.panelCustomTitles.first(where: { $0.value == "Wrong" })?.key
         )
-        XCTAssertEqual(restoredWorkspace.bonsplitController.allPaneIds.count, 2)
+        XCTAssertEqual(restoredWorkspace.layoutController.allPaneIds.count, 2)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedItem())
         drainMainQueue()
@@ -843,7 +843,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.setCustomTitle("Recovered Window Workspace")
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         workspace.setPanelCustomTitle(panelId: closedPanelId, title: "Closed Panel")
 
@@ -1261,7 +1261,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let sourceManager = TabManager()
         let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
         sourceWorkspace.setCustomTitle("Restored Parent")
-        let pane = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(sourceWorkspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         sourceWorkspace.setPanelCustomTitle(panelId: panelId, title: "Persisted Closed Tab")
         let sourceSnapshot = sourceManager.sessionSnapshot(includeScrollback: false)
@@ -1370,7 +1370,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(firstWorkspace.layoutController.allPaneIds.first)
         let closedPanelId = try XCTUnwrap(firstWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         firstWorkspace.setPanelCustomTitle(panelId: closedPanelId, title: "Specific Tab")
 
@@ -1456,7 +1456,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let restorablePanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         workspace.setPanelCustomTitle(panelId: restorablePanelId, title: "Restorable Tab")
         workspace.markCloseHistoryEligible(panelId: restorablePanelId)
@@ -1487,7 +1487,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let sourceManager = TabManager()
         let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
         sourceWorkspace.setCustomTitle("Recovered Parent")
-        let pane = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(sourceWorkspace.layoutController.allPaneIds.first)
         let panelId = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: pane, focus: true)?.id)
         sourceWorkspace.setPanelCustomTitle(panelId: panelId, title: "Remapped Skipped Tab")
         let workspaceSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
@@ -1661,7 +1661,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         panelSnapshot.rightSidebarTool = nil
         snapshot.customTitle = "Broken Workspace"
         snapshot.panels = [panelSnapshot]
-        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+        snapshot.layout = .pane(SessionPanePaneLayoutSnapshot(
             panelIds: [panelSnapshot.id],
             selectedPanelId: panelSnapshot.id
         ))
@@ -1768,7 +1768,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
-        let paneId = try XCTUnwrap(remoteWorkspace.bonsplitController.allPaneIds.first)
+        let paneId = try XCTUnwrap(remoteWorkspace.layoutController.allPaneIds.first)
         _ = remoteWorkspace.newBrowserSurface(inPane: paneId, url: URL(string: "http://localhost:3000"), focus: false)
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
@@ -1781,7 +1781,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
     func testSessionSnapshotSkipsTemporaryDiffViewerBrowserPanels() throws {
         let workspace = try XCTUnwrap(TabManager().selectedWorkspace)
-        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let paneId = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         let url = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         _ = try XCTUnwrap(
             workspace.newBrowserSurface(
@@ -2176,7 +2176,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             terminalScrollBarHidden: nil,
             currentDirectory: NSHomeDirectory(),
             focusedPanelId: focusedPanelId,
-            layout: .pane(SessionPaneLayoutSnapshot(
+            layout: .pane(SessionPanePaneLayoutSnapshot(
                 panelIds: [focusedPanelId],
                 selectedPanelId: focusedPanelId
             )),

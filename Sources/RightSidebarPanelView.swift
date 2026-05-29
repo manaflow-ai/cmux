@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import CMUXWorkstream
 import SwiftUI
 
@@ -268,7 +268,7 @@ struct RightSidebarPanelView: View {
         .background(TitlebarDoubleClickMonitorView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
-        .reportRightSidebarChromeGeometryForBonsplitUITest(
+        .reportRightSidebarChromeGeometryForCMUXLayoutUITest(
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
@@ -285,7 +285,7 @@ struct RightSidebarPanelView: View {
             width: RightSidebarChromeMetrics.headerControlSize,
             height: RightSidebarChromeMetrics.headerControlSize
         )
-        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+        .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
             keyPrefix: "rightSidebarHeaderOpenAsPane",
             isVisible: true
         )
@@ -318,7 +318,7 @@ struct RightSidebarPanelView: View {
                 width: RightSidebarChromeMetrics.headerControlSize,
                 height: RightSidebarChromeMetrics.headerControlSize
             )
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
                 keyPrefix: "rightSidebarHeaderClose",
                 isVisible: true
             )
@@ -552,7 +552,7 @@ private struct ModeBarButton: View {
                             weight: RightSidebarChromeControlStyle.iconWeight
                         )
                     )
-                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                    .reportRightSidebarChromeNamedGeometryForCMUXLayoutUITest(
                         keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
                         isVisible: true
                     )

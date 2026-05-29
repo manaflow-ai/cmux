@@ -57,7 +57,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pane = try XCTUnwrap(workspace.layoutController.allPaneIds.first)
         TerminalController.shared.setActiveTabManager(manager)
 
         let result = TerminalController.shared.v2FileOpen(params: [

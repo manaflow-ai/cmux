@@ -1,15 +1,1813 @@
 import SwiftUI
 import Foundation
 import AppKit
-import Bonsplit
+import CMUXCanvas
+import CMUXLayout
+import CoreVideo
+import QuartzCore
+import WebKit
+
+private let workspaceCanvasFreeformCoordinateSpace = "WorkspaceCanvasFreeformCoordinateSpace"
+
+@MainActor
+enum WorkspaceCanvasPortalDebugRegistry {
+    private static var frameByItemID: [LayoutItemID: CGRect] = [:]
+
+    static func update(itemID: LayoutItemID, frameInWindow: CGRect) {
+        frameByItemID[itemID] = frameInWindow
+    }
+
+    static func remove(itemID: LayoutItemID) {
+        frameByItemID.removeValue(forKey: itemID)
+    }
+
+    static func frameInWindow(itemID: LayoutItemID) -> CGRect? {
+        frameByItemID[itemID]
+    }
+}
+
+struct WorkspaceCanvasPresentationDebugSnapshot {
+    let interactionPhase: CanvasInteractionPhase
+    let usesUnifiedTexturePresentation: Bool
+    let recentRecords: [WorkspaceCanvasPresentationDebugRecord]
+    let recentUnifiedTexturePresentationCount: Int
+}
+
+struct WorkspaceCanvasPresentationDebugRecord {
+    let interactionPhase: CanvasInteractionPhase
+    let usesUnifiedTexturePresentation: Bool
+    let nativeOverlayCount: Int
+    let textureSurfaceCount: Int
+    let visibleNativePortalCount: Int
+    let maxShellPresentationDrift: Double
+}
+
+struct WorkspaceCanvasCameraInputDebugRecord {
+    let eventType: String
+    let action: String
+    let deltaX: Double
+    let deltaY: Double
+    let localX: Double
+    let localY: Double
+    let phase: String
+    let momentumPhase: String
+    let hasCommandModifier: Bool
+    let hasPreciseScrollingDeltas: Bool
+    let scrollPassthroughHit: Bool
+}
+
+@MainActor
+enum WorkspaceCanvasCameraInputDebugRegistry {
+    private static let maximumRecentEntryCount = 96
+    private static var recordsByWindowID: [ObjectIdentifier: [WorkspaceCanvasCameraInputDebugRecord]] = [:]
+
+    static func record(window: NSWindow, _ record: WorkspaceCanvasCameraInputDebugRecord) {
+        let windowID = ObjectIdentifier(window)
+        var records = recordsByWindowID[windowID] ?? []
+        records.append(record)
+        if records.count > maximumRecentEntryCount {
+            records.removeFirst(records.count - maximumRecentEntryCount)
+        }
+        recordsByWindowID[windowID] = records
+    }
+
+    static func snapshot(window: NSWindow?) -> [WorkspaceCanvasCameraInputDebugRecord] {
+        guard let window else { return [] }
+        return recordsByWindowID[ObjectIdentifier(window)] ?? []
+    }
+
+    static func remove(window: NSWindow) {
+        recordsByWindowID.removeValue(forKey: ObjectIdentifier(window))
+    }
+}
+
+@MainActor
+enum WorkspaceCanvasPresentationDebugRegistry {
+    private struct Entry {
+        var interactionPhase: CanvasInteractionPhase
+        var usesUnifiedTexturePresentation: Bool
+        var recentRecords: [WorkspaceCanvasPresentationDebugRecord]
+        var recentUnifiedTexturePresentationCount: Int
+    }
+
+    private static let maximumRecentEntryCount = 48
+    private static var entriesByWorkspaceID: [UUID: Entry] = [:]
+
+    static func record(
+        workspaceID: UUID,
+        presentation: CanvasPresentationState,
+        visibleNativePortalCount: Int
+    ) {
+        var entry = entriesByWorkspaceID[workspaceID] ?? Entry(
+            interactionPhase: presentation.interactionPhase,
+            usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
+            recentRecords: [],
+            recentUnifiedTexturePresentationCount: 0
+        )
+        entry.interactionPhase = presentation.interactionPhase
+        entry.usesUnifiedTexturePresentation = presentation.usesUnifiedTexturePresentation
+        entry.recentRecords.append(
+            WorkspaceCanvasPresentationDebugRecord(
+                interactionPhase: presentation.interactionPhase,
+                usesUnifiedTexturePresentation: presentation.usesUnifiedTexturePresentation,
+                nativeOverlayCount: presentation.nativeOverlays.count,
+                textureSurfaceCount: presentation.textureSurfaces.count,
+                visibleNativePortalCount: visibleNativePortalCount,
+                maxShellPresentationDrift: maxShellPresentationDrift(in: presentation)
+            )
+        )
+        if entry.recentRecords.count > maximumRecentEntryCount {
+            entry.recentRecords.removeFirst(entry.recentRecords.count - maximumRecentEntryCount)
+        }
+        if presentation.usesUnifiedTexturePresentation {
+            entry.recentUnifiedTexturePresentationCount += 1
+        }
+        entriesByWorkspaceID[workspaceID] = entry
+    }
+
+    static func snapshot(workspaceID: UUID) -> WorkspaceCanvasPresentationDebugSnapshot? {
+        guard let entry = entriesByWorkspaceID[workspaceID] else { return nil }
+        return WorkspaceCanvasPresentationDebugSnapshot(
+            interactionPhase: entry.interactionPhase,
+            usesUnifiedTexturePresentation: entry.usesUnifiedTexturePresentation,
+            recentRecords: entry.recentRecords,
+            recentUnifiedTexturePresentationCount: entry.recentUnifiedTexturePresentationCount
+        )
+    }
+
+    static func remove(workspaceID: UUID) {
+        entriesByWorkspaceID.removeValue(forKey: workspaceID)
+    }
+
+    private static func maxShellPresentationDrift(in presentation: CanvasPresentationState) -> Double {
+        let scene = CanvasScene(presentation: presentation)
+        let shellByID = Dictionary(
+            uniqueKeysWithValues: CanvasShellRenderPlan(scene: scene).surfaces.map { ($0.id, $0) }
+        )
+        var maxDrift: CGFloat = 0
+        for surface in presentation.presentationSurfaces {
+            guard let shell = shellByID[surface.id] else {
+                maxDrift = 1_000_000
+                continue
+            }
+            maxDrift = max(
+                maxDrift,
+                maxRectDrift(shell.frame, surface.frameInCanvas),
+                maxRectDrift(shell.contentFrame, surface.contentFrameInCanvas)
+            )
+        }
+        return Double(maxDrift)
+    }
+
+    private static func maxRectDrift(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+        max(
+            abs(lhs.minX - rhs.minX),
+            abs(lhs.minY - rhs.minY),
+            abs(lhs.width - rhs.width),
+            abs(lhs.height - rhs.height)
+        )
+    }
+}
+
+private struct WorkspaceCanvasCardSnapshot: Identifiable {
+    var id: LayoutItemID { item.id }
+    let item: CanvasItem
+    let canvasRect: CGRect
+    let displaySize: CGSize
+    let renderMode: CanvasRenderMode
+    let zIndex: Double
+    let title: String
+    let tabs: [SurfaceTab]
+    let selected: SurfaceTab?
+    let paneID: PaneID?
+    let paneActionsEnabled: Bool
+    let hasSurfaceTexture: Bool
+    let previewImage: NSImage?
+    let browserPreviewAddressText: String
+}
+
+@MainActor
+private enum WorkspaceCanvasSurfaceMountManager {
+    private enum ParkMode {
+        case unmount
+        case freezeInPlace
+    }
+
+    static func apply(
+        panel: (any Panel)?,
+        frameInWindow: CGRect?,
+        nativeContentSize: CGSize,
+        scale: CGFloat,
+        frameIncludesPanelChrome: Bool = false
+    ) {
+        let presentation = frameInWindow.map {
+            CanvasSurfacePresentation(
+                frameInWindow: $0,
+                nativeContentSize: nativeContentSize,
+                scale: scale
+            )
+        }
+
+        if let terminalPanel = panel as? TerminalPanel {
+            TerminalWindowPortalRegistry.updateEntryVisibility(for: terminalPanel.hostedView, visibleInUI: presentation != nil)
+            TerminalWindowPortalRegistry.setCanvasSurfacePresentation(
+                hostedView: terminalPanel.hostedView,
+                presentation: presentation
+            )
+            return
+        }
+
+        if let browserPanel = panel as? BrowserPanel {
+            let browserPresentation = presentation.map {
+                browserCanvasPresentation(
+                    $0,
+                    webView: browserPanel.webView,
+                    frameIncludesPanelChrome: frameIncludesPanelChrome
+                )
+            }
+            BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: browserPanel.webView,
+                visibleInUI: browserPresentation != nil,
+                zPriority: browserPresentation == nil ? 0 : 10
+            )
+            BrowserWindowPortalRegistry.setCanvasSurfacePresentation(
+                webView: browserPanel.webView,
+                presentation: browserPresentation
+            )
+        }
+    }
+
+    private static func browserCanvasPresentation(
+        _ presentation: CanvasSurfacePresentation,
+        webView: WebKit.WKWebView,
+        frameIncludesPanelChrome: Bool
+    ) -> CanvasSurfacePresentation {
+        guard frameIncludesPanelChrome else {
+            return presentation
+        }
+
+        let measuredChromeHeight = BrowserWindowPortalRegistry.debugSnapshot(for: webView)?.paneTopChromeHeight ?? 0
+        let fallbackChromeHeight: CGFloat = 42
+        let chromeHeight = min(
+            max(measuredChromeHeight, fallbackChromeHeight),
+            max(0, presentation.frameInWindow.height - 1)
+        )
+        guard chromeHeight > 0.5 else {
+            return presentation
+        }
+
+        let webFrame = CGRect(
+            x: presentation.frameInWindow.minX,
+            y: presentation.frameInWindow.minY,
+            width: presentation.frameInWindow.width,
+            height: max(1, presentation.frameInWindow.height - chromeHeight)
+        )
+        let nativeChromeHeight = chromeHeight / presentation.scale
+        let nativeWebSize = CGSize(
+            width: presentation.nativeContentSize.width,
+            height: max(1, presentation.nativeContentSize.height - nativeChromeHeight)
+        )
+        return CanvasSurfacePresentation(
+            frameInWindow: webFrame,
+            nativeContentSize: nativeWebSize,
+            scale: presentation.scale,
+            nativeContentOrigin: presentation.nativeContentOrigin
+        )
+    }
+
+    static func park(panel: (any Panel)?, preserveGeometry: Bool = false) {
+        let mode: ParkMode = preserveGeometry ? .freezeInPlace : .unmount
+        if let terminalPanel = panel as? TerminalPanel {
+            switch mode {
+            case .freezeInPlace:
+                TerminalWindowPortalRegistry.freezeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+                return
+            case .unmount:
+                break
+            }
+            TerminalWindowPortalRegistry.updateEntryVisibility(for: terminalPanel.hostedView, visibleInUI: false)
+            TerminalWindowPortalRegistry.setCanvasSurfacePresentation(
+                hostedView: terminalPanel.hostedView,
+                presentation: nil
+            )
+            return
+        }
+
+        if let browserPanel = panel as? BrowserPanel {
+            switch mode {
+            case .freezeInPlace:
+                BrowserWindowPortalRegistry.freezeCanvasSurfacePresentation(webView: browserPanel.webView)
+                return
+            case .unmount:
+                break
+            }
+            BrowserWindowPortalRegistry.updateEntryVisibility(for: browserPanel.webView, visibleInUI: false, zPriority: 0)
+            BrowserWindowPortalRegistry.setCanvasSurfacePresentation(webView: browserPanel.webView, presentation: nil)
+        }
+    }
+
+    static func parkAllNativeSurfaces(in workspace: Workspace, preserveGeometry: Bool = false) {
+        for panel in workspace.panels.values {
+            park(panel: panel, preserveGeometry: preserveGeometry)
+        }
+    }
+
+    static func parkNativeSurfaces(
+        in workspace: Workspace,
+        excludingPanelIDs mountedPanelIDs: Set<UUID>,
+        preserveGeometry: Bool = false
+    ) {
+        for panel in workspace.panels.values where !mountedPanelIDs.contains(panel.id) {
+            park(panel: panel, preserveGeometry: preserveGeometry)
+        }
+    }
+
+    static func resumeCanvasSurfacePublication(in workspace: Workspace) {
+        for panel in workspace.panels.values {
+            if let terminalPanel = panel as? TerminalPanel {
+                TerminalWindowPortalRegistry.resumeCanvasSurfacePresentation(hostedView: terminalPanel.hostedView)
+            } else if let browserPanel = panel as? BrowserPanel {
+                BrowserWindowPortalRegistry.resumeCanvasSurfacePresentation(webView: browserPanel.webView)
+            }
+        }
+    }
+
+    static func currentFrameInWindow(panel: (any Panel)?) -> CGRect? {
+        if let terminalPanel = panel as? TerminalPanel {
+            return usableFrame(terminalPanel.hostedView.debugPortalFrameInWindow)
+        }
+
+        if let browserPanel = panel as? BrowserPanel {
+            if let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView),
+               let frame = usableFrame(snapshot.frameInWindow) {
+                return frame
+            }
+            guard browserPanel.webView.window != nil else { return nil }
+            return usableFrame(browserPanel.webView.convert(browserPanel.webView.bounds, to: nil))
+        }
+
+        return nil
+    }
+
+    static func clearTransientOverrides() {
+        TerminalWindowPortalRegistry.clearInteractiveFrameOverridesForAllWindows()
+        BrowserWindowPortalRegistry.clearInteractiveFrameOverridesForAllWindows()
+    }
+
+    static func synchronizeAll() {
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+    }
+
+    private static func usableFrame(_ frame: CGRect) -> CGRect? {
+        guard frame.origin.x.isFinite,
+              frame.origin.y.isFinite,
+              frame.size.width.isFinite,
+              frame.size.height.isFinite,
+              frame.width > 1,
+              frame.height > 1 else {
+            return nil
+        }
+        return frame
+    }
+}
+
+enum WorkspaceCanvasResizeHitRegionRegistry {
+    struct Region {
+        var itemID: LayoutItemID?
+        var handle: CanvasResizeHandle?
+        var frameInWindow: CGRect
+        var edgeHitSize: CGFloat?
+        var cornerHitSize: CGFloat?
+    }
+
+    struct Hit {
+        var itemID: LayoutItemID
+        var handle: CanvasResizeHandle
+        var frameInWindow: CGRect
+        var usesFrameMaxForLocalY: Bool
+    }
+
+    private static var regionsByWindowId: [ObjectIdentifier: [ObjectIdentifier: [Region]]] = [:]
+    private static var windowIdByViewId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private static var activeResizeWindowIds: Set<ObjectIdentifier> = []
+
+    static func update(view: NSView, window: NSWindow, frameInWindow: CGRect) {
+        update(view: view, window: window, framesInWindow: [frameInWindow])
+    }
+
+    static func update(view: NSView, window: NSWindow, framesInWindow: [CGRect]) {
+        update(
+            view: view,
+            window: window,
+            regions: framesInWindow.map { Region(itemID: nil, handle: nil, frameInWindow: $0) }
+        )
+    }
+
+    static func update(view: NSView, window: NSWindow, regions: [Region]) {
+        let usableRegions = regions.filter { region in
+            region.frameInWindow.width > 1 && region.frameInWindow.height > 1
+        }
+        guard !usableRegions.isEmpty else {
+            remove(view: view)
+            return
+        }
+
+        let viewId = ObjectIdentifier(view)
+        let windowId = ObjectIdentifier(window)
+        if let oldWindowId = windowIdByViewId[viewId], oldWindowId != windowId {
+            regionsByWindowId[oldWindowId]?.removeValue(forKey: viewId)
+            if regionsByWindowId[oldWindowId]?.isEmpty == true {
+                regionsByWindowId.removeValue(forKey: oldWindowId)
+            }
+        }
+
+        windowIdByViewId[viewId] = windowId
+        regionsByWindowId[windowId, default: [:]][viewId] = usableRegions
+    }
+
+    static func remove(view: NSView) {
+        let viewId = ObjectIdentifier(view)
+        guard let windowId = windowIdByViewId.removeValue(forKey: viewId) else { return }
+        regionsByWindowId[windowId]?.removeValue(forKey: viewId)
+        if regionsByWindowId[windowId]?.isEmpty == true {
+            regionsByWindowId.removeValue(forKey: windowId)
+        }
+    }
+
+    static func contains(pointInWindow point: NSPoint, in window: NSWindow) -> Bool {
+        guard let regions = regionsByWindowId[ObjectIdentifier(window)] else { return false }
+        return regions.values.contains { viewRegions in
+            viewRegions.contains { hitHandle(in: $0, pointInWindow: point) != nil }
+        }
+    }
+
+    static func hit(pointInWindow point: NSPoint, in window: NSWindow) -> Hit? {
+        guard let regions = regionsByWindowId[ObjectIdentifier(window)] else { return nil }
+        for viewRegions in regions.values {
+            for region in viewRegions {
+                guard let itemID = region.itemID else {
+                    continue
+                }
+                guard let preferred = hitHandle(in: region, pointInWindow: point) else { continue }
+                return Hit(
+                    itemID: itemID,
+                    handle: preferred.handle,
+                    frameInWindow: preferred.frame,
+                    usesFrameMaxForLocalY: preferred.usesFrameMaxForLocalY
+                )
+            }
+        }
+        return nil
+    }
+
+    private static func hitHandle(
+        in region: Region,
+        pointInWindow point: NSPoint
+    ) -> (handle: CanvasResizeHandle, frame: CGRect, usesFrameMaxForLocalY: Bool)? {
+        guard region.frameInWindow.insetBy(dx: -2, dy: -2).contains(point) else { return nil }
+        if let handle = region.handle {
+            return (handle, region.frameInWindow.standardized, true)
+        }
+
+        let frame = region.frameInWindow.standardized
+        let hitArea = CanvasResizeHitArea(
+            cardSize: frame.size,
+            edgeHitSize: region.edgeHitSize ?? 16,
+            cornerHitSize: region.cornerHitSize ?? 44
+        )
+        let localPointFromTop = CGPoint(
+            x: point.x - frame.minX,
+            y: frame.maxY - point.y
+        )
+        let localPointFromBottom = CGPoint(
+            x: point.x - frame.minX,
+            y: point.y - frame.minY
+        )
+        guard let preferred = preferredHandle(
+            hitArea.handle(at: localPointFromTop),
+            hitArea.handle(at: localPointFromBottom)
+        ) else {
+            return nil
+        }
+        return (preferred.handle, frame, preferred.usesFrameMaxForLocalY)
+    }
+
+    private static func preferredHandle(
+        _ first: CanvasResizeHandle?,
+        _ second: CanvasResizeHandle?
+    ) -> (handle: CanvasResizeHandle, usesFrameMaxForLocalY: Bool)? {
+        if let first, first.isCorner {
+            return (first, true)
+        }
+        if let second, second.isCorner {
+            return (second, false)
+        }
+        if let first {
+            return (first, true)
+        }
+        if let second {
+            return (second, false)
+        }
+        return nil
+    }
+
+    static func beginPointerResize(in window: NSWindow) {
+        activeResizeWindowIds.insert(ObjectIdentifier(window))
+    }
+
+    static func endPointerResize(in window: NSWindow) {
+        activeResizeWindowIds.remove(ObjectIdentifier(window))
+    }
+
+    static func isPointerResizeActive(in window: NSWindow) -> Bool {
+        activeResizeWindowIds.contains(ObjectIdentifier(window))
+    }
+}
+
+enum WorkspaceCanvasDragHitRegionRegistry {
+    struct Region {
+        var itemID: LayoutItemID
+        var frameInWindow: CGRect
+    }
+
+    private static var regionsByWindowId: [ObjectIdentifier: [ObjectIdentifier: Region]] = [:]
+    private static var windowIdByViewId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private static var activeDragWindowIds: Set<ObjectIdentifier> = []
+
+    static func update(view: NSView, window: NSWindow, itemID: LayoutItemID, frameInWindow: CGRect) {
+        guard frameInWindow.width > 1, frameInWindow.height > 1 else {
+            remove(view: view)
+            return
+        }
+
+        let viewId = ObjectIdentifier(view)
+        let windowId = ObjectIdentifier(window)
+        if let oldWindowId = windowIdByViewId[viewId], oldWindowId != windowId {
+            regionsByWindowId[oldWindowId]?.removeValue(forKey: viewId)
+            if regionsByWindowId[oldWindowId]?.isEmpty == true {
+                regionsByWindowId.removeValue(forKey: oldWindowId)
+            }
+        }
+
+        windowIdByViewId[viewId] = windowId
+        regionsByWindowId[windowId, default: [:]][viewId] = Region(
+            itemID: itemID,
+            frameInWindow: frameInWindow
+        )
+    }
+
+    static func remove(view: NSView) {
+        let viewId = ObjectIdentifier(view)
+        guard let windowId = windowIdByViewId.removeValue(forKey: viewId) else { return }
+        regionsByWindowId[windowId]?.removeValue(forKey: viewId)
+        if regionsByWindowId[windowId]?.isEmpty == true {
+            regionsByWindowId.removeValue(forKey: windowId)
+        }
+    }
+
+    static func hit(pointInWindow point: NSPoint, in window: NSWindow) -> LayoutItemID? {
+        guard let regions = regionsByWindowId[ObjectIdentifier(window)] else { return nil }
+        for region in regions.values where region.frameInWindow.insetBy(dx: -3, dy: -3).contains(point) {
+            return region.itemID
+        }
+        return nil
+    }
+
+    static func beginPointerDrag(in window: NSWindow) {
+        activeDragWindowIds.insert(ObjectIdentifier(window))
+    }
+
+    static func endPointerDrag(in window: NSWindow) {
+        activeDragWindowIds.remove(ObjectIdentifier(window))
+    }
+
+    static func isPointerDragActive(in window: NSWindow) -> Bool {
+        activeDragWindowIds.contains(ObjectIdentifier(window))
+    }
+}
+
+private extension CanvasResizeHandle {
+    var isCorner: Bool {
+        switch self {
+        case .topLeft, .topRight, .bottomLeft, .bottomRight:
+            return true
+        case .top, .bottom, .left, .right:
+            return false
+        }
+    }
+}
+
+private struct CanvasDragRegistrationLayer: NSViewRepresentable {
+    var itemID: LayoutItemID
+
+    func makeNSView(context: Context) -> CanvasDragRegistrationView {
+        let view = CanvasDragRegistrationView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasDragRegistrationView, context: Context) {
+        nsView.itemID = itemID
+        nsView.updateRegistration()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasDragRegistrationView, coordinator: ()) {
+        WorkspaceCanvasDragHitRegionRegistry.remove(view: nsView)
+    }
+}
+
+private final class CanvasDragRegistrationView: NSView {
+    var itemID: LayoutItemID?
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateRegistration()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        updateRegistration()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateRegistration()
+    }
+
+    override func layout() {
+        super.layout()
+        updateRegistration()
+    }
+
+    func updateRegistration() {
+        guard let window, let itemID else {
+            WorkspaceCanvasDragHitRegionRegistry.remove(view: self)
+            return
+        }
+        WorkspaceCanvasDragHitRegionRegistry.update(
+            view: self,
+            window: window,
+            itemID: itemID,
+            frameInWindow: convert(bounds, to: nil)
+        )
+    }
+
+    deinit {
+        WorkspaceCanvasDragHitRegionRegistry.remove(view: self)
+    }
+}
+
+private enum WorkspaceCanvasActionHitRegionRegistry {
+    private struct Entry {
+        weak var view: NSView?
+        var windowID: ObjectIdentifier
+        var frameInWindow: CGRect
+        var hitSlop: CGFloat
+    }
+
+    private static var entries: [ObjectIdentifier: Entry] = [:]
+
+    static func update(view: NSView, window: NSWindow, frameInWindow: CGRect, hitSlop: CGFloat) {
+        guard frameInWindow.origin.x.isFinite,
+              frameInWindow.origin.y.isFinite,
+              frameInWindow.size.width.isFinite,
+              frameInWindow.size.height.isFinite,
+              frameInWindow.width > 1,
+              frameInWindow.height > 1 else {
+            remove(view: view)
+            return
+        }
+        entries[ObjectIdentifier(view)] = Entry(
+            view: view,
+            windowID: ObjectIdentifier(window),
+            frameInWindow: frameInWindow,
+            hitSlop: max(0, hitSlop)
+        )
+    }
+
+    static func remove(view: NSView) {
+        entries.removeValue(forKey: ObjectIdentifier(view))
+    }
+
+    static func hit(pointInWindow: NSPoint, in window: NSWindow) -> Bool {
+        pruneReleasedViews()
+        let windowID = ObjectIdentifier(window)
+        return entries.values.contains { entry in
+            entry.windowID == windowID
+                && entry.frameInWindow.insetBy(dx: -entry.hitSlop, dy: -entry.hitSlop).contains(pointInWindow)
+        }
+    }
+
+    private static func pruneReleasedViews() {
+        entries = entries.filter { $0.value.view != nil }
+    }
+}
+
+private struct CanvasActionHitRegionLayer: NSViewRepresentable {
+    var hitSlop: CGFloat = 4
+
+    func makeNSView(context: Context) -> CanvasActionHitRegionView {
+        let view = CanvasActionHitRegionView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasActionHitRegionView, context: Context) {
+        nsView.hitSlop = hitSlop
+        nsView.updateRegistration()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasActionHitRegionView, coordinator: ()) {
+        WorkspaceCanvasActionHitRegionRegistry.remove(view: nsView)
+    }
+}
+
+private final class CanvasActionHitRegionView: NSView {
+    var hitSlop: CGFloat = 4
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateRegistration()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        updateRegistration()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateRegistration()
+    }
+
+    override func layout() {
+        super.layout()
+        updateRegistration()
+    }
+
+    func updateRegistration() {
+        guard let window else {
+            WorkspaceCanvasActionHitRegionRegistry.remove(view: self)
+            return
+        }
+        WorkspaceCanvasActionHitRegionRegistry.update(
+            view: self,
+            window: window,
+            frameInWindow: convert(bounds, to: nil),
+            hitSlop: hitSlop
+        )
+    }
+
+    deinit {
+        WorkspaceCanvasActionHitRegionRegistry.remove(view: self)
+    }
+}
+
+private struct CanvasDragEventMonitorLayer: NSViewRepresentable {
+    var onDragChanged: (LayoutItemID, CGSize) -> Void
+    var onDragEnded: (LayoutItemID) -> Void
+    var onClick: (LayoutItemID) -> Void
+
+    func makeNSView(context: Context) -> CanvasDragEventMonitorView {
+        let view = CanvasDragEventMonitorView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasDragEventMonitorView, context: Context) {
+        nsView.onDragChanged = onDragChanged
+        nsView.onDragEnded = onDragEnded
+        nsView.onClick = onClick
+        nsView.installMonitorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasDragEventMonitorView, coordinator: ()) {
+        nsView.removeMonitor()
+    }
+}
+
+private final class CanvasDragEventMonitorView: NSView {
+    var onDragChanged: ((LayoutItemID, CGSize) -> Void)?
+    var onDragEnded: ((LayoutItemID) -> Void)?
+    var onClick: ((LayoutItemID) -> Void)?
+
+    private struct PendingDrag {
+        var itemID: LayoutItemID
+        var startPointInWindow: NSPoint
+    }
+
+    private var monitor: Any?
+    private var pendingDrag: PendingDrag?
+    private var activeDrag: PendingDrag?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeMonitor()
+        } else {
+            installMonitorIfNeeded()
+        }
+    }
+
+    func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
+
+    func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let window, activeDrag != nil {
+            WorkspaceCanvasDragHitRegionRegistry.endPointerDrag(in: window)
+        }
+        monitor = nil
+        pendingDrag = nil
+        activeDrag = nil
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window,
+              event.window === window else {
+            return event
+        }
+
+        switch event.type {
+        case .leftMouseDown:
+            pendingDrag = nil
+            activeDrag = nil
+            guard !WorkspaceCanvasActionHitRegionRegistry.hit(pointInWindow: event.locationInWindow, in: window) else {
+                return event
+            }
+            guard !WorkspaceCanvasResizeHitRegionRegistry.isPointerResizeActive(in: window),
+                  WorkspaceCanvasResizeHitRegionRegistry.hit(pointInWindow: event.locationInWindow, in: window) == nil,
+                  let itemID = WorkspaceCanvasDragHitRegionRegistry.hit(
+                      pointInWindow: event.locationInWindow,
+                      in: window
+                  ) else {
+                return event
+            }
+            pendingDrag = PendingDrag(itemID: itemID, startPointInWindow: event.locationInWindow)
+            return event
+        case .leftMouseDragged:
+            guard let drag = activeDrag ?? pendingDrag else { return event }
+            let translation = CGSize(
+                width: event.locationInWindow.x - drag.startPointInWindow.x,
+                height: drag.startPointInWindow.y - event.locationInWindow.y
+            )
+            if activeDrag == nil {
+                guard abs(translation.width) >= 1 || abs(translation.height) >= 1 else {
+                    return event
+                }
+                activeDrag = drag
+                WorkspaceCanvasDragHitRegionRegistry.beginPointerDrag(in: window)
+            }
+            onDragChanged?(drag.itemID, translation)
+            return nil
+        case .leftMouseUp:
+            defer {
+                pendingDrag = nil
+                activeDrag = nil
+            }
+            guard let activeDrag else {
+                if let pendingDrag {
+                    onClick?(pendingDrag.itemID)
+                    return nil
+                }
+                return event
+            }
+            onDragEnded?(activeDrag.itemID)
+            WorkspaceCanvasDragHitRegionRegistry.endPointerDrag(in: window)
+            return nil
+        default:
+            return event
+        }
+    }
+
+    deinit {
+        removeMonitor()
+    }
+}
+
+private struct CanvasPanEventMonitorLayer: NSViewRepresentable {
+    var scrollPassthroughFrames: [CGRect]
+    var onCameraInteraction: (CanvasCameraInteractionEvent) -> Void
+    var onPan: (CGSize) -> Void
+    var onZoom: (Double, CGPoint) -> Void
+    var onMagnify: (Double, CGPoint) -> Void
+    var onSmartZoom: (CGPoint) -> Void
+
+    func makeNSView(context: Context) -> CanvasPanEventMonitorView {
+        let view = CanvasPanEventMonitorView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasPanEventMonitorView, context: Context) {
+        nsView.scrollPassthroughFrames = scrollPassthroughFrames
+        nsView.onCameraInteraction = onCameraInteraction
+        nsView.onPan = onPan
+        nsView.onZoom = onZoom
+        nsView.onMagnify = onMagnify
+        nsView.onSmartZoom = onSmartZoom
+        nsView.installMonitorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasPanEventMonitorView, coordinator: ()) {
+        nsView.removeMonitor()
+    }
+}
+
+private final class CanvasPanEventMonitorView: NSView {
+    var scrollPassthroughFrames: [CGRect] = []
+    var onCameraInteraction: ((CanvasCameraInteractionEvent) -> Void)?
+    var onPan: ((CGSize) -> Void)?
+    var onZoom: ((Double, CGPoint) -> Void)?
+    var onMagnify: ((Double, CGPoint) -> Void)?
+    var onSmartZoom: ((CGPoint) -> Void)?
+
+    private var monitor: Any?
+    private var wheelGestureState = CanvasWheelGestureState()
+    private var activeMiddlePanPointInWindow: NSPoint?
+
+    override var isOpaque: Bool { false }
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeMonitor()
+        } else {
+            installMonitorIfNeeded()
+        }
+    }
+
+    func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .magnify, .smartMagnify, .otherMouseDown, .otherMouseDragged, .otherMouseUp]
+        ) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
+
+    func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+        activeMiddlePanPointInWindow = nil
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window,
+              event.window === window,
+              !WorkspaceCanvasDragHitRegionRegistry.isPointerDragActive(in: window),
+              !WorkspaceCanvasResizeHitRegionRegistry.isPointerResizeActive(in: window) else {
+            return event
+        }
+        let localPoint = convert(event.locationInWindow, from: nil)
+        if activeMiddlePanPointInWindow == nil {
+            guard bounds.contains(localPoint) else { return event }
+        }
+
+        switch event.type {
+        case .otherMouseDown:
+            guard event.buttonNumber == 2 else { return event }
+            activeMiddlePanPointInWindow = event.locationInWindow
+            onCameraInteraction?(.began(.panning))
+            return nil
+        case .otherMouseDragged:
+            guard event.buttonNumber == 2,
+                  let previousPoint = activeMiddlePanPointInWindow else {
+                return event
+            }
+            let currentPoint = event.locationInWindow
+            activeMiddlePanPointInWindow = currentPoint
+            onCameraInteraction?(.changed(.panning))
+            onPan?(
+                CGSize(
+                    width: currentPoint.x - previousPoint.x,
+                    height: previousPoint.y - currentPoint.y
+                )
+            )
+            return nil
+        case .otherMouseUp:
+            guard event.buttonNumber == 2,
+                  activeMiddlePanPointInWindow != nil else {
+                return event
+            }
+            activeMiddlePanPointInWindow = nil
+            onCameraInteraction?(.ended)
+            return nil
+        case .scrollWheel:
+            let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+            let hasDelta = abs(delta.width) > 0.01 || abs(delta.height) > 0.01
+            if !hasDelta {
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                    return nil
+                }
+                return event
+            }
+            let isMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
+            let didEndMomentum = event.momentumPhase == .ended || event.momentumPhase == .cancelled
+            let isCommandWheel = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+            let passthroughHit = scrollPassthroughFrames.contains(where: { $0.contains(localPoint) })
+            if !isCommandWheel,
+               !wheelGestureState.isConsumingCommandWheelMomentum,
+               passthroughHit {
+                recordScrollWheel(action: "passthrough", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: true)
+                return event
+            }
+
+            switch wheelGestureState.action(
+                hasCommandModifier: isCommandWheel,
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+                isMomentum: isMomentum,
+                didEndMomentum: didEndMomentum
+            ) {
+            case .zoom:
+                recordScrollWheel(action: "zoom", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: passthroughHit)
+                onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .zooming))
+                onZoom?(Double(delta.height), localPoint)
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                }
+                return nil
+            case .consume:
+                recordScrollWheel(action: "consume", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: passthroughHit)
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                }
+                return nil
+            case .pan:
+                recordScrollWheel(action: "pan", event: event, localPoint: localPoint, delta: delta, scrollPassthroughHit: passthroughHit)
+                onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .panning))
+                onPan?(delta)
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                }
+                return nil
+            }
+        case .magnify:
+            guard abs(event.magnification) > 0.0001 else {
+                if Self.isCameraGestureEnd(event) {
+                    onCameraInteraction?(.ended)
+                    return nil
+                }
+                return event
+            }
+            onCameraInteraction?(Self.cameraInteractionUpdateEvent(for: event, phase: .zooming))
+            onMagnify?(Double(event.magnification), localPoint)
+            if Self.isCameraGestureEnd(event) {
+                onCameraInteraction?(.ended)
+            }
+            return nil
+        case .smartMagnify:
+            onCameraInteraction?(.unphasedUpdate(.zooming))
+            onSmartZoom?(localPoint)
+            return nil
+        default:
+            return event
+        }
+    }
+
+    private func recordScrollWheel(
+        action: String,
+        event: NSEvent,
+        localPoint: NSPoint,
+        delta: CGSize,
+        scrollPassthroughHit: Bool
+    ) {
+        guard let window else { return }
+        WorkspaceCanvasCameraInputDebugRegistry.record(
+            window: window,
+            WorkspaceCanvasCameraInputDebugRecord(
+                eventType: "scrollWheel",
+                action: action,
+                deltaX: Double(delta.width),
+                deltaY: Double(delta.height),
+                localX: Double(localPoint.x),
+                localY: Double(localPoint.y),
+                phase: Self.phaseDescription(event.phase),
+                momentumPhase: Self.phaseDescription(event.momentumPhase),
+                hasCommandModifier: event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+                scrollPassthroughHit: scrollPassthroughHit
+            )
+        )
+    }
+
+    private static func cameraInteractionUpdateEvent(
+        for event: NSEvent,
+        phase: CanvasInteractionPhase
+    ) -> CanvasCameraInteractionEvent {
+        let eventPhase = activeCameraEventPhase(for: event)
+        if eventPhase.contains(.began) || eventPhase.contains(.mayBegin) {
+            return .began(phase)
+        }
+        if eventPhase.contains(.changed) ||
+            eventPhase.contains(.stationary) ||
+            eventPhase.contains(.ended) ||
+            eventPhase.contains(.cancelled) {
+            return .changed(phase)
+        }
+        return .unphasedUpdate(phase)
+    }
+
+    private static func isCameraGestureEnd(_ event: NSEvent) -> Bool {
+        let eventPhase = activeCameraEventPhase(for: event)
+        return eventPhase.contains(.ended) || eventPhase.contains(.cancelled)
+    }
+
+    private static func activeCameraEventPhase(for event: NSEvent) -> NSEvent.Phase {
+        event.momentumPhase != [] ? event.momentumPhase : event.phase
+    }
+
+    private static func phaseDescription(_ phase: NSEvent.Phase) -> String {
+        var parts: [String] = []
+        if phase.contains(.began) { parts.append("began") }
+        if phase.contains(.mayBegin) { parts.append("mayBegin") }
+        if phase.contains(.changed) { parts.append("changed") }
+        if phase.contains(.stationary) { parts.append("stationary") }
+        if phase.contains(.ended) { parts.append("ended") }
+        if phase.contains(.cancelled) { parts.append("cancelled") }
+        return parts.isEmpty ? "none" : parts.joined(separator: "|")
+    }
+
+    deinit {
+        removeMonitor()
+    }
+}
+
+private struct CanvasHeaderDragInteractionLayer: NSViewRepresentable {
+    var onDragChanged: (CGSize) -> Void
+    var onDragEnded: () -> Void
+    var onClick: () -> Void
+
+    func makeNSView(context: Context) -> CanvasHeaderDragInteractionView {
+        let view = CanvasHeaderDragInteractionView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasHeaderDragInteractionView, context: Context) {
+        nsView.onDragChanged = onDragChanged
+        nsView.onDragEnded = onDragEnded
+        nsView.onClick = onClick
+    }
+}
+
+private final class CanvasHeaderDragInteractionView: NSView {
+    var onDragChanged: ((CGSize) -> Void)?
+    var onDragEnded: (() -> Void)?
+    var onClick: (() -> Void)?
+
+    private var dragStartPoint: CGPoint?
+    private var didDrag = false
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        bounds.contains(point) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartPoint = convert(event.locationInWindow, from: nil)
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStartPoint else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let translation = CGSize(
+            width: point.x - dragStartPoint.x,
+            height: point.y - dragStartPoint.y
+        )
+        if !didDrag {
+            guard abs(translation.width) >= 1 || abs(translation.height) >= 1 else { return }
+            didDrag = true
+        }
+        onDragChanged?(translation)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if didDrag {
+            onDragEnded?()
+        } else {
+            onClick?()
+        }
+        dragStartPoint = nil
+        didDrag = false
+    }
+}
+
+private struct CanvasResizeInteractionLayer: NSViewRepresentable {
+    var itemID: LayoutItemID
+    var edgeHitSize: CGFloat
+    var cornerHitSize: CGFloat
+    var onResizeChanged: (CanvasResizeHandle, CGSize) -> Void
+    var onResizeEnded: (CanvasResizeHandle) -> Void
+
+    func makeNSView(context: Context) -> CanvasResizeInteractionView {
+        let view = CanvasResizeInteractionView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasResizeInteractionView, context: Context) {
+        nsView.itemID = itemID
+        nsView.edgeHitSize = edgeHitSize
+        nsView.cornerHitSize = cornerHitSize
+        nsView.onResizeChanged = onResizeChanged
+        nsView.onResizeEnded = onResizeEnded
+        nsView.updateRegistration()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasResizeInteractionView, coordinator: ()) {
+        WorkspaceCanvasResizeHitRegionRegistry.remove(view: nsView)
+    }
+}
+
+private final class CanvasResizeInteractionView: NSView {
+    var itemID: LayoutItemID?
+    var edgeHitSize: CGFloat = 16
+    var cornerHitSize: CGFloat = 44
+    var onResizeChanged: ((CanvasResizeHandle, CGSize) -> Void)?
+    var onResizeEnded: ((CanvasResizeHandle) -> Void)?
+
+    private var activeHandle: CanvasResizeHandle?
+    private var dragStartPoint: CGPoint?
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        resizeHitArea.handle(at: point) == nil ? nil : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let handle = resizeHitArea.handle(at: point) else { return }
+        activeHandle = handle
+        dragStartPoint = point
+        if let window {
+            WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let activeHandle, let dragStartPoint else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        onResizeChanged?(
+            activeHandle,
+            CGSize(width: point.x - dragStartPoint.x, height: point.y - dragStartPoint.y)
+        )
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let activeHandle else { return }
+        onResizeEnded?(activeHandle)
+        self.activeHandle = nil
+        dragStartPoint = nil
+        if let window {
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: window)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateRegistration()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        updateRegistration()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateRegistration()
+    }
+
+    override func layout() {
+        super.layout()
+        updateRegistration()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for region in resizeHitArea.hitRegions() {
+            addCursorRect(region.frame, cursor: .resizeLeftRight)
+        }
+    }
+
+    func updateRegistration() {
+        guard let window else {
+            WorkspaceCanvasResizeHitRegionRegistry.remove(view: self)
+            return
+        }
+        let regions = [
+            WorkspaceCanvasResizeHitRegionRegistry.Region(
+                itemID: itemID,
+                handle: nil,
+                frameInWindow: convert(bounds, to: nil),
+                edgeHitSize: edgeHitSize,
+                cornerHitSize: cornerHitSize
+            )
+        ]
+        WorkspaceCanvasResizeHitRegionRegistry.update(
+            view: self,
+            window: window,
+            regions: regions
+        )
+        discardCursorRects()
+        resetCursorRects()
+    }
+
+    private var resizeHitArea: CanvasResizeHitArea {
+        CanvasResizeHitArea(
+            cardSize: bounds.size,
+            edgeHitSize: edgeHitSize,
+            cornerHitSize: cornerHitSize
+        )
+    }
+
+    deinit {
+        WorkspaceCanvasResizeHitRegionRegistry.remove(view: self)
+    }
+}
+
+private struct CanvasResizeEventMonitorLayer: NSViewRepresentable {
+    var onResizeChanged: (LayoutItemID, CanvasResizeHandle, CGSize) -> Void
+    var onResizeEnded: (LayoutItemID, CanvasResizeHandle) -> Void
+
+    func makeNSView(context: Context) -> CanvasResizeEventMonitorView {
+        let view = CanvasResizeEventMonitorView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasResizeEventMonitorView, context: Context) {
+        nsView.onResizeChanged = onResizeChanged
+        nsView.onResizeEnded = onResizeEnded
+        nsView.installMonitorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: CanvasResizeEventMonitorView, coordinator: ()) {
+        nsView.removeMonitor()
+    }
+}
+
+private final class CanvasResizeEventMonitorView: NSView {
+    var onResizeChanged: ((LayoutItemID, CanvasResizeHandle, CGSize) -> Void)?
+    var onResizeEnded: ((LayoutItemID, CanvasResizeHandle) -> Void)?
+
+    private var monitor: Any?
+    private var activeResize: (
+        itemID: LayoutItemID,
+        handle: CanvasResizeHandle,
+        startPointInWindow: NSPoint,
+        frameInWindow: CGRect,
+        usesFrameMaxForLocalY: Bool,
+        window: NSWindow
+    )?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeMonitor()
+        } else {
+            installMonitorIfNeeded()
+        }
+    }
+
+    func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
+
+    func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+        if let activeResize {
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: activeResize.window)
+        }
+        activeResize = nil
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let window,
+              event.window === window else {
+            return event
+        }
+
+        switch event.type {
+        case .leftMouseDown:
+            guard !WorkspaceCanvasActionHitRegionRegistry.hit(pointInWindow: event.locationInWindow, in: window) else {
+                return event
+            }
+            guard let hit = WorkspaceCanvasResizeHitRegionRegistry.hit(
+                pointInWindow: event.locationInWindow,
+                in: window
+            ) else {
+                return event
+            }
+            activeResize = (
+                hit.itemID,
+                hit.handle,
+                event.locationInWindow,
+                hit.frameInWindow,
+                hit.usesFrameMaxForLocalY,
+                window
+            )
+            WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
+            return nil
+        case .leftMouseDragged:
+            guard let activeResize else { return event }
+            let frame = activeResize.frameInWindow
+            let startY = activeResize.usesFrameMaxForLocalY
+                ? frame.maxY - activeResize.startPointInWindow.y
+                : activeResize.startPointInWindow.y - frame.minY
+            let currentY = activeResize.usesFrameMaxForLocalY
+                ? frame.maxY - event.locationInWindow.y
+                : event.locationInWindow.y - frame.minY
+            let translation = CGSize(
+                width: event.locationInWindow.x - activeResize.startPointInWindow.x,
+                height: currentY - startY
+            )
+            onResizeChanged?(activeResize.itemID, activeResize.handle, translation)
+            return nil
+        case .leftMouseUp:
+            guard let activeResize else { return event }
+            onResizeEnded?(activeResize.itemID, activeResize.handle)
+            self.activeResize = nil
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: activeResize.window)
+            return nil
+        default:
+            return event
+        }
+    }
+
+    deinit {
+        removeMonitor()
+    }
+}
+
+private struct CanvasSurfacePortalRequest {
+    var item: CanvasItem
+    var frameInCanvas: CGRect
+    var nativeContentSize: CGSize
+    var scale: CGFloat
+    var frameIncludesPanelChrome: Bool
+}
+
+private struct CanvasSurfacePortalLayer: NSViewRepresentable {
+    var requests: [CanvasSurfacePortalRequest]
+    var onPreparePublish: ([CanvasSurfacePortalRequest]) -> Void
+    var onApply: (CanvasSurfacePortalRequest, CGRect?) -> Void
+
+    func makeNSView(context: Context) -> CanvasSurfacePortalView {
+        let view = CanvasSurfacePortalView()
+        view.update(requests: requests, onPreparePublish: onPreparePublish, onApply: onApply)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasSurfacePortalView, context: Context) {
+        nsView.update(requests: requests, onPreparePublish: onPreparePublish, onApply: onApply)
+    }
+
+    static func dismantleNSView(_ nsView: CanvasSurfacePortalView, coordinator: ()) {
+        nsView.clearPublishedRequests()
+    }
+}
+
+private final class CanvasSurfacePortalView: NSView {
+    private var requestsByID: [LayoutItemID: CanvasSurfacePortalRequest] = [:]
+    private var onPreparePublish: (([CanvasSurfacePortalRequest]) -> Void)?
+    private var onApply: ((CanvasSurfacePortalRequest, CGRect?) -> Void)?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        publish()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        publish()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        publish()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        publish()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        publish()
+    }
+
+    func update(
+        requests: [CanvasSurfacePortalRequest],
+        onPreparePublish: @escaping ([CanvasSurfacePortalRequest]) -> Void,
+        onApply: @escaping (CanvasSurfacePortalRequest, CGRect?) -> Void
+    ) {
+        onPreparePublish(requests)
+        let nextByID = Dictionary(uniqueKeysWithValues: requests.map { ($0.item.id, $0) })
+        for (id, oldRequest) in requestsByID where !nextByID.keys.contains(id) {
+            WorkspaceCanvasPortalDebugRegistry.remove(itemID: id)
+            onApply(oldRequest, nil)
+        }
+        self.requestsByID = nextByID
+        self.onPreparePublish = onPreparePublish
+        self.onApply = onApply
+        publish()
+    }
+
+    func clearPublishedRequests() {
+        guard let onApply else { return }
+        for request in requestsByID.values {
+            WorkspaceCanvasPortalDebugRegistry.remove(itemID: request.item.id)
+            onApply(request, nil)
+        }
+        requestsByID.removeAll()
+        self.onPreparePublish = nil
+        self.onApply = nil
+    }
+
+    private func publish() {
+        guard let onApply else { return }
+        guard window != nil else {
+            for request in requestsByID.values {
+                WorkspaceCanvasPortalDebugRegistry.remove(itemID: request.item.id)
+                onApply(request, nil)
+            }
+            return
+        }
+
+        let canvasWindowFrame = convert(bounds, to: nil)
+        for request in requestsByID.values {
+            let frameInWindow = CanvasWindowCoordinateMapper.windowFrame(
+                forCanvasRect: request.frameInCanvas,
+                inCanvasWindowFrame: canvasWindowFrame
+            )
+            if let frameInWindow {
+                WorkspaceCanvasPortalDebugRegistry.update(itemID: request.item.id, frameInWindow: frameInWindow)
+                onApply(request, frameInWindow)
+            } else {
+                WorkspaceCanvasPortalDebugRegistry.remove(itemID: request.item.id)
+                onApply(request, nil)
+            }
+        }
+    }
+}
+
+private struct CanvasAnimationFrameClockLayer: NSViewRepresentable {
+    var token: UInt64
+    var isActive: Bool
+    var onFrame: (TimeInterval) -> Void
+
+    func makeNSView(context: Context) -> CanvasAnimationFrameClockView {
+        let view = CanvasAnimationFrameClockView()
+        view.update(token: token, isActive: isActive, onFrame: onFrame)
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasAnimationFrameClockView, context: Context) {
+        nsView.update(token: token, isActive: isActive, onFrame: onFrame)
+    }
+
+    static func dismantleNSView(_ nsView: CanvasAnimationFrameClockView, coordinator: ()) {
+        nsView.stop()
+    }
+}
+
+private final class CanvasAnimationFrameClockView: NSView {
+    private var displayLink: CVDisplayLink?
+    private var token: UInt64 = 0
+    private var isActive = false
+    private var hasPendingMainFrame = false
+    private var pendingMainFrameTime: TimeInterval = 0
+    private let lock = NSLock()
+    private var onFrame: ((TimeInterval) -> Void)?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(token: UInt64, isActive: Bool, onFrame: @escaping (TimeInterval) -> Void) {
+        self.token = token
+        self.isActive = isActive
+        self.onFrame = onFrame
+        ensureDisplayLink()
+        if isActive {
+            start()
+        } else {
+            stop()
+        }
+    }
+
+    func stop() {
+        if let displayLink, CVDisplayLinkIsRunning(displayLink) {
+            CVDisplayLinkStop(displayLink)
+        }
+        lock.lock()
+        hasPendingMainFrame = false
+        pendingMainFrameTime = 0
+        lock.unlock()
+    }
+
+    deinit {
+        stop()
+    }
+
+    private func ensureDisplayLink() {
+        guard displayLink == nil else { return }
+        var link: CVDisplayLink?
+        guard CVDisplayLinkCreateWithActiveCGDisplays(&link) == kCVReturnSuccess,
+              let link else { return }
+        CVDisplayLinkSetOutputCallback(
+            link,
+            canvasAnimationFrameClockCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+        displayLink = link
+    }
+
+    private func start() {
+        guard let displayLink, !CVDisplayLinkIsRunning(displayLink) else { return }
+        CVDisplayLinkStart(displayLink)
+    }
+
+    fileprivate func displayLinkDidFire(outputTime: TimeInterval) {
+        let shouldSchedule: Bool
+        lock.lock()
+        pendingMainFrameTime = outputTime
+        if hasPendingMainFrame {
+            shouldSchedule = false
+        } else {
+            hasPendingMainFrame = true
+            shouldSchedule = true
+        }
+        lock.unlock()
+        guard shouldSchedule else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let frameTime: TimeInterval
+            self.lock.lock()
+            frameTime = self.pendingMainFrameTime
+            self.hasPendingMainFrame = false
+            self.lock.unlock()
+            guard self.isActive else { return }
+            self.onFrame?(frameTime > 0 ? frameTime : canvasAnimationClockTime())
+        }
+    }
+}
+
+private func canvasAnimationClockTime() -> TimeInterval {
+    let frequency = CVGetHostClockFrequency()
+    guard frequency > 0 else { return CACurrentMediaTime() }
+    return TimeInterval(Double(CVGetCurrentHostTime()) / frequency)
+}
+
+private func canvasAnimationFrameClockCallback(
+    _ displayLink: CVDisplayLink,
+    _ inNow: UnsafePointer<CVTimeStamp>,
+    _ inOutputTime: UnsafePointer<CVTimeStamp>,
+    _ flagsIn: CVOptionFlags,
+    _ flagsOut: UnsafeMutablePointer<CVOptionFlags>,
+    _ ctx: UnsafeMutableRawPointer?
+) -> CVReturn {
+    guard let ctx else { return kCVReturnSuccess }
+    let view = Unmanaged<CanvasAnimationFrameClockView>.fromOpaque(ctx).takeUnretainedValue()
+    let outputHostTime = inOutputTime.pointee.hostTime == 0
+        ? CVGetCurrentHostTime()
+        : inOutputTime.pointee.hostTime
+    let frequency = CVGetHostClockFrequency()
+    let outputTime = frequency > 0
+        ? TimeInterval(Double(outputHostTime) / frequency)
+        : CACurrentMediaTime()
+    view.displayLinkDidFire(outputTime: outputTime)
+    return kCVReturnSuccess
+}
+
+private struct CanvasPresentationDebugProbeLayer: NSViewRepresentable {
+    let workspaceID: UUID
+    let presentation: CanvasPresentationState
+    let visibleNativePortalCount: Int
+
+    func makeNSView(context: Context) -> CanvasPresentationDebugProbeView {
+        let view = CanvasPresentationDebugProbeView()
+        view.update(
+            workspaceID: workspaceID,
+            presentation: presentation,
+            visibleNativePortalCount: visibleNativePortalCount
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: CanvasPresentationDebugProbeView, context: Context) {
+        nsView.update(
+            workspaceID: workspaceID,
+            presentation: presentation,
+            visibleNativePortalCount: visibleNativePortalCount
+        )
+    }
+
+    static func dismantleNSView(_ nsView: CanvasPresentationDebugProbeView, coordinator: ()) {
+        nsView.remove()
+    }
+}
+
+private final class CanvasPresentationDebugProbeView: NSView {
+    private var workspaceID: UUID?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(
+        workspaceID: UUID,
+        presentation: CanvasPresentationState,
+        visibleNativePortalCount: Int
+    ) {
+        self.workspaceID = workspaceID
+        WorkspaceCanvasPresentationDebugRegistry.record(
+            workspaceID: workspaceID,
+            presentation: presentation,
+            visibleNativePortalCount: visibleNativePortalCount
+        )
+    }
+
+    func remove() {
+        guard let workspaceID else { return }
+        WorkspaceCanvasPresentationDebugRegistry.remove(workspaceID: workspaceID)
+        self.workspaceID = nil
+    }
+}
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
-    case bonsplitPane
+    case workspaceLayoutPane
     case tmuxActivePane
 
     var usesWorkspacePaneOverlay: Bool {
-        self == .bonsplitPane
+        self == .workspaceLayoutPane
     }
 
     var usesTmuxActivePaneOverlay: Bool {
@@ -146,7 +1944,7 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     }
 }
 
-/// View that renders a Workspace's content using BonsplitView
+/// View that renders a Workspace's content using WorkspaceLayoutView
 struct WorkspaceContentView: View {
     private struct DeferredThemeRefresh {
         let reason: String
@@ -185,45 +1983,27 @@ struct WorkspaceContentView: View {
         isSelectedInPane: Bool,
         isFocused: Bool
     ) -> Bool {
+        _ = isFocused
         guard isWorkspaceVisible else { return false }
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible to avoid blank frames.
-        return isSelectedInPane || isFocused
+        return isSelectedInPane
     }
 
     var body: some View {
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
+        let isSplit = workspace.layoutController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isCanvasOverviewActive = workspace.layoutController.isCanvasOverviewActive
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
-        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
-            }
-        }()
-
-        let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
-            // Content for each tab in bonsplit
+        let buildPanelContent: (SurfaceTab, PaneID, Bool) -> AnyView = { tab, paneId, rendersInCanvas in
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let isSelectedInPane = workspace.layoutController.selectedTab(inPane: paneId)?.id == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
-                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceVisible: isWorkspaceVisible && (rendersInCanvas || !isCanvasOverviewActive),
                     isSelectedInPane: isSelectedInPane,
                     isFocused: isFocused
                 )
@@ -237,7 +2017,7 @@ struct WorkspaceContentView: View {
                     isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
                     isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
-                PanelContentView(
+                return AnyView(PanelContentView(
                     panel: panel,
                     workspaceId: workspace.id,
                     paneId: paneId,
@@ -246,11 +2026,12 @@ struct WorkspaceContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
+                    rendersInCanvas: rendersInCanvas,
                     appearance: appearance,
                     hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                     terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                     onFocus: {
-                        // Keep bonsplit focus in sync with the AppKit first responder for the
+                        // Keep workspaceLayout focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
                         // indicator and where keyboard input/flash-focus actually lands.
                         guard isWorkspaceInputActive else { return }
@@ -260,6 +2041,7 @@ struct WorkspaceContentView: View {
                     onRequestPanelFocus: {
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
+                        workspace.layoutController.focusPane(paneId)
                         AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                             workspaceId: workspace.id,
                             panelId: panel.id,
@@ -280,55 +2062,79 @@ struct WorkspaceContentView: View {
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
                 .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                    workspace.layoutController.focusPane(paneId)
                 }
+                )
             } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
-                EmptyPanelView(workspace: workspace, paneId: paneId)
+                return AnyView(EmptyPanelView(workspace: workspace, paneId: paneId))
             }
+        }
+
+        let workspaceLayoutView = WorkspaceLayoutView(controller: workspace.layoutController) { tab, paneId in
+            // Content for each tab in workspaceLayout
+            buildPanelContent(tab, paneId, false)
         } emptyPane: { paneId in
             // Empty pane content
             EmptyPanelView(workspace: workspace, paneId: paneId)
                 .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
+                    workspace.layoutController.focusPane(paneId)
                 }
         }
         .internalOnlyTabDrag()
-        // Split zoom swaps Bonsplit between the full split tree and a single pane view.
-        // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
+        // Split zoom swaps CMUXLayout between the full split tree and a single pane view.
+        // Recreate the CMUXLayout subtree on zoom enter/exit so stale pre-zoom pane chrome
         // cannot remain stacked above portal-hosted browser content.
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        Group {
+            if isCanvasOverviewActive {
+                WorkspaceCanvasOverviewView(
+                    workspace: workspace,
+                    controller: workspace.layoutController,
+                    appearance: appearance
+                ) { tab, paneId in
+                    buildPanelContent(tab, paneId, true)
+                } emptyPane: { paneId in
+                    EmptyPanelView(workspace: workspace, paneId: paneId)
+                }
+            } else {
+                workspaceLayoutView
+            }
+        }
         .onAppear {
+            installWorkspaceLayoutDropHandler()
+            syncWorkspaceLayoutInteractivity(isWorkspaceInputActive)
             updateAgentHibernationPresentationVisibility()
-            syncBonsplitNotificationBadges()
+            syncCMUXLayoutNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
+        }
+        .onChange(of: isWorkspaceInputActive) { _, isActive in
+            syncWorkspaceLayoutInteractivity(isActive)
+            updateAgentHibernationPresentationVisibility()
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
         }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
-        }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
-            syncBonsplitNotificationBadges()
+            syncCMUXLayoutNotificationBadges()
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
+            syncCMUXLayoutNotificationBadges()
         }
         .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
+            syncCMUXLayoutNotificationBadges()
         }
         .onChange(of: isWorkspaceManuallyUnread) { _, _ in
-            syncBonsplitNotificationBadges()
+            syncCMUXLayoutNotificationBadges()
         }
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
-            syncBonsplitNotificationBadges()
+            syncCMUXLayoutNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
@@ -355,19 +2161,32 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
-
-        bonsplitView
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
-    private func syncBonsplitNotificationBadges() {
+    private func installWorkspaceLayoutDropHandler() {
+        workspace.layoutController.onFileDrop = { [weak workspace] urls, paneId in
+            guard let workspace else { return false }
+            guard let tabId = workspace.layoutController.selectedTab(inPane: paneId)?.id,
+                  let panelId = workspace.panelIdFromSurfaceId(tabId),
+                  let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+            return panel.hostedView.handleDroppedURLs(urls)
+        }
+    }
+
+    private func syncWorkspaceLayoutInteractivity(_ isActive: Bool) {
+        guard workspace.layoutController.isInteractive != isActive else { return }
+        workspace.layoutController.isInteractive = isActive
+    }
+
+    private func syncCMUXLayoutNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
         let restoredUnread = workspace.restoredUnreadPanelIds
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+        for paneId in workspace.layoutController.allPaneIds {
+            for tab in workspace.layoutController.tabs(inPane: paneId) {
                 let panelId = workspace.panelIdFromSurfaceId(tab.id)
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
@@ -387,7 +2206,7 @@ struct WorkspaceContentView: View {
                 if tab.showsNotificationBadge != shouldShow ||
                     tab.isPinned != expectedPinned ||
                     (expectedKind != nil && tab.kind != expectedKind) {
-                    workspace.bonsplitController.updateTab(
+                    workspace.layoutController.updateTab(
                         tab.id,
                         kind: kindUpdate,
                         showsNotificationBadge: shouldShow,
@@ -399,7 +2218,7 @@ struct WorkspaceContentView: View {
     }
 
     private var splitZoomRenderIdentity: String {
-        workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
+        workspace.layoutController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
     private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
@@ -426,7 +2245,7 @@ struct WorkspaceContentView: View {
     }
 
     private static func tmuxWorkspacePaneRect(
-        layoutSnapshot: LayoutSnapshot?,
+        layoutSnapshot: PaneLayoutSnapshot?,
         paneId: PaneID?,
         includeContainerOffset: Bool,
         trimMode: TmuxWorkspacePaneOverlayTrimMode
@@ -458,7 +2277,7 @@ struct WorkspaceContentView: View {
     private static func tmuxWorkspacePaneRects(
         workspace: Workspace,
         notificationStore: TerminalNotificationStore,
-        layoutSnapshot: LayoutSnapshot?,
+        layoutSnapshot: PaneLayoutSnapshot?,
         includeContainerOffset: Bool,
         trimMode: TmuxWorkspacePaneOverlayTrimMode
     ) -> [CGRect] {
@@ -469,7 +2288,7 @@ struct WorkspaceContentView: View {
         return layoutSnapshot.panes.compactMap { pane in
             guard let selectedTabId = pane.selectedTabId,
                   let tabUUID = UUID(uuidString: selectedTabId),
-                  let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)) else {
+                  let panelId = workspace.panelIdFromSurfaceId(SurfaceID(uuid: tabUUID)) else {
                 return nil
             }
 
@@ -503,7 +2322,7 @@ struct WorkspaceContentView: View {
     }
 
     static func tmuxWorkspacePaneOverlayRect(
-        layoutSnapshot: LayoutSnapshot?,
+        layoutSnapshot: PaneLayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
         tmuxWorkspacePaneRect(
@@ -515,7 +2334,7 @@ struct WorkspaceContentView: View {
     }
 
     static func tmuxWorkspacePaneWindowOverlayRect(
-        layoutSnapshot: LayoutSnapshot?,
+        layoutSnapshot: PaneLayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
         tmuxWorkspacePaneRect(
@@ -526,16 +2345,16 @@ struct WorkspaceContentView: View {
         )
     }
 
-    static func effectiveTmuxLayoutSnapshot(
-        cachedSnapshot: LayoutSnapshot?,
-        liveSnapshot: LayoutSnapshot?
-    ) -> LayoutSnapshot? {
+    static func effectiveTmuxPaneLayoutSnapshot(
+        cachedSnapshot: PaneLayoutSnapshot?,
+        liveSnapshot: PaneLayoutSnapshot?
+    ) -> PaneLayoutSnapshot? {
         if let liveSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(liveSnapshot) {
+           tmuxPaneLayoutSnapshotHasRenderableGeometry(liveSnapshot) {
             return liveSnapshot
         }
         if let cachedSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(cachedSnapshot) {
+           tmuxPaneLayoutSnapshotHasRenderableGeometry(cachedSnapshot) {
             return cachedSnapshot
         }
         return cachedSnapshot ?? liveSnapshot
@@ -544,7 +2363,7 @@ struct WorkspaceContentView: View {
     static func tmuxWorkspacePaneUnreadRects(
         workspace: Workspace,
         notificationStore: TerminalNotificationStore,
-        layoutSnapshot: LayoutSnapshot?
+        layoutSnapshot: PaneLayoutSnapshot?
     ) -> [CGRect] {
         tmuxWorkspacePaneRects(
             workspace: workspace,
@@ -558,7 +2377,7 @@ struct WorkspaceContentView: View {
     static func tmuxWorkspacePaneWindowUnreadRects(
         workspace: Workspace,
         notificationStore: TerminalNotificationStore,
-        layoutSnapshot: LayoutSnapshot?
+        layoutSnapshot: PaneLayoutSnapshot?
     ) -> [CGRect] {
         tmuxWorkspacePaneRects(
             workspace: workspace,
@@ -569,7 +2388,7 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private static func tmuxLayoutSnapshotHasRenderableGeometry(_ snapshot: LayoutSnapshot) -> Bool {
+    private static func tmuxPaneLayoutSnapshotHasRenderableGeometry(_ snapshot: PaneLayoutSnapshot) -> Bool {
         snapshot.containerFrame.width > 1 &&
             snapshot.containerFrame.height > 1 &&
             snapshot.panes.contains { pane in
@@ -695,7 +2514,7 @@ struct WorkspaceContentView: View {
             }
         }
         logTheme(
-            "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil")"
+            "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.layoutController.configuration.appearance.chromeColors.backgroundHex ?? "nil")"
         )
     }
 
@@ -731,7 +2550,7 @@ extension WorkspaceContentView {
     }
 
     #if DEBUG
-    static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
+    static func debugPanelLookup(tab: CMUXLayout.SurfaceTab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil
         if !found {
             let ts = ISO8601DateFormatter().string(from: Date())
@@ -747,11 +2566,1890 @@ extension WorkspaceContentView {
         }
     }
     #else
-    static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
+    static func debugPanelLookup(tab: CMUXLayout.SurfaceTab, workspace: Workspace) {
         _ = tab
         _ = workspace
     }
     #endif
+}
+
+private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: View {
+    @ObservedObject var workspace: Workspace
+    @Bindable private var controller: WorkspaceLayoutController
+    private let appearance: PanelAppearance
+    private let contentBuilder: (SurfaceTab, PaneID) -> Content
+    private let emptyPaneBuilder: (PaneID) -> EmptyContent
+    @FocusState private var hasKeyboardFocus: Bool
+    @State private var dragStates: [LayoutItemID: CanvasDragState] = [:]
+    @State private var resizeStates: [LayoutItemID: CanvasResizeState] = [:]
+    @State private var activeCanvasDragItemID: LayoutItemID?
+    @State private var activeAlignmentGuides: [CanvasAlignmentGuide] = []
+    @State private var canvasPreviewImages: [SurfaceID: NSImage] = [:]
+    @State private var canvasPreviewImageGenerations: [SurfaceID: UInt64] = [:]
+    @State private var canvasPreviewSnapshotRequests: Set<SurfaceID> = []
+    @State private var canvasViewportPresentation = CanvasViewportPresentationState()
+    @State private var canvasAnimationClockToken: UInt64 = 0
+    @State private var canvasCameraInteraction = CanvasCameraInteractionState()
+    @State private var canvasCameraNativeSurfacesParked = false
+
+    private let canvasPadding: CGFloat = 24
+    private let canvasResizeEdgeHitSize: CGFloat = 8
+    private let canvasResizeCornerHitSize: CGFloat = 44
+    private let canvasHeaderActionHitWidth: CGFloat = 104
+    private let minimumFreeformCardWidth: CGFloat = 240
+    private let minimumFreeformCardHeight: CGFloat = 170
+
+    private struct CanvasDragState {
+        let baseFrame: PixelRect
+        let basePortalFrameInWindow: CGRect?
+        var frame: PixelRect
+        var guides: [CanvasAlignmentGuide]
+    }
+
+    private struct CanvasResizeState {
+        let baseFrame: PixelRect
+        let basePortalFrameInWindow: CGRect?
+        var frame: PixelRect
+        var guides: [CanvasAlignmentGuide]
+    }
+
+    init(
+        workspace: Workspace,
+        controller: WorkspaceLayoutController,
+        appearance: PanelAppearance,
+        @ViewBuilder content: @escaping (SurfaceTab, PaneID) -> Content,
+        @ViewBuilder emptyPane: @escaping (PaneID) -> EmptyContent
+    ) {
+        self.workspace = workspace
+        self.controller = controller
+        self.appearance = appearance
+        self.contentBuilder = content
+        self.emptyPaneBuilder = emptyPane
+    }
+
+    var body: some View {
+        let scene = controller.canvasSceneSnapshot()
+        let document = scene.document
+        let items = document.items.sorted { lhs, rhs in
+            if lhs.zIndex != rhs.zIndex {
+                return lhs.zIndex < rhs.zIndex
+            }
+            return lhs.id.description < rhs.id.description
+        }
+        ZStack(alignment: .topLeading) {
+            canvasViewport(items, activeItemID: scene.activeItemID)
+        }
+        .accessibilityIdentifier("WorkspaceCanvasOverview")
+        .focusable()
+        .focusEffectDisabled()
+        .focused($hasKeyboardFocus)
+        .onAppear {
+            hasKeyboardFocus = true
+            canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
+        }
+        .onDisappear {
+            cancelCanvasViewportAnimation(stableViewport: controller.canvasViewport)
+            resetCanvasCameraInteraction()
+            endActiveCanvasDragIfNeeded()
+        }
+        .onChange(of: document.policy) { _, _ in
+            cancelCanvasViewportAnimation(stableViewport: controller.canvasViewport)
+            resetCanvasCameraInteraction()
+            endActiveCanvasDragIfNeeded()
+        }
+        .onChange(of: controller.canvasFocusAnimationRevision) { _, _ in
+            startCanvasViewportAnimation(to: controller.canvasViewport)
+        }
+        .onChange(of: controller.canvasViewportAnimationRevision) { _, _ in
+            startCanvasViewportAnimation(to: controller.canvasViewport)
+        }
+        .backport.onKeyPress(.return) { _ in
+            guard shouldHandleCanvasOverviewShortcut() else { return .ignored }
+            if workspace.activateFocusedCanvasItem() {
+                return .handled
+            }
+            return .ignored
+        }
+        .backport.onKeyPress(.escape) { _ in
+            guard shouldHandleCanvasOverviewShortcut() else { return .ignored }
+            workspace.exitCanvasOverview()
+            return .handled
+        }
+    }
+
+    private func shouldHandleCanvasOverviewShortcut() -> Bool {
+        guard hasKeyboardFocus else { return false }
+        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return true }
+        if firstResponder is NSTextView || firstResponder is NSTextField {
+            return false
+        }
+
+        let responderClassName = NSStringFromClass(type(of: firstResponder))
+        if responderClassName.contains("WK") || responderClassName.contains("WebView") {
+            return false
+        }
+        return true
+    }
+
+    private func displayedCanvasViewport() -> CanvasViewport {
+        canvasViewportPresentation.displayedViewport(fallback: controller.canvasViewport)
+    }
+
+    private func startCanvasViewportAnimation(to targetViewport: CanvasViewport) {
+        if canvasViewportPresentation.startAnimation(
+            to: targetViewport,
+            now: canvasAnimationClockTime(),
+            duration: 0.18
+        ) {
+            parkCanvasNativeSurfacesForCameraMutation(
+                presentation: nil,
+                activeItemID: controller.canvasSceneSnapshot().activeItemID
+            )
+            canvasAnimationClockToken &+= 1
+        }
+    }
+
+    private func tickCanvasViewportAnimation(at time: TimeInterval) {
+        let wasAnimating = canvasViewportPresentation.isAnimating
+        canvasViewportPresentation.tick(at: time)
+        if wasAnimating && !canvasViewportPresentation.isAnimating {
+            canvasCameraNativeSurfacesParked = false
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
+        tickCanvasCameraInteractionHold()
+    }
+
+    private func cancelCanvasViewportAnimation(stableViewport: CanvasViewport) {
+        canvasViewportPresentation.cancel(stableViewport: stableViewport)
+    }
+
+    private func canvasPresentationInteractionPhase() -> CanvasInteractionPhase {
+        CanvasPresentationInteractionResolver.phase(
+            cameraPhase: canvasCameraInteraction.phase,
+            isViewportAnimating: canvasViewportPresentation.isAnimating,
+            hasParkedNativeSurfacesForCamera: canvasCameraNativeSurfacesParked,
+            hasActiveDrag: activeCanvasDragItemID != nil,
+            hasActiveResize: !resizeStates.isEmpty
+        )
+    }
+
+    private func applyCanvasCameraInteraction(_ event: CanvasCameraInteractionEvent) {
+        let didEnd = canvasCameraInteraction.apply(event)
+        canvasAnimationClockToken &+= 1
+        if didEnd {
+            canvasCameraNativeSurfacesParked = false
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
+    }
+
+    private func tickCanvasCameraInteractionHold() {
+        if canvasCameraInteraction.tickDisplayFrame() {
+            canvasAnimationClockToken &+= 1
+            canvasCameraNativeSurfacesParked = false
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
+    }
+
+    private func resetCanvasCameraInteraction() {
+        if canvasCameraInteraction.endImmediately() {
+            canvasCameraNativeSurfacesParked = false
+            WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        }
+    }
+
+    private func parkCanvasNativeSurfaces(
+        forCameraInteraction event: CanvasCameraInteractionEvent,
+        presentation: CanvasPresentationState,
+        activeItemID: LayoutItemID?
+    ) {
+        guard shouldParkNativeSurfacesForCameraMutation(event, presentation: presentation) else { return }
+        parkCanvasNativeSurfacesForCameraMutation(
+            presentation: presentation,
+            activeItemID: activeItemID
+        )
+    }
+
+    private func shouldParkNativeSurfacesForCameraMutation(
+        _ event: CanvasCameraInteractionEvent,
+        presentation: CanvasPresentationState?
+    ) -> Bool {
+        switch event {
+        case .began(.zooming), .changed(.zooming), .unphasedUpdate(.zooming):
+            return true
+        case .began(.panning), .changed(.panning), .unphasedUpdate(.panning):
+            let scale = presentation?.scale ?? CGFloat(CanvasViewportZoom.presentationScale(for: controller.canvasViewport))
+            return scale < CGFloat(CanvasViewportZoom.nativeOverlayMinimumScale)
+        case .began, .changed, .unphasedUpdate, .ended:
+            return false
+        }
+    }
+
+    private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
+        GeometryReader { proxy in
+            let viewport = displayedCanvasViewport()
+            let scale = CGFloat(CanvasViewportZoom.presentationScale(for: viewport))
+            let renderedItems = items.map { item in
+                var renderedItem = item
+                if let dragState = dragStates[item.id] {
+                    renderedItem.frame = dragState.frame
+                }
+                if let resizeState = resizeStates[item.id] {
+                    renderedItem.frame = resizeState.frame
+                }
+                return renderedItem
+            }
+            let document = canvasDocument(items: items)
+            let presentation = canvasPresentationState(
+                document: document,
+                renderedItems: renderedItems,
+                viewport: viewport,
+                viewportSize: proxy.size,
+                activeItemID: activeItemID
+            )
+            let renderModes = canvasRenderModes(from: presentation)
+            let surfaceTextureSources = canvasSurfaceTextureSources(
+                for: presentation.visibleItems,
+                renderModes: renderModes,
+                preferFrozenPreviewTextures: presentation.usesUnifiedTexturePresentation,
+                allowLiveTextureFallback: !presentation.usesUnifiedTexturePresentation
+            )
+            let surfaceTextureSourceIDs = Set(surfaceTextureSources.map(\.id))
+            let metalScene = CanvasScene(presentation: presentation)
+            let visibleItems = presentation.presentationSurfaces.map(\.item)
+            let transform = metalScene.transform
+            let nativePresentationRequests = canvasSurfacePortalRequests(
+                presentation: presentation
+            )
+            let scrollPassthroughFrames = CanvasScrollPassthroughPolicy.frames(
+                nativeOverlays: presentation.nativeOverlays
+            )
+            let visibleNativePortalCount = canvasVisibleNativePortalCount(
+                for: presentation.presentationSurfaces
+            )
+            let cardSnapshots = canvasCardSnapshots(
+                for: visibleItems,
+                transform: transform,
+                scale: scale,
+                renderModes: renderModes,
+                activeItemID: activeItemID,
+                surfaceTextureSourceIDs: surfaceTextureSourceIDs
+            )
+            let usesUnifiedTexturePresentation = presentation.usesUnifiedTexturePresentation
+
+            ZStack(alignment: .topLeading) {
+                CanvasHostRepresentable(
+                    scene: metalScene,
+                    backgroundColor: appearance.backgroundColor,
+                    style: canvasShellStyle,
+                    surfaceTextures: surfaceTextureSources,
+                    preferredFramesPerSecond: 120,
+                    forceContinuousRender: presentation.usesUnifiedTexturePresentation ||
+                        canvasViewportPresentation.isAnimating ||
+                        canvasCameraInteraction.needsFrameClock
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+                CanvasPresentationDebugProbeLayer(
+                    workspaceID: workspace.id,
+                    presentation: presentation,
+                    visibleNativePortalCount: visibleNativePortalCount
+                )
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+                ForEach(cardSnapshots) { card in
+                    canvasCard(card, dragScale: scale)
+                        .frame(width: card.displaySize.width, height: card.displaySize.height)
+                        .position(
+                            x: card.canvasRect.minX + (card.displaySize.width / 2),
+                            y: card.canvasRect.minY + (card.displaySize.height / 2)
+                        )
+                        .opacity(usesUnifiedTexturePresentation ? 0 : 1)
+                        .allowsHitTesting(!usesUnifiedTexturePresentation)
+                        .zIndex(card.zIndex)
+                }
+
+                CanvasSurfacePortalLayer(
+                    requests: nativePresentationRequests,
+                    onPreparePublish: { requests in
+                        let parkingMode = CanvasNativeSurfaceParkingPolicy.mode(
+                            usesUnifiedTexturePresentation: usesUnifiedTexturePresentation,
+                            hasParkedNativeSurfacesForCamera: canvasCameraNativeSurfacesParked
+                        )
+                        let mountedPanelIDs = Set(
+                            requests.compactMap { request -> UUID? in
+                                selectedTab(for: request.item).flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                            }
+                        )
+                        if !requests.isEmpty {
+                            WorkspaceCanvasSurfaceMountManager.resumeCanvasSurfacePublication(in: workspace)
+                        }
+                        WorkspaceCanvasSurfaceMountManager.parkNativeSurfaces(
+                            in: workspace,
+                            excludingPanelIDs: mountedPanelIDs,
+                            preserveGeometry: parkingMode == .freezeInPlace
+                        )
+                    },
+                    onApply: { request, frameInWindow in
+                        applyCanvasPortalPresentation(
+                            for: request.item,
+                            frameInWindow: frameInWindow,
+                            nativeContentSize: request.nativeContentSize,
+                            scale: request.scale,
+                            frameIncludesPanelChrome: request.frameIncludesPanelChrome
+                        )
+                    }
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+                CanvasAnimationFrameClockLayer(
+                    token: canvasAnimationClockToken,
+                    isActive: canvasViewportPresentation.isAnimating || canvasCameraInteraction.needsFrameClock,
+                    onFrame: tickCanvasViewportAnimation
+                )
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+                CanvasPanEventMonitorLayer(
+                    scrollPassthroughFrames: scrollPassthroughFrames,
+                    onCameraInteraction: { event in
+                        parkCanvasNativeSurfaces(
+                            forCameraInteraction: event,
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
+                        applyCanvasCameraInteraction(event)
+                    },
+                    onPan: { delta in
+                        if shouldParkNativeSurfacesForCameraMutation(.changed(.panning), presentation: presentation) {
+                            parkCanvasNativeSurfacesForCameraMutation(
+                                presentation: presentation,
+                                activeItemID: activeItemID
+                            )
+                        }
+                        let baseViewport = displayedCanvasViewport()
+                        cancelCanvasViewportAnimation(stableViewport: baseViewport)
+                        controller.setCanvasViewport(baseViewport)
+                        controller.panCanvasViewport(
+                            screenDelta: delta,
+                            scale: scale,
+                            viewportSize: proxy.size
+                        )
+                        canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
+                    },
+                    onZoom: { delta, anchor in
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
+                        let baseViewport = displayedCanvasViewport()
+                        cancelCanvasViewportAnimation(stableViewport: baseViewport)
+                        controller.setCanvasViewport(baseViewport)
+                        controller.setCanvasViewportScale(
+                            zoomedCanvasScale(delta: delta),
+                            viewportSize: proxy.size,
+                            anchorScreenPoint: anchor
+                        )
+                        canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
+                    },
+                    onMagnify: { magnification, anchor in
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
+                        let baseViewport = displayedCanvasViewport()
+                        cancelCanvasViewportAnimation(stableViewport: baseViewport)
+                        controller.setCanvasViewport(baseViewport)
+                        controller.setCanvasViewportScale(
+                            zoomedCanvasScale(magnification: magnification),
+                            viewportSize: proxy.size,
+                            anchorScreenPoint: anchor
+                        )
+                        canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
+                    },
+                    onSmartZoom: { anchor in
+                        parkCanvasNativeSurfacesForCameraMutation(
+                            presentation: presentation,
+                            activeItemID: activeItemID
+                        )
+                        let baseViewport = displayedCanvasViewport()
+                        cancelCanvasViewportAnimation(stableViewport: baseViewport)
+                        controller.setCanvasViewport(baseViewport)
+                        controller.setCanvasViewportScale(
+                            smartZoomedCanvasScale(),
+                            viewportSize: proxy.size,
+                            anchorScreenPoint: anchor
+                        )
+                        canvasViewportPresentation.cancel(stableViewport: controller.canvasViewport)
+                    }
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .accessibilityHidden(true)
+
+                CanvasResizeEventMonitorLayer(
+                    onResizeChanged: { itemID, handle, translation in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        updateFreeformResize(
+                            for: item,
+                            scale: scale,
+                            handle: handle,
+                            translation: translation
+                        )
+                    },
+                    onResizeEnded: { itemID, _ in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        endFreeformResize(for: item, scale: scale)
+                    }
+                )
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
+
+                CanvasDragEventMonitorLayer(
+                    onDragChanged: { itemID, translation in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        updateFreeformDrag(
+                            for: item,
+                            scale: scale,
+                            translation: translation
+                        )
+                    },
+                    onDragEnded: { itemID in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        endFreeformDrag(for: item, scale: scale)
+                    },
+                    onClick: { itemID in
+                        guard let item = currentCanvasInteractionItems().first(where: { $0.id == itemID }) else {
+                            return
+                        }
+                        activateCanvasItemForInput(item)
+                    }
+                )
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .transaction { transaction in
+                transaction.animation = nil
+            }
+            .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
+            .clipped()
+            .background {
+                PortalVisibleContentClipReporter(
+                    leadingInset: 0,
+                    trailingInset: 0,
+                    topInset: 0,
+                    bottomInset: 0
+                )
+                .allowsHitTesting(false)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .browserCanvasPreviewDidChange)) { notification in
+                guard let surfaceUUID = notification.object as? UUID,
+                      let selected = currentCanvasSurfaceTab(id: SurfaceID(uuid: surfaceUUID)) else {
+                    return
+                }
+                captureCanvasPreviewSnapshot(for: selected, force: true)
+            }
+        }
+    }
+
+    private func canvasPresentationState(
+        document: CanvasDocument,
+        renderedItems: [CanvasItem],
+        viewport: CanvasViewport,
+        viewportSize: CGSize,
+        activeItemID: LayoutItemID?
+    ) -> CanvasPresentationState {
+        var presentationDocument = document
+        presentationDocument.viewport = viewport
+        let frameOverrides = Dictionary(uniqueKeysWithValues: renderedItems.map { ($0.id, $0.frame) })
+        let contentKinds = Dictionary(uniqueKeysWithValues: renderedItems.map { ($0.id, canvasSurfaceKind(for: $0)) })
+        return CanvasPresentationEngine.presentation(
+            document: presentationDocument,
+            viewportSize: viewportSize,
+            focusedItemID: controller.focusedCanvasItemID,
+            activeItemID: activeItemID,
+            contentKinds: contentKinds,
+            itemFrameOverrides: frameOverrides,
+            alignmentGuides: activeAlignmentGuides,
+            interactionPhase: canvasPresentationInteractionPhase(),
+            configuration: CanvasPresentationConfiguration(
+                grid: .freeformDefault,
+                padding: canvasPadding,
+                headerHeight: canvasShellStyle.headerHeight,
+                minimumSurfaceDisplaySize: CGSize(
+                    width: minimumFreeformCardWidth,
+                    height: minimumFreeformCardHeight
+                ),
+                nativeOverlayConfiguration: CanvasNativeOverlayConfiguration(
+                    activeSurfaceID: activeItemID
+                )
+            )
+        )
+    }
+
+    private func canvasDocument(items: [CanvasItem]) -> CanvasDocument {
+        var document = controller.canvasDocument
+        document.items = items
+        return document
+    }
+
+    private func canvasRenderModes(from presentation: CanvasPresentationState) -> [LayoutItemID: CanvasRenderMode] {
+        let nativeItemIDs = Set(presentation.nativeOverlays.map(\.id))
+        let textureItemIDs = Set(presentation.textureSurfaces.map(\.id))
+        return Dictionary(uniqueKeysWithValues: presentation.visibleItems.map { item in
+            if nativeItemIDs.contains(item.id) {
+                return (item.id, .liveNative1x)
+            }
+            if textureItemIDs.contains(item.id) {
+                return (item.id, .previewTexture)
+            }
+            return (item.id, .unmounted)
+        })
+    }
+
+    private func canvasCardSnapshots(
+        for items: [CanvasItem],
+        transform: CanvasTransform,
+        scale: CGFloat,
+        renderModes: [LayoutItemID: CanvasRenderMode],
+        activeItemID: LayoutItemID?,
+        surfaceTextureSourceIDs: Set<LayoutItemID>
+    ) -> [WorkspaceCanvasCardSnapshot] {
+        let focusedCanvasItemID = controller.focusedCanvasItemID
+        let paneActionsEnabled = controller.configuration.allowSplits
+        return items.map { item in
+            let tabs = paneTabs(for: item)
+            let selected = selectedTab(for: item) ?? tabs.first
+            let paneID = paneID(for: item)
+            let title = selected?.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? String(localized: "canvas.card.untitled", defaultValue: "Untitled Surface")
+            let renderMode = renderModes[item.id] ?? .previewTexture
+            let previewImage = selected.flatMap { canvasPreviewImages[$0.id] }
+            let hasSurfaceTexture = surfaceTextureSourceIDs.contains(item.id)
+            let addressText = selected.map { browserPreviewAddressText(for: $0) } ?? "about:blank"
+            let itemFrame = item.frame
+            return WorkspaceCanvasCardSnapshot(
+                item: item,
+                canvasRect: transform.canvasRect(forDocumentFrame: itemFrame),
+                displaySize: freeformCardSize(for: itemFrame, scale: scale),
+                renderMode: renderMode,
+                zIndex: Double(canvasSurfaceZIndex(
+                    for: item,
+                    renderMode: renderMode,
+                    activeItemID: activeItemID,
+                    focusedItemID: focusedCanvasItemID
+                )),
+                title: title,
+                tabs: tabs,
+                selected: selected,
+                paneID: paneID,
+                paneActionsEnabled: paneID != nil && paneActionsEnabled,
+                hasSurfaceTexture: hasSurfaceTexture,
+                previewImage: previewImage,
+                browserPreviewAddressText: addressText
+            )
+        }
+    }
+
+    private func canvasSurfaceZIndex(
+        for item: CanvasItem,
+        renderMode: CanvasRenderMode,
+        activeItemID: LayoutItemID?,
+        focusedItemID: LayoutItemID?
+    ) -> Int {
+        let isActive = item.id == activeItemID || item.id == focusedItemID
+        if isActive {
+            return item.zIndex + 20_000
+        }
+        if renderMode == .liveNative1x {
+            return item.zIndex + 10_000
+        }
+        return item.zIndex
+    }
+
+    private func canvasSurfaceTextureSources(
+        for items: [CanvasItem],
+        renderModes: [LayoutItemID: CanvasRenderMode],
+        preferFrozenPreviewTextures: Bool = false,
+        allowLiveTextureFallback: Bool = true
+    ) -> [CanvasSurfaceTextureSource] {
+        items.compactMap { item in
+            guard renderModes[item.id] == .previewTexture,
+                  let selected = selectedTab(for: item) else {
+                return nil
+            }
+            let snapshotImage = canvasPreviewImages[selected.id].flatMap { Self.cgImage(from: $0) }
+            let liveSurface = (workspace.panel(for: selected.id) as? TerminalPanel)?.hostedView.currentCanvasIOSurface()
+            let preferLiveTexture = preferFrozenPreviewTextures && liveSurface != nil
+            let preferSnapshot = !preferLiveTexture && (preferFrozenPreviewTextures || snapshotImage != nil)
+            switch CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
+                preferSnapshot: preferSnapshot,
+                preferLiveTexture: preferLiveTexture,
+                allowLiveTextureFallback: allowLiveTextureFallback || preferLiveTexture,
+                hasLiveTexture: liveSurface != nil,
+                hasSnapshotTexture: snapshotImage != nil
+            ) {
+            case .snapshot:
+                guard let snapshotImage else { return nil }
+                return CanvasSurfaceTextureSource(
+                    id: item.id,
+                    image: snapshotImage,
+                    generation: canvasPreviewImageGenerations[selected.id] ?? 0,
+                    contentMode: .stretch
+                )
+            case .live:
+                guard let liveSurface else { return nil }
+                return CanvasSurfaceTextureSource(id: item.id, surface: liveSurface, contentMode: .stretch)
+            case nil:
+                return nil
+            }
+        }
+    }
+
+    private func canvasSurfacePortalRequests(
+        presentation: CanvasPresentationState
+    ) -> [CanvasSurfacePortalRequest] {
+        let surfacesByID = presentation.presentationsByID
+        return presentation.nativeOverlays.compactMap { overlay in
+            guard let surface = surfacesByID[overlay.id] else { return nil }
+            return CanvasSurfacePortalRequest(
+                item: surface.item,
+                frameInCanvas: overlay.contentFrameInCanvas,
+                nativeContentSize: overlay.nativeContentSize,
+                scale: overlay.scale,
+                frameIncludesPanelChrome: true
+            )
+        }
+    }
+
+    private func canvasVisibleNativePortalCount(
+        for surfaces: [CanvasPresentationSurface]
+    ) -> Int {
+        surfaces.reduce(into: 0) { count, surface in
+            guard let selected = selectedTab(for: surface.item),
+                  let panel = workspace.panel(for: selected.id) else {
+                return
+            }
+            if let terminalPanel = panel as? TerminalPanel,
+               let snapshot = TerminalWindowPortalRegistry.debugSnapshot(for: terminalPanel.hostedView),
+               !snapshot.containerHidden,
+               snapshot.containerAlpha > 0.01,
+               snapshot.hostedAlpha > 0.01,
+               snapshot.frameInWindow.width > 1,
+               snapshot.frameInWindow.height > 1 {
+                count += 1
+                return
+            }
+            if let browserPanel = panel as? BrowserPanel,
+               let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView),
+               !snapshot.containerHidden,
+               snapshot.containerAlpha > 0.01,
+               snapshot.webViewAlpha > 0.01,
+               snapshot.frameInWindow.width > 1,
+               snapshot.frameInWindow.height > 1 {
+                count += 1
+            }
+        }
+    }
+
+    private func hasCanvasSurfaceTexture(for selected: SurfaceTab) -> Bool {
+        if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
+           terminalPanel.hostedView.currentCanvasIOSurface() != nil {
+            return true
+        }
+        if let image = canvasPreviewImages[selected.id],
+           Self.cgImage(from: image) != nil {
+            return true
+        }
+        return false
+    }
+
+    private func canvasSurfaceKind(for item: CanvasItem) -> CanvasSurfaceKind {
+        guard let selected = selectedTab(for: item) else {
+            return .generic
+        }
+        switch selected.kind {
+        case "terminal":
+            return .terminal
+        case "browser":
+            return .browser
+        default:
+            return .generic
+        }
+    }
+
+    private func canvasCard(
+        _ card: WorkspaceCanvasCardSnapshot,
+        dragScale: CGFloat? = nil
+    ) -> some View {
+        let registersFreeformDrag = dragScale != nil
+
+        return VStack(alignment: .leading, spacing: 0) {
+            cardHeader(
+                card: card,
+                registersFreeformDrag: registersFreeformDrag,
+                dragScale: dragScale
+            )
+
+            livePaneContent(card: card)
+        }
+        .background(Color.clear)
+        .clipped()
+        .overlay {
+            if let dragScale {
+                canvasResizeHitTargets(item: card.item, scale: dragScale)
+            }
+        }
+        .overlay {
+            if dragScale != nil, card.renderMode != .liveNative1x {
+                CanvasDragRegistrationLayer(itemID: card.item.id)
+                    .accessibilityHidden(true)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            canvasHeaderDragHitTarget(
+                item: card.item,
+                title: card.title,
+                tabs: card.tabs,
+                paneID: card.paneID,
+                dragScale: dragScale
+            )
+        }
+        .contentShape(Rectangle())
+        .accessibilityIdentifier(accessibilityIdentifier(for: card.item))
+        .accessibilityLabel(card.title)
+    }
+
+    @ViewBuilder
+    private func canvasHeaderDragHitTarget(
+        item: CanvasItem,
+        title: String,
+        tabs: [SurfaceTab],
+        paneID: PaneID?,
+        dragScale: CGFloat?
+    ) -> some View {
+        if dragScale != nil, tabs.count <= 1 {
+            GeometryReader { proxy in
+                Rectangle()
+                    .fill(Color.black.opacity(0.001))
+                    .contentShape(Rectangle())
+                    .frame(
+                        width: max(
+                            1,
+                            proxy.size.width - (canvasResizeCornerHitSize * 2) - canvasHeaderActionHitWidth
+                        ),
+                        height: max(1, 20 - canvasResizeEdgeHitSize)
+                    )
+                    .offset(x: min(canvasResizeCornerHitSize, max(0, proxy.size.width / 2)), y: canvasResizeEdgeHitSize)
+                    .overlay {
+                        CanvasDragRegistrationLayer(itemID: item.id)
+                            .accessibilityHidden(true)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(title)
+                    .accessibilityIdentifier("WorkspaceCanvasDragLayer.\(item.id.description)")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cardHeader(
+        card: WorkspaceCanvasCardSnapshot,
+        registersFreeformDrag: Bool,
+        dragScale: CGFloat?
+    ) -> some View {
+        cardHeaderContent(
+            card: card,
+            registersFreeformDrag: registersFreeformDrag,
+            dragScale: dragScale
+        )
+    }
+
+    private func cardHeaderContent(
+        card: WorkspaceCanvasCardSnapshot,
+        registersFreeformDrag: Bool,
+        dragScale: CGFloat?
+    ) -> some View {
+        HStack(spacing: 4) {
+            if card.tabs.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(card.tabs, id: \.id) { tab in
+                            canvasTabChip(tab, selected: tab.id == card.selected?.id, paneID: card.paneID, item: card.item)
+                        }
+                    }
+                }
+            } else {
+                Text(card.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(canvasForegroundColor.opacity(0.52))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
+
+            canvasPaneHeaderControls(card: card)
+        }
+        .frame(height: 20)
+        .padding(.leading, 6)
+        .padding(.trailing, 6)
+        .background(Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            focusCanvasHeader(item: card.item, paneID: card.paneID)
+        }
+    }
+
+    private func canvasPaneHeaderControls(card: WorkspaceCanvasCardSnapshot) -> some View {
+        HStack(spacing: 1) {
+            canvasPaneActionButton(
+                systemName: "terminal",
+                label: String(localized: "workspace.tooltip.newTerminal", defaultValue: "New Terminal"),
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
+                accessibilityID: "WorkspaceCanvasNewTerminal"
+            ) {
+                createCanvasTerminalSurface(item: card.item, paneID: card.paneID)
+            }
+            canvasPaneActionButton(
+                systemName: "globe",
+                label: String(localized: "workspace.tooltip.newBrowser", defaultValue: "New Browser"),
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
+                accessibilityID: "WorkspaceCanvasNewBrowser"
+            ) {
+                createCanvasBrowserSurface(item: card.item, paneID: card.paneID)
+            }
+            canvasPaneActionButton(
+                systemName: "rectangle.split.2x1",
+                label: String(localized: "workspace.tooltip.splitRight", defaultValue: "Split Right"),
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
+                accessibilityID: "WorkspaceCanvasSplitRight"
+            ) {
+                splitCanvasPane(item: card.item, paneID: card.paneID, orientation: .horizontal)
+            }
+            canvasPaneActionButton(
+                systemName: "rectangle.split.1x2",
+                label: String(localized: "workspace.tooltip.splitDown", defaultValue: "Split Down"),
+                item: card.item,
+                paneID: card.paneID,
+                isEnabled: card.paneActionsEnabled,
+                accessibilityID: "WorkspaceCanvasSplitDown"
+            ) {
+                splitCanvasPane(item: card.item, paneID: card.paneID, orientation: .vertical)
+            }
+        }
+        .background {
+            CanvasActionHitRegionLayer(hitSlop: 8)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func canvasPaneActionButton(
+        systemName: String,
+        label: String,
+        item: CanvasItem,
+        paneID: PaneID?,
+        isEnabled: Bool,
+        accessibilityID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 22, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(canvasForegroundColor.opacity(isEnabled ? 0.50 : 0.22))
+        .disabled(!isEnabled)
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("\(accessibilityID).\(paneID?.id.uuidString ?? item.id.description)")
+    }
+
+    private func splitCanvasPane(item: CanvasItem, paneID: PaneID?, orientation: LayoutOrientation) {
+        focusCanvasHeader(item: item, paneID: paneID)
+        guard let paneID else { return }
+        guard let panel = workspace.splitPaneWithNewTerminal(
+            targetPane: paneID,
+            orientation: orientation,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil
+        ) else { return }
+        placeCreatedCanvasPane(from: item, panelID: panel.id, orientation: orientation)
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func createCanvasTerminalSurface(item: CanvasItem, paneID: PaneID?) {
+        focusCanvasHeader(item: item, paneID: paneID)
+        guard let paneID,
+              workspace.newTerminalSurface(
+                inPane: paneID,
+                focus: true,
+                workingDirectory: nil,
+                initialInput: nil
+              ) != nil else {
+            return
+        }
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func createCanvasBrowserSurface(item: CanvasItem, paneID: PaneID?) {
+        focusCanvasHeader(item: item, paneID: paneID)
+        guard let paneID,
+              workspace.newBrowserSurface(
+                inPane: paneID,
+                focus: true
+              ) != nil else {
+            return
+        }
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func placeCreatedCanvasPane(from sourceItem: CanvasItem, panelID: UUID, orientation: LayoutOrientation) {
+        guard let newPaneID = workspace.paneId(forPanelId: panelID),
+              let newItem = controller.canvasItem(forPane: newPaneID) else {
+            return
+        }
+        let sourceFrame = sourceItem.frame
+        let gap = 16.0
+        var newFrame: PixelRect
+        switch orientation {
+        case .horizontal:
+            newFrame = PixelRect(
+                x: sourceFrame.x + sourceFrame.width + gap,
+                y: sourceFrame.y,
+                width: sourceFrame.width,
+                height: sourceFrame.height
+            )
+        case .vertical:
+            newFrame = PixelRect(
+                x: sourceFrame.x,
+                y: sourceFrame.y + sourceFrame.height + gap,
+                width: sourceFrame.width,
+                height: sourceFrame.height
+            )
+        }
+        newFrame = firstAvailableCanvasFrame(
+            startingAt: newFrame,
+            steppingFrom: sourceFrame,
+            orientation: orientation,
+            excluding: newItem.id,
+            gap: gap
+        )
+        controller.moveCanvasItem(newItem.id, to: newFrame)
+        _ = controller.focusCanvasItem(newItem.id)
+        _ = workspace.activateCanvasItem(newItem.id)
+    }
+
+    private func firstAvailableCanvasFrame(
+        startingAt frame: PixelRect,
+        steppingFrom sourceFrame: PixelRect,
+        orientation: LayoutOrientation,
+        excluding itemID: LayoutItemID,
+        gap: Double
+    ) -> PixelRect {
+        let occupiedFrames = controller.canvasSnapshot().items
+            .filter { $0.id != itemID }
+            .map(\.frame)
+        guard !occupiedFrames.isEmpty else { return frame }
+
+        var candidate = frame
+        let attempts = max(16, occupiedFrames.count + 8)
+        for _ in 0..<attempts {
+            if !occupiedFrames.contains(where: { canvasFramesOverlap(candidate, $0) }) {
+                return candidate
+            }
+            switch orientation {
+            case .horizontal:
+                candidate = PixelRect(
+                    x: candidate.x + sourceFrame.width + gap,
+                    y: frame.y,
+                    width: frame.width,
+                    height: frame.height
+                )
+            case .vertical:
+                candidate = PixelRect(
+                    x: frame.x,
+                    y: candidate.y + sourceFrame.height + gap,
+                    width: frame.width,
+                    height: frame.height
+                )
+            }
+        }
+        return candidate
+    }
+
+    private func canvasFramesOverlap(_ lhs: PixelRect, _ rhs: PixelRect) -> Bool {
+        let epsilon = 0.5
+        return lhs.x < rhs.x + rhs.width - epsilon
+            && lhs.x + lhs.width > rhs.x + epsilon
+            && lhs.y < rhs.y + rhs.height - epsilon
+            && lhs.y + lhs.height > rhs.y + epsilon
+    }
+
+    private func focusCanvasHeader(item: CanvasItem, paneID: PaneID?) {
+        _ = controller.focusCanvasItem(item.id)
+        if let paneID {
+            controller.focusPane(paneID)
+        }
+    }
+
+    @discardableResult
+    private func activateCanvasItemForInput(_ item: CanvasItem) -> Bool {
+        workspace.activateCanvasItem(item.id)
+    }
+
+    private func canvasTabChip(
+        _ tab: SurfaceTab,
+        selected: Bool,
+        paneID: PaneID?,
+        item: CanvasItem
+    ) -> some View {
+        Button {
+            _ = controller.focusCanvasItem(item.id)
+            if let paneID {
+                controller.focusPane(paneID)
+            }
+            controller.selectSurface(tab.id)
+        } label: {
+            Text(tab.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? String(localized: "canvas.preview.surface", defaultValue: "Surface"))
+                .font(.system(size: 10, weight: selected ? .medium : .regular))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 5)
+                .frame(height: 16)
+                .background(selected ? Color.primary.opacity(0.08) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selected ? canvasForegroundColor.opacity(0.84) : canvasForegroundColor.opacity(0.56))
+        .disabled(paneID == nil)
+        .background {
+            CanvasActionHitRegionLayer(hitSlop: 4)
+                .allowsHitTesting(false)
+        }
+        .accessibilityIdentifier("WorkspaceCanvasTabChip.\(paneID?.id.uuidString ?? item.id.description).\(tab.id.uuid.uuidString)")
+    }
+
+    @ViewBuilder
+    private func livePaneContent(
+        card: WorkspaceCanvasCardSnapshot
+    ) -> some View {
+        GeometryReader { proxy in
+            let visualBounds = CGSize(
+                width: max(1, proxy.size.width),
+                height: max(1, proxy.size.height)
+            )
+
+            ZStack(alignment: .topLeading) {
+                if let paneID = card.paneID {
+                    if let selected = card.selected {
+                        switch card.renderMode {
+                        case .liveNative1x:
+                            contentBuilder(selected, paneID)
+                                .frame(width: visualBounds.width, height: visualBounds.height, alignment: .topLeading)
+                                .clipped()
+                                .onAppear {
+                                    captureCanvasPreviewSnapshot(for: selected, force: true)
+                                }
+                                .onChange(of: selected.id) { _, _ in
+                                    captureCanvasPreviewSnapshot(for: selected, force: true)
+                                }
+                        case .previewTexture:
+                            canvasPreviewPaneContent(card: card, selected: selected, paneID: paneID)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .onAppear {
+                                    captureCanvasPreviewSnapshot(for: selected)
+                                    parkCanvasSurface(selected)
+                                }
+                                .onChange(of: selected.id) { _, _ in
+                                    captureCanvasPreviewSnapshot(for: selected)
+                                    parkCanvasSurface(selected)
+                                }
+                        case .unmounted:
+                            canvasUnmountedPaneContent(selected: selected)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .onAppear {
+                                    parkCanvasSurface(selected)
+                                }
+                                .onChange(of: selected.id) { _, _ in
+                                    parkCanvasSurface(selected)
+                                }
+                        }
+                    } else {
+                        emptyPaneBuilder(paneID)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                    }
+                } else {
+                    Text(String(localized: "canvas.card.untitled", defaultValue: "Untitled Surface"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(canvasForegroundColor.opacity(0.62))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .layoutPriority(1)
+        .background(Color.clear)
+        .clipped()
+    }
+
+    private func canvasPreviewPaneContent(
+        card: WorkspaceCanvasCardSnapshot,
+        selected: SurfaceTab,
+        paneID: PaneID
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            if card.hasSurfaceTexture {
+                Color.clear
+                    .allowsHitTesting(false)
+                if selected.kind == "browser" {
+                    canvasBrowserPreviewOmnibar(text: card.browserPreviewAddressText)
+                }
+            } else if let image = card.previewImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .clipped()
+                    .opacity(0.88)
+                    .allowsHitTesting(false)
+                if selected.kind == "browser" {
+                    canvasBrowserPreviewOmnibar(text: card.browserPreviewAddressText)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? String(localized: "canvas.preview.surface", defaultValue: "Surface"))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(String(localized: "canvas.preview.inactive", defaultValue: "Preview"))
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(canvasForegroundColor.opacity(0.42))
+                }
+                .padding(10)
+                .foregroundStyle(canvasForegroundColor.opacity(0.62))
+            }
+        }
+        .clipped()
+        .accessibilityIdentifier("WorkspaceCanvasPreview.\(card.item.id.description).\(paneID.id.uuidString)")
+    }
+
+    private func canvasBrowserPreviewOmnibar(text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 8, weight: .semibold))
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 8, weight: .semibold))
+            Text(text)
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 7)
+                .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
+                .background(Color.black.opacity(0.24))
+        }
+        .foregroundStyle(canvasForegroundColor.opacity(0.74))
+        .padding(.horizontal, 7)
+        .frame(height: 26)
+        .background(canvasHeaderBackgroundColor.opacity(0.94))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func browserPreviewAddressText(for selected: SurfaceTab) -> String {
+        if let browserPanel = workspace.panel(for: selected.id) as? BrowserPanel,
+           let urlString = browserPanel.webView.url?.absoluteString,
+           !urlString.isEmpty {
+            return urlString
+        }
+        return selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "about:blank"
+    }
+
+    private func captureCanvasPreviewSnapshot(for selected: SurfaceTab, force: Bool = false) {
+        guard force || canvasPreviewImages[selected.id] == nil else { return }
+        guard let panel = workspace.panel(for: selected.id) else { return }
+        if let terminalPanel = panel as? TerminalPanel {
+            guard let image = Self.terminalSnapshotImage(of: terminalPanel.hostedView) else { return }
+            setCanvasPreviewImage(image, for: selected.id)
+            return
+        }
+
+        if let browserPanel = panel as? BrowserPanel {
+            if let image = Self.snapshotImage(of: browserPanel.webView) {
+                setCanvasPreviewImage(image, for: selected.id)
+                return
+            }
+            guard browserCanCaptureCanvasPreviewSnapshot(browserPanel) else { return }
+            guard force || !canvasPreviewSnapshotRequests.contains(selected.id) else { return }
+            canvasPreviewSnapshotRequests.insert(selected.id)
+            let surfaceID = selected.id
+            let webView = browserPanel.webView
+            browserPanel.takeSnapshot { image in
+                Task { @MainActor in
+                    canvasPreviewSnapshotRequests.remove(surfaceID)
+                    guard let image,
+                          let currentPanel = workspace.panel(for: surfaceID) as? BrowserPanel,
+                          currentPanel.webView === webView,
+                          browserCanCaptureCanvasPreviewSnapshot(currentPanel) else {
+                        return
+                    }
+                    setCanvasPreviewImage(image, for: surfaceID)
+                }
+            }
+        }
+    }
+
+    private func currentCanvasSurfaceTab(id surfaceID: SurfaceID) -> SurfaceTab? {
+        for item in currentCanvasInteractionItems() {
+            guard let selected = selectedTab(for: item),
+                  selected.id == surfaceID else {
+                continue
+            }
+            return selected
+        }
+        return nil
+    }
+
+    private func browserCanCaptureCanvasPreviewSnapshot(_ browserPanel: BrowserPanel) -> Bool {
+        guard browserPanel.webView.window != nil,
+              !browserPanel.webView.isHidden,
+              browserPanel.webView.bounds.width > 1,
+              browserPanel.webView.bounds.height > 1 else {
+            return false
+        }
+        if let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView) {
+            return !snapshot.containerHidden &&
+                snapshot.containerAlpha > 0.01 &&
+                snapshot.webViewAlpha > 0.01 &&
+                snapshot.frameInWindow.width > 1 &&
+                snapshot.frameInWindow.height > 1
+        }
+        return true
+    }
+
+    private func setCanvasPreviewImage(_ image: NSImage, for surfaceID: SurfaceID) {
+        canvasPreviewImages[surfaceID] = image
+        canvasPreviewImageGenerations[surfaceID] = (canvasPreviewImageGenerations[surfaceID] ?? 0) + 1
+    }
+
+    private static func cgImage(from image: NSImage) -> CGImage? {
+        var proposedRect = CGRect(origin: .zero, size: image.size)
+        guard proposedRect.width > 1,
+              proposedRect.height > 1,
+              proposedRect.width.isFinite,
+              proposedRect.height.isFinite else {
+            return nil
+        }
+        return image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+    }
+
+    private static func terminalSnapshotImage(of view: GhosttySurfaceScrollView) -> NSImage? {
+        #if DEBUG
+        if let cgImage = view.debugCopyIOSurfaceCGImage() {
+            let size = CGSize(width: cgImage.width, height: cgImage.height)
+            return NSImage(cgImage: cgImage, size: size)
+        }
+        #endif
+        return snapshotImage(of: view)
+    }
+
+    private static func snapshotImage(of view: NSView) -> NSImage? {
+        guard view.window != nil else { return nil }
+        let bounds = view.bounds
+        guard bounds.width > 1,
+              bounds.height > 1,
+              bounds.width.isFinite,
+              bounds.height.isFinite else {
+            return nil
+        }
+
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        rep.size = bounds.size
+        view.cacheDisplay(in: bounds, to: rep)
+
+        let image = NSImage(size: bounds.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    private func canvasUnmountedPaneContent(selected: SurfaceTab) -> some View {
+        ZStack(alignment: .topLeading) {
+            Text(selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? String(localized: "canvas.preview.surface", defaultValue: "Surface"))
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(10)
+                .foregroundStyle(canvasForegroundColor.opacity(0.42))
+        }
+    }
+
+    private func parkCanvasSurface(_ selected: SurfaceTab) {
+        WorkspaceCanvasSurfaceMountManager.park(panel: workspace.panel(for: selected.id))
+    }
+
+    private func parkCanvasNativeSurfacesForCameraMutation(
+        presentation: CanvasPresentationState?,
+        activeItemID: LayoutItemID?
+    ) {
+        guard !canvasCameraNativeSurfacesParked else { return }
+        canvasCameraNativeSurfacesParked = true
+        if let presentation {
+            captureCanvasPreviewSnapshots(in: presentation)
+        }
+        captureCanvasPreviewSnapshot(activeItemID: activeItemID)
+        WorkspaceCanvasSurfaceMountManager.parkAllNativeSurfaces(in: workspace, preserveGeometry: true)
+        CATransaction.flush()
+    }
+
+    private func captureCanvasPreviewSnapshot(activeItemID: LayoutItemID?) {
+        guard let activeItemID,
+              let item = currentCanvasInteractionItems().first(where: { $0.id == activeItemID }),
+              let selected = selectedTab(for: item) else {
+            return
+        }
+        captureCanvasPreviewSnapshot(for: selected, force: true)
+    }
+
+    private func captureCanvasPreviewSnapshots(in presentation: CanvasPresentationState) {
+        let itemsByID = Dictionary(uniqueKeysWithValues: currentCanvasInteractionItems().map { ($0.id, $0) })
+        for surface in presentation.presentationSurfaces {
+            guard let item = itemsByID[surface.id],
+                  let selected = selectedTab(for: item) else {
+                continue
+            }
+            captureCanvasPreviewSnapshot(for: selected, force: true)
+        }
+    }
+
+    @ViewBuilder
+    private func canvasGridOverlay(transform: CanvasTransform, contentSize: CGSize) -> some View {
+        Canvas { context, size in
+            let grid = CanvasGrid.freeformDefault
+            let screenSpacing = CGFloat(grid.spacing) * transform.scale
+            guard screenSpacing >= 4 else { return }
+
+            let minimumDocumentPoint = transform.documentPoint(forCanvasPoint: .zero)
+            let maximumDocumentPoint = transform.documentPoint(
+                forCanvasPoint: CGPoint(x: size.width, y: size.height)
+            )
+            let startX = floor(Double(minimumDocumentPoint.x) / grid.spacing) * grid.spacing
+            let endX = ceil(Double(maximumDocumentPoint.x) / grid.spacing) * grid.spacing
+            let startY = floor(Double(minimumDocumentPoint.y) / grid.spacing) * grid.spacing
+            let endY = ceil(Double(maximumDocumentPoint.y) / grid.spacing) * grid.spacing
+
+            func isMajor(_ value: Double) -> Bool {
+                Int((value / grid.spacing).rounded()).isMultiple(of: grid.majorEvery)
+            }
+
+            var x = startX
+            while x <= endX {
+                let point = transform.canvasPoint(forDocumentPoint: CGPoint(x: x, y: 0))
+                var path = Path()
+                path.move(to: CGPoint(x: point.x, y: 0))
+                path.addLine(to: CGPoint(x: point.x, y: size.height))
+                context.stroke(
+                    path,
+                    with: .color(canvasForegroundColor.opacity(isMajor(x) ? 0.075 : 0.035)),
+                    lineWidth: isMajor(x) ? 1 : 0.5
+                )
+                x += grid.spacing
+            }
+
+            var y = startY
+            while y <= endY {
+                let point = transform.canvasPoint(forDocumentPoint: CGPoint(x: 0, y: y))
+                var path = Path()
+                path.move(to: CGPoint(x: 0, y: point.y))
+                path.addLine(to: CGPoint(x: size.width, y: point.y))
+                context.stroke(
+                    path,
+                    with: .color(canvasForegroundColor.opacity(isMajor(y) ? 0.075 : 0.035)),
+                    lineWidth: isMajor(y) ? 1 : 0.5
+                )
+                y += grid.spacing
+            }
+        }
+        .frame(width: contentSize.width, height: contentSize.height)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func canvasAlignmentGuideOverlay(
+        _ guides: [CanvasAlignmentGuide],
+        transform: CanvasTransform
+    ) -> some View {
+        ForEach(Array(guides.enumerated()), id: \.offset) { _, guide in
+            switch guide.axis {
+            case .vertical:
+                let start = transform.canvasPoint(forDocumentPoint: CGPoint(x: guide.position, y: guide.rangeStart))
+                let end = transform.canvasPoint(forDocumentPoint: CGPoint(x: guide.position, y: guide.rangeEnd))
+                Rectangle()
+                    .fill(Color(nsColor: .controlAccentColor).opacity(0.7))
+                    .frame(width: 1, height: max(1, abs(end.y - start.y)))
+                    .position(x: start.x, y: (start.y + end.y) / 2)
+            case .horizontal:
+                let start = transform.canvasPoint(forDocumentPoint: CGPoint(x: guide.rangeStart, y: guide.position))
+                let end = transform.canvasPoint(forDocumentPoint: CGPoint(x: guide.rangeEnd, y: guide.position))
+                Rectangle()
+                    .fill(Color(nsColor: .controlAccentColor).opacity(0.7))
+                    .frame(width: max(1, abs(end.x - start.x)), height: 1)
+                    .position(x: (start.x + end.x) / 2, y: start.y)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func currentCanvasInteractionItems() -> [CanvasItem] {
+        controller.canvasDocument.items.map { item in
+            var renderedItem = item
+            if let dragState = dragStates[item.id] {
+                renderedItem.frame = dragState.frame
+            }
+            if let resizeState = resizeStates[item.id] {
+                renderedItem.frame = resizeState.frame
+            }
+            return renderedItem
+        }
+    }
+
+    private func canvasInteractionConfiguration(scale: CGFloat) -> CanvasInteractionConfiguration {
+        CanvasInteractionConfiguration(
+            grid: .freeformDefault,
+            gridSnapDistanceInScreenPoints: 6,
+            alignmentSnapDistanceInScreenPoints: 6,
+            guidePadding: 32,
+            minimumFrameSize: minimumFreeformFrameSize(scale: scale)
+        )
+    }
+
+    private func canvasResizeHitTargets(item: CanvasItem, scale: CGFloat) -> some View {
+        CanvasResizeInteractionLayer(
+            itemID: item.id,
+            edgeHitSize: canvasResizeEdgeHitSize,
+            cornerHitSize: canvasResizeCornerHitSize,
+            onResizeChanged: { handle, translation in
+                updateFreeformResize(
+                    for: item,
+                    scale: scale,
+                    handle: handle,
+                    translation: translation
+                )
+            },
+            onResizeEnded: { _ in
+                endFreeformResize(for: item, scale: scale)
+            }
+        )
+        .help(String(localized: "canvas.resize.help", defaultValue: "Resize"))
+        .accessibilityLabel(String(localized: "canvas.resize.help", defaultValue: "Resize"))
+        .accessibilityIdentifier("WorkspaceCanvasResizeLayer.\(item.id.description)")
+    }
+
+    private func updateFreeformDrag(
+        for item: CanvasItem,
+        scale: CGFloat,
+        translation: CGSize
+    ) {
+        beginCanvasDragIfNeeded(for: item.id)
+        var state = dragStates[item.id] ?? CanvasDragState(
+            baseFrame: item.frame,
+            basePortalFrameInWindow: currentCanvasPortalFrameInWindow(for: item),
+            frame: item.frame,
+            guides: []
+        )
+        let geometry = CanvasGeometryEngine.moveFrame(
+            itemID: item.id,
+            baseFrame: state.baseFrame,
+            canvasTranslation: translation,
+            scale: scale,
+            items: currentCanvasInteractionItems(),
+            configuration: canvasInteractionConfiguration(scale: scale)
+        )
+        state.frame = geometry.frame
+        state.guides = geometry.guides
+        dragStates[item.id] = state
+        activeAlignmentGuides = geometry.guides
+        _ = controller.focusCanvasItem(item.id)
+        applyCanvasPortalPresentation(for: item, dragState: state, scale: scale)
+    }
+
+    private func endFreeformDrag(for item: CanvasItem, scale: CGFloat) {
+        let finalState = dragStates[item.id]
+        if let finalState {
+            applyCanvasPortalPresentation(for: item, dragState: finalState, scale: scale)
+            controller.moveCanvasItem(item.id, to: finalState.frame)
+        }
+        dragStates[item.id] = nil
+        activeAlignmentGuides = []
+        endCanvasDrag(for: item.id)
+    }
+
+    private func updateFreeformResize(
+        for item: CanvasItem,
+        scale: CGFloat,
+        handle: CanvasResizeHandle,
+        translation: CGSize
+    ) {
+        beginCanvasDragIfNeeded(for: item.id)
+        var state = resizeStates[item.id] ?? CanvasResizeState(
+            baseFrame: item.frame,
+            basePortalFrameInWindow: currentCanvasPortalFrameInWindow(for: item),
+            frame: item.frame,
+            guides: []
+        )
+        let geometry = CanvasGeometryEngine.resizeFrame(
+            itemID: item.id,
+            baseFrame: state.baseFrame,
+            canvasTranslation: translation,
+            scale: scale,
+            handle: handle,
+            items: currentCanvasInteractionItems(),
+            configuration: canvasInteractionConfiguration(scale: scale)
+        )
+        state.frame = geometry.frame
+        state.guides = geometry.guides
+        resizeStates[item.id] = state
+        activeAlignmentGuides = geometry.guides
+        _ = controller.focusCanvasItem(item.id)
+        applyCanvasPortalPresentation(for: item, resizeState: state, scale: scale)
+    }
+
+    private func endFreeformResize(for item: CanvasItem, scale: CGFloat) {
+        let finalState = resizeStates[item.id]
+        if let finalState {
+            applyCanvasPortalPresentation(for: item, resizeState: finalState, scale: scale)
+            controller.resizeCanvasItem(item.id, to: finalState.frame)
+        }
+        resizeStates[item.id] = nil
+        activeAlignmentGuides = []
+        endCanvasDrag(for: item.id)
+    }
+
+    private func beginCanvasDragIfNeeded(for itemID: LayoutItemID) {
+        if activeCanvasDragItemID == nil {
+            let baseViewport = displayedCanvasViewport()
+            cancelCanvasViewportAnimation(stableViewport: baseViewport)
+            controller.setCanvasViewport(baseViewport)
+            canvasViewportPresentation.cancel(stableViewport: baseViewport)
+            TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        }
+        activeCanvasDragItemID = itemID
+    }
+
+    private func endCanvasDrag(for itemID: LayoutItemID) {
+        guard activeCanvasDragItemID == itemID else { return }
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+        activeCanvasDragItemID = nil
+    }
+
+    private func endActiveCanvasDragIfNeeded() {
+        let hadActiveDrag = activeCanvasDragItemID != nil
+        if hadActiveDrag {
+            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+        }
+        activeCanvasDragItemID = nil
+        dragStates.removeAll()
+        resizeStates.removeAll()
+        activeAlignmentGuides = []
+        clearCanvasPortalFrameOverrides()
+        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
+    }
+
+    private func applyCanvasPortalPresentation(for item: CanvasItem, dragState: CanvasDragState, scale: CGFloat) {
+        guard let basePortalFrameInWindow = dragState.basePortalFrameInWindow else { return }
+        let deltaX = CGFloat(dragState.frame.x - dragState.baseFrame.x) * scale
+        let deltaY = CGFloat(dragState.frame.y - dragState.baseFrame.y) * scale
+        let frameInWindow = basePortalFrameInWindow.offsetBy(
+            dx: deltaX,
+            dy: -deltaY
+        )
+        applyCanvasPortalPresentation(
+            for: item,
+            frameInWindow: frameInWindow,
+            frame: dragState.frame,
+            visualContentSize: frameInWindow.size
+        )
+    }
+
+    private func applyCanvasPortalPresentation(
+        for item: CanvasItem,
+        resizeState: CanvasResizeState,
+        scale: CGFloat
+    ) {
+        guard let basePortalFrameInWindow = resizeState.basePortalFrameInWindow else { return }
+        let baseCardSize = freeformCardSize(for: resizeState.baseFrame, scale: scale)
+        let nextCardSize = freeformCardSize(for: resizeState.frame, scale: scale)
+        let cardOriginDeltaX = CGFloat(resizeState.frame.x - resizeState.baseFrame.x) * scale
+        let cardOriginDeltaY = CGFloat(resizeState.frame.y - resizeState.baseFrame.y) * scale
+        let nextPortalWidth = max(1, basePortalFrameInWindow.width + nextCardSize.width - baseCardSize.width)
+        let nextPortalHeight = max(1, basePortalFrameInWindow.height + nextCardSize.height - baseCardSize.height)
+        let frameInWindow = CGRect(
+            x: basePortalFrameInWindow.minX + cardOriginDeltaX,
+            y: basePortalFrameInWindow.maxY - cardOriginDeltaY - nextPortalHeight,
+            width: nextPortalWidth,
+            height: nextPortalHeight
+        )
+        applyCanvasPortalPresentation(
+            for: item,
+            frameInWindow: frameInWindow,
+            frame: resizeState.frame,
+            visualContentSize: frameInWindow.size
+        )
+    }
+
+    private func applyCanvasPortalPresentation(
+        for item: CanvasItem,
+        frameInWindow: CGRect?,
+        frame: PixelRect,
+        visualContentSize: CGSize
+    ) {
+        let nativeContentSize = canvasNativeContentSize(
+            for: item,
+            frame: frame,
+            visualContentSize: visualContentSize
+        )
+        applyCanvasPortalPresentation(
+            for: item,
+            frameInWindow: frameInWindow,
+            nativeContentSize: nativeContentSize,
+            scale: canvasContentPresentationScale(
+                for: item,
+                nativeContentSize: nativeContentSize,
+                visualContentSize: visualContentSize
+            )
+        )
+    }
+
+    private func applyCanvasPortalPresentation(
+        for item: CanvasItem,
+        frameInWindow: CGRect?,
+        nativeContentSize: CGSize,
+        scale: CGFloat,
+        frameIncludesPanelChrome: Bool = false
+    ) {
+        guard let selected = selectedTab(for: item),
+              let panel = workspace.panel(for: selected.id) else { return }
+        WorkspaceCanvasSurfaceMountManager.apply(
+            panel: panel,
+            frameInWindow: frameInWindow,
+            nativeContentSize: nativeContentSize,
+            scale: scale,
+            frameIncludesPanelChrome: frameIncludesPanelChrome
+        )
+    }
+
+    private func clearCanvasPortalFrameOverrides() {
+        WorkspaceCanvasSurfaceMountManager.clearTransientOverrides()
+    }
+
+    private func currentCanvasPortalFrameInWindow(for item: CanvasItem) -> CGRect? {
+        guard let selected = selectedTab(for: item),
+              let panel = workspace.panel(for: selected.id) else { return nil }
+        return WorkspaceCanvasSurfaceMountManager.currentFrameInWindow(panel: panel)
+    }
+
+    private var canvasBackgroundColor: Color {
+        Color(nsColor: appearance.backgroundColor)
+    }
+
+    private var canvasCardBackgroundColor: Color {
+        Color(nsColor: appearance.backgroundColor)
+    }
+
+    private var canvasContentBackgroundColor: Color {
+        Color(nsColor: appearance.backgroundColor)
+    }
+
+    private var canvasHeaderBackgroundColor: Color {
+        Color(nsColor: appearance.foregroundColor).opacity(0.045)
+    }
+
+    private var canvasForegroundColor: Color {
+        Color(nsColor: appearance.foregroundColor)
+    }
+
+    private var canvasShellStyle: CanvasShellStyle {
+        let background = canvasColor(appearance.backgroundColor)
+        let foreground = canvasColor(appearance.foregroundColor)
+        return CanvasShellStyle(
+            background: background,
+            cardFill: background,
+            headerFill: foreground.withAlpha(0.045),
+            border: foreground.withAlpha(0.22),
+            focusedBorder: foreground.withAlpha(0.34),
+            gridMinor: foreground.withAlpha(0.035),
+            gridMajor: foreground.withAlpha(0.075),
+            alignmentGuide: CanvasColor(red: 0.35, green: 0.65, blue: 1, alpha: 0.72),
+            shadow: CanvasColor(red: 0, green: 0, blue: 0, alpha: 0.12),
+            headerHeight: 20,
+            borderWidth: 1,
+            focusedBorderWidth: 1,
+            shadowOffset: CGSize(width: 0, height: 4),
+            shadowExpansion: 5
+        )
+    }
+
+    private func canvasColor(_ color: NSColor) -> CanvasColor {
+        let resolved = color.usingColorSpace(.deviceRGB) ?? color
+        return CanvasColor(
+            red: Float(resolved.redComponent),
+            green: Float(resolved.greenComponent),
+            blue: Float(resolved.blueComponent),
+            alpha: Float(resolved.alphaComponent)
+        )
+    }
+
+    private func zoomedCanvasScale(delta: Double) -> Double {
+        CanvasViewportZoom.scaleAfterWheel(deltaY: delta, currentScale: controller.canvasViewport.scale)
+    }
+
+    private func zoomedCanvasScale(magnification: Double) -> Double {
+        CanvasViewportZoom.scaleAfterMagnification(magnification, currentScale: controller.canvasViewport.scale)
+    }
+
+    private func smartZoomedCanvasScale() -> Double {
+        CanvasViewportZoom.smartZoomScale(currentScale: controller.canvasViewport.scale)
+    }
+
+    private func freeformCardSize(for frame: PixelRect, scale: CGFloat) -> CGSize {
+        CanvasGeometryEngine.cardSize(
+            for: frame,
+            scale: scale,
+            minimumDisplaySize: CGSize(width: minimumFreeformCardWidth, height: minimumFreeformCardHeight)
+        )
+    }
+
+    private func canvasNativeContentSize(
+        for item: CanvasItem,
+        frame: PixelRect,
+        visualContentSize: CGSize
+    ) -> CGSize {
+        let visualSize = CGSize(
+            width: max(1, visualContentSize.width),
+            height: max(1, visualContentSize.height)
+        )
+        if item.isNativeResolution {
+            return visualSize
+        }
+        return CGSize(
+            width: max(1, CGFloat(frame.width)),
+            height: max(1, CGFloat(frame.height))
+        )
+    }
+
+    private func canvasContentPresentationScale(
+        for item: CanvasItem,
+        nativeContentSize: CGSize,
+        visualContentSize: CGSize
+    ) -> CGFloat {
+        if item.isNativeResolution {
+            return 1
+        }
+        guard nativeContentSize.width > 0,
+              nativeContentSize.height > 0,
+              visualContentSize.width > 0,
+              visualContentSize.height > 0 else {
+            return 1
+        }
+        return max(
+            0.0001,
+            min(
+                visualContentSize.width / nativeContentSize.width,
+                visualContentSize.height / nativeContentSize.height
+            )
+        )
+    }
+
+    private func minimumFreeformFrameSize(scale: CGFloat) -> CGSize {
+        CanvasGeometryEngine.minimumFrameSize(
+            scale: scale,
+            minimumDisplaySize: CGSize(width: minimumFreeformCardWidth, height: minimumFreeformCardHeight)
+        )
+    }
+
+    private func paneTabs(for item: CanvasItem) -> [SurfaceTab] {
+        switch item.content {
+        case .pane(let paneID):
+            return controller.tabs(inPane: paneID)
+        case .surface(let surfaceID):
+            return controller.surface(surfaceID).map { [$0] } ?? []
+        case .group:
+            return []
+        }
+    }
+
+    private func selectedTab(for item: CanvasItem) -> SurfaceTab? {
+        switch item.content {
+        case .pane(let paneID):
+            return controller.selectedTab(inPane: paneID)
+        case .surface(let surfaceID):
+            return controller.surface(surfaceID)
+        case .group:
+            return nil
+        }
+    }
+
+    private func paneID(for item: CanvasItem) -> PaneID? {
+        switch item.content {
+        case .pane(let paneID):
+            return paneID
+        case .surface(let surfaceID):
+            return controller.allPaneIds.first { paneID in
+                controller.tabs(inPane: paneID).contains { $0.id == surfaceID }
+            }
+        case .group:
+            return nil
+        }
+    }
+
+    private func accessibilityIdentifier(for item: CanvasItem) -> String {
+        if let paneID = paneID(for: item) {
+            return "WorkspaceCanvasCard.\(paneID.id.uuidString)"
+        }
+
+        switch item.content {
+        case .pane(let paneID):
+            return "WorkspaceCanvasCard.\(paneID.id.uuidString)"
+        case .surface(let surfaceID):
+            return "WorkspaceCanvasSurfaceCard.\(surfaceID.uuid.uuidString)"
+        case .group:
+            return "WorkspaceCanvasGroupCard.\(item.id.id.uuidString)"
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }
 
 /// View shown for empty panes
@@ -774,7 +4472,7 @@ struct EmptyPanelView: View {
     }
 
     private func focusPane() {
-        workspace.bonsplitController.focusPane(paneId)
+        workspace.layoutController.focusPane(paneId)
     }
 
     private func createTerminal() {
@@ -836,20 +4534,20 @@ struct EmptyPanelView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "canvas.empty.title", defaultValue: "Empty Panel"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "canvas.empty.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
                 emptyPaneActionButton(
-                    title: "Browser",
+                    title: String(localized: "canvas.empty.browser", defaultValue: "Browser"),
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
                     action: createBrowser

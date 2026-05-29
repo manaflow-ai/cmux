@@ -1,5 +1,5 @@
 import XCTest
-import Bonsplit
+import CMUXLayout
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -165,7 +165,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: notifiedPanel.id))
 
-        XCTAssertTrue(workspace.bonsplitController.closePane(notifiedPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(notifiedPaneId))
 
         XCTAssertNil(workspace.panels[notifiedPanel.id])
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
@@ -213,7 +213,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: indicatorPanel.id))
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: indicatorPanel.id))
 
-        XCTAssertTrue(workspace.bonsplitController.closePane(indicatorPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(indicatorPaneId))
 
         XCTAssertNil(workspace.panels[indicatorPanel.id])
         XCTAssertNil(store.focusedReadIndicatorSurfaceId(forTabId: workspace.id))
@@ -251,7 +251,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(workspace.agentPIDs[pidKey].map(Int.init), 12345)
         XCTAssertTrue(workspace.listeningPorts.contains(port))
 
-        XCTAssertTrue(workspace.bonsplitController.closePane(agentPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(agentPaneId))
 
         XCTAssertNil(workspace.panels[agentPanel.id])
         XCTAssertNil(workspace.statusEntries["codex"])
@@ -286,7 +286,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         workspace.recordAgentPID(key: firstPIDKey, pid: pid_t(12345), panelId: firstPanelId)
         workspace.recordAgentPID(key: secondPIDKey, pid: pid_t(12346), panelId: secondPanel.id)
 
-        XCTAssertTrue(workspace.bonsplitController.closePane(firstPaneId))
+        XCTAssertTrue(workspace.layoutController.closePane(firstPaneId))
 
         XCTAssertNil(workspace.panels[firstPanelId])
         XCTAssertNil(workspace.agentPIDs[firstPIDKey])
@@ -527,7 +527,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: sourceWorkspace.id, surfaceId: movingPanelId))
 
         let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
-        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.layoutController.allPaneIds.first)
 
         XCTAssertNotNil(
             destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false)
@@ -580,7 +580,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         store.setFocusedReadIndicator(forTabId: destinationWorkspace.id, surfaceId: destinationIndicatorPanelId)
 
         let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
-        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.layoutController.allPaneIds.first)
 
         XCTAssertNotNil(
             destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false)
@@ -630,7 +630,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         sourceWorkspace.recomputeListeningPorts()
 
         let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
-        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.layoutController.allPaneIds.first)
 
         XCTAssertNil(sourceWorkspace.statusEntries["codex"])
         XCTAssertNil(sourceWorkspace.agentPIDs[pidKey])
@@ -681,7 +681,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         sourceWorkspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
 
         let transfer = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: movingPanelId))
-        let destinationPaneId = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destinationWorkspace.layoutController.allPaneIds.first)
 
         XCTAssertNotNil(
             destinationWorkspace.attachDetachedSurface(transfer, inPane: destinationPaneId, focus: false)

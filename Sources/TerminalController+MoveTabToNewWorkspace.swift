@@ -1,5 +1,5 @@
 import Foundation
-import Bonsplit
+import CMUXLayout
 
 private enum SurfaceSplitOffMessage {
     static let missingSurfaceId = String(localized: "socket.surfaceSplitOff.error.missingSurfaceId", defaultValue: "Missing or invalid surface_id")
@@ -137,7 +137,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.invalidDirection, data: nil)
         }
 
-        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+        let orientation: LayoutOrientation = direction.isHorizontal ? .horizontal : .vertical
         let insertFirst = (direction == .left || direction == .up)
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
@@ -166,7 +166,7 @@ extension TerminalController {
                 ])
                 return
             }
-            guard let bonsplitTabId = ws.surfaceIdFromPanelId(surfaceId) else {
+            guard let workspaceLayoutTabId = ws.surfaceIdFromPanelId(surfaceId) else {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
             }
@@ -174,7 +174,7 @@ extension TerminalController {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.sourcePaneNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard ws.bonsplitController.tabs(inPane: sourcePane).count > 1 else {
+            guard ws.layoutController.tabs(inPane: sourcePane).count > 1 else {
                 result = .err(code: "invalid_state", message: SurfaceSplitOffMessage.wouldEmptySourcePane, data: [
                     "surface_id": surfaceId.uuidString,
                     "pane_id": sourcePane.id.uuidString
@@ -182,9 +182,9 @@ extension TerminalController {
                 return
             }
             let previousFocusedPanelId = ws.focusedPanelId
-            guard let newPaneId = ws.bonsplitController.splitPane(
+            guard let newPaneId = ws.layoutController.splitPane(
                 orientation: orientation,
-                movingTab: bonsplitTabId,
+                movingTab: workspaceLayoutTabId,
                 insertFirst: insertFirst
             ) else {
                 result = .err(code: "internal_error", message: SurfaceSplitOffMessage.splitPaneFailed, data: nil)

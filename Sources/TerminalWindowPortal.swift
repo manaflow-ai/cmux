@@ -1,11 +1,26 @@
 import AppKit
+import CMUXLayout
 import ObjectiveC
-#if DEBUG
-import Bonsplit
-#endif
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
+
+private final class WindowTerminalCanvasClipView: NSView {
+    override var isOpaque: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        translatesAutoresizingMaskIntoConstraints = true
+        autoresizingMask = []
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
 
 final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
@@ -28,6 +43,11 @@ final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
+    private static let workspaceCanvasResizeBorderAccessibilityPrefix = "WorkspaceCanvasResizeBorder."
+    private static let workspaceCanvasCardAccessibilityPrefix = "WorkspaceCanvasCard."
+    private static let workspaceCanvasResizeHelp = "Resize"
+    private static let workspaceCanvasPortalResizeEdgeHitSize: CGFloat = 16
+    private static let workspaceCanvasPortalResizeCornerHitSize: CGFloat = 44
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var trackingArea: NSTrackingArea?
@@ -131,6 +151,11 @@ final class WindowTerminalHostView: NSView {
                 return nil
             }
 
+            if shouldPassThroughToWorkspaceCanvasResizeHandle(at: point, eventType: eventType) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
             if shouldPassThroughToPaneTabBar(at: point, eventType: currentEvent?.type) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
@@ -194,25 +219,40 @@ final class WindowTerminalHostView: NSView {
                 hitView: hitView
             )
 #endif
-            return hitView === self ? nil : hitView
+            return normalizedPortalHitView(hitView)
         }
 
         // Non-pointer event: skip divider/drag routing, just do standard hit testing.
         let hitView = super.hitTest(point)
-        return hitView === self ? nil : hitView
+        return normalizedPortalHitView(hitView)
+    }
+
+    private func normalizedPortalHitView(_ hitView: NSView?) -> NSView? {
+        guard let hitView, hitView !== self else { return nil }
+        var current: NSView? = hitView
+        while let view = current {
+            if view.alphaValue <= 0.01 || view.isHidden {
+                return nil
+            }
+            if view === self {
+                break
+            }
+            current = view.superview
+        }
+        return hitView
     }
 
     private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        return windowPoint.y >= WorkspaceLayoutTabBarPassThrough.titlebarInteractionBandMinY(in: window)
     }
 
     private func shouldPassThroughToPaneTabBar(
         at point: NSPoint,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        guard let decision = BonsplitTabBarPassThrough.passThroughDecision(
+        guard let decision = WorkspaceLayoutTabBarPassThrough.passThroughDecision(
             at: point,
             in: self,
             eventType: eventType
@@ -225,13 +265,12 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func hostedTerminalHitView(at point: NSPoint) -> NSView? {
-        for subview in subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView,
-                  !hostedView.isHidden,
-                  hostedView.alphaValue > 0,
-                  hostedView.frame.contains(point) else { continue }
+        for candidate in visibleHostedTerminalCandidates().reversed() {
+            guard candidate.frame.contains(point) else { continue }
 
-            return hostedView.hitTest(point) ?? hostedView
+            let hostedPoint = candidate.view.convert(point, from: self)
+            guard candidate.view.bounds.contains(hostedPoint) else { continue }
+            return candidate.view.hitTest(hostedPoint) ?? candidate.view
         }
         return nil
     }
@@ -239,6 +278,132 @@ final class WindowTerminalHostView: NSView {
     private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
         shouldPassThroughToTitlebar(at: point)
             || shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
+    }
+
+    private func shouldPassThroughToWorkspaceCanvasResizeHandle(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard WorkspaceLayoutTabBarPassThrough.isPassThroughPointerEvent(eventType) else {
+            return false
+        }
+        guard let window else {
+            return false
+        }
+
+        let windowPoint = convert(point, to: nil)
+        if WorkspaceCanvasResizeHitRegionRegistry.contains(pointInWindow: windowPoint, in: window) {
+            noteWorkspaceCanvasResizePointerEvent(eventType, in: window)
+            return true
+        }
+        if shouldPassThroughToWorkspaceCanvasPortalResizeEdge(at: point) {
+            noteWorkspaceCanvasResizePointerEvent(eventType, in: window)
+            return true
+        }
+        guard let contentView = window.contentView else {
+            return false
+        }
+
+        let screenPoint = window.convertPoint(toScreen: windowPoint)
+        guard let hitElement = contentView.accessibilityHitTest(screenPoint) else {
+            return false
+        }
+
+        return Self.accessibilityElementIsWorkspaceCanvasResizeHandle(hitElement)
+    }
+
+    private func noteWorkspaceCanvasResizePointerEvent(_ eventType: NSEvent.EventType?, in window: NSWindow) {
+        switch eventType {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            WorkspaceCanvasResizeHitRegionRegistry.beginPointerResize(in: window)
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            WorkspaceCanvasResizeHitRegionRegistry.endPointerResize(in: window)
+        default:
+            break
+        }
+    }
+
+    private func shouldPassThroughToWorkspaceCanvasPortalResizeEdge(at point: NSPoint) -> Bool {
+        for candidate in visibleHostedTerminalCandidates() where candidate.frame.contains(point) {
+            let localPoint = NSPoint(x: point.x - candidate.frame.minX, y: point.y - candidate.frame.minY)
+            let visualBounds = NSRect(origin: .zero, size: candidate.frame.size)
+            guard Self.workspaceCanvasPortalResizeEdgeContains(localPoint, in: visualBounds) else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    private static func workspaceCanvasPortalResizeEdgeContains(_ point: NSPoint, in bounds: NSRect) -> Bool {
+        guard bounds.width > 1,
+              bounds.height > 1,
+              bounds.contains(point) else {
+            return false
+        }
+
+        return CanvasResizeHitArea(
+            cardSize: bounds.size,
+            edgeHitSize: workspaceCanvasPortalResizeEdgeHitSize,
+            cornerHitSize: workspaceCanvasPortalResizeCornerHitSize
+        )
+        .handle(at: CGPoint(x: point.x - bounds.minX, y: point.y - bounds.minY)) != nil
+    }
+
+    private static func accessibilityElementIsWorkspaceCanvasResizeHandle(_ element: Any) -> Bool {
+        var current: Any? = element
+        var hopCount = 0
+        var foundResizeHelp = false
+        var foundCanvasCard = false
+        while let element = current, hopCount < 16 {
+            if let identifier = accessibilityIdentifier(of: element) {
+                if identifier.hasPrefix(workspaceCanvasResizeBorderAccessibilityPrefix) {
+                    return true
+                }
+                if identifier.hasPrefix(workspaceCanvasCardAccessibilityPrefix) {
+                    foundCanvasCard = true
+                }
+            }
+            if accessibilityHelp(of: element) == workspaceCanvasResizeHelp {
+                foundResizeHelp = true
+            }
+            if foundResizeHelp && foundCanvasCard {
+                return true
+            }
+            current = accessibilityParent(of: element)
+            hopCount += 1
+        }
+        return false
+    }
+
+    private static func accessibilityIdentifier(of element: Any) -> String? {
+        if let view = element as? NSView {
+            return view.accessibilityIdentifier()
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityIdentifier()
+        }
+        return nil
+    }
+
+    private static func accessibilityHelp(of element: Any) -> String? {
+        if let view = element as? NSView {
+            return view.accessibilityHelp()
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityHelp()
+        }
+        return nil
+    }
+
+    private static func accessibilityParent(of element: Any) -> Any? {
+        if let view = element as? NSView {
+            return view.accessibilityParent() ?? view.superview
+        }
+        if let accessibilityElement = element as? NSAccessibilityElement {
+            return accessibilityElement.accessibilityParent()
+        }
+        return nil
     }
 
     private func cursorRectIntersectsChromePassThrough(_ rect: NSRect) -> Bool {
@@ -256,19 +421,19 @@ final class WindowTerminalHostView: NSView {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
         // and steal hover/mouse events.
-        let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
-            .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
+        let visibleHostedTerminals = visibleHostedTerminalCandidates()
+        let visibleHostedFrames = visibleHostedTerminals.map(\.frame)
 
-        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedViews: visibleHostedViews) {
+        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleHostedTerminals: visibleHostedTerminals) {
             return true
         }
 
         // If content is flush to the leading edge, sidebar is effectively hidden.
         // In that state, treating any internal split edge as a sidebar divider
         // steals split-divider cursor/drag behavior.
-        let hasLeadingContent = visibleHostedViews.contains {
-            $0.frame.minX <= Self.sidebarLeadingEdgeEpsilon
-                && $0.frame.maxX > Self.minimumVisibleLeadingContentWidth
+        let hasLeadingContent = visibleHostedFrames.contains {
+            $0.minX <= Self.sidebarLeadingEdgeEpsilon
+                && $0.maxX > Self.minimumVisibleLeadingContentWidth
         }
         if hasLeadingContent {
             if cachedSidebarDividerX != nil {
@@ -284,8 +449,8 @@ final class WindowTerminalHostView: NSView {
         // Ignore transient 0-origin hosts while layouts churn (e.g. workspace
         // creation/switching). They can temporarily report minX=0 and would
         // otherwise clear divider pass-through, causing hover flicker.
-        let dividerCandidates = visibleHostedViews
-            .map(\.frame.minX)
+        let dividerCandidates = visibleHostedFrames
+            .map(\.minX)
             .filter { $0 > Self.sidebarLeadingEdgeEpsilon }
         if let leftMostEdge = dividerCandidates.min() {
             cachedSidebarDividerX = leftMostEdge
@@ -309,13 +474,48 @@ final class WindowTerminalHostView: NSView {
 
     private func shouldPassThroughToTrailingSidebarResizer(
         at point: NSPoint,
-        visibleHostedViews: [GhosttySurfaceScrollView]
+        visibleHostedTerminals: [(view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)]
     ) -> Bool {
-        let contentHostedViews = visibleHostedViews.filter { !$0.isRightSidebarDockSurface }
-        guard let rightMostEdge = contentHostedViews.map(\.frame.maxX).max() else { return false }
+        let contentHostedFrames = visibleHostedTerminals
+            .filter { !$0.isRightSidebarDockSurface }
+            .map(\.frame)
+        guard let rightMostEdge = contentHostedFrames.map(\.maxX).max() else { return false }
         let trailingGap = bounds.maxX - rightMostEdge
         guard trailingGap > Self.minimumVisibleLeadingContentWidth else { return false }
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightMostEdge).contains(point.x)
+    }
+
+    private func visibleHostedTerminalCandidates() -> [(view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)] {
+        subviews.flatMap { subview -> [(view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)] in
+            if let hostedView = subview as? GhosttySurfaceScrollView {
+                guard !hostedView.isHidden,
+                      hostedView.alphaValue > 0,
+                      hostedView.window != nil,
+                      hostedView.frame.width > 1,
+                      hostedView.frame.height > 1 else {
+                    return []
+                }
+                return [(view: hostedView, frame: hostedView.frame, isRightSidebarDockSurface: hostedView.isRightSidebarDockSurface)]
+            }
+
+            guard let clipView = subview as? WindowTerminalCanvasClipView,
+                  !clipView.isHidden,
+                  clipView.alphaValue > 0,
+                  clipView.window != nil,
+                  clipView.frame.width > 1,
+                  clipView.frame.height > 1 else {
+                return []
+            }
+            return clipView.subviews.compactMap { child -> (view: GhosttySurfaceScrollView, frame: NSRect, isRightSidebarDockSurface: Bool)? in
+                guard let hostedView = child as? GhosttySurfaceScrollView,
+                      !hostedView.isHidden,
+                      hostedView.alphaValue > 0,
+                      hostedView.window != nil else {
+                    return nil
+                }
+                return (view: hostedView, frame: clipView.frame, isRightSidebarDockSurface: hostedView.isRightSidebarDockSurface)
+            }
+        }
     }
 
     private func updateDividerCursor(at point: NSPoint) {
@@ -460,7 +660,7 @@ final class WindowTerminalHostView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hitView: NSView?
     ) {
-        let hasRelevantTypes = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+        let hasRelevantTypes = DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
             || DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
         guard passThrough || hasRelevantTypes else { return }
@@ -603,9 +803,15 @@ private final class SplitDividerOverlayView: NSView {
     private func hostedFramesLikelyToOccludeDividers() -> [NSRect] {
         guard let hostView = superview else { return [] }
         return hostView.subviews.compactMap { subview -> NSRect? in
-            guard let hosted = subview as? GhosttySurfaceScrollView else { return nil }
-            guard !hosted.isHidden, hosted.window != nil else { return nil }
-            return hosted.frame
+            if let hosted = subview as? GhosttySurfaceScrollView {
+                guard !hosted.isHidden, hosted.window != nil else { return nil }
+                return hosted.frame
+            }
+            if let clipView = subview as? WindowTerminalCanvasClipView {
+                guard !clipView.isHidden, clipView.window != nil else { return nil }
+                return clipView.frame
+            }
+            return nil
         }
     }
 
@@ -674,7 +880,7 @@ final class WindowTerminalPortal: NSObject {
     private var externalGeometrySyncGeneration: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
-    private var lastLoggedBonsplitContainerSignature: String?
+    private var lastLoggedCMUXLayoutContainerSignature: String?
 #endif
 
     private struct Entry {
@@ -687,6 +893,11 @@ final class WindowTerminalPortal: NSObject {
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private var interactiveFrameOverridesInWindowByHostedId: [ObjectIdentifier: NSRect] = [:]
+    private var canvasSurfacePresentationsByHostedId: [ObjectIdentifier: CanvasSurfacePresentation] = [:]
+    private var canvasSurfacePresentationSuppressedHostedIds: Set<ObjectIdentifier> = []
+    private var canvasSurfacePresentationFrozenHostedIds: Set<ObjectIdentifier> = []
+    private var canvasClipViewsByHostedId: [ObjectIdentifier: WindowTerminalCanvasClipView] = [:]
 
     init(window: NSWindow, syncLayout: Bool = true) {
         self.window = window
@@ -1017,11 +1228,11 @@ final class WindowTerminalPortal: NSObject {
     }
 
 #if DEBUG
-    private func nearestBonsplitContainer(from anchorView: NSView) -> NSView? {
+    private func nearestCMUXLayoutContainer(from anchorView: NSView) -> NSView? {
         var current: NSView? = anchorView
         while let view = current {
             let className = NSStringFromClass(type(of: view))
-            if className.contains("PaneDragContainerView") || className.contains("Bonsplit") {
+            if className.contains("PaneDragContainerView") || className.contains("CMUXLayout") {
                 return view
             }
             current = view.superview
@@ -1029,16 +1240,16 @@ final class WindowTerminalPortal: NSObject {
         return installedReferenceView
     }
 
-    private func logBonsplitContainerFrameIfNeeded(anchorView: NSView, hostedView: GhosttySurfaceScrollView) {
-        guard let container = nearestBonsplitContainer(from: anchorView) else { return }
+    private func logCMUXLayoutContainerFrameIfNeeded(anchorView: NSView, hostedView: GhosttySurfaceScrollView) {
+        guard let container = nearestCMUXLayoutContainer(from: anchorView) else { return }
         let containerFrame = container.convert(container.bounds, to: nil)
         let signature = "\(ObjectIdentifier(container)):\(portalDebugFrame(containerFrame))"
-        guard signature != lastLoggedBonsplitContainerSignature else { return }
-        lastLoggedBonsplitContainerSignature = signature
+        guard signature != lastLoggedCMUXLayoutContainerSignature else { return }
+        lastLoggedCMUXLayoutContainerSignature = signature
 
         let containerClass = NSStringFromClass(type(of: container))
         cmuxDebugLog(
-            "portal.bonsplit.container hosted=\(portalDebugToken(hostedView)) " +
+            "portal.workspaceLayout.container hosted=\(portalDebugToken(hostedView)) " +
             "class=\(containerClass) frame=\(portalDebugFrame(containerFrame)) " +
             "host=\(portalDebugFrameInWindow(hostView)) anchor=\(portalDebugFrameInWindow(anchorView))"
         )
@@ -1097,7 +1308,56 @@ final class WindowTerminalPortal: NSObject {
         return frameInHost
     }
 
+    private func canvasClipView(forHostedId hostedId: ObjectIdentifier) -> WindowTerminalCanvasClipView {
+        if let clipView = canvasClipViewsByHostedId[hostedId] {
+            return clipView
+        }
+
+        let clipView = WindowTerminalCanvasClipView(frame: .zero)
+        canvasClipViewsByHostedId[hostedId] = clipView
+        return clipView
+    }
+
+    private func unmountCanvasClipView(
+        forHostedId hostedId: ObjectIdentifier,
+        hostedView: GhosttySurfaceScrollView?,
+        reattachHostedViewToHost: Bool
+    ) {
+        guard let clipView = canvasClipViewsByHostedId.removeValue(forKey: hostedId) else { return }
+        if let hostedView, hostedView.superview === clipView {
+            if reattachHostedViewToHost {
+                hostedView.removeFromSuperview()
+                hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
+            } else {
+                hostedView.removeFromSuperview()
+            }
+        }
+        clipView.removeFromSuperview()
+    }
+
+    private func setHostedVisibility(_ hidden: Bool, forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView) {
+        hostedView.isHidden = hidden
+        canvasClipViewsByHostedId[hostedId]?.isHidden = hidden
+    }
+
+    private func setCanvasSurfaceFrozen(_ frozen: Bool, forHostedId hostedId: ObjectIdentifier, hostedView: GhosttySurfaceScrollView?) {
+        let alpha: CGFloat = frozen ? 0 : 1
+        hostedView?.alphaValue = alpha
+        canvasClipViewsByHostedId[hostedId]?.alphaValue = alpha
+        if frozen {
+            if let hostedView {
+                setHostedVisibility(false, forHostedId: hostedId, hostedView: hostedView)
+            } else {
+                canvasClipViewsByHostedId[hostedId]?.isHidden = false
+            }
+        }
+    }
+
     func detachHostedView(withId hostedId: ObjectIdentifier) {
+        interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+        canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+        canvasSurfacePresentationSuppressedHostedIds.remove(hostedId)
+        canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -1109,20 +1369,31 @@ final class WindowTerminalPortal: NSObject {
             "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
         )
 #endif
-        if let hostedView = entry.hostedView, hostedView.superview === hostView {
-            hostedView.removeFromSuperview()
+        if let hostedView = entry.hostedView {
+            unmountCanvasClipView(forHostedId: hostedId, hostedView: hostedView, reattachHostedViewToHost: false)
+            if hostedView.superview === hostView {
+                hostedView.removeFromSuperview()
+            }
+        } else {
+            unmountCanvasClipView(forHostedId: hostedId, hostedView: nil, reattachHostedViewToHost: false)
         }
     }
 
     /// Hide a portal entry without detaching it. Updates visibleInUI to false and
     /// sets isHidden = true so subsequent synchronizeHostedView calls keep it hidden.
-    /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
+    /// Used when a workspace is permanently unmounted (vs. transient workspaceLayout dismantles).
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
+        interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+        canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+        canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
-        entry.hostedView?.isHidden = true
+        if let hostedView = entry.hostedView {
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: hostedView)
+            setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
+        }
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
@@ -1133,11 +1404,109 @@ final class WindowTerminalPortal: NSObject {
     /// won't hide a view that updateNSView has already marked as visible.
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
         guard var entry = entriesByHostedId[hostedId] else { return }
-        entry.visibleInUI = visibleInUI
-        if !visibleInUI {
+        if !visibleInUI, canvasSurfacePresentationFrozenHostedIds.contains(hostedId) {
+            setCanvasSurfaceFrozen(true, forHostedId: hostedId, hostedView: entry.hostedView)
+            return
+        }
+        let effectiveVisibleInUI = visibleInUI && !canvasSurfacePresentationSuppressedHostedIds.contains(hostedId)
+        let didChange = entry.visibleInUI != effectiveVisibleInUI
+        entry.visibleInUI = effectiveVisibleInUI
+        if !effectiveVisibleInUI {
             entry.transientRecoveryRetriesRemaining = 0
+            interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+            canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+            unmountCanvasClipView(
+                forHostedId: hostedId,
+                hostedView: entry.hostedView,
+                reattachHostedViewToHost: true
+            )
         }
         entriesByHostedId[hostedId] = entry
+        if didChange {
+            synchronizeHostedView(withId: hostedId)
+        }
+    }
+
+    func setInteractiveFrameOverride(forHostedId hostedId: ObjectIdentifier, frameInWindow: NSRect?) {
+        if let frameInWindow {
+            interactiveFrameOverridesInWindowByHostedId[hostedId] = frameInWindow
+        } else {
+            interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+        }
+        synchronizeHostedView(withId: hostedId)
+    }
+
+    func setCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier, presentation: CanvasSurfacePresentation?) {
+        if presentation != nil,
+           (canvasSurfacePresentationSuppressedHostedIds.contains(hostedId)
+            || canvasSurfacePresentationFrozenHostedIds.contains(hostedId)) {
+            return
+        }
+        if presentation == nil, canvasSurfacePresentationFrozenHostedIds.contains(hostedId) {
+            return
+        }
+        if let presentation {
+            canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
+            canvasSurfacePresentationsByHostedId[hostedId] = presentation
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
+        } else {
+            canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
+            unmountCanvasClipView(
+                forHostedId: hostedId,
+                hostedView: entriesByHostedId[hostedId]?.hostedView,
+                reattachHostedViewToHost: true
+            )
+        }
+        synchronizeHostedView(withId: hostedId)
+    }
+
+    func suppressCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier) {
+        canvasSurfacePresentationSuppressedHostedIds.insert(hostedId)
+        interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+        canvasSurfacePresentationsByHostedId.removeValue(forKey: hostedId)
+        guard var entry = entriesByHostedId[hostedId] else { return }
+        entry.visibleInUI = false
+        entry.transientRecoveryRetriesRemaining = 0
+        entriesByHostedId[hostedId] = entry
+        unmountCanvasClipView(
+            forHostedId: hostedId,
+            hostedView: entry.hostedView,
+            reattachHostedViewToHost: true
+        )
+        if let hostedView = entry.hostedView {
+            setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
+        }
+    }
+
+    func freezeCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier) {
+        guard let entry = entriesByHostedId[hostedId] else { return }
+        canvasSurfacePresentationFrozenHostedIds.insert(hostedId)
+        interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+        setCanvasSurfaceFrozen(true, forHostedId: hostedId, hostedView: entry.hostedView)
+    }
+
+    func resumeCanvasSurfacePresentation(forHostedId hostedId: ObjectIdentifier) {
+        canvasSurfacePresentationSuppressedHostedIds.remove(hostedId)
+        canvasSurfacePresentationFrozenHostedIds.remove(hostedId)
+        setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
+        synchronizeHostedView(withId: hostedId)
+    }
+
+    func clearInteractiveFrameOverrides() {
+        let hostedIds = Array(Set(interactiveFrameOverridesInWindowByHostedId.keys).union(canvasSurfacePresentationsByHostedId.keys))
+        interactiveFrameOverridesInWindowByHostedId.removeAll()
+        canvasSurfacePresentationsByHostedId.removeAll()
+        canvasSurfacePresentationFrozenHostedIds.removeAll()
+        for hostedId in hostedIds {
+            setCanvasSurfaceFrozen(false, forHostedId: hostedId, hostedView: entriesByHostedId[hostedId]?.hostedView)
+            unmountCanvasClipView(
+                forHostedId: hostedId,
+                hostedView: entriesByHostedId[hostedId]?.hostedView,
+                reattachHostedViewToHost: true
+            )
+            synchronizeHostedView(withId: hostedId)
+        }
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -1182,7 +1551,7 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
             anchorView: anchorView,
-            visibleInUI: visibleInUI,
+            visibleInUI: visibleInUI && !canvasSurfacePresentationSuppressedHostedIds.contains(hostedId),
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1191,10 +1560,12 @@ final class WindowTerminalPortal: NSObject {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
         }()
+        let activeCanvasClipView = canvasClipViewsByHostedId[hostedId]
+        let hostedViewIsInstalled = hostedView.superview === hostView || hostedView.superview === activeCanvasClipView
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
-        if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
+        if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || !hostedViewIsInstalled {
             cmuxDebugLog(
                 "portal.bind hosted=\(portalDebugToken(hostedView)) " +
                 "anchor=\(portalDebugToken(anchorView)) prevAnchor=\(portalDebugToken(previousEntry?.anchorView)) " +
@@ -1208,29 +1579,31 @@ final class WindowTerminalPortal: NSObject {
 
         // Seed frame/bounds before entering the window so a freshly reparented
         // surface doesn't do a transient 800x600 size update on viewDidMoveToWindow.
-        if let seededFrame = seededFrameInHost(for: anchorView),
-           seededFrame.width > 0,
-           seededFrame.height > 0 {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostedView.frame = seededFrame
-            hostedView.bounds = NSRect(origin: .zero, size: seededFrame.size)
-            CATransaction.commit()
-        } else {
-            // If anchor geometry is still unsettled, keep this hidden/zero-sized until
-            // synchronizeHostedView resolves a valid target frame on the next layout tick.
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostedView.frame = .zero
-            hostedView.bounds = .zero
-            CATransaction.commit()
-            hostedView.isHidden = true
+        if canvasSurfacePresentationsByHostedId[hostedId] == nil {
+            if let seededFrame = seededFrameInHost(for: anchorView),
+               seededFrame.width > 0,
+               seededFrame.height > 0 {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostedView.frame = seededFrame
+                hostedView.bounds = NSRect(origin: .zero, size: seededFrame.size)
+                CATransaction.commit()
+            } else {
+                // If anchor geometry is still unsettled, keep this hidden/zero-sized until
+                // synchronizeHostedView resolves a valid target frame on the next layout tick.
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostedView.frame = .zero
+                hostedView.bounds = .zero
+                CATransaction.commit()
+                setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
+            }
         }
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
         // before the hosted view enters a window.
         hostedView.reconcileGeometryNow()
 
-        if hostedView.superview !== hostView {
+        if !hostedViewIsInstalled {
 #if DEBUG
             cmuxDebugLog(
                 "portal.reparent hosted=\(portalDebugToken(hostedView)) " +
@@ -1238,7 +1611,20 @@ final class WindowTerminalPortal: NSObject {
             )
 #endif
             hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
-        } else if (becameVisible || priorityIncreased), hostView.subviews.last !== hostedView {
+        } else if (becameVisible || priorityIncreased) {
+            let zOrderedSubview: NSView = activeCanvasClipView ?? hostedView
+            guard hostView.subviews.last !== zOrderedSubview else {
+                ensureDividerOverlayOnTop()
+                if deferLayoutSynchronization {
+                    synchronizeHostedView(withId: hostedId, syncLayout: false)
+                    scheduleDeferredFullSynchronizeAll()
+                } else {
+                    synchronizeHostedView(withId: hostedId)
+                    scheduleDeferredFullSynchronizeAll()
+                }
+                pruneDeadEntries()
+                return
+            }
             // Refresh z-order only when a view becomes visible or gets a higher priority.
             // Anchor-only churn is common during split tree updates; forcing remove/add there
             // causes transient inWindow=0 -> 1 bounces that can flash black.
@@ -1249,7 +1635,7 @@ final class WindowTerminalPortal: NSObject {
                 "priorityIncreased=\(priorityIncreased ? 1 : 0)"
             )
 #endif
-            hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
+            hostView.addSubview(zOrderedSubview, positioned: .above, relativeTo: nil)
         }
 
         ensureDividerOverlayOnTop()
@@ -1366,6 +1752,11 @@ final class WindowTerminalPortal: NSObject {
             entriesByHostedId.removeValue(forKey: hostedId)
             return
         }
+        if canvasSurfacePresentationFrozenHostedIds.contains(hostedId) {
+            resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
+            setCanvasSurfaceFrozen(true, forHostedId: hostedId, hostedView: hostedView)
+            return
+        }
         guard let anchorView = entry.anchorView, let window else {
             if entry.visibleInUI {
                 let shouldPreserveVisibleOnTransient = !hostedView.isHidden &&
@@ -1392,7 +1783,7 @@ final class WindowTerminalPortal: NSObject {
                 cmuxDebugLog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
             }
 #endif
-            hostedView.isHidden = true
+            setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
             if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
@@ -1432,7 +1823,7 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
-            hostedView.isHidden = true
+            setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
             if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
@@ -1445,11 +1836,28 @@ final class WindowTerminalPortal: NSObject {
         }
 
         _ = synchronizeHostFrameToReference()
-        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let anchorFrameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let storedCanvasSurfacePresentation = canvasSurfacePresentationsByHostedId[hostedId]
+        let canvasSurfacePresentation = storedCanvasSurfacePresentation.flatMap {
+            WindowPortalClipRegistry.clippedCanvasPresentation($0, in: window)
+        }
+        let canvasPresentationClippedOut = storedCanvasSurfacePresentation != nil && canvasSurfacePresentation == nil
+        let interactiveFrameInWindow: NSRect? = {
+            guard let overrideFrame = interactiveFrameOverridesInWindowByHostedId[hostedId] else { return nil }
+            if Self.rectApproximatelyEqual(anchorFrameInWindow, overrideFrame, epsilon: 1.0) {
+                interactiveFrameOverridesInWindowByHostedId.removeValue(forKey: hostedId)
+                return nil
+            }
+            return overrideFrame
+        }()
+        let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? storedCanvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
+        let visibleFrameInWindow = canvasSurfacePresentation?.visibleFrameInWindow ?? frameInWindow
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let visibleFrameInHostRaw = hostView.convert(visibleFrameInWindow, from: nil)
+        let visibleFrameInHost = Self.pixelSnappedRect(visibleFrameInHostRaw, in: hostView)
 #if DEBUG
-        logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
+        logCMUXLayoutContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
 #endif
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
@@ -1486,7 +1894,7 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
-            hostedView.isHidden = true
+            setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
             if entry.visibleInUI {
                 if Self.transientRecoveryEnabled {
                     _ = scheduleTransientRecoveryRetryIfNeeded(
@@ -1501,25 +1909,35 @@ final class WindowTerminalPortal: NSObject {
             }
             return
         }
+        let visibilityFrameInHost = canvasSurfacePresentation != nil ? visibleFrameInHost : frameInHost
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
             frameInHost.origin.y.isFinite &&
             frameInHost.size.width.isFinite &&
-            frameInHost.size.height.isFinite
-        let clampedFrame = frameInHost.intersection(hostBounds)
+            frameInHost.size.height.isFinite &&
+            visibilityFrameInHost.origin.x.isFinite &&
+            visibilityFrameInHost.origin.y.isFinite &&
+            visibilityFrameInHost.size.width.isFinite &&
+            visibilityFrameInHost.size.height.isFinite
+        let clampedFrame = visibilityFrameInHost.intersection(hostBounds)
         let hasVisibleIntersection =
             !clampedFrame.isNull &&
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
-        let targetFrame = (hasFiniteFrame && hasVisibleIntersection) ? clampedFrame : frameInHost
-        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let targetFrame = canvasSurfacePresentation != nil
+            ? frameInHost
+            : ((hasFiniteFrame && hasVisibleIntersection) ? clampedFrame : frameInHost)
+        let targetVisibleFrame = canvasSurfacePresentation != nil ? visibilityFrameInHost : targetFrame
+        let anchorHidden = canvasSurfacePresentation == nil &&
+            interactiveFrameInWindow == nil &&
+            Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame =
-            targetFrame.width <= Self.tinyHideThreshold ||
-            targetFrame.height <= Self.tinyHideThreshold
+            targetVisibleFrame.width <= Self.tinyHideThreshold ||
+            targetVisibleFrame.height <= Self.tinyHideThreshold
         let revealReadyForDisplay =
-            targetFrame.width >= Self.minimumRevealWidth &&
-            targetFrame.height >= Self.minimumRevealHeight
-        let outsideHostBounds = !hasVisibleIntersection
+            targetVisibleFrame.width >= Self.minimumRevealWidth &&
+            targetVisibleFrame.height >= Self.minimumRevealHeight
+        let outsideHostBounds = canvasPresentationClippedOut || !hasVisibleIntersection
         let shouldHide =
             !entry.visibleInUI ||
             anchorHidden ||
@@ -1591,7 +2009,7 @@ final class WindowTerminalPortal: NSObject {
                 "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
-            hostedView.isHidden = true
+            setHostedVisibility(true, forHostedId: hostedId, hostedView: hostedView)
         }
         if shouldPreserveVisibleOnTransientGeometry {
 #if DEBUG
@@ -1603,22 +2021,81 @@ final class WindowTerminalPortal: NSObject {
         }
 
         if hasFiniteFrame {
-            let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
-            var geometryChanged = false
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
-                hostedView.frame = targetFrame
-                geometryChanged = true
-            }
-            if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
-                hostedView.bounds = expectedBounds
-                geometryChanged = true
-            }
-            CATransaction.commit()
-            if geometryChanged {
-                hostedView.reconcileGeometryNow()
-                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+            if let canvasSurfacePresentation {
+                let clipView = canvasClipView(forHostedId: hostedId)
+                let expectedClipBounds = canvasSurfacePresentation.nativeClipBounds
+                let expectedHostedFrame = canvasSurfacePresentation.nativeContentFrameInClip
+                let expectedHostedBounds = NSRect(origin: .zero, size: canvasSurfacePresentation.nativeContentSize)
+                let oldHostedFrame = hostedView.frame
+                let oldHostedBounds = hostedView.bounds
+                var hostedBoundsChanged = false
+
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                if clipView.superview !== hostView {
+                    hostView.addSubview(clipView, positioned: .above, relativeTo: nil)
+                }
+                clipView.isHidden = hostedView.isHidden
+                if hostedView.superview !== clipView {
+                    hostedView.removeFromSuperview()
+                    clipView.addSubview(hostedView)
+                }
+                if !Self.rectApproximatelyEqual(clipView.frame, targetVisibleFrame) {
+                    clipView.frame = targetVisibleFrame
+                }
+                if !Self.rectApproximatelyEqual(clipView.bounds, expectedClipBounds) {
+                    clipView.bounds = expectedClipBounds
+                }
+                if !Self.rectApproximatelyEqual(oldHostedFrame, expectedHostedFrame) {
+                    hostedView.frame = expectedHostedFrame
+                }
+                if !Self.rectApproximatelyEqual(oldHostedBounds, expectedHostedBounds) {
+                    hostedView.bounds = expectedHostedBounds
+                    hostedBoundsChanged = true
+                }
+                CATransaction.commit()
+
+                let hostedFrameSizeChanged =
+                    abs(oldHostedFrame.width - expectedHostedFrame.width) > 0.01 ||
+                    abs(oldHostedFrame.height - expectedHostedFrame.height) > 0.01
+                let hostedBoundsSizeChanged =
+                    abs(oldHostedBounds.width - expectedHostedBounds.width) > 0.01 ||
+                    abs(oldHostedBounds.height - expectedHostedBounds.height) > 0.01
+                if hostedFrameSizeChanged || hostedBoundsChanged {
+                    hostedView.reconcileGeometryNow()
+                    if hostedFrameSizeChanged || hostedBoundsSizeChanged {
+                        hostedView.refreshSurfaceNow(reason: "portal.nativeFrameChange")
+                    }
+                }
+            } else {
+                unmountCanvasClipView(
+                    forHostedId: hostedId,
+                    hostedView: hostedView,
+                    reattachHostedViewToHost: true
+                )
+                let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
+                let frameSizeChanged =
+                    abs(oldFrame.size.width - targetFrame.size.width) > 0.01 ||
+                    abs(oldFrame.size.height - targetFrame.size.height) > 0.01
+                var frameChanged = false
+                var boundsChanged = false
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+                    hostedView.frame = targetFrame
+                    frameChanged = true
+                }
+                if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
+                    hostedView.bounds = expectedBounds
+                    boundsChanged = true
+                }
+                CATransaction.commit()
+                if frameChanged || boundsChanged {
+                    hostedView.reconcileGeometryNow()
+                    if frameSizeChanged || boundsChanged {
+                        hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                    }
+                }
             }
         }
 
@@ -1643,7 +2120,7 @@ final class WindowTerminalPortal: NSObject {
                 "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
-            hostedView.isHidden = false
+            setHostedVisibility(false, forHostedId: hostedId, hostedView: hostedView)
             // A reveal can happen without any frame delta (same targetFrame), which means the
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
@@ -1731,7 +2208,15 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func debugStats() -> DebugStats {
-        let terminalSubviews = hostView.subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+        let terminalSubviews = hostView.subviews.flatMap { subview -> [GhosttySurfaceScrollView] in
+            if let hostedView = subview as? GhosttySurfaceScrollView {
+                return [hostedView]
+            }
+            if let clipView = subview as? WindowTerminalCanvasClipView {
+                return clipView.subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+            }
+            return []
+        }
         var mappedTerminalSubviewCount = 0
         var orphanTerminalSubviewCount = 0
         var visibleOrphanTerminalSubviewCount = 0
@@ -1768,7 +2253,15 @@ final class WindowTerminalPortal: NSObject {
 
         let staleEntryCount = entriesByHostedId.values.reduce(0) { partialResult, entry in
             guard let hostedView = entry.hostedView else { return partialResult + 1 }
-            return hostedView.superview === hostView ? partialResult : partialResult + 1
+            if hostedView.superview === hostView {
+                return partialResult
+            }
+            if let clipView = canvasClipViewsByHostedId[ObjectIdentifier(hostedView)],
+               hostedView.superview === clipView,
+               clipView.superview === hostView {
+                return partialResult
+            }
+            return partialResult + 1
         }
 
         return DebugStats(
@@ -1798,11 +2291,27 @@ final class WindowTerminalPortal: NSObject {
         let point = hostView.convert(windowPoint, from: nil)
 
         for subview in hostView.subviews.reversed() {
-            guard let hostedView = subview as? GhosttySurfaceScrollView,
-                  entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
-                  !hostedView.isHidden,
-                  hostedView.frame.contains(point) else { continue }
-            return (hostedView, hostedView.convert(point, from: hostView))
+            if let hostedView = subview as? GhosttySurfaceScrollView,
+               entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
+               !hostedView.isHidden,
+               hostedView.alphaValue > 0.01,
+               hostedView.frame.contains(point) {
+                return (hostedView, hostedView.convert(point, from: hostView))
+            }
+
+            guard let clipView = subview as? WindowTerminalCanvasClipView,
+                  !clipView.isHidden,
+                  clipView.alphaValue > 0.01,
+                  clipView.frame.contains(point) else { continue }
+            let pointInClip = clipView.convert(point, from: hostView)
+            for child in clipView.subviews.reversed() {
+                guard let hostedView = child as? GhosttySurfaceScrollView,
+                      entriesByHostedId[ObjectIdentifier(hostedView)] != nil,
+                      !hostedView.isHidden,
+                      hostedView.alphaValue > 0.01,
+                      hostedView.frame.contains(pointInClip) else { continue }
+                return (hostedView, hostedView.convert(pointInClip, from: clipView))
+            }
         }
 
         return nil
@@ -1822,10 +2331,46 @@ final class WindowTerminalPortal: NSObject {
         guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
         return hit.view.paneDropTargetForDrop(at: hit.point)
     }
+
+    func debugSnapshot(forHostedId hostedId: ObjectIdentifier) -> TerminalWindowPortalRegistry.DebugSnapshot? {
+        guard let entry = entriesByHostedId[hostedId],
+              let hostedView = entry.hostedView else {
+            return nil
+        }
+        let clipView = canvasClipViewsByHostedId[hostedId]
+        let frameInWindow: CGRect = {
+            if let clipView, clipView.window != nil {
+                return clipView.convert(clipView.bounds, to: nil)
+            }
+            guard hostedView.window != nil else { return .zero }
+            return hostedView.convert(hostedView.bounds, to: nil)
+        }()
+        return TerminalWindowPortalRegistry.DebugSnapshot(
+            visibleInUI: entry.visibleInUI,
+            containerHidden: clipView?.isHidden ?? hostedView.isHidden,
+            containerAlpha: clipView?.alphaValue ?? hostedView.alphaValue,
+            hostedAlpha: hostedView.alphaValue,
+            frameInWindow: frameInWindow,
+            containerBounds: clipView?.bounds ?? hostedView.bounds,
+            hostedFrame: hostedView.frame,
+            hostedBounds: hostedView.bounds
+        )
+    }
 }
 
 @MainActor
 enum TerminalWindowPortalRegistry {
+    struct DebugSnapshot {
+        let visibleInUI: Bool
+        let containerHidden: Bool
+        let containerAlpha: CGFloat
+        let hostedAlpha: CGFloat
+        let frameInWindow: CGRect
+        let containerBounds: CGRect
+        let hostedFrame: CGRect
+        let hostedBounds: CGRect
+    }
+
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
@@ -2083,6 +2628,53 @@ enum TerminalWindowPortalRegistry {
         existingPortal(for: window)?.scheduleExternalGeometrySynchronize(forceImmediate: forceImmediate)
     }
 
+    static func setInteractiveFrameOverride(
+        hostedView: GhosttySurfaceScrollView,
+        frameInWindow: NSRect?
+    ) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.setInteractiveFrameOverride(forHostedId: hostedId, frameInWindow: frameInWindow)
+    }
+
+    static func setCanvasSurfacePresentation(
+        hostedView: GhosttySurfaceScrollView,
+        presentation: CanvasSurfacePresentation?
+    ) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.setCanvasSurfacePresentation(forHostedId: hostedId, presentation: presentation)
+    }
+
+    static func suppressCanvasSurfacePresentation(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.suppressCanvasSurfacePresentation(forHostedId: hostedId)
+    }
+
+    static func freezeCanvasSurfacePresentation(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.freezeCanvasSurfacePresentation(forHostedId: hostedId)
+    }
+
+    static func resumeCanvasSurfacePresentation(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.resumeCanvasSurfacePresentation(forHostedId: hostedId)
+    }
+
+    static func clearInteractiveFrameOverridesForAllWindows() {
+        for portal in portalsByWindowId.values {
+            portal.clearInteractiveFrameOverrides()
+        }
+    }
+
     static func beginInteractiveGeometryResize() {
         interactiveGeometryResizeCount += 1
     }
@@ -2159,6 +2751,13 @@ enum TerminalWindowPortalRegistry {
         guard hostedToWindowId[hostedId] == windowId,
               let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
+    }
+
+    static func debugSnapshot(for hostedView: GhosttySurfaceScrollView) -> DebugSnapshot? {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.debugSnapshot(forHostedId: hostedId)
     }
 
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {

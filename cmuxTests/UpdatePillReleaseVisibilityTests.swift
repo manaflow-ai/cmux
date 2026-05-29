@@ -157,7 +157,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testLayoutApplyPolicySkipsEquivalentSnapshots() {
-        let baseline = TitlebarControlsLayoutSnapshot(
+        let baseline = TitlebarControlsPaneLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
             xOffset: 0,
@@ -166,7 +166,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
         XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
 
-        let changed = TitlebarControlsLayoutSnapshot(
+        let changed = TitlebarControlsPaneLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
             containerHeight: 28,
             xOffset: 0,
@@ -174,7 +174,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
 
-        let offsetChanged = TitlebarControlsLayoutSnapshot(
+        let offsetChanged = TitlebarControlsPaneLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
             xOffset: 1,

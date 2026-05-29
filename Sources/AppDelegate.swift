@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import Bonsplit
+import CMUXLayout
 import CMUXWorkstream
 import CoreServices
 import UserNotifications
@@ -902,9 +902,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var jumpUnreadFocusObserver: NSObjectProtocol?
     private var didSetupTerminalCmdClickUITest = false
     private var didSetupGotoSplitUITest = false
-    private var didSetupBonsplitTabDragUITest = false
+    private var didSetupCMUXLayoutTabDragUITest = false
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
-    private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
+    private var workspaceLayoutTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
@@ -1808,16 +1808,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        let isUITest = isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1"
+        if isUITest {
+            startSocketListenerIfEnabled(tabManager: tabManager, source: "uiTest.configure")
+        }
+
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
-        setupBonsplitTabDragUITestIfNeeded()
+        setupCMUXLayoutTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
 
-        let env = ProcessInfo.processInfo.environment
-        if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
+        if isUITest {
             scheduleUITestSocketSanityCheckIfNeeded()
         }
 #endif
@@ -4456,11 +4461,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return windowId
     }
 
-    func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
-        let bonsplitTabId = TabID(uuid: tabId)
+    func locateCMUXLayoutSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
+        let workspaceLayoutTabId = SurfaceID(uuid: tabId)
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
+                if let panelId = workspace.panelIdFromSurfaceId(workspaceLayoutTabId) {
                     return (context.windowId, workspace.id, panelId, context.tabManager)
                 }
             }
@@ -4468,7 +4473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for route in recoverableMainWindowRoutes() {
             guard let manager = route.tabManager else { continue }
             for workspace in manager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
+                if let panelId = workspace.panelIdFromSurfaceId(workspaceLayoutTabId) {
                     return (route.windowId, workspace.id, panelId, manager)
                 }
             }
@@ -4482,7 +4487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         toWorkspace targetWorkspaceId: UUID,
         targetPane: PaneID? = nil,
         targetIndex: Int? = nil,
-        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        splitTarget: (orientation: LayoutOrientation, insertFirst: Bool)? = nil,
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
@@ -4534,9 +4539,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         let resolvedTargetPane = targetPane.flatMap { pane in
-            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? destinationWorkspace.bonsplitController.focusedPaneId
-            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+            destinationWorkspace.layoutController.allPaneIds.first(where: { $0 == pane })
+        } ?? destinationWorkspace.layoutController.focusedPaneId
+            ?? destinationWorkspace.layoutController.allPaneIds.first
 
         guard let resolvedTargetPane else {
 #if DEBUG
@@ -4551,7 +4556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
                 guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
+                      sourceWorkspace.layoutController.splitPane(
                         resolvedTargetPane,
                         orientation: splitTarget.orientation,
                         movingTab: sourceTabId,
@@ -4644,7 +4649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  destinationWorkspace.layoutController.splitPane(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,
@@ -4716,12 +4721,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func moveBonsplitTab(
+    func moveCMUXLayoutTab(
         tabId: UUID,
         toWorkspace targetWorkspaceId: UUID,
         targetPane: PaneID? = nil,
         targetIndex: Int? = nil,
-        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        splitTarget: (orientation: LayoutOrientation, insertFirst: Bool)? = nil,
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
@@ -4732,14 +4737,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return String(format: "%.2f", ms)
         }
         cmuxDebugLog(
-            "surface.moveBonsplit.begin tab=\(tabId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
+            "surface.moveCMUXLayout.begin tab=\(tabId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
             "targetPane=\(targetPane?.id.uuidString.prefix(5) ?? "auto") targetIndex=\(targetIndex.map(String.init) ?? "nil")"
         )
 #endif
-        guard let located = locateBonsplitSurface(tabId: tabId) else {
+        guard let located = locateCMUXLayoutSurface(tabId: tabId) else {
 #if DEBUG
             cmuxDebugLog(
-                "surface.moveBonsplit.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
+                "surface.moveCMUXLayout.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
                 "targetWs=\(targetWorkspaceId.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
             )
 #endif
@@ -4747,7 +4752,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #if DEBUG
         cmuxDebugLog(
-            "surface.moveBonsplit.located tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
+            "surface.moveCMUXLayout.located tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
             "sourceWs=\(located.workspaceId.uuidString.prefix(5)) sourceWin=\(located.windowId.uuidString.prefix(5))"
         )
 #endif
@@ -4762,7 +4767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #if DEBUG
         cmuxDebugLog(
-            "surface.moveBonsplit.end tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
+            "surface.moveCMUXLayout.end tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
             "moved=\(moved ? 1 : 0) elapsedMs=\(elapsedMs(since: moveStart))"
         )
 #endif
@@ -5469,9 +5474,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focus: Bool
     ) {
         let rollbackPane = sourcePane.flatMap { pane in
-            workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
+            workspace.layoutController.allPaneIds.first(where: { $0 == pane })
+        } ?? workspace.layoutController.focusedPaneId
+            ?? workspace.layoutController.allPaneIds.first
         guard let rollbackPane else { return }
         _ = workspace.attachDetachedSurface(
             detached,
@@ -6315,8 +6320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId) ?? true
     }
 
-    func syncBonsplitTabShortcutHintEligibility(in window: NSWindow?) {
-        keyboardFocusCoordinator(for: window)?.syncBonsplitTabShortcutHintEligibility()
+    func syncCMUXLayoutTabShortcutHintEligibility(in window: NSWindow?) {
+        keyboardFocusCoordinator(for: window)?.syncCMUXLayoutTabShortcutHintEligibility()
     }
 
     fileprivate struct TerminalKeyboardFocusRequest {
@@ -6508,7 +6513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+    func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil, event: NSEvent? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
@@ -6529,6 +6534,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(beforeResponder)"
         )
 #endif
+        if let event,
+           let browserResult = startBrowserFindForShortcutEvent(event, context: context) {
+            return browserResult
+        }
+
+        if let event,
+           let browserResult = startBrowserFindForShortcutBrowserContext(event, context: context) {
+            return browserResult
+        }
+
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
@@ -6553,6 +6568,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return result
+    }
+
+    @discardableResult
+    private func startBrowserFindForShortcutEvent(_ event: NSEvent, context: MainWindowContext) -> Bool? {
+        guard let workspace = context.tabManager.selectedWorkspace,
+              let browserPanel = browserAddressBarFindShortcutPanel(event, context: context, workspace: workspace) else {
+            return nil
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
+    }
+
+    private func browserAddressBarFindShortcutPanel(
+        _ event: NSEvent,
+        context: MainWindowContext,
+        workspace: Workspace
+    ) -> BrowserPanel? {
+        if let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
+           let browserPanel = workspace.browserPanel(for: panelId) {
+            return browserPanel
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let target = context.keyboardFocusCoordinator.findShortcutTarget(
+            currentResponder: window?.firstResponder
+        )
+        guard target == .mainPanelFind,
+              let panelId = browserAddressBarFocusedPanelId,
+              let browserPanel = workspace.browserPanel(for: panelId) else {
+            return nil
+        }
+        return browserPanel
+    }
+
+    @discardableResult
+    private func startBrowserFindForShortcutBrowserContext(_ event: NSEvent, context: MainWindowContext) -> Bool? {
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let target = context.keyboardFocusCoordinator.findShortcutTarget(
+            currentResponder: window?.firstResponder
+        )
+        guard target == .mainPanelFind else { return nil }
+        guard let browserPanel = shortcutEventBrowserPanel(event) else { return nil }
+        guard let workspace = context.tabManager.selectedWorkspace,
+              workspace.browserPanel(for: browserPanel.id) != nil else {
+            return nil
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
     }
 
     @discardableResult
@@ -7230,8 +7297,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let workspace = context.tabManager.selectedWorkspace
             ?? context.tabManager.addWorkspace(workingDirectory: parentDirectory, select: true)
-        guard let paneId = workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let paneId = workspace.layoutController.focusedPaneId
+            ?? workspace.layoutController.allPaneIds.first else {
             return false
         }
 
@@ -7639,10 +7706,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
 
-        // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
+        // Seed the per-window CMUXLayout tab-bar leading inset before ContentView first
         // renders. The initial workspace is created inside TabManager.init, at which
         // point there is no source workspace or prior window inset to inherit from, so
-        // applyCreationChromeInheritance returns early and leaves the Bonsplit inset
+        // applyCreationChromeInheritance returns early and leaves the CMUXLayout inset
         // at 0 — which is wrong in minimal mode with the sidebar collapsed, where the
         // native traffic lights need an 80pt reserved strip on the tab bar. Without
         // this seed, the first-frame layout can mispaint in the new window until
@@ -7660,7 +7727,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let fileExplorerState = FileExplorerState()
 #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1" {
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] == "1" {
             fileExplorerState.mode = .files
             fileExplorerState.isVisible = true
         }
@@ -8870,7 +8937,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         await Task.yield()
 
-        let paneIds = workspace.bonsplitController.allPaneIds
+        let paneIds = workspace.layoutController.allPaneIds
         guard paneIds.count == paneCount else { return false }
 
         let additionalTabsPerPane = max(0, tabsPerPane - 1)
@@ -8904,7 +8971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private struct DebugStressTerminalLoadTarget {
         let workspace: Workspace
         let paneId: PaneID
-        let tabId: TabID
+        let tabId: SurfaceID
         let panelId: UUID
     }
 
@@ -8982,8 +9049,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mountedWorkspaceCount = await waitForDebugStressMountedWorkspaces(workspaces)
 
         for (workspaceIndex, workspace) in workspaces.enumerated() {
-            for paneId in workspace.bonsplitController.allPaneIds {
-                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+            for paneId in workspace.layoutController.allPaneIds {
+                for tab in workspace.layoutController.tabs(inPane: paneId) {
                     guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
                           workspace.panel(for: tab.id) is TerminalPanel else {
                         continue
@@ -9487,6 +9554,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
+            if env["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] == "1" {
+                guard let (browserPaneId, terminalPaneId) = self.paneIdsForGotoSplitUITest(
+                    tab: tab,
+                    browserPanelId: browserPanelId
+                ) else {
+                    self.writeGotoSplitTestData(["setupError": "Missing split pane ids"])
+                    return
+                }
+
+                if env["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] == "1"
+                    || env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_SELFTEST"] == "1" {
+                    tab.enterCanvasOverview()
+                }
+
+                var updates: [String: String] = [
+                    "browserPanelId": browserPanelId.uuidString,
+                    "browserPaneId": browserPaneId.description,
+                    "terminalPaneId": terminalPaneId.description,
+                    "initialPaneCount": String(tab.layoutController.allPaneIds.count),
+                    "focusedPaneId": tab.layoutController.focusedPaneId?.description ?? "",
+                    "ghosttyGotoSplitLeftShortcut": ghosttyGotoSplitLeftShortcut?.displayString ?? "",
+                    "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
+                    "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
+                    "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
+                    "webViewFocused": "false"
+                ]
+                if env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_TAB_CLICK_SETUP"] == "1" {
+                    let selectedTerminalSurface = tab.layoutController.selectedTab(inPane: terminalPaneId)?.id
+                    updates["terminalSurfaceTabId"] = selectedTerminalSurface?.uuid.uuidString ?? ""
+                    if let extraTerminal = tab.newTerminalSurface(inPane: terminalPaneId, focus: false),
+                       let extraSurface = tab.surfaceIdFromPanelId(extraTerminal.id) {
+                        tab.setPanelCustomTitle(panelId: extraTerminal.id, title: "UITest Canvas Extra")
+                        updates["extraTerminalPanelId"] = extraTerminal.id.uuidString
+                        updates["extraTerminalSurfaceTabId"] = extraSurface.uuid.uuidString
+                    } else {
+                        updates["canvasTabClickSetupError"] = "Failed to create extra terminal surface"
+                    }
+                    updates["terminalPaneTabCount"] = String(tab.layoutController.tabs(inPane: terminalPaneId).count)
+                }
+                if env["CMUX_UI_TEST_GOTO_SPLIT_SECOND_WINDOW"] == "1" {
+                    let secondaryWindowId = self.createMainWindow(
+                        initialWorkspaceTitle: "UITest Canvas Secondary",
+                        shouldActivate: false,
+                        sourceWindow: NSApp.mainWindow
+                    )
+                    if let secondaryManager = self.tabManagerFor(windowId: secondaryWindowId),
+                       let secondaryWorkspace = secondaryManager.tabs.first {
+                        secondaryWorkspace.enterCanvasOverview()
+                        updates["secondaryWindowId"] = secondaryWindowId.uuidString
+                        updates["secondaryWorkspaceId"] = secondaryWorkspace.id.uuidString
+                        updates["secondaryCanvasOverviewActive"] =
+                            secondaryWorkspace.layoutController.isCanvasOverviewActive ? "true" : "false"
+                        updates["mainWindowCount"] = String(self.mainWindowContexts.count)
+                    } else {
+                        updates["canvasSecondWindowSetupError"] = "Failed to resolve secondary window"
+                    }
+                }
+                if env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_SELFTEST"] == "1" {
+                    updates.merge(
+                        self.runGotoSplitCanvasSelfTest(tab: tab, terminalPaneId: terminalPaneId)
+                    ) { _, new in new }
+                    updates.merge(self.gotoSplitFindStateSnapshot(for: tab)) { _, new in new }
+                }
+
+                self.startGotoSplitUITestRecorder(browserPanelId: browserPanelId)
+                self.writeGotoSplitTestData(updates)
+                return
+            }
+
             self.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
         }
 
@@ -9496,14 +9632,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func setupBonsplitTabDragUITestIfNeeded() {
-        guard !didSetupBonsplitTabDragUITest else { return }
-        didSetupBonsplitTabDragUITest = true
+    private func setupCMUXLayoutTabDragUITestIfNeeded() {
+        guard !didSetupCMUXLayoutTabDragUITest else { return }
+        didSetupCMUXLayoutTabDragUITest = true
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
+        guard env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1" else { return }
         guard tabManager != nil else { return }
-        let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
-        let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
+        let startWithHiddenSidebar = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_START_WITH_HIDDEN_SIDEBAR"] == "1"
+        let showRightSidebar = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_SHOW_RIGHT_SIDEBAR"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
         func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
@@ -9521,7 +9657,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func runSetupWhenWindowReady() {
             guard Date() < deadline else {
-                writeBonsplitTabDragUITestData(["setupError": "Timed out waiting for main window"])
+                writeCMUXLayoutTabDragUITestData(["setupError": "Timed out waiting for main window"])
                 return
             }
             guard let (mainWindow, context) = mainWindowContextForUITest() else {
@@ -9534,7 +9670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
             if let screenFrame {
                 let targetSize: NSSize
-                if let rawSize = env["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] {
+                if let rawSize = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_WINDOW_SIZE"] {
                     let parts = rawSize
                         .split(separator: "x", maxSplits: 1)
                         .compactMap { Double(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
@@ -9561,7 +9697,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let tabManager = context.tabManager
             guard let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
                   let alphaPanelId = workspace.focusedPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Missing initial workspace or panel"])
+                self.writeCMUXLayoutTabDragUITestData(["setupError": "Missing initial workspace or panel"])
                 return
             }
 
@@ -9573,23 +9709,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.newSurface()
 
             guard let betaPanelId = workspace.focusedPanelId, betaPanelId != alphaPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Failed to create second surface"])
+                self.writeCMUXLayoutTabDragUITestData(["setupError": "Failed to create second surface"])
                 return
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
-            if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
+            if let rawActionButtonCount = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
                 guard let cmuxConfigStore = context.cmuxConfigStore else {
-                    self.writeBonsplitTabDragUITestData(["setupError": "Missing cmux config store"])
+                    self.writeCMUXLayoutTabDragUITestData(["setupError": "Missing cmux config store"])
                     return
                 }
                 let actionButtonCount = min(requestedActionButtonCount, 32)
                 let buttons = (1...actionButtonCount).map { index in
                     let actionTitle = String(
                         format: String(
-                            localized: "uiTest.bonsplit.action.title",
+                            localized: "uiTest.workspaceLayout.action.title",
                             defaultValue: "UITest Action %lld"
                         ),
                         Int64(index)
@@ -9614,13 +9750,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
-                    self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
+                    self.writeCMUXLayoutTabDragUITestData(["setupError": "Missing right sidebar state"])
                     return
                 }
                 fileExplorerState.mode = .files
                 fileExplorerState.setVisible(true)
             }
-            self.writeBonsplitTabDragUITestData([
+            self.writeCMUXLayoutTabDragUITestData([
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
@@ -9631,7 +9767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
             ])
-            self.startBonsplitTabDragUITestRecorder(
+            self.startCMUXLayoutTabDragUITestRecorder(
                 workspaceId: workspace.id,
                 alphaPanelId: alphaPanelId,
                 betaPanelId: betaPanelId
@@ -9644,38 +9780,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func bonsplitTabDragUITestDataPath() -> String? {
+    private func workspaceLayoutTabDragUITestDataPath() -> String? {
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
+        guard env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_SETUP"] == "1",
+              let path = env["CMUX_UI_TEST_WORKSPACE_LAYOUT_TAB_DRAG_PATH"],
               !path.isEmpty else {
             return nil
         }
         return path
     }
 
-    private func startBonsplitTabDragUITestRecorder(
+    private func startCMUXLayoutTabDragUITestRecorder(
         workspaceId: UUID,
         alphaPanelId: UUID,
         betaPanelId: UUID
     ) {
-        bonsplitTabDragUITestRecorder?.cancel()
-        bonsplitTabDragUITestRecorder = nil
+        workspaceLayoutTabDragUITestRecorder?.cancel()
+        workspaceLayoutTabDragUITestRecorder = nil
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(100))
         timer.setEventHandler { [weak self] in
-            self?.recordBonsplitTabDragUITestState(
+            self?.recordCMUXLayoutTabDragUITestState(
                 workspaceId: workspaceId,
                 alphaPanelId: alphaPanelId,
                 betaPanelId: betaPanelId
             )
         }
-        bonsplitTabDragUITestRecorder = timer
+        workspaceLayoutTabDragUITestRecorder = timer
         timer.resume()
     }
 
-    private func recordBonsplitTabDragUITestState(
+    private func recordCMUXLayoutTabDragUITestState(
         workspaceId: UUID,
         alphaPanelId: UUID,
         betaPanelId: UUID
@@ -9687,19 +9823,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let trackedPaneId = workspace.paneId(forPanelId: alphaPanelId)
             ?? workspace.paneId(forPanelId: betaPanelId)
-            ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
+            ?? workspace.layoutController.focusedPaneId
+            ?? workspace.layoutController.allPaneIds.first
         guard let trackedPaneId else { return }
 
-        let titles: [String] = workspace.bonsplitController.tabs(inPane: trackedPaneId).compactMap { tab in
+        let titles: [String] = workspace.layoutController.tabs(inPane: trackedPaneId).compactMap { tab in
             guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return nil }
             return workspace.panelTitle(panelId: panelId)
         }
-        let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
+        let selectedTitle = workspace.layoutController.selectedTab(inPane: trackedPaneId)
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
 
-        writeBonsplitTabDragUITestData([
+        writeCMUXLayoutTabDragUITestData([
             "trackedPaneId": trackedPaneId.description,
             "trackedPaneTabTitles": titles.joined(separator: "|"),
             "trackedPaneTabCount": String(titles.count),
@@ -9707,9 +9843,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
     }
 
-    private func writeBonsplitTabDragUITestData(_ updates: [String: String]) {
-        guard let path = bonsplitTabDragUITestDataPath() else { return }
-        var payload = loadBonsplitTabDragUITestData(at: path)
+    private func writeCMUXLayoutTabDragUITestData(_ updates: [String: String]) {
+        guard let path = workspaceLayoutTabDragUITestDataPath() else { return }
+        var payload = loadCMUXLayoutTabDragUITestData(at: path)
         for (key, value) in updates {
             payload[key] = value
         }
@@ -9717,7 +9853,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
-    private func loadBonsplitTabDragUITestData(at path: String) -> [String: String] {
+    private func loadCMUXLayoutTabDragUITestData(at path: String) -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
@@ -9738,8 +9874,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func gotoSplitFindStateSnapshot(for workspace: Workspace) -> [String: String] {
         var updates: [String: String] = [
-            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
+            "focusedPaneId": workspace.layoutController.focusedPaneId?.description ?? ""
         ]
+        let canvasDocument = workspace.layoutController.canvasDocument
+        updates["canvasOverviewActive"] = workspace.layoutController.isCanvasOverviewActive ? "true" : "false"
+        updates["canvasPolicy"] = canvasDocument.policy.rawValue
+        updates["canvasItemCount"] = String(canvasDocument.items.count)
+        updates["canvasScale"] = String(format: "%.3f", workspace.layoutController.canvasViewport.scale)
+        updates["canvasFocusedItemId"] = workspace.layoutController.focusedCanvasItemID?.description ?? ""
 
         if let focusedPanelId = workspace.focusedPanelId {
             updates["focusedPanelId"] = focusedPanelId.uuidString
@@ -9786,6 +9928,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxOwningGhosttyView(for: currentResponder)?.terminalSurface?.id.uuidString ?? ""
 
         updates.merge(cmuxFindResponderSnapshot()) { _, new in new }
+        return updates
+    }
+
+    private func runGotoSplitCanvasSelfTest(tab: Workspace, terminalPaneId: PaneID) -> [String: String] {
+        var updates: [String: String] = [
+            "canvasSelfTestStarted": "true"
+        ]
+        let controller = tab.layoutController
+        tab.enterCanvasOverview()
+
+        guard let itemBeforeMove = controller.canvasItem(forPane: terminalPaneId) else {
+            updates["canvasSelfTestError"] = "Missing terminal canvas item"
+            return updates
+        }
+
+        let scaleBefore = controller.canvasViewport.scale
+        _ = tab.zoomCanvasOverviewOut()
+        _ = tab.zoomCanvasOverviewOut()
+        let scaleAfter = controller.canvasViewport.scale
+        updates["canvasSelfTestItemId"] = itemBeforeMove.id.description
+        updates["canvasSelfTestScaleBefore"] = String(format: "%.3f", scaleBefore)
+        updates["canvasSelfTestScaleAfter"] = String(format: "%.3f", scaleAfter)
+        updates["canvasSelfTestZoomedOut"] = scaleAfter < scaleBefore ? "true" : "false"
+
+        controller.setCanvasLayoutPolicy(.freeform)
+        let movedFrame = PixelRect(
+            x: itemBeforeMove.frame.x + 96,
+            y: itemBeforeMove.frame.y + 64,
+            width: itemBeforeMove.frame.width,
+            height: itemBeforeMove.frame.height
+        )
+        controller.moveCanvasItem(itemBeforeMove.id, to: movedFrame)
+
+        guard let itemAfterMove = controller.canvasItem(id: itemBeforeMove.id) else {
+            updates["canvasSelfTestError"] = "Missing moved canvas item"
+            return updates
+        }
+        updates["canvasSelfTestMoved"] =
+            (abs(itemAfterMove.frame.x - itemBeforeMove.frame.x) >= 80
+                && abs(itemAfterMove.frame.y - itemBeforeMove.frame.y) >= 48) ? "true" : "false"
+
+        let resizedFrame = PixelRect(
+            x: itemAfterMove.frame.x,
+            y: itemAfterMove.frame.y,
+            width: itemAfterMove.frame.width + 120,
+            height: itemAfterMove.frame.height + 90
+        )
+        controller.resizeCanvasItem(itemBeforeMove.id, to: resizedFrame)
+
+        guard let itemAfterResize = controller.canvasItem(id: itemBeforeMove.id) else {
+            updates["canvasSelfTestError"] = "Missing resized canvas item"
+            return updates
+        }
+        updates["canvasSelfTestResized"] =
+            (itemAfterResize.frame.width >= itemAfterMove.frame.width + 100
+                && itemAfterResize.frame.height >= itemAfterMove.frame.height + 70) ? "true" : "false"
+        updates["canvasSelfTestFrameAfterResize"] = String(
+            format: "%.1f,%.1f %.1fx%.1f",
+            itemAfterResize.frame.x,
+            itemAfterResize.frame.y,
+            itemAfterResize.frame.width,
+            itemAfterResize.frame.height
+        )
+
+        controller.setCanvasLayoutPolicy(.scrollingColumns)
+        updates["canvasSelfTestColumnsPolicy"] =
+            controller.canvasDocument.policy == .scrollingColumns ? "true" : "false"
+        controller.setCanvasLayoutPolicy(.freeform)
+        updates["canvasSelfTestFreeformPolicy"] =
+            controller.canvasDocument.policy == .freeform ? "true" : "false"
+
+        let focused = controller.focusCanvasItem(itemBeforeMove.id)
+        let activated = tab.activateFocusedCanvasItem()
+        updates["canvasSelfTestFocused"] = focused ? "true" : "false"
+        updates["canvasSelfTestActivatedTerminal"] =
+            (activated && controller.focusedPaneId == terminalPaneId) ? "true" : "false"
+
         return updates
     }
 
@@ -9837,8 +10056,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "browserPanelId": browserPanelId.uuidString,
                 "browserPaneId": browserPaneId.description,
                 "terminalPaneId": terminalPaneId.description,
-                "initialPaneCount": String(tab.bonsplitController.allPaneIds.count),
-                "focusedPaneId": tab.bonsplitController.focusedPaneId?.description ?? "",
+                "initialPaneCount": String(tab.layoutController.allPaneIds.count),
+                "focusedPaneId": tab.layoutController.focusedPaneId?.description ?? "",
                 "ghosttyGotoSplitLeftShortcut": ghosttyGotoSplitLeftShortcut?.displayString ?? "",
                 "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
                 "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
@@ -9935,13 +10154,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func paneIdsForGotoSplitUITest(tab: Workspace, browserPanelId: UUID) -> (browser: PaneID, terminal: PaneID)? {
-        let paneIds = tab.bonsplitController.allPaneIds
+        let paneIds = tab.layoutController.allPaneIds
         guard paneIds.count >= 2 else { return nil }
 
         var browserPane: PaneID?
         var terminalPane: PaneID?
         for paneId in paneIds {
-            guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+            guard let selected = tab.layoutController.selectedTab(inPane: paneId),
                   let panelId = tab.panelIdFromSurfaceId(selected.id) else { continue }
             if panelId == browserPanelId {
                 browserPane = paneId
@@ -10520,7 +10739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastSplitDirection"] = directionValue
-        updates["paneCountAfterSplit"] = String(workspace.bonsplitController.allPaneIds.count)
+        updates["paneCountAfterSplit"] = String(workspace.layoutController.allPaneIds.count)
         writeGotoSplitTestData(updates)
     }
 
@@ -10534,8 +10753,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let browserSnapshot = browserPanel.flatMap { BrowserWindowPortalRegistry.debugSnapshot(for: $0.webView) }
 
             var updates = self.gotoSplitFindStateSnapshot(for: workspace)
-            updates["splitZoomedAfterToggle"] = workspace.bonsplitController.isSplitZoomed ? "true" : "false"
-            updates["zoomedPaneIdAfterToggle"] = workspace.bonsplitController.zoomedPaneId?.description ?? ""
+            updates["splitZoomedAfterToggle"] = workspace.layoutController.isSplitZoomed ? "true" : "false"
+            updates["zoomedPaneIdAfterToggle"] = workspace.layoutController.zoomedPaneId?.description ?? ""
             updates["browserPanelIdAfterToggle"] = browserPanel?.id.uuidString ?? ""
             updates["browserContainerHiddenAfterToggle"] = browserSnapshot.map { $0.containerHidden ? "true" : "false" } ?? ""
             updates["browserVisibleFlagAfterToggle"] = browserSnapshot.map { $0.visibleInUI ? "true" : "false" } ?? ""
@@ -10563,7 +10782,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } ?? ""
 
             let settled: Bool = {
-                if workspace.bonsplitController.isSplitZoomed {
+                if workspace.layoutController.isSplitZoomed {
                     if let focusedPanelId = workspace.focusedPanelId,
                        workspace.terminalPanel(for: focusedPanelId) != nil {
                         guard let browserSnapshot else { return false }
@@ -11461,7 +11680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if workspace.panels[surfaceId] != nil {
             panelId = surfaceId
         } else {
-            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+            panelId = workspace.panelIdFromSurfaceId(SurfaceID(uuid: surfaceId))
         }
         guard let panelId,
               workspace.panels[panelId] != nil else {
@@ -11689,7 +11908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
-    /// avoid mutating Bonsplit/SwiftUI-observed state during an active update pass.
+    /// avoid mutating CMUXLayout/SwiftUI-observed state during an active update pass.
     private func scheduleSplitButtonTooltipRefreshAcrossWorkspaces() {
         guard !splitButtonTooltipRefreshScheduled else { return }
         splitButtonTooltipRefreshScheduled = true
@@ -12194,14 +12413,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        let isFindShortcutEvent = matchConfiguredShortcut(event: event, action: .find)
+
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
+        let addressBarShortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow
+        let addressBarShortcutResponder = addressBarShortcutWindow?.firstResponder
+        let trackedAddressBarHasActiveEditor = browserAddressBarFocusedPanelId.map { panelId in
+            browserAddressBarHasActiveEditor(panelId: panelId, in: addressBarShortcutWindow)
+        } ?? false
         if browserAddressBarFocusedPanelId != nil,
-           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
+           !isFindShortcutEvent,
+           !isBrowserOmnibarResponder(addressBarShortcutResponder),
+           !trackedAddressBarHasActiveEditor,
+           cmuxOwningGhosttyView(for: addressBarShortcutResponder) != nil {
 #if DEBUG
             let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            let firstResponderType = addressBarShortcutResponder.map { String(describing: type(of: $0)) } ?? "nil"
             cmuxDebugLog(
                 "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
                 "reason=terminal_first_responder fr=\(firstResponderType)"
@@ -12321,9 +12550,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
-        if matchConfiguredShortcut(event: event, action: .find) {
+        if activateFocusedCanvasItemForShortcutIfNeeded(event: event, normalizedFlags: normalizedFlags) { return true }
+        if isFindShortcutEvent {
             let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
@@ -12812,6 +13042,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        if matchConfiguredShortcut(event: event, action: .canvasFreeform) {
+            return performCanvasModeShortcut(policy: .freeform, event: event)
+        }
+        if matchConfiguredShortcut(event: event, action: .canvasScrollingColumns) {
+            return performCanvasModeShortcut(policy: .scrollingColumns, event: event)
+        }
         // Configured split actions.
         if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG
@@ -12875,22 +13111,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {
-            _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            _ = openBrowserAndFocusAddressBar(insertAtEnd: true, tabManager: routedManager)
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
-                focusBrowserAddressBar(in: focusedPanel)
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if let focusedPanel = routedManager?.focusedBrowserPanel {
+                _ = focusBrowserAddressBar(panelId: focusedPanel.id, tabManager: routedManager)
                 return true
             }
 
             if let browserAddressBarFocusedPanelId,
-               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId) {
+               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId, tabManager: routedManager) {
                 return true
             }
 
-            if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
+            if openBrowserAndFocusAddressBar(insertAtEnd: true, tabManager: routedManager) != nil {
                 return true
             }
         }
@@ -12974,15 +13212,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if isCanvasZoomShortcutAvailable(event: event) {
+            if matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .browserZoomIn)) {
+                return performCanvasZoomShortcut(.zoomIn, event: event)
+            }
+            if matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .browserZoomOut)) {
+                return performCanvasZoomShortcut(.zoomOut, event: event)
+            }
+            if matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .browserZoomReset)) {
+                return performCanvasZoomShortcut(.reset, event: event)
+            }
+        }
+
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
+            if performCanvasZoomShortcut(.zoomIn, event: event) {
+                return true
+            }
             return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
+            if performCanvasZoomShortcut(.zoomOut, event: event) {
+                return true
+            }
             return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
+            if performCanvasZoomShortcut(.reset, event: event) {
+                return true
+            }
             return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
         }
 
@@ -13138,9 +13397,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     @discardableResult
-    private func focusBrowserAddressBar(panelId: UUID) -> Bool {
-        guard let tabManager,
-              let workspace = tabManager.selectedWorkspace,
+    private func focusBrowserAddressBar(panelId: UUID, tabManager targetTabManager: TabManager? = nil) -> Bool {
+        let targetTabManager = targetTabManager ?? tabManager
+        guard let workspace = targetTabManager?.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
 #if DEBUG
             cmuxDebugLog(
@@ -13157,6 +13416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         workspace.focusPanel(panel.id)
+        _ = workspace.prepareCanvasPanelForNativeInput(panel.id)
 #if DEBUG
         let focusedAfter = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
@@ -13169,7 +13429,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+    func openBrowserAndFocusAddressBar(
+        url: URL? = nil,
+        insertAtEnd: Bool = false,
+        tabManager targetTabManager: TabManager? = nil
+    ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else {
 #if DEBUG
             cmuxDebugLog(
@@ -13180,10 +13444,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        let targetTabManager = targetTabManager ?? tabManager
         let preferredProfileID =
-            tabManager?.focusedBrowserPanel?.profileID
-            ?? tabManager?.selectedWorkspace?.preferredBrowserProfileID
-        guard let panelId = tabManager?.openBrowser(
+            targetTabManager?.focusedBrowserPanel?.profileID
+            ?? targetTabManager?.selectedWorkspace?.preferredBrowserProfileID
+        guard let panelId = targetTabManager?.openBrowser(
             url: url,
             preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
@@ -13203,13 +13468,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 #if DEBUG
-        let didFocus = focusBrowserAddressBar(panelId: panelId)
+        let didFocus = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
         cmuxDebugLog(
             "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
             "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
         )
 #else
-        _ = focusBrowserAddressBar(panelId: panelId)
+        _ = focusBrowserAddressBar(panelId: panelId, tabManager: targetTabManager)
 #endif
         return panelId
     }
@@ -13264,10 +13529,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let responderPanelId = isBrowserOmnibarResponder(shortcutResponder)
             ? browserOmnibarPanelId(for: shortcutResponder)
             : nil
+        let activeEditorPanelId = browserAddressBarFocusedPanelId.flatMap { panelId in
+            browserAddressBarHasActiveEditor(panelId: panelId, in: shortcutWindow) ? panelId : nil
+        }
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
-            let candidatePanelId = responderPanelId ?? browserAddressBarFocusedPanelId
+            let candidatePanelId = responderPanelId ?? activeEditorPanelId ?? browserAddressBarFocusedPanelId
             guard let candidatePanelId else { return nil }
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(candidatePanelId.uuidString.prefix(5)) " +
@@ -13278,7 +13546,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let intentPanelId = browserAddressBarIntentPanelId(in: context, window: shortcutWindow)
-        guard let panelId = responderPanelId ?? browserAddressBarFocusedPanelId ?? intentPanelId else { return nil }
+        guard let panelId = responderPanelId ?? activeEditorPanelId ?? browserAddressBarFocusedPanelId ?? intentPanelId else { return nil }
 
         guard let workspace = context.tabManager.selectedWorkspace else {
 #if DEBUG
@@ -13310,6 +13578,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return responderPanelId
+        }
+
+        if activeEditorPanelId == panelId {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=active_omnibar_editor workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return panelId
         }
 
         if intentPanelId == panelId, browserAddressBarFocusedPanelId == nil {
@@ -13446,6 +13725,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let textView = responder as? NSTextView,
            textView.isFieldEditor,
+           let registeredField = BrowserOmnibarNativeFieldRegistry.shared.fieldOwningEditor(
+               textView,
+               in: textView.window
+           ) {
+            return registeredField
+        }
+
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
            let delegateView = textView.delegate as? NSView,
            delegateView.identifier == browserOmnibarTextFieldIdentifier {
             return delegateView
@@ -13454,6 +13742,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let ownerView = keyRoutingOwnerView(for: responder)
         guard ownerView?.identifier == browserOmnibarTextFieldIdentifier else { return nil }
         return ownerView
+    }
+
+    private func browserAddressBarHasActiveEditor(panelId: UUID, in window: NSWindow?) -> Bool {
+        guard let field = browserOmnibarField(panelId: panelId, in: window),
+              let editor = field.currentEditor() else {
+            return false
+        }
+        guard let window else { return true }
+        return editor.window === window || field.window === window
     }
 
     private func isBrowserOmnibarResponder(_ responder: NSResponder?) -> Bool {
@@ -13713,6 +14010,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    private func performCanvasModeShortcut(policy: CanvasLayoutPolicy? = nil, event: NSEvent) -> Bool {
+        let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+        guard let workspace = routedManager?.selectedWorkspace else {
+            NSSound.beep()
+            return true
+        }
+        workspace.enterCanvasOverview(policy: policy)
+        return true
+    }
+
+    private enum CanvasZoomShortcutAction {
+        case zoomIn
+        case zoomOut
+        case reset
+    }
+
+    private func canvasShortcutWorkspace(event: NSEvent) -> Workspace? {
+        let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+        guard let workspace = routedManager?.selectedWorkspace,
+              workspace.layoutController.isCanvasOverviewActive else {
+            return nil
+        }
+        return workspace
+    }
+
+    private func isCanvasZoomShortcutAvailable(event: NSEvent) -> Bool {
+        guard canvasShortcutWorkspace(event: event) != nil else { return false }
+        guard shortcutEventBrowserPanel(event) == nil else { return false }
+        guard let firstResponder = resolvedShortcutEventWindow(event)?.firstResponder ?? NSApp.keyWindow?.firstResponder else {
+            return true
+        }
+        if firstResponder is NSTextView || firstResponder is NSTextField {
+            return false
+        }
+        let responderClassName = NSStringFromClass(type(of: firstResponder))
+        if responderClassName.contains("WK") || responderClassName.contains("WebView") {
+            return false
+        }
+        return true
+    }
+
+    private func activateFocusedCanvasItemForShortcutIfNeeded(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard normalizedFlags.isEmpty,
+              event.keyCode == 36 || event.keyCode == 76,
+              let workspace = canvasShortcutWorkspace(event: event),
+              workspace.layoutController.canvasViewport.scale < 0.99 else {
+            return false
+        }
+        if let firstResponder = NSApp.keyWindow?.firstResponder,
+           firstResponder is NSTextView || firstResponder is NSTextField {
+            return false
+        }
+        return workspace.activateFocusedCanvasItem()
+    }
+
+    @discardableResult
+    private func performCanvasZoomShortcut(_ action: CanvasZoomShortcutAction, event: NSEvent) -> Bool {
+        guard isCanvasZoomShortcutAvailable(event: event),
+              let workspace = canvasShortcutWorkspace(event: event) else {
+            return false
+        }
+
+        switch action {
+        case .zoomIn:
+            workspace.zoomCanvasOverviewIn()
+        case .zoomOut:
+            workspace.zoomCanvasOverviewOut()
+        case .reset:
+            workspace.resetCanvasOverviewZoom()
+        }
+        return true
+    }
+
+    @discardableResult
     func performSplitShortcut(direction: SplitDirection, preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
@@ -13858,7 +14232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))

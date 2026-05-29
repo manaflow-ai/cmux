@@ -79,6 +79,10 @@ extension ContentView {
             return .attachTextBoxFile
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
+        case "palette.canvas", "palette.canvasFreeform":
+            return .canvasFreeform
+        case "palette.canvasScrollingColumns":
+            return .canvasScrollingColumns
         case "palette.equalizeSplits":
             return .equalizeSplits
         case "palette.triggerFlash":

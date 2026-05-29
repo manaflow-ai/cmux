@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import Darwin
 import Foundation
 
@@ -285,7 +285,7 @@ extension Workspace {
     @discardableResult
     func discardClosedPanelLifecycleState(
         panelId: UUID,
-        tabId: TabID? = nil,
+        tabId: SurfaceID? = nil,
         paneId: PaneID?,
         panel: (any Panel)?,
         origin: String,

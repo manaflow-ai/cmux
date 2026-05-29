@@ -1,9 +1,9 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 
 /// Shared helpers for portal hosts that must defer to the minimal-mode
-/// Bonsplit tab strip rendered underneath them.
-enum BonsplitTabBarPassThrough {
+/// CMUXLayout tab strip rendered underneath them.
+enum WorkspaceLayoutTabBarPassThrough {
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext.allowsTabBarPassThroughHitTesting(eventType: eventType)
     }
@@ -24,7 +24,7 @@ enum BonsplitTabBarPassThrough {
         below portalHost: NSView
     ) -> (result: Bool, registryHit: Bool) {
         let registryHit = portalHost.window.map {
-            BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
+            WorkspaceLayoutTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: $0)
         } ?? false
         if registryHit {
             return (true, true)
@@ -40,7 +40,7 @@ enum BonsplitTabBarPassThrough {
             }
         }
 
-        let fallbackHit = hasUnderlyingBonsplitTabBarBackground(
+        let fallbackHit = hasUnderlyingWorkspaceLayoutTabBarBackground(
             at: windowPoint,
             below: portalHost
         )
@@ -58,7 +58,7 @@ enum BonsplitTabBarPassThrough {
         return (windowPoint, decision.result, decision.registryHit)
     }
 
-    static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
+    static func hasWorkspaceLayoutTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
         guard !view.isHidden, view.alphaValue > 0 else { return false }
 
         // NSView subviews are not clipped to parent bounds by default, and the
@@ -72,14 +72,14 @@ enum BonsplitTabBarPassThrough {
         }
 
         for subview in view.subviews.reversed() {
-            if hasBonsplitTabBarBackground(at: windowPoint, in: subview) {
+            if hasWorkspaceLayoutTabBarBackground(at: windowPoint, in: subview) {
                 return true
             }
         }
         return false
     }
 
-    static func hasUnderlyingBonsplitTabBarBackground(
+    static func hasUnderlyingWorkspaceLayoutTabBarBackground(
         at windowPoint: NSPoint,
         below portalHost: NSView
     ) -> Bool {
@@ -93,7 +93,7 @@ enum BonsplitTabBarPassThrough {
         }
         for sibling in container.subviews[..<hostIndex].reversed() {
             guard !sibling.isHidden, sibling.alphaValue > 0 else { continue }
-            if hasBonsplitTabBarBackground(at: windowPoint, in: sibling) {
+            if hasWorkspaceLayoutTabBarBackground(at: windowPoint, in: sibling) {
                 return true
             }
         }

@@ -15,17 +15,17 @@ final class WorkspaceAdjacentPaneMoveTests: XCTestCase {
         let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
         let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightPanel.id))
         let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
-        let leftTab = try XCTUnwrap(workspace.bonsplitController.tab(leftTabId))
+        let leftTab = try XCTUnwrap(workspace.layoutController.tab(leftTabId))
 
         workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .moveToRightPane,
+            workspace.layoutController,
+            didRequestSurfaceContextAction: .moveToRightPane,
             for: leftTab,
             inPane: leftPaneId
         )
 
         XCTAssertEqual(workspace.paneId(forPanelId: leftPanelId), rightPaneId)
-        XCTAssertTrue(workspace.bonsplitController.tabs(inPane: rightPaneId).contains { $0.id == leftTabId })
+        XCTAssertTrue(workspace.layoutController.tabs(inPane: rightPaneId).contains { $0.id == leftTabId })
     }
 
     func testTabContextMoveToLeftPaneMovesSurfaceToAdjacentPane() throws {
@@ -35,16 +35,16 @@ final class WorkspaceAdjacentPaneMoveTests: XCTestCase {
         let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
         let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightPanel.id))
         let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
-        let rightTab = try XCTUnwrap(workspace.bonsplitController.tab(rightTabId))
+        let rightTab = try XCTUnwrap(workspace.layoutController.tab(rightTabId))
 
         workspace.splitTabBar(
-            workspace.bonsplitController,
-            didRequestTabContextAction: .moveToLeftPane,
+            workspace.layoutController,
+            didRequestSurfaceContextAction: .moveToLeftPane,
             for: rightTab,
             inPane: rightPaneId
         )
 
         XCTAssertEqual(workspace.paneId(forPanelId: rightPanel.id), leftPaneId)
-        XCTAssertTrue(workspace.bonsplitController.tabs(inPane: leftPaneId).contains { $0.id == rightTabId })
+        XCTAssertTrue(workspace.layoutController.tabs(inPane: leftPaneId).contains { $0.id == rightTabId })
     }
 }

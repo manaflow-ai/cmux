@@ -1,4 +1,4 @@
-import Bonsplit
+import CMUXLayout
 import CoreGraphics
 import Foundation
 
@@ -14,7 +14,7 @@ enum SplitEqualizer {
     @discardableResult
     static func equalize(
         in node: ExternalTreeNode,
-        controller: BonsplitController,
+        controller: WorkspaceLayoutController,
         orientationFilter: String? = nil
     ) -> Result {
         var foundSplit = false
@@ -31,7 +31,7 @@ enum SplitEqualizer {
 
     private static func equalize(
         _ node: ExternalTreeNode,
-        controller: BonsplitController,
+        controller: WorkspaceLayoutController,
         orientationFilter: String?,
         foundSplit: inout Bool,
         allSucceeded: inout Bool

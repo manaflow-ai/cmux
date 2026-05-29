@@ -1,5 +1,5 @@
 import AppKit
-import Bonsplit
+import CMUXLayout
 import Foundation
 
 @MainActor
@@ -289,7 +289,7 @@ extension AppDelegate {
         case .workspace:
             targetPanelId = nil
         case .pane(_, let paneId):
-            guard let pane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == paneId }) else {
+            guard let pane = workspace.layoutController.allPaneIds.first(where: { $0.id == paneId }) else {
 #if DEBUG
                 cmuxDebugLog(
                     "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
@@ -298,11 +298,11 @@ extension AppDelegate {
 #endif
                 return false
             }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: pane)
-                ?? workspace.bonsplitController.tabs(inPane: pane).first
+            let selectedTab = workspace.layoutController.selectedTab(inPane: pane)
+                ?? workspace.layoutController.tabs(inPane: pane).first
             targetPanelId = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
             if targetPanelId == nil {
-                workspace.bonsplitController.focusPane(pane)
+                workspace.layoutController.focusPane(pane)
             }
         case .surface(_, let surfaceId):
             guard workspace.panels[surfaceId] != nil,
