@@ -34,7 +34,7 @@ public struct AppSection: View {
     private static let columnWidth: CGFloat = 240
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"))
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard

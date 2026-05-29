@@ -26,7 +26,7 @@ public struct TerminalSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"))
             mainCard
             resumeCommandsCard

@@ -78,56 +78,34 @@ public struct SettingsWindowRoot: View {
     private var sidebar: some View {
         List(selection: $selection) {
             if searchText.isEmpty {
-                ForEach(sidebarItems) { section in
-                    Label(section.title, systemImage: section.symbolName).tag(section)
+                ForEach(SettingsSectionID.allCases) { section in
+                    SettingsSidebarEntryRow(title: section.title, symbolName: section.symbolName, subtitle: nil)
+                        .tag(section)
                 }
             } else {
                 let matches = searchMatches
                 if !matches.sections.isEmpty {
-                    Section(String(localized: "settings.search.sections", defaultValue: "Sections")) {
-                        ForEach(matches.sections) { section in
-                            Label(section.title, systemImage: section.symbolName).tag(section)
-                        }
+                    ForEach(matches.sections) { section in
+                        SettingsSidebarEntryRow(title: section.title, symbolName: section.symbolName, subtitle: nil)
+                            .tag(section)
                     }
                 }
                 if !matches.settings.isEmpty {
-                    Section(String(localized: "settings.search.settings", defaultValue: "Settings")) {
-                        ForEach(matches.settings, id: \.self) { entry in
-                            Button {
-                                selection = entry.section
-                            } label: {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(entry.title)
-                                    Text(entry.section.title)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    ForEach(matches.settings, id: \.self) { entry in
+                        SettingsSidebarEntryRow(title: entry.title, symbolName: entry.section.symbolName, subtitle: entry.section.title)
+                            .tag(entry.section)
                     }
                 }
                 if matches.sections.isEmpty && matches.settings.isEmpty {
-                    Text(String(localized: "settings.search.noResults", defaultValue: "No results"))
+                    Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                         .foregroundStyle(.secondary)
-                        .font(.callout)
-                        .padding(.vertical, 4)
                 }
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Settings")
+        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .frame(minWidth: 220)
-    }
-
-    /// Sections that show as their own row in the sidebar. The legacy
-    /// SettingsView renders Import Browser Data inline inside the
-    /// Browser section's card; we keep `.browserImport` as a
-    /// navigation target but skip it as a top-level sidebar entry to
-    /// avoid landing the user on an empty pane.
-    private var sidebarItems: [SettingsSectionID] {
-        SettingsSectionID.allCases.filter { $0 != .browserImport }
+        .navigationSplitViewColumnWidth(210)
     }
 
     /// Live search results when the user has typed a query in the
@@ -139,7 +117,7 @@ public struct SettingsWindowRoot: View {
             .map(String.init)
         guard !tokens.isEmpty else { return ([], []) }
 
-        let matchingSections = sidebarItems.filter { section in
+        let matchingSections = SettingsSectionID.allCases.filter { section in
             let haystack = "\(section.title) \(section.searchKeywords)"
                 .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             return tokens.allSatisfy { haystack.contains($0) }
@@ -154,19 +132,22 @@ public struct SettingsWindowRoot: View {
 
     @ViewBuilder
     private var detailScroll: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    sectionStack
+        GeometryReader { _ in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        sectionStack
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                    .padding(.top, 20)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 22)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .onChange(of: selection) { _, newValue in
-                guard let newValue else { return }
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    proxy.scrollTo(anchorID(for: newValue), anchor: .top)
+                .onChange(of: selection) { _, newValue in
+                    guard let newValue else { return }
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        proxy.scrollTo(anchorID(for: newValue), anchor: .top)
+                    }
                 }
             }
         }

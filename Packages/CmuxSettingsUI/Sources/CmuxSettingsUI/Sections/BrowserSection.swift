@@ -36,7 +36,7 @@ public struct BrowserSection: View {
     private static let columnWidth: CGFloat = 240
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"))
                 .accessibilityIdentifier("SettingsBrowserSection")
             mainCard

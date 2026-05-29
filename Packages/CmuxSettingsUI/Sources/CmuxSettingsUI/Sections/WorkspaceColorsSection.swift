@@ -31,7 +31,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
             mainCard
         }

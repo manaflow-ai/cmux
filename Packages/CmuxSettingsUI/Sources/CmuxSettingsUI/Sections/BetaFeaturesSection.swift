@@ -15,7 +15,7 @@ public struct BetaFeaturesSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"))
             SettingsCard {
                 BetaFeaturesWarningNote(

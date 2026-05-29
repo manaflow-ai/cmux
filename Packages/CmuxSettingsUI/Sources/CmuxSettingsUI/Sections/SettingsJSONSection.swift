@@ -15,7 +15,7 @@ public struct SettingsJSONSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"))
                 .accessibilityIdentifier("SettingsJSONSection")
             SettingsCard {

@@ -29,7 +29,7 @@ public struct KeyboardShortcutsSection: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {

@@ -29,7 +29,7 @@ public struct AutomationSection: View {
     private static let columnWidth: CGFloat = 220
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"))
 
             socketControlCard
