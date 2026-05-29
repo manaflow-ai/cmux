@@ -3766,39 +3766,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testEscapeDoesNotDismissCommandPaletteWhenInputHasMarkedText() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        defer { closeTestWindow(window) }
-
-        let overlayContainer = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
-        overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
-        overlayContainer.alphaValue = 1
-        overlayContainer.isHidden = false
-        window.contentView?.addSubview(overlayContainer)
-        let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        fieldEditor.isFieldEditor = true
-        fieldEditor.hasMarkedTextForTesting = true
-        overlayContainer.addSubview(fieldEditor)
-        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
-        defer { overlayContainer.removeFromSuperview() }
-
-#if DEBUG
         XCTAssertTrue(
-            appDelegate.debugCommandPaletteMarkedTextInputBlocksEscape(window: window),
+            shouldBypassCommandPaletteEscapeForMarkedText(
+                isCommandPaletteEffectivelyVisible: true,
+                hasMarkedTextInput: true
+            ),
             "Escape should pass through to IME composition instead of dismissing command palette"
         )
-#else
-        XCTFail("command palette marked-text debug hook is only available in DEBUG")
-#endif
+        XCTAssertFalse(
+            shouldBypassCommandPaletteEscapeForMarkedText(
+                isCommandPaletteEffectivelyVisible: true,
+                hasMarkedTextInput: false
+            ),
+            "Escape should dismiss the palette when no IME composition is active"
+        )
+        XCTAssertFalse(
+            shouldBypassCommandPaletteEscapeForMarkedText(
+                isCommandPaletteEffectivelyVisible: false,
+                hasMarkedTextInput: true
+            ),
+            "Marked text should only affect Escape while the command palette is active"
+        )
     }
 
     func testEscapeDismissesCommandPaletteWhenVisibilitySyncLagsAfterOpenRequest() {

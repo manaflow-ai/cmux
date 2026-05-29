@@ -230,6 +230,13 @@ func shouldRouteCommandPaletteSelectionNavigation(
     return !usesInlineTextHandling
 }
 
+func shouldBypassCommandPaletteEscapeForMarkedText(
+    isCommandPaletteEffectivelyVisible: Bool,
+    hasMarkedTextInput: Bool
+) -> Bool {
+    isCommandPaletteEffectivelyVisible && hasMarkedTextInput
+}
+
 func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,

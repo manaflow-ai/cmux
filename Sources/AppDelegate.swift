@@ -12061,7 +12061,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             if let paletteWindow = escapePaletteWindow,
                isCommandPaletteEffectivelyVisible(in: paletteWindow) {
-                if commandPaletteMarkedTextInput(in: paletteWindow) != nil {
+                if shouldBypassCommandPaletteEscapeForMarkedText(
+                    isCommandPaletteEffectivelyVisible: true,
+                    hasMarkedTextInput: commandPaletteMarkedTextInput(in: paletteWindow) != nil
+                ) {
 #if DEBUG
                     cmuxDebugLog(
                         "shortcut.escape imeMarkedTextBypass consumed=0 target={\(debugWindowToken(paletteWindow))}"
@@ -13908,10 +13911,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .renameTab
         }
         return nil
-    }
-
-    func debugCommandPaletteMarkedTextInputBlocksEscape(window: NSWindow) -> Bool {
-        isCommandPaletteEffectivelyVisible(in: window) && commandPaletteMarkedTextInput(in: window) != nil
     }
 
     func debugMainWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
