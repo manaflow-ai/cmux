@@ -741,7 +741,7 @@ final class AuthManager: ObservableObject {
         let redactedMessage = redactedAuthLogMessage(message)
         authLogger.log(level: authLogType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
         #if DEBUG
-        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(redactedMessage)\n"
+        let line = "[\(Self.logTimestampString())] auth: \(redactedMessage)\n"
         let path = authDebugLogPath
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()
@@ -808,13 +808,22 @@ final class AuthManager: ObservableObject {
     }
     #endif
 
-    // ISO8601DateFormatter is expensive to construct (calendar + locale +
-    // time zone). Reuse one instance across the high-frequency authLog path.
-    private nonisolated static let logTimestampFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+    // ISO8601DateFormatter is expensive to construct and is not Sendable.
+    // Keep one formatter per thread so DEBUG auth logging stays off the main actor.
+    private nonisolated static func logTimestampString() -> String {
+        let key = "cmux.auth.logTimestampFormatter"
+        let dictionary = Thread.current.threadDictionary
+        let formatter: ISO8601DateFormatter
+        if let cachedFormatter = dictionary[key] as? ISO8601DateFormatter {
+            formatter = cachedFormatter
+        } else {
+            let newFormatter = ISO8601DateFormatter()
+            newFormatter.formatOptions = [.withInternetDateTime]
+            dictionary[key] = newFormatter
+            formatter = newFormatter
+        }
+        return formatter.string(from: Date())
+    }
 
     private func authLog(_ message: String) {
         Self.authLog(message)

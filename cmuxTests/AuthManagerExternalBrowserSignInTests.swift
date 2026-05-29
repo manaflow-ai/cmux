@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CMUXAuthCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
