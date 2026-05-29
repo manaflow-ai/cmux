@@ -33,6 +33,11 @@ const workspaceColors = [
   "oklch(86% 0.11 70)"
 ];
 
+function isSafeColorValue(value) {
+  const color = String(value || "").trim();
+  return workspaceColors.includes(color) || /^#[0-9a-f]{6}$/i.test(color);
+}
+
 function id(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
@@ -558,7 +563,7 @@ class CmuxWindowsRuntime {
     }
     if (Object.hasOwn(updates, "color")) {
       const color = String(updates.color || "").trim();
-      found.panel.color = workspaceColors.includes(color) ? color : "";
+      found.panel.color = isSafeColorValue(color) ? color : "";
     }
     if (updates.direction === "down" || updates.direction === "right") {
       found.workspace.splitDirection = updates.direction;
@@ -615,7 +620,7 @@ class CmuxWindowsRuntime {
     }
     if (Object.hasOwn(updates, "color")) {
       const color = String(updates.color || "").trim();
-      if (workspaceColors.includes(color)) workspace.color = color;
+      if (isSafeColorValue(color)) workspace.color = color;
     }
     this.persistAndBroadcast();
     return true;

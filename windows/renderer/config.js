@@ -203,7 +203,6 @@ export const settingsPresets = [
 ];
 
 export const settingsCategories = [
-  ["all", "All"],
   ["quick", "Quick"],
   ["workspace", "Workspace"],
   ["appearance", "Look"],

@@ -40,7 +40,7 @@ const state = {
   pendingRender: false,
   pendingRenderPrevious: null,
   settings: initialSettings,
-  settingsCategory: "all",
+  settingsCategory: "quick",
   settingsQuery: "",
   terminalFontSize: initialSettings.terminalFontSize
 };
@@ -78,6 +78,25 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
 }
 
+function isSafeCustomColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || "").trim());
+}
+
+function isAllowedUiColor(value, palette = accentOptions) {
+  const color = String(value || "").trim();
+  return palette.includes(color) || isSafeCustomColor(color);
+}
+
+function normalizeUiColor(value, fallback, palette = accentOptions) {
+  const color = String(value || "").trim();
+  return isAllowedUiColor(color, palette) ? color : fallback;
+}
+
+function colorInputValue(value, fallback = "#5d8cff") {
+  const color = String(value || "").trim();
+  return isSafeCustomColor(color) ? color : fallback;
+}
+
 function normalizeSettings(input = {}, legacyFontSize = 0) {
   const parsed = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const next = {
@@ -89,7 +108,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalLineHeight = clamp(next.terminalLineHeight, 1, 1.5);
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
-  if (!accentOptions.includes(next.accent)) next.accent = defaultSettings.accent;
+  next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
@@ -1202,7 +1221,7 @@ function renderInspector() {
 
 function renderSettingsInspector() {
   elements.inspectorTitle.textContent = "Settings";
-  elements.inspectorSubtitle.textContent = "Appearance and workspace controls";
+  elements.inspectorSubtitle.textContent = `${settingsCategoryLabel(state.settingsCategory)} page`;
   const workspace = activeWorkspace();
   const nodes = [settingsSearch(), settingsCategoryNav()];
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
@@ -1222,6 +1241,7 @@ function renderSettingsInspector() {
   titleInput.addEventListener("blur", () => renameWorkspaceTo(titleInput.value));
   workspaceSection.append(settingRow("Name", titleInput));
   workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
+  workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
   appendSettingsSection(nodes, "workspace", workspaceSection);
 
   const appearanceSection = settingsSection("Appearance");
@@ -1237,6 +1257,7 @@ function renderSettingsInspector() {
   themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
   appearanceSection.append(settingRow("Theme", themeSelect));
   appearanceSection.append(settingRow("Accent", swatchGrid(accentOptions, state.settings.accent, (accent) => updateSettings({ accent }))));
+  appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
   appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
   const imageInput = document.createElement("input");
@@ -1518,9 +1539,13 @@ function settingsCategoryNav() {
 }
 
 function appendSettingsSection(nodes, id, section) {
-  if (state.settingsCategory === "all" || state.settingsCategory === id || normalizeSettingsQuery(state.settingsQuery)) {
+  if (state.settingsCategory === id || normalizeSettingsQuery(state.settingsQuery)) {
     nodes.push(section);
   }
+}
+
+function settingsCategoryLabel(id) {
+  return settingsCategories.find(([categoryId]) => categoryId === id)?.[1] || "Quick";
 }
 
 function settingsSection(title, searchTerms = "") {
@@ -1608,6 +1633,30 @@ function swatchGrid(colors, activeColor, onPick) {
     grid.append(button);
   }
   return grid;
+}
+
+function colorPicker(activeColor, onPick) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "color-picker";
+  const input = document.createElement("input");
+  input.className = "setting-control color-picker-input";
+  input.type = "color";
+  input.value = colorInputValue(activeColor);
+  input.dataset.settingsSearch = normalizeSettingsQuery("custom color picker hex");
+  let committedColor = input.value;
+  const swatch = document.createElement("span");
+  swatch.className = "color-picker-preview";
+  swatch.style.setProperty("--picked-color", colorInputValue(activeColor));
+  input.addEventListener("input", () => {
+    swatch.style.setProperty("--picked-color", input.value);
+  });
+  input.addEventListener("change", () => {
+    if (input.value === committedColor) return;
+    committedColor = input.value;
+    onPick(input.value);
+  });
+  wrapper.append(input, swatch);
+  return wrapper;
 }
 
 function backgroundPresetGrid() {
@@ -1734,7 +1783,8 @@ function showPanelContextMenu(event, panel) {
     colors.append(button);
   }
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
-  menu.replaceChildren(title, actions, colors, clear);
+  const customColor = contextColorPicker(panel.color, (color) => updatePanel(panel.id, { color }));
+  menu.replaceChildren(title, actions, colors, customColor, clear);
   menu.hidden = false;
   const x = Math.min(event.clientX, window.innerWidth - 238);
   const y = Math.min(event.clientY, window.innerHeight - 260);
@@ -1777,7 +1827,8 @@ function showWorkspaceContextMenu(event, workspace) {
     };
     colors.append(button);
   }
-  menu.replaceChildren(title, meta, actions, colors);
+  const customColor = contextColorPicker(workspace.color, (color) => setWorkspaceColor(color, workspace.id));
+  menu.replaceChildren(title, meta, actions, colors, customColor);
   menu.hidden = false;
   const x = Math.min(event.clientX, window.innerWidth - 238);
   const y = Math.min(event.clientY, window.innerHeight - 326);
@@ -1828,6 +1879,22 @@ function contextMenuButton(label, action, disabled = false, tone = "") {
     hideContextMenu();
   };
   return button;
+}
+
+function contextColorPicker(activeColor, onPick) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "context-color-picker";
+  const label = document.createElement("span");
+  label.textContent = "Custom color";
+  const input = document.createElement("input");
+  input.type = "color";
+  input.value = colorInputValue(activeColor);
+  input.onchange = () => {
+    onPick(input.value);
+    hideContextMenu();
+  };
+  wrapper.append(label, input);
+  return wrapper;
 }
 
 function renamePanel(panel) {
@@ -2121,7 +2188,7 @@ function optimisticUpdatePanel(panelId, updates = {}) {
   }
   if (Object.hasOwn(updates, "color")) {
     const color = String(updates.color || "").trim();
-    found.panel.color = (state.data?.palette || accentOptions).includes(color) ? color : "";
+    found.panel.color = isAllowedUiColor(color, state.data?.palette || accentOptions) ? color : "";
   }
   if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
     found.panel.url = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
@@ -2272,9 +2339,9 @@ function openInspector(mode) {
   render();
 }
 
-function openSettingsCategory(category = "all") {
+function openSettingsCategory(category = "quick") {
   state.inspectorMode = "settings";
-  state.settingsCategory = category;
+  state.settingsCategory = settingsCategories.some(([id]) => id === category) ? category : "quick";
   state.settingsQuery = "";
   updateRailButtons();
   render();

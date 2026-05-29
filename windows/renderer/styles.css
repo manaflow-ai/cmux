@@ -1468,6 +1468,37 @@ button {
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--swatch-color) 34%, transparent);
 }
 
+.color-picker {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.color-picker-input {
+  width: 100%;
+  padding: 3px 6px;
+}
+
+.color-picker-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-picker-input::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--radius-1);
+}
+
+.color-picker-preview {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--picked-color);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
 .background-preset-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1604,6 +1635,35 @@ button {
 .context-color.is-active {
   border-color: var(--color-text);
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--context-color) 34%, transparent);
+}
+
+.context-color-picker {
+  min-width: 0;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.context-color-picker input {
+  width: 34px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.context-color-picker input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.context-color-picker input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
