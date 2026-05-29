@@ -5461,7 +5461,6 @@ extension CMUXCLI {
             let codeViewItemIds = new Set();
             let fileTreeSource = null;
             let currentTreeSource = null;
-            let fileTreeStatsByPath = new Map();
             let patchTextPromise = { value: null };
             let terminateWorkerPool = null;
             let pageHiddenForCleanup = false;
@@ -5856,8 +5855,9 @@ extension CMUXCLI {
                 model.diffStats.deletedLines += stats.deleted;
                 model.diffStats.fileCount += 1;
                 model.diffStats.totalLinesOfCode += fileDiff.unifiedLineCount ?? fileDiff.splitLineCount ?? 0;
-                const previousStats = model.statsByPath.get(treePath);
-                model.statsByPath.set(treePath, stats);
+                const previousStats = previousState == null
+                  ? undefined
+                  : fileStats(previousState.currentItem.fileDiff ?? {});
                 if (previousState != null && !sameFileStats(previousStats, stats)) {
                   model.pendingStatsChanged = true;
                 }
@@ -6377,7 +6377,6 @@ extension CMUXCLI {
                 pendingItems: [],
                 pendingItemById: new Map(),
                 pendingStatsChanged: false,
-                statsByPath: new Map(),
                 treePathByItemId: new Map(),
               };
             }
@@ -6394,7 +6393,6 @@ extension CMUXCLI {
                 pathToItemId: model.pathToItemId,
                 previousSource,
                 statsChanged: model.pendingStatsChanged,
-                statsByPath: model.statsByPath,
                 treePathByItemId: model.treePathByItemId,
               };
               model.pendingStatsChanged = false;
@@ -6921,7 +6919,6 @@ extension CMUXCLI {
               const paths = sourcePaths(source);
               fileTreeSource = source;
               const initialSelectedPath = paths[0];
-              useFileTreeStatsFromSource(source);
               fileList.dataset.treeMode = "pierre";
               fileTree = new FileTree({
                 flattenEmptyDirectories: true,
@@ -6941,7 +6938,9 @@ extension CMUXCLI {
                   if (context.item.kind !== "file") {
                     return null;
                   }
-                  const stats = fileTreeStatsByPath.get(context.item.path);
+                  const itemId = itemIdByTreePath.get(context.item.path);
+                  const item = itemId ? diffItemById.get(itemId) : undefined;
+                  const stats = item?.fileDiff ? fileStats(item.fileDiff) : null;
                   if (stats == null || (stats.added === 0 && stats.deleted === 0)) {
                     return null;
                   }
@@ -6970,7 +6969,6 @@ extension CMUXCLI {
               const previousSource = fileTreeSource;
               const paths = sourcePaths(source);
               fileTreeSource = source;
-              useFileTreeStatsFromSource(source);
               let resetTree = false;
               if (previousSource && (source.previousSource === previousSource || isPathPrefix(previousSource, source)) && source.pathCount >= previousSource.pathCount) {
                 const addedPaths = source.paths.slice(previousSource.pathCount, source.pathCount);
@@ -7006,7 +7004,6 @@ extension CMUXCLI {
               const entries = buildTreeEntries(items);
               const paths = entries.map((entry) => entry.path);
               const pathToItemId = new Map(entries.map((entry) => [entry.path, entry.item.id]));
-              const statsByPath = new Map(entries.map((entry) => [entry.path, entry.stats]));
               const treePathByItemId = new Map(entries.map((entry) => [entry.item.id, entry.path]));
               return {
                 entries,
@@ -7016,7 +7013,6 @@ extension CMUXCLI {
                 pathCount: paths.length,
                 paths,
                 pathToItemId,
-                statsByPath,
                 treePathByItemId,
               };
             }
@@ -7037,7 +7033,6 @@ extension CMUXCLI {
               }
               const paths = sourcePaths(source);
               const pathToItemId = source?.pathToItemId;
-              const statsByPath = source?.statsByPath;
               return paths.map((path) => {
                 const itemId = pathToItemId instanceof Map ? pathToItemId.get(path) : undefined;
                 const item = itemId ? diffItemById.get(itemId) : undefined;
@@ -7046,7 +7041,7 @@ extension CMUXCLI {
                   item: item ?? { id: itemId ?? path, fileDiff },
                   path,
                   status: gitStatus(fileDiff),
-                  stats: statsByPath instanceof Map ? statsByPath.get(path) ?? fileStats(fileDiff) : fileStats(fileDiff),
+                  stats: fileStats(fileDiff),
                 };
               });
             }
@@ -7071,18 +7066,6 @@ extension CMUXCLI {
                 }
               }
               return true;
-            }
-
-            function useFileTreeStatsFromSource(source) {
-              if (source?.statsByPath instanceof Map) {
-                fileTreeStatsByPath = source.statsByPath;
-                return;
-              }
-              fileTreeStatsByPath = new Map();
-              const treeEntries = sourceEntries(source);
-              for (const entry of treeEntries) {
-                fileTreeStatsByPath.set(entry.path, entry.stats);
-              }
             }
 
             function syncFileTreeSelectionMaps(source, entries) {
