@@ -3091,6 +3091,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
+        if app.launchEnvironment["CMUX_SOCKET_PATH"]?.isEmpty == false {
+            app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+            app.launchEnvironment["CMUX_SOCKET_ENABLE"] = app.launchEnvironment["CMUX_SOCKET_ENABLE"] ?? "1"
+            app.launchEnvironment["CMUX_SOCKET_MODE"] = app.launchEnvironment["CMUX_SOCKET_MODE"] ?? "allowAll"
+        }
+
         // On headless CI runners (no GUI session), XCUIApplication.launch()
         // blocks ~60s then fails with "Failed to activate application
         // (current state: Running Background)". Mark this as an expected
