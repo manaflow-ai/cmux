@@ -30,7 +30,8 @@ extension TabManager {
         select: Bool = true,
         placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        customTitle: String? = nil
     ) -> Workspace? {
         guard !isFinalizedForWindowClose else { return nil }
         let sourceWorkspace = selectedWorkspace
@@ -81,8 +82,14 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            // The constructor seeds the initial label without pinning it.
-            // Process-derived titles must continue to accept OSC updates.
+            // Process-derived titles seed the initial label without pinning it.
+            // Explicit names retain title provenance and stable-ID recovery.
+            applyCreationWorkspaceCustomization(
+                to: newWorkspace,
+                explicitTitle: customTitle,
+                explicitTitleSource: titleSource,
+                repairInitialTabTitle: false
+            )
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs
