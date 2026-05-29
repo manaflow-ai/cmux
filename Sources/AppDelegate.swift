@@ -4283,7 +4283,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> UUID {
         let key: ObjectIdentifier
         if let window {
-            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
             tabManager.window = window
             key = ObjectIdentifier(window)
         } else {

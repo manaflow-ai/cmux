@@ -9750,19 +9750,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private func makeRegisteredLightweightMainWindowContext(
         appDelegate: AppDelegate
     ) -> (windowId: UUID, window: NSWindow, tabManager: TabManager) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
+        let windowId = UUID()
+        let window = makeRegisteredShortcutRoutingWindow(id: windowId)
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        let windowId = appDelegate.registerMainWindowContextForTesting(
+        let registeredWindowId = appDelegate.registerMainWindowContextForTesting(
+            windowId: windowId,
             tabManager: tabManager,
             window: window
         )
-        return (windowId, window, tabManager)
+        return (registeredWindowId, window, tabManager)
     }
 #endif
 
