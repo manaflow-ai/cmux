@@ -626,6 +626,13 @@ private final class ClaudeHookSessionStore {
                     state.sessions[normalized] = record
                     return totalDepth > 1
                 }
+                if turnStack.last == normalizedTurnId {
+                    let totalDepth = max(legacyDepth, turnStack.count)
+                    setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
+                    record.lastPromptTurnId = normalizedTurnId
+                    state.sessions[normalized] = record
+                    return totalDepth > 1
+                }
                 let totalDepth = max(legacyDepth, turnStack.count) + 1
                 turnStack.append(normalizedTurnId)
                 setActivePromptTurnStack(turnStack, totalDepth: totalDepth, on: &record)
@@ -2801,6 +2808,7 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -2826,6 +2834,12 @@ struct CMUXCLI {
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
             )
+            return
+        }
+
+        // If the argument is a path (not a known command), open a workspace there.
+        if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
+            try openPath(command)
             return
         }
 
@@ -2861,9 +2875,8 @@ struct CMUXCLI {
             bundleIdentifier: cliBundleIdentifier
         )
 
-        // If the argument looks like a path (not a known command), open a workspace there.
-        if looksLikePath(command) {
-            try openPath(command, socketPath: resolvedSocketPath)
+        if shouldOpenAsPathArgument(command) {
+            try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
             return
         }
 
@@ -2897,6 +2910,7 @@ struct CMUXCLI {
             return
         }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
+        if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -4696,50 +4710,341 @@ struct CMUXCLI {
         return false
     }
 
-    /// Open a path in cmux by creating a new workspace with the given directory.
-    /// Launches the app if it isn't already running.
-    private func openPath(_ path: String, socketPath: String) throws {
-        let resolved = resolvePath(path)
+    private func shouldOpenAsPathArgument(_ arg: String) -> Bool {
+        if looksLikePath(arg) {
+            return true
+        }
+        guard !arg.hasPrefix("-"),
+              !Self.topLevelCommandNames.contains(arg) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    private static let topLevelCommandNames: Set<String> = [
+        "__codex-teams-watch",
+        "__tmux-compat",
+        "agent-hibernation",
+        "auth",
+        "bind-key",
+        "break-pane",
+        "browser",
+        "browser-back",
+        "browser-forward",
+        "browser-reload",
+        "browser-status",
+        "capabilities",
+        "capture-pane",
+        "claude-hook",
+        "claude-teams",
+        "clear-history",
+        "clear-log",
+        "clear-notifications",
+        "clear-progress",
+        "clear-status",
+        "close-surface",
+        "close-window",
+        "close-workspace",
+        "cloud",
+        "codex",
+        "codex-hook",
+        "codex-teams",
+        "config",
+        "copy-mode",
+        "current-window",
+        "current-workspace",
+        "debug-terminals",
+        "detach-tab",
+        "diff",
+        "disable-browser",
+        "dismiss-notification",
+        "display-message",
+        "docs",
+        "drag-surface-to-split",
+        "enable-browser",
+        "events",
+        "feedback",
+        "feed",
+        "feed-hook",
+        "find-window",
+        "focus-pane",
+        "focus-panel",
+        "focus-webview",
+        "focus-window",
+        "get-url",
+        "help",
+        "hooks",
+        "identify",
+        "is-webview-focused",
+        "join-pane",
+        "jump-to-unread",
+        "last-pane",
+        "last-window",
+        "list-buffers",
+        "list-log",
+        "list-notifications",
+        "list-pane-surfaces",
+        "list-panels",
+        "list-panes",
+        "list-status",
+        "list-windows",
+        "list-workspaces",
+        "log",
+        "login",
+        "logout",
+        "markdown",
+        "mark-notification-read",
+        "memory",
+        "move-surface",
+        "move-tab-to-new-workspace",
+        "move-workspace-to-window",
+        "navigate",
+        "new-pane",
+        "new-split",
+        "new-surface",
+        "new-window",
+        "new-workspace",
+        "next-window",
+        "notify",
+        "omc",
+        "omo",
+        "omx",
+        "open",
+        "open-browser",
+        "open-notification",
+        "paste-buffer",
+        "ping",
+        "pipe-pane",
+        "popup",
+        "previous-window",
+        "read-screen",
+        "refresh-surfaces",
+        "reload-config",
+        "remote-daemon-status",
+        "rename-tab",
+        "rename-window",
+        "rename-workspace",
+        "reorder-surface",
+        "reorder-workspace",
+        "reorder-workspaces",
+        "resize-pane",
+        "respawn-pane",
+        "restore-session",
+        "right-sidebar",
+        "rpc",
+        "select-workspace",
+        "send",
+        "send-key",
+        "send-key-panel",
+        "send-panel",
+        "set-app-focus",
+        "set-buffer",
+        "set-hook",
+        "set-progress",
+        "set-status",
+        "settings",
+        "setup-hooks",
+        "shortcuts",
+        "simulate-app-active",
+        "sidebar-state",
+        "split-off",
+        "ssh",
+        "ssh-pty-attach",
+        "ssh-session-attach",
+        "ssh-session-cleanup",
+        "ssh-session-end",
+        "ssh-session-list",
+        "surface",
+        "surface-health",
+        "surface-resume",
+        "swap-pane",
+        "tab-action",
+        "themes",
+        "top",
+        "tree",
+        "trigger-flash",
+        "unbind-key",
+        "uninstall-hooks",
+        "version",
+        "vm",
+        "vm-pty-attach",
+        "vm-pty-connect",
+        "vm-ssh-attach",
+        "wait-for",
+        "welcome",
+        "workspace-action",
+    ]
+
+    /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
+    private func openPath(_ path: String) throws {
+        let directory = try directoryForPathOpen(path)
+        try openDirectoryWithLaunchServices(directory)
+        print(String(localized: "common.ok", defaultValue: "OK"))
+    }
+
+    /// Open a path through an explicitly selected socket, preserving deliberate instance routing.
+    private func openPathViaExplicitSocket(_ path: String, socketPath: String, explicitPassword: String?) throws {
+        let directory = try directoryForPathOpen(path)
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
+        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        let okText = String(localized: "common.ok", defaultValue: "OK")
+        print(wsRef.isEmpty ? okText : "\(okText) \(wsRef)")
+        try activateApp()
+    }
+
+    private func directoryForPathOpen(_ path: String) throws -> String {
+        let resolved = URL(fileURLWithPath: resolvePath(path)).standardizedFileURL.path
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
 
-        let directory: String
         if exists && isDir.boolValue {
-            directory = resolved
-        } else if exists {
-            // It's a file; use its parent directory
-            directory = (resolved as NSString).deletingLastPathComponent
-        } else {
-            throw CLIError(message: "Path does not exist: \(resolved)")
+            return resolved
+        }
+        if exists {
+            return (resolved as NSString).deletingLastPathComponent
         }
 
-        // Try connecting to the socket. If it fails, launch the app and retry.
-        let client = SocketClient(path: socketPath)
-        if (try? client.connect()) == nil {
-            client.close()
-            try launchApp()
-            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
-            defer { launchedClient.close() }
-            let params: [String: Any] = ["cwd": directory]
-            let response = try launchedClient.sendV2(method: "workspace.create", params: params)
-            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-            if !wsRef.isEmpty {
-                print("OK \(wsRef)")
+        throw CLIError(message: localizedFormat("cli.pathOpen.error.pathDoesNotExist", defaultValue: "Path does not exist: %@", resolved))
+    }
+
+    private func openDirectoryWithLaunchServices(_ directory: String) throws {
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget(), directory],
+            failureMessage: localizedFormat("cli.pathOpen.error.openFailed", defaultValue: "Failed to open %@ in cmux", directory),
+            environment: launchServicesPathOpenEnvironment()
+        )
+    }
+
+    private func runOpenTool(
+        arguments: [String],
+        failureMessage: String,
+        environment: [String: String]? = nil
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: openToolPath())
+        process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+
+        if try !waitForProcessExit(process, timeout: 10) {
+            process.terminate()
+            if try !waitForProcessExit(process, timeout: 1) {
+                kill(process.processIdentifier, SIGKILL)
+                _ = try? waitForProcessExit(process, timeout: 1)
             }
-            try activateApp()
-            return
-        }
-        defer { client.close() }
-
-        let params: [String: Any] = ["cwd": directory]
-        let response = try client.sendV2(method: "workspace.create", params: params)
-        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        if !wsRef.isEmpty {
-            print("OK \(wsRef)")
+            throw CLIError(message: localizedFormat("cli.pathOpen.error.timedOut", defaultValue: "%@ (timed out)", failureMessage))
         }
 
-        // Bring the app to front
-        try activateApp()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: failureMessage)
+        }
+    }
+
+    private static let launchServicesPathOpenScrubbedEnvironmentKeys: Set<String> = [
+        "CMUX_ALLOW_SOCKET_OVERRIDE",
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_ENABLE",
+        "CMUX_SOCKET_MODE",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_SOCKET_PATH",
+        "CMUX_PANEL_ID",
+        "CMUX_SURFACE_ID",
+        "CMUX_TAB_ID",
+        "CMUX_WORKSPACE_ID",
+    ]
+
+    private func launchServicesPathOpenEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        for key in Self.launchServicesPathOpenScrubbedEnvironmentKeys {
+            environment.removeValue(forKey: key)
+        }
+        return environment
+    }
+
+    private func waitForProcessExit(_ process: Process, timeout: TimeInterval) throws -> Bool {
+        if !process.isRunning {
+            process.waitUntilExit()
+            return true
+        }
+
+        let queue = kqueue()
+        guard queue >= 0 else {
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+        }
+        defer { close(queue) }
+
+        var event = kevent(
+            ident: UInt(process.processIdentifier),
+            filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
+            fflags: UInt32(NOTE_EXIT),
+            data: 0,
+            udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
+            if errno == ESRCH {
+                process.waitUntilExit()
+                return true
+            }
+            throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                return false
+            }
+
+            var timeoutSpec = timespec(
+                tv_sec: Int(remaining),
+                tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+            )
+            var triggeredEvent = kevent()
+            let result = kevent(queue, nil, 0, &triggeredEvent, 1, &timeoutSpec)
+            if result > 0 {
+                process.waitUntilExit()
+                return true
+            }
+            if result == 0 {
+                return false
+            }
+            if errno != EINTR {
+                throw CLIError(message: String(localized: "cli.pathOpen.error.processMonitorFailed", defaultValue: "Failed to monitor process exit"))
+            }
+        }
+    }
+
+    private func localizedFormat(_ key: String, defaultValue: String, _ arguments: CVarArg...) -> String {
+        let format = NSLocalizedString(key, bundle: .main, value: defaultValue, comment: "")
+        return String(format: format, locale: Locale.current, arguments: arguments)
+    }
+
+    private func openToolPath() -> String {
+#if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_TEST_OPEN_TOOL_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return NSString(string: override).expandingTildeInPath
+        }
+#endif
+        return "/usr/bin/open"
+    }
+
+    private func appLaunchTarget() -> String {
+        CLIExecutableLocator.enclosingAppBundle()?.bundleURL.path ?? "cmux"
     }
 
     private func runFeedback(
@@ -4890,19 +5195,17 @@ struct CMUXCLI {
     }
 
     private func launchApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
-        try process.run()
-        process.waitUntilExit()
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget()],
+            failureMessage: String(localized: "cli.pathOpen.error.launchFailed", defaultValue: "Failed to launch cmux")
+        )
     }
 
     private func activateApp() throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "cmux"]
-        try process.run()
-        process.waitUntilExit()
+        try runOpenTool(
+            arguments: ["-a", appLaunchTarget()],
+            failureMessage: String(localized: "cli.pathOpen.error.activateFailed", defaultValue: "Failed to activate cmux")
+        )
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
@@ -13445,6 +13748,7 @@ struct CMUXCLI {
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
         case "open": return openSubcommandUsage()
+        case "diff": return diffSubcommandUsage()
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
@@ -16935,7 +17239,8 @@ struct CMUXCLI {
             "rm -f -- \"$0\" 2>/dev/null || true"
         ]
         if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty {
-            lines.append("cd -- \(codexTeamsShellQuote(cwd)) || exit $?")
+            let quotedCwd = codexTeamsShellQuote(cwd)
+            lines.append("{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } || exit $?")
         }
         lines.append("exec \"${SHELL:-/bin/sh}\" -lc \(codexTeamsShellQuote(commandText))")
         do {
@@ -17261,7 +17566,7 @@ struct CMUXCLI {
         let outputBox = CodexTeamsAsyncBox<Data>()
         let outputReadSemaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            outputBox.set(output.fileHandleForReading.readDataToEndOfFile())
+            outputBox.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: output.fileHandleForReading))
             outputReadSemaphore.signal()
         }
 
@@ -19053,8 +19358,10 @@ struct CMUXCLI {
         stdinPipe.fileHandleForWriting.closeFile()
         process.waitUntilExit()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
+        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
     }
 
@@ -22962,7 +23269,7 @@ struct CMUXCLI {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
         guard let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !output.isEmpty else {
@@ -23279,9 +23586,15 @@ struct CMUXCLI {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
 
-        var command = commandParts.map(cliShellQuote).joined(separator: " ")
-        if let cwd = normalizedHookValue(workingDirectory) {
-            command = "cd \(cliShellQuote(cwd)) && \(command)"
+        let cwd = normalizedHookValue(workingDirectory)
+        let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+            from: commandParts,
+            workingDirectory: cwd
+        )
+        let command = sanitizedCommandParts.map(cliShellQuote).joined(separator: " ")
+        if let cwd {
+            let quotedCwd = cliShellQuote(cwd)
+            return "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && \(command)"
         }
         return command
     }
@@ -25871,6 +26184,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            if !suppressVisibleMutations {
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    preserveExistingTurnBaseline: true
+                )
+            }
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
@@ -25935,6 +26260,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
             let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+            let activePromptDepth = max(mapped?.activePromptDepth ?? 0, activePromptTurnStack.count)
             let terminalActivePromptTurnIds: Set<String>
             let previousActivePromptTurnIsTerminal: Bool
             if def.name == "codex",
@@ -25976,6 +26302,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
+            if !suppressVisibleMutations {
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    preserveExistingTurnBaseline: activePromptDepth > 0 &&
+                        (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
+                )
+            }
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(
                     sessionId: sessionId,
@@ -27657,12 +27996,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let drainGroup = DispatchGroup()
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stdoutData = stdoutHandle.readDataToEndOfFile()
+            stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle)
             drainGroup.leave()
         }
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stderrData = stderrHandle.readDataToEndOfFile()
+            stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle)
             drainGroup.leave()
         }
 
@@ -29689,7 +30028,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
         guard let output = String(data: data, encoding: .utf8) else {
             return nil
         }
@@ -29849,6 +30188,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           agent-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -29963,6 +30303,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

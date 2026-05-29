@@ -1118,26 +1118,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(item.menuSubtitle.contains(String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab")))
     }
 
-    func testHistorySearchMatchesAcrossTitleAndKind() {
-        XCTAssertTrue(HistoryDayGrouping.matches(query: "timed tab", fields: ["Timed Panel", "Tab"]))
-        XCTAssertTrue(HistoryDayGrouping.matches(query: "workspace", fields: ["Recovered", "Workspace"]))
-        XCTAssertFalse(HistoryDayGrouping.matches(query: "browser", fields: ["Timed Panel", "Tab"]))
-    }
-
-    func testHistoryDayGroupingLabelsTodayAndYesterday() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
-        let now = Date(timeIntervalSince1970: 1_700_000_000)
-        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: now))
-
-        XCTAssertEqual(
-            HistoryDayGrouping.dayTitle(for: now, now: now, calendar: calendar),
-            String(localized: "historyPane.day.today", defaultValue: "Today")
-        )
-        XCTAssertEqual(
-            HistoryDayGrouping.dayTitle(for: yesterday, now: now, calendar: calendar),
-            String(localized: "historyPane.day.yesterday", defaultValue: "Yesterday")
-        )
+    func testRightSidebarToolSnapshotTolerantlyDecodesObsoleteHistoryMode() throws {
+        let json = #"{"mode":"history"}"#.data(using: .utf8)!
+        let snapshot = try JSONDecoder().decode(SessionRightSidebarToolPanelSnapshot.self, from: json)
+        XCTAssertNil(snapshot.mode)
     }
 
     func testReopenSpecificRecentlyClosedRowRestoresOnlyThatRecord() throws {
@@ -1556,6 +1540,24 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.selectedWorkspaceIndex, 1)
         let remoteSnapshot = try XCTUnwrap(snapshot.workspaces.first { $0.processTitle == remoteWorkspace.title })
         XCTAssertEqual(remoteSnapshot.remote?.destination, "cmux-macmini")
+    }
+
+    func testSessionSnapshotSkipsTemporaryDiffViewerBrowserPanels() throws {
+        let workspace = try XCTUnwrap(TabManager().selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let url = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        _ = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                omnibarVisible: false
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertFalse(snapshot.panels.contains { $0.type == .browser })
     }
 
     func testSessionSnapshotSkipsNonRestorableRemoteWorkspaces() {
