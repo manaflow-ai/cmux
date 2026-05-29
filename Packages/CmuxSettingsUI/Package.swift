@@ -1,14 +1,6 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.0
 
 import PackageDescription
-
-// CmuxSettingsUI is a SwiftUI / AppKit layer that always runs on the
-// main actor. We default-isolate the whole package to `MainActor`
-// instead of sprinkling `@MainActor` on every view, model, and section
-// type.
-let mainActorIsolation: [SwiftSetting] = [
-    .defaultIsolation(MainActor.self)
-]
 
 let package = Package(
     name: "CmuxSettingsUI",
@@ -29,13 +21,11 @@ let package = Package(
             name: "CmuxSettingsUI",
             dependencies: [
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-            ],
-            swiftSettings: mainActorIsolation
+            ]
         ),
         .testTarget(
             name: "CmuxSettingsUITests",
-            dependencies: ["CmuxSettingsUI"],
-            swiftSettings: mainActorIsolation
+            dependencies: ["CmuxSettingsUI"]
         ),
     ]
 )

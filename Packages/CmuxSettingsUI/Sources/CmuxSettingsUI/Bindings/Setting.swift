@@ -29,7 +29,7 @@ import SwiftUI
 /// `Binding<Value>` setter itself never throws.
 @MainActor
 @propertyWrapper
-public struct Setting<Value: SettingCodable>: DynamicProperty {
+public struct Setting<Value: SettingCodable>: @preconcurrency DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime
     @State private var resolved: ResolvedModel<Value> = .pending
 

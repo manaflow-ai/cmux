@@ -19,6 +19,7 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let accountFlow: AccountFlow?
     public let hostActions: SettingsHostActions
 
+    @MainActor
     public init(
         catalog: SettingCatalog,
         userDefaultsStore: UserDefaultsSettingsStore,

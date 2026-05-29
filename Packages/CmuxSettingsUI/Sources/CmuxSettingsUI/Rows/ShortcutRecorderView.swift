@@ -127,7 +127,10 @@ public final class RecorderHostButton: NSButton {
     private var isRecording = false
     private var pendingFirst: ShortcutStroke?
     private var hasPendingRejection = false
-    private var eventMonitor: Any?
+    // `deinit` is nonisolated and must remove the local event monitor; the
+    // token is set/cleared only on the main thread (this is a main-thread
+    // AppKit view), so reading it from the nonisolated deinit is safe.
+    private nonisolated(unsafe) var eventMonitor: Any?
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -139,7 +142,7 @@ public final class RecorderHostButton: NSButton {
         configure()
     }
 
-    isolated deinit {
+    deinit {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
