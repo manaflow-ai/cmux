@@ -37,7 +37,8 @@ Implemented in this milestone:
 - Browser panes through Electron `webview`, with iframe fallback outside Electron.
 - Named-pipe CLI/control protocol.
 - Native Windows window controls, draggable split dividers, terminal font-size controls, restart, and close-to-empty workspace home state.
-- Settings panel for themes, accent colors, workspace names/colors, built-in/custom backgrounds, import/export/reset, density, tabs/status bar visibility, advanced toolbar visibility, and terminal text size.
+- Settings panel for themes, accent colors, workspace names/colors, built-in/custom backgrounds, import/export/reset, density, tabs/status bar visibility, toolbar shortcut visibility, performance mode, terminal text size, and terminal scrollback.
+- Compact Tools menu for workspace/session actions so the default top bar stays simple.
 - Chrome-style surface tabs with a new-tab button, drag reordering, workspace drop targets, right-click rename/duplicate/move/close actions, and per-tab colors.
 - Notification drawer, session tools, active focus rings, workspace colors, and pane attention indicators.
 - Session layout persistence under `%APPDATA%\cmux-windows\session.json`.

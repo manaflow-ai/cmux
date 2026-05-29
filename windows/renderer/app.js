@@ -7,7 +7,9 @@ const defaultSettings = {
   showTabs: true,
   showStatusbar: true,
   showAdvanced: false,
-  terminalFontSize: 13
+  performanceMode: false,
+  terminalFontSize: 13,
+  terminalScrollback: 12000
 };
 
 const themeOptions = [
@@ -72,6 +74,8 @@ const state = {
   dragPanelId: null,
   contextMenu: null,
   resizing: null,
+  renderFrame: 0,
+  scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
   settings: initialSettings,
@@ -127,6 +131,8 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
   next.showAdvanced = Boolean(next.showAdvanced);
+  next.performanceMode = Boolean(next.performanceMode);
+  next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   return next;
 }
 
@@ -181,6 +187,7 @@ function applySettings() {
   elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
   elements.shell.classList.toggle("hide-status", !state.settings.showStatusbar);
   elements.shell.classList.toggle("show-advanced", state.settings.showAdvanced);
+  elements.shell.classList.toggle("performance-mode", state.settings.performanceMode);
   const css = backgroundCss(state.settings.backgroundImage);
   elements.shell.classList.toggle("has-background", css !== "none");
   elements.shell.style.setProperty("--background-image", css);
@@ -236,6 +243,7 @@ function terminalTheme() {
 function refreshTerminalAppearance() {
   for (const session of state.terminals.values()) {
     session.term.options.fontSize = state.terminalFontSize;
+    session.term.options.scrollback = state.settings.terminalScrollback;
     session.term.options.theme = terminalTheme();
     scheduleFitTerminal(session);
   }
@@ -314,10 +322,21 @@ function connectEvents() {
     if (message.type === "state") {
       const previous = state.data;
       state.data = message.state;
-      render(previous);
+      scheduleRender(previous);
     }
   });
   socket.addEventListener("close", () => setTimeout(connectEvents, 800));
+}
+
+function scheduleRender(previousState = null) {
+  if (previousState && !state.scheduledRenderPrevious) state.scheduledRenderPrevious = previousState;
+  if (state.renderFrame) return;
+  state.renderFrame = requestAnimationFrame(() => {
+    state.renderFrame = 0;
+    const previous = state.scheduledRenderPrevious;
+    state.scheduledRenderPrevious = null;
+    render(previous);
+  });
 }
 
 function render(previousState) {
@@ -805,7 +824,7 @@ function ensureTerminal(panel, body) {
     fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-mono"),
     fontSize: state.terminalFontSize,
     lineHeight: 1.22,
-    scrollback: 12000,
+    scrollback: state.settings.terminalScrollback,
     theme: terminalTheme()
   });
   const fitAddon = new FitAddon.FitAddon();
@@ -1101,7 +1120,8 @@ function renderSettingsInspector() {
   layoutSection.append(settingRow("Density", densitySelect));
   layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
   layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
-  layoutSection.append(settingRow("Advanced toolbar", toggleInput(state.settings.showAdvanced, (checked) => updateSettings({ showAdvanced: checked }))));
+  layoutSection.append(settingRow("Toolbar shortcuts", toggleInput(state.settings.showAdvanced, (checked) => updateSettings({ showAdvanced: checked }))));
+  layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
   nodes.push(layoutSection);
 
   const terminalSection = settingsSection("Terminal");
@@ -1113,6 +1133,15 @@ function renderSettingsInspector() {
   fontRange.value = String(state.terminalFontSize);
   fontRange.oninput = () => updateSettings({ terminalFontSize: Number(fontRange.value) });
   terminalSection.append(settingRow(`Text size ${state.terminalFontSize}px`, fontRange));
+  const scrollbackRange = document.createElement("input");
+  scrollbackRange.className = "setting-control";
+  scrollbackRange.type = "range";
+  scrollbackRange.min = "2000";
+  scrollbackRange.max = "50000";
+  scrollbackRange.step = "2000";
+  scrollbackRange.value = String(state.settings.terminalScrollback);
+  scrollbackRange.oninput = () => updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
+  terminalSection.append(settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange));
   const restart = document.createElement("button");
   restart.className = "notification-action";
   restart.textContent = "Restart active terminal";
@@ -1272,6 +1301,35 @@ function showPanelContextMenu(event, panel) {
   menu.hidden = false;
   const x = Math.min(event.clientX, window.innerWidth - 238);
   const y = Math.min(event.clientY, window.innerHeight - 260);
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+}
+
+function showToolbarMenu(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const menu = ensureContextMenu();
+  const panel = activePanel();
+  const title = document.createElement("div");
+  title.className = "context-title";
+  title.textContent = activeWorkspace()?.title || "Workspace tools";
+  const actions = document.createElement("div");
+  actions.className = "context-actions";
+  actions.append(
+    contextMenuButton("Split down", () => createPanel("terminal", "down")),
+    contextMenuButton("Rename workspace", renameActiveWorkspace),
+    contextMenuButton("Change workspace color", cycleWorkspaceColor),
+    contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
+    contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
+    contextMenuButton("Notifications", () => openInspector("notifications")),
+    contextMenuButton("Session tools", () => openInspector("session")),
+    contextMenuButton("Reset session", resetSession, false, "danger")
+  );
+  menu.replaceChildren(title, actions);
+  menu.hidden = false;
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = Math.min(rect.left, window.innerWidth - 238);
+  const y = Math.min(rect.bottom + 6, window.innerHeight - 288);
   menu.style.left = `${Math.max(8, x)}px`;
   menu.style.top = `${Math.max(8, y)}px`;
 }
@@ -1616,6 +1674,7 @@ document.getElementById("newTerminalButton").onclick = () => createPanel("termin
 document.getElementById("splitRightButton").onclick = () => createPanel("terminal", "right");
 document.getElementById("splitDownButton").onclick = () => createPanel("terminal", "down");
 document.getElementById("newBrowserButton").onclick = () => openBrowserPrompt();
+document.getElementById("toolsMenuButton").onclick = showToolbarMenu;
 document.getElementById("settingsButton").onclick = () => openInspector("settings");
 document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWorkspace();
 document.getElementById("colorWorkspaceButton").onclick = () => cycleWorkspaceColor();

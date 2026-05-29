@@ -115,6 +115,17 @@ button {
   opacity: var(--background-opacity, .16);
 }
 
+.shell.performance-mode::before {
+  opacity: 0;
+}
+
+.shell.performance-mode *,
+.shell.performance-mode *::before,
+.shell.performance-mode *::after {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+}
+
 .shell > * {
   position: relative;
   z-index: 1;
@@ -524,7 +535,7 @@ button {
   gap: var(--space-1);
   min-width: 0;
   width: auto;
-  max-width: min(720px, 56vw);
+  max-width: min(560px, 48vw);
   overflow-x: auto;
   scrollbar-width: none;
   flex: 0 0 auto;
@@ -813,6 +824,15 @@ button {
   display: flex;
   flex: 0 0 auto;
   gap: var(--space-1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.pane-header:hover .pane-toolbar,
+.pane-toolbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pane-tool {
@@ -1218,6 +1238,10 @@ button {
   box-shadow: 0 18px 48px oklch(0% 0 0 / 42%);
 }
 
+.shell.performance-mode .context-menu {
+  box-shadow: none;
+}
+
 .context-menu[hidden] {
   display: none;
 }
@@ -1279,6 +1303,16 @@ button {
 .context-color.is-active {
   border-color: var(--color-text);
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--context-color) 34%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .empty-state {
