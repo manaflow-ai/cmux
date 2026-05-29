@@ -178,7 +178,7 @@ final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
     init(fileHandle: FileHandle) {
         let readHandle = ReadHandle(fileHandle: fileHandle)
         readTask = Task.detached(priority: .utility) {
-            let data = readHandle.fileHandle.readDataToEndOfFile()
+            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: readHandle.fileHandle)
             try? readHandle.fileHandle.close()
             return data
         }

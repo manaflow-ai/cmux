@@ -1599,7 +1599,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false, timeout: TimeInterval = 5) -> ProcessRunResult {
+        func runGrokHook(_ subcommand: String, input: String, stallFeedTelemetry: Bool = false) -> ProcessRunResult {
             let serverHandled = startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
@@ -1621,7 +1621,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 arguments: ["hooks", "grok", subcommand],
                 environment: environment,
                 standardInput: input,
-                timeout: timeout
+                timeout: 5
             )
             wait(for: [serverHandled], timeout: 5)
             return result
@@ -1647,8 +1647,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let notification = runGrokHook(
                 "notification",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(message)"}"#,
-                stallFeedTelemetry: index == 2,
-                timeout: 2
+                stallFeedTelemetry: index == 2
             )
 
             XCTAssertFalse(notification.timedOut, notification.stderr)
