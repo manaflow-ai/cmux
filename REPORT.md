@@ -905,3 +905,39 @@ Fixes are organized per source file (one bug bundle per file) so independent fix
 ## Scan gap
 
 One scan group (`CmuxEventBus.swift`, `ClosedItemHistory.swift`, `Panels/BrowserScreenshot.swift`, `TerminalNotificationQueue.swift`) did not return structured output during the parallel scan. `CmuxEventBus` was reviewed manually and its lock+semaphore design is sound (all mutable state guarded by `NSLock`); the other three are unscanned and are a follow-up. None are in this PR's fix scope.
+
+---
+
+## Post-review status (after CI + Greptile/CodeRabbit)
+
+The applied fix set was narrowed from 15 files to 11 after CI and bot review caught
+issues the per-file adversarial pass missed:
+
+- **Reverted / deferred (added to follow-ups):**
+  - `Sources/Update/UpdateDriver.swift` and the reattach loops in `Sources/CmuxConfig.swift`
+    introduced `Task.sleep`, which the `cmux-swift-blocking-runtime` rule flags the same as
+    `asyncAfter` (lateral, not a real fix). Same reason `Update/UpdateController.swift` was
+    already deferred. A continuation-based `DispatchSourceTimer` (UpdateDriver) and a
+    parent-directory `DispatchSourceFileSystemObject` watch (CmuxConfig reattach) are the
+    sleep-free fixes for a future PR.
+  - `Sources/App/CmuxCLIPathInstaller.swift`: the patch replaced concurrent pipe draining with a
+    sequential stdout-then-stderr drain, which can deadlock on a child that fills the stderr pipe
+    buffer (>64KB). Reverted; the only safe change there is `NSLock` -> `OSAllocatedUnfairLock` on
+    the output buffer while keeping concurrent draining.
+  - `Sources/WindowDragHandleView.swift`: marking the breadcrumb-limiter `@MainActor` rippled
+    isolation warnings onto `NSApp.currentEvent` default arguments (evaluated in a nonisolated
+    default-arg context). Marginal finding; reverted.
+
+- **Fixed in place after review:**
+  - `Sources/TerminalImageTransfer.swift` (CodeRabbit Critical): kept `@unchecked Sendable` (the
+    honest annotation for a non-Sendable cancellation closure) with the `OSAllocatedUnfairLock`
+    modernization, instead of a plain `Sendable` + unchecked wrapper that falsely implied the
+    closure was cross-executor safe.
+  - `Sources/TerminalNotificationStore.swift` (CodeRabbit Major): replaced a fire-and-forget
+    `defer { Task { finish } }` with an inline `await finish` after the continuation so a
+    follow-up request for the same path is not dropped during the race window.
+
+**Final applied set (11 files):** ShortcutRoutingSupport, AuthManager,
+BackgroundWorkspacePrimeCoordinator, FileExplorerStore, FilePreviewPanel, SessionIndexStore,
+SocketControlSettings, TerminalImageTransfer, TerminalNotificationPolicy, TerminalNotificationStore,
+TextBoxInput.

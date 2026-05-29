@@ -6,8 +6,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private var lastCheckStart: Date?
-    private var pendingCheckTransition: Task<Void, Never>?
-    private var checkTimeoutWorkItem: Task<Void, Never>?
+    private var pendingCheckTransition: DispatchWorkItem?
+    private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
 
     init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
@@ -203,13 +203,14 @@ class UpdateDriver: NSObject, SPUUserDriver {
             }
 
             let delay = minimumCheckDuration - elapsed
-            pendingCheckTransition = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
                 guard case .checking = self.viewModel.state else { return }
                 self.lastCheckStart = nil
                 self.applyState(newState)
             }
+            pendingCheckTransition = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
     }
 
@@ -226,12 +227,13 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     private func scheduleCheckTimeout() {
-        checkTimeoutWorkItem = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(UpdateTiming.checkTimeoutDuration * 1_000_000_000))
-            guard !Task.isCancelled, let self else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
             guard case .checking = self.viewModel.state else { return }
             self.setState(.notFound(.init(acknowledgement: {})))
         }
+        checkTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + UpdateTiming.checkTimeoutDuration, execute: workItem)
     }
 
     private func applyState(_ newState: UpdateState) {

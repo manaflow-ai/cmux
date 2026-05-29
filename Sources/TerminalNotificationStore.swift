@@ -351,13 +351,17 @@ enum NotificationSoundSettings {
         let expandedPath = (path as NSString).expandingTildeInPath
         Task {
             guard await soundPreparationCoordinator.beginIfNeeded(expandedPath) else { return }
-            defer { Task { await soundPreparationCoordinator.finish(expandedPath) } }
+            // Await staging, then clear the pending mark inline. A fire-and-forget
+            // `defer { Task { finish } }` would let a follow-up request for the same
+            // path see it still pending and be dropped. The continuation has a
+            // `Never` failure type, so this path cannot throw before finish runs.
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 customSoundPreparationQueue.async {
                     _ = prepareCustomFileForNotifications(path: expandedPath)
                     continuation.resume()
                 }
             }
+            await soundPreparationCoordinator.finish(expandedPath)
         }
     }
 

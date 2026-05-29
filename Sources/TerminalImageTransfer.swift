@@ -80,24 +80,22 @@ enum TerminalImageTransferExecutionError: Error {
     case cancelled
 }
 
-final class TerminalImageTransferOperation: Sendable {
+// `@unchecked Sendable` is required (and honest) because `handler` is a
+// non-Sendable closure. All access goes through `state`'s lock, and the handler
+// is invoked by the caller's own executor — the same safety contract this type
+// had before adopting OSAllocatedUnfairLock. Callers do not need `@Sendable`
+// handlers, and the type makes no false claim that the closure is cross-executor
+// safe (that was the unsound part of a plain `Sendable` + wrapper design).
+final class TerminalImageTransferOperation: @unchecked Sendable {
     private enum Phase {
         case running
         case cancelled
         case finished
     }
 
-    /// Wraps a non-`Sendable` cancellation handler so it can live inside the
-    /// lock-protected ``Protected`` state. The closure is only ever read or
-    /// written while the lock is held, which is what makes the unchecked
-    /// conformance safe; callers therefore do not need `@Sendable` handlers.
-    private struct UncheckedHandler: @unchecked Sendable {
-        let run: () -> Void
-    }
-
     private struct Protected {
         var phase: Phase = .running
-        var handler: UncheckedHandler?
+        var handler: (() -> Void)?
     }
 
     private let state = OSAllocatedUnfairLock(initialState: Protected())
@@ -110,7 +108,7 @@ final class TerminalImageTransferOperation: Sendable {
         let invokeImmediately = state.withLock { protected -> Bool in
             switch protected.phase {
             case .running:
-                protected.handler = UncheckedHandler(run: handler)
+                protected.handler = handler
                 return false
             case .cancelled:
                 return true
@@ -134,16 +132,16 @@ final class TerminalImageTransferOperation: Sendable {
 
     @discardableResult
     func cancel() -> Bool {
-        let handler = state.withLock { protected -> UncheckedHandler? in
-            guard protected.phase == .running else { return nil }
+        let result = state.withLock { protected -> (didCancel: Bool, handler: (() -> Void)?) in
+            guard protected.phase == .running else { return (false, nil) }
             protected.phase = .cancelled
             let pending = protected.handler
             protected.handler = nil
-            return pending ?? UncheckedHandler(run: {})
+            return (true, pending)
         }
 
-        guard let handler else { return false }
-        handler.run()
+        guard result.didCancel else { return false }
+        result.handler?()
         return true
     }
 
