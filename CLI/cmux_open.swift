@@ -5999,6 +5999,7 @@ extension CMUXCLI {
                 }
                 const batch = diffModel.pendingItems.splice(0, diffModel.pendingItems.length);
                 diffModel.pendingItemById.clear();
+                applyCurrentItemState(batch);
                 const codeBatch = batch;
                 const hadCodeItems = codeViewItems.length > 0;
                 diffItems.push(...batch);
@@ -6033,6 +6034,15 @@ extension CMUXCLI {
                 window.__cmuxDiffViewer.items = diffItems;
                 window.__cmuxDiffViewer.codeViewItems = codeViewItems;
                 window.__cmuxDiffViewer.streamMetrics = streamMetrics;
+              }
+
+              function applyCurrentItemState(items) {
+                const collapsed = appState.collapsed;
+                for (const item of items) {
+                  if (item?.type === "diff") {
+                    item.collapsed = collapsed;
+                  }
+                }
               }
 
               function setupCodeViewIfReady() {
@@ -7166,24 +7176,42 @@ extension CMUXCLI {
                   display: none;
                 }
                 [data-file-tree-search-container] {
-                  margin: 0 4px 8px 0;
-                  padding: 0 5px 8px 1px;
+                  margin: 0 4px 12px 0;
+                  padding: 0 5px 12px 1px;
                   border-bottom: 1px solid var(--trees-border-color);
                 }
                 [data-file-tree-virtualized-scroll='true'] {
                   padding-inline-start: 0;
-                  padding-inline-end: 2px;
-                  margin-inline-end: 2px;
+                  padding-inline-end: max(0px, calc(14px - var(--trees-scrollbar-gutter)));
+                }
+                [data-file-tree-search-container='true'] {
+                  margin-right: 0;
+                  padding-inline-end: 14px;
                 }
                 [data-item-contains-git-change='true'] > [data-item-section='git'] {
                   display: none;
                 }
                 [data-item-type='folder'] {
-                  color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));
+                  color: color-mix(in lab, light-dark(#000, #fff) 25%, var(--trees-fg));
                   font-weight: 500;
                 }
                 [data-file-tree-sticky-overlay-content] {
-                  box-shadow: 0 1px 0 var(--trees-border-color);
+                  box-shadow: 0 2px 3px -4px rgb(0 0 0 / 1);
+                }
+                [data-file-tree-sticky-overlay-content] [data-item-section='spacing'] {
+                  opacity: 0.5;
+                }
+                [data-file-tree-sticky-overlay-content] > [data-file-tree-sticky-path]:last-of-type {
+                  border-bottom-left-radius: 0;
+                  border-bottom-right-radius: 0;
+                }
+                [data-file-tree-sticky-overlay-content] > [data-file-tree-sticky-path]:last-of-type [data-item-section='spacing'] {
+                  margin-bottom: 4px;
+                }
+                @media (prefers-color-scheme: dark) {
+                  [data-file-tree-sticky-overlay-content] {
+                    box-shadow: 0 3px 3px -3px rgb(0 0 0 / 80%);
+                  }
                 }
               `;
             }
