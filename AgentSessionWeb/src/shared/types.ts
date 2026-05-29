@@ -67,6 +67,7 @@ export type AgentSessionCopy = {
   removeAttachment: string;
   browseWeb: string;
   autoContext: string;
+  includeIdeContext: string;
   tools: string;
   changePermissions: string;
   permissionsDefault: string;

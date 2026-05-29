@@ -10,6 +10,7 @@ import {
 } from "../shared/footerCollapse";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { promptTextWithAttachments } from "../shared/promptAttachments";
+import { promptTextWithAutoContext } from "../shared/promptMentions";
 import { promptTextWithPlanMode } from "../shared/promptModes";
 import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
@@ -295,11 +296,14 @@ function SessionSurface({
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [addContextMenuOpen, setAddContextMenuOpen] = useState(false);
   const [isPickingFiles, setIsPickingFiles] = useState(false);
+  const [autoContextSetting, setAutoContextSetting] = useState<boolean | null>(null);
   const [isPlanMode, setIsPlanMode] = useState(false);
   const [isPlanSuggestionDismissed, setIsPlanSuggestionDismissed] = useState(false);
   const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
+  const workspaceContextItem = currentWorkspaceMenuItem(state);
+  const isAutoContextOn = autoContextSetting ?? (workspaceContextItem != null);
   const submit = () => {
     if (!canSend) {
       return;
@@ -309,7 +313,11 @@ function SessionSurface({
     setProviderMenuOpen(false);
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
-    const providerInput = promptTextWithPlanMode(state.input, isPlanMode);
+    const providerInput = promptTextWithAutoContext(
+      promptTextWithPlanMode(state.input, isPlanMode),
+      workspaceContextItem?.mention ?? null,
+      isAutoContextOn,
+    );
     const text = promptTextWithAttachments(providerInput, attachments);
     void sendInput(state, dispatch, {
       attachments,
@@ -338,6 +346,14 @@ function SessionSurface({
   };
   const togglePlanMode = () => {
     setIsPlanMode((value) => !value);
+    setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
+    setProviderMenuOpen(false);
+    setMenuKind(null);
+    editorRef.current?.focus();
+  };
+  const toggleAutoContext = () => {
+    setAutoContextSetting((value) => !(value ?? (workspaceContextItem != null)));
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
     setProviderMenuOpen(false);
@@ -571,6 +587,8 @@ function SessionSurface({
     "div",
     { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
     h(AddContextDropdown, {
+      hasIdeContext: workspaceContextItem != null,
+      isAutoContextOn,
       isOpen: addContextMenuOpen,
       isPickingFiles,
       onOpenChange: (isOpen: boolean) => {
@@ -581,8 +599,8 @@ function SessionSurface({
           setMenuKind(null);
         }
       },
-      onChoose: insertComposerMenuItem,
       onPickFiles: () => void pickLocalFiles(),
+      onToggleAutoContext: toggleAutoContext,
       onTogglePlanMode: togglePlanMode,
       isPlanMode,
       state,
@@ -1419,35 +1437,33 @@ function PermissionsMenuItem({
 }
 
 function AddContextDropdown({
+  hasIdeContext,
+  isAutoContextOn,
   isOpen,
   isPickingFiles,
   isPlanMode,
-  onChoose,
   onOpenChange,
   onPickFiles,
+  onToggleAutoContext,
   onTogglePlanMode,
   state,
 }: {
+  hasIdeContext: boolean;
+  isAutoContextOn: boolean;
   isOpen: boolean;
   isPickingFiles: boolean;
   isPlanMode: boolean;
-  onChoose: (item: ComposerMenuItem) => void;
   onOpenChange: (isOpen: boolean) => void;
   onPickFiles: () => void;
+  onToggleAutoContext: () => void;
   onTogglePlanMode: () => void;
   state: SessionState;
 }) {
   const copy = state.context?.copy;
   const addFilesAndMoreLabel = copy?.addFilesAndMore ?? "Add files and more";
   const addPhotosAndFilesLabel = copy?.addPhotosAndFiles ?? "Add photos & files";
-  const mentionItems = composerMenuItems("mention", state, "");
-  const workspaceItem = mentionItems.find((item) => item.id === "workspace") ?? null;
   const skillItems = composerMenuItems("skill", state, "");
   const planItem = skillItems.find((item) => item.id === "plan") ?? null;
-  const chooseItem = (item: ComposerMenuItem) => {
-    onChoose(item);
-    onOpenChange(false);
-  };
   return h(
     "div",
     {
@@ -1502,15 +1518,15 @@ function AddContextDropdown({
             label: addPhotosAndFilesLabel,
             onSelect: onPickFiles,
           }),
-          workspaceItem
-            ? h(AddContextMenuItem, {
-                icon: atIcon(),
-                label: copy?.autoContext ?? "Context",
-                detail: workspaceItem.detail,
-                onSelect: () => chooseItem(workspaceItem),
+          hasIdeContext
+            ? h(AddContextMenuSwitchItem, {
+                checked: isAutoContextOn,
+                icon: ideContextIcon("icon-sm"),
+                label: copy?.includeIdeContext ?? "Include IDE context",
+                onSelect: onToggleAutoContext,
               })
             : null,
-          workspaceItem || planItem ? h(AddContextSeparator) : null,
+          hasIdeContext || planItem ? h(AddContextSeparator) : null,
           planItem
             ? h(AddContextMenuSwitchItem, {
                 checked: isPlanMode,
@@ -1611,6 +1627,10 @@ type ComposerMenuItem = {
   label: string;
   mention: PromptMention;
 };
+
+function currentWorkspaceMenuItem(state: SessionState): ComposerMenuItem | null {
+  return composerMenuItems("mention", state, "").find((item) => item.id === "workspace") ?? null;
+}
 
 function composerMenuItems(kind: Exclude<ComposerMenuKind, null>, state: SessionState, query: string): ComposerMenuItem[] {
   const copy = state.context?.copy;
@@ -1960,8 +1980,15 @@ function settingsCogIcon(className = "icon-sm") {
   );
 }
 
-function atIcon() {
-  return h("span", { className: "add-context-glyph", "aria-hidden": true }, "@");
+function ideContextIcon(className = "icon-sm") {
+  return h(
+    "svg",
+    { className, width: "20", height: "20", viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
+    h("path", {
+      d: "M10.6878 9.46029L10.8421 9.49545L17.2913 11.43L17.4642 11.4974C18.2215 11.8649 18.2705 12.9544 17.5492 13.388L17.3822 13.4701L14.5872 14.5872L13.4701 17.3822C13.1135 18.2734 11.8913 18.2756 11.4974 17.4642L11.43 17.2913L9.49544 10.8421C9.26342 10.0687 9.92452 9.34418 10.6878 9.46029ZM12.4984 16.2288L13.3929 13.9954L13.4388 13.8949C13.5579 13.6675 13.7549 13.4891 13.9954 13.3929L16.2288 12.4984L10.9007 10.9007L12.4984 16.2288ZM5.90365 12.9749C6.16329 12.7153 6.58436 12.7154 6.84408 12.9749C7.10378 13.2346 7.10378 13.6557 6.84408 13.9154L5.0765 15.6829C4.8168 15.9426 4.39577 15.9426 4.13607 15.6829C3.87654 15.4232 3.87643 15.0022 4.13607 14.7425L5.90365 12.9749ZM2.83724 7.3265L5.25228 7.97299L5.37826 8.02084C5.65484 8.1591 5.80597 8.47712 5.72298 8.78744C5.63984 9.09774 5.34997 9.298 5.04134 9.27963L4.90853 9.25814L2.49349 8.61068L2.36752 8.56283C2.09082 8.42452 1.93961 8.10666 2.02279 7.79623C2.10599 7.4859 2.39574 7.28652 2.70443 7.30502L2.83724 7.3265ZM14.847 4.05111C15.1051 3.88059 15.4556 3.90894 15.6829 4.13607C15.9426 4.39577 15.9426 4.8168 15.6829 5.0765L13.9154 6.84408C13.6557 7.10378 13.2346 7.10378 12.9749 6.84408C12.7154 6.58437 12.7153 6.16329 12.9749 5.90365L14.7425 4.13607L14.847 4.05111ZM7.79623 2.02279C8.15098 1.92773 8.51562 2.13874 8.61068 2.49349L9.25814 4.90853L9.27962 5.04135C9.298 5.34998 9.09774 5.63984 8.78744 5.72299C8.47713 5.80592 8.15908 5.65484 8.02084 5.37826L7.97298 5.25228L7.3265 2.83724L7.30502 2.70443C7.28652 2.39577 7.48595 2.10603 7.79623 2.02279Z",
+      fill: "currentColor",
+    }),
+  );
 }
 
 function activityGlyph(entry: TranscriptEntry): string {

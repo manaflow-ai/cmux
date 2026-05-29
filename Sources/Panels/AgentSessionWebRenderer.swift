@@ -428,6 +428,10 @@ extension AgentSessionWebRenderer {
                         ),
                         "browseWeb": String(localized: "agentSession.web.browseWeb", defaultValue: "Browse web"),
                         "autoContext": String(localized: "agentSession.web.autoContext", defaultValue: "Context"),
+                        "includeIdeContext": String(
+                            localized: "agentSession.web.includeIdeContext",
+                            defaultValue: "Include IDE context"
+                        ),
                         "tools": String(localized: "agentSession.web.tools", defaultValue: "Tools"),
                         "changePermissions": String(
                             localized: "agentSession.web.changePermissions",

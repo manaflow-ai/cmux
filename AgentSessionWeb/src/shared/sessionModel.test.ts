@@ -56,6 +56,7 @@ const context: AppContext = {
     removeAttachment: "Remove attachment",
     browseWeb: "Browse web",
     autoContext: "Context",
+    includeIdeContext: "Include IDE context",
     tools: "Tools",
     changePermissions: "Change permissions",
     permissionsDefault: "Default permissions",

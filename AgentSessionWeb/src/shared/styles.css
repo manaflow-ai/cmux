@@ -1402,12 +1402,12 @@ img.ProseMirror-separator {
 
 .add-context-switch {
   position: relative;
-  width: 26px;
+  width: 28px;
   height: 16px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-token-description-foreground) 35%, transparent);
-  transition: background 120ms ease;
+  background: color-mix(in srgb, var(--color-token-foreground) 10%, transparent);
+  transition: background 200ms ease-out;
 }
 
 .add-context-switch::after {
@@ -1417,18 +1417,19 @@ img.ProseMirror-separator {
   width: 12px;
   height: 12px;
   border-radius: 999px;
-  background: var(--color-token-input-background);
+  border: 1px solid var(--gray-0);
+  background: var(--gray-0);
   box-shadow: 0 1px 2px rgb(0 0 0 / 24%);
   content: "";
-  transition: transform 120ms ease;
+  transition: transform 200ms ease-out;
 }
 
 .add-context-switch[data-checked="true"] {
-  background: var(--color-token-text-link-foreground);
+  background: var(--color-token-charts-blue);
 }
 
 .add-context-switch[data-checked="true"]::after {
-  transform: translateX(10px);
+  transform: translateX(14px);
 }
 
 .provider-select {
