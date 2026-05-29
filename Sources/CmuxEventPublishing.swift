@@ -305,7 +305,11 @@ extension CmuxEventBus {
             oldById[notification.id] = notification
         }
         let newIds = Set(newValue.map(\.id))
-        let removed = oldValue.filter { !newIds.contains($0.id) }
+        var removedIds = Set<UUID>()
+        let removed = oldValue.filter { notification in
+            guard !newIds.contains(notification.id) else { return false }
+            return removedIds.insert(notification.id).inserted
+        }
         for notification in removed {
             publishNotificationRemoved(notification)
         }

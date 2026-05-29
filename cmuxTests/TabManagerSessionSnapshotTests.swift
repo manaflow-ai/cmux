@@ -1151,6 +1151,43 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ])
     }
 
+    func testClosedItemHistoryFlushPendingSavesPersistsLatestRecords() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-history-flush-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.json", isDirectory: false)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let store = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadPersisted: false
+        )
+        var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.customTitle = "Flushed Workspace"
+        store.push(ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: workspace.id,
+                windowId: nil,
+                workspaceIndex: 0,
+                snapshot: workspaceSnapshot
+            ))
+        ))
+
+        store.flushPendingSaves()
+
+        let restoredStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        XCTAssertEqual(restoredStore.menuSnapshot().items.map(\.title), ["Flushed Workspace"])
+    }
+
     func testClosedItemHistoryAsyncLoadReplaysQueuedPanelWorkspaceRemap() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-remap-\(UUID().uuidString)", isDirectory: true)

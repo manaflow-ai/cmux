@@ -372,27 +372,56 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
     }
 
+    func flushPendingSaves() {
+        guard let fileURL else { return }
+        if !didFinishPersistedRecordsLoad {
+            finishPersistedRecordsLoad(Self.loadRecords(fileURL: fileURL))
+        }
+        needsPersistenceAfterPersistedRecordsLoad = false
+        let recordsSnapshot = records
+        let revisionSnapshot = revision
+        if persistsRecordsSynchronously {
+            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
+            return
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInitiated) {
+            await ClosedItemHistoryPersistenceActor.shared.save(
+                recordsSnapshot,
+                fileURL: fileURL,
+                revision: revisionSnapshot
+            )
+            semaphore.signal()
+        }
+        semaphore.wait()
+    }
+
     private func loadPersistedRecordsAsync(from fileURL: URL) {
         Task { @MainActor [weak self] in
             let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
-            guard let self else { return }
-            if !shouldDiscardPersistedRecordsOnLoad {
-                var loadedRecords = loadedRecords
-                let didMutateLoadedRecords = applyPendingPersistedRecordMutations(to: &loadedRecords)
-                mergeLoadedPersistedRecords(loadedRecords)
-                if didMutateLoadedRecords {
-                    needsPersistenceAfterPersistedRecordsLoad = true
-                }
-            } else {
-                pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
-            }
-            didFinishPersistedRecordsLoad = true
-            shouldDiscardPersistedRecordsOnLoad = false
+            guard let self, !didFinishPersistedRecordsLoad else { return }
+            finishPersistedRecordsLoad(loadedRecords)
             if needsPersistenceAfterPersistedRecordsLoad {
                 needsPersistenceAfterPersistedRecordsLoad = false
                 persistRecords()
             }
         }
+    }
+
+    private func finishPersistedRecordsLoad(_ loadedRecords: [ClosedItemHistoryRecord]) {
+        guard !didFinishPersistedRecordsLoad else { return }
+        if !shouldDiscardPersistedRecordsOnLoad {
+            var loadedRecords = loadedRecords
+            let didMutateLoadedRecords = applyPendingPersistedRecordMutations(to: &loadedRecords)
+            mergeLoadedPersistedRecords(loadedRecords)
+            if didMutateLoadedRecords {
+                needsPersistenceAfterPersistedRecordsLoad = true
+            }
+        } else {
+            pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
+        }
+        didFinishPersistedRecordsLoad = true
+        shouldDiscardPersistedRecordsOnLoad = false
     }
 
     private func queuePersistedRecordMutationIfLoading(_ mutation: PendingPersistedRecordMutation) {
