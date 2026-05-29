@@ -1723,6 +1723,29 @@ enum WorkspaceShellCompactNavigationPolicy {
     }
 }
 
+enum WorkspaceDetailResolutionPolicy {
+    static func resolvedWorkspaceID<ID: Hashable>(
+        requestedWorkspaceID: ID?,
+        selectedWorkspaceID: ID?,
+        availableWorkspaceIDs: [ID]
+    ) -> ID? {
+        if let selectedWorkspaceID,
+           selectedWorkspaceID != requestedWorkspaceID,
+           availableWorkspaceIDs.contains(selectedWorkspaceID) {
+            return selectedWorkspaceID
+        }
+        if let requestedWorkspaceID,
+           availableWorkspaceIDs.contains(requestedWorkspaceID) {
+            return requestedWorkspaceID
+        }
+        if let selectedWorkspaceID,
+           availableWorkspaceIDs.contains(selectedWorkspaceID) {
+            return selectedWorkspaceID
+        }
+        return availableWorkspaceIDs.first
+    }
+}
+
 enum MobileWorkspaceShellLayoutPolicy {
     static func usesCompactStack(
         horizontalSizeClass: UserInterfaceSizeClass?,
@@ -1744,10 +1767,13 @@ private struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
 
     private var workspace: MobileWorkspacePreview? {
-        if let workspaceID {
-            return store.workspaces.first { $0.id == workspaceID } ?? store.selectedWorkspace
-        }
-        return store.selectedWorkspace
+        let resolvedID = WorkspaceDetailResolutionPolicy.resolvedWorkspaceID(
+            requestedWorkspaceID: workspaceID,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            availableWorkspaceIDs: store.workspaces.map(\.id)
+        )
+        guard let resolvedID else { return nil }
+        return store.workspaces.first { $0.id == resolvedID }
     }
 
     var body: some View {
@@ -1766,6 +1792,7 @@ private struct WorkspaceDetailContainer: View {
                 sendTerminalInput: store.sendTerminalRawInput,
                 safeAreaContext: safeAreaContext
             )
+            .id(workspace.id)
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
                     store.selectedWorkspaceID = workspace.id

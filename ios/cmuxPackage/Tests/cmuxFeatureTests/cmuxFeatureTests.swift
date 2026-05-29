@@ -1964,6 +1964,32 @@ import UIKit
     #expect(path.isEmpty)
 }
 
+@Test func workspaceDetailPrefersSelectedWorkspaceWhenDestinationIsStale() {
+    let resolvedID = WorkspaceDetailResolutionPolicy.resolvedWorkspaceID(
+        requestedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+        availableWorkspaceIDs: [
+            MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+            MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+        ]
+    )
+
+    #expect(resolvedID == MobileWorkspacePreview.ID(rawValue: "workspace-created"))
+}
+
+@Test func workspaceDetailUsesRequestedWorkspaceWhenSelectionMatchesDestination() {
+    let resolvedID = WorkspaceDetailResolutionPolicy.resolvedWorkspaceID(
+        requestedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+        availableWorkspaceIDs: [
+            MobileWorkspacePreview.ID(rawValue: "workspace-main"),
+            MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+        ]
+    )
+
+    #expect(resolvedID == MobileWorkspacePreview.ID(rawValue: "workspace-main"))
+}
+
 @Test func rawTerminalInputSendBufferBatchesPendingInputInOrder() {
     var buffer = MobileTerminalInputSendBuffer()
     let workspaceA = MobileWorkspacePreview.ID(rawValue: "workspace-a")
