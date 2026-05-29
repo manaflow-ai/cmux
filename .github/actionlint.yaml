@@ -1,6 +1,7 @@
 self-hosted-runner:
   labels:
-    - warp-macos-15-arm64-6x
-    - warp-macos-26-arm64-6x
+    - blacksmith-6vcpu-macos-15
+    - blacksmith-6vcpu-macos-26
+    - blacksmith-6vcpu-macos-latest
     - depot-macos-latest
     - depot-macos-14
