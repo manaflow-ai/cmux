@@ -3712,6 +3712,42 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    func testPendingAttachedOpenSurvivesHiddenInspectorSyncDuringHostChurn() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        panel.webView.frame = contentView.bounds
+        contentView.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertFalse(
+            panel.isDeveloperToolsVisible(),
+            "The fake inspector should keep WebKit visibility false while the attached frontend is not ready"
+        )
+        waitForDeveloperToolsTransitions()
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+
+        XCTAssertTrue(
+            panel.shouldUseLocalInlineDeveloperToolsHosting(),
+            "Host churn must preserve a pending visible DevTools intent even when WebKit still reports the inspector hidden"
+        )
+        XCTAssertGreaterThan(inspector.showCount, 1)
+    }
+
     func testLocalInlineHostUpdateRespectsManualDeveloperToolsClose() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
