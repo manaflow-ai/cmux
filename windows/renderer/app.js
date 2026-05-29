@@ -547,6 +547,7 @@ const commands = [
   { id: "terminal.closeOthers", label: "Close Other Panes", shortcut: "", run: () => closeOtherPanes() },
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
   { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
+  { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserPrompt() },
@@ -1799,6 +1800,11 @@ function renderSettingsInspector() {
       inspectorWidthRow.querySelector(".setting-label").textContent = `Settings panel ${state.settings.inspectorWidth}px`;
     };
     layoutSection.append(inspectorWidthRow);
+    const layoutActions = document.createElement("div");
+    layoutActions.className = "settings-actions";
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal");
+    layoutActions.append(settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"));
+    layoutSection.append(layoutActions);
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
@@ -2386,6 +2392,7 @@ function showToolbarMenu(event) {
   actions.append(
     contextMenuButton("Split down", () => createPanel("terminal", "down")),
     contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
+    contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
     contextMenuButton("Change workspace color", cycleWorkspaceColor),
@@ -2909,6 +2916,22 @@ function clearActiveTerminal() {
   const panel = activePanel();
   const terminal = panel ? state.terminals.get(panel.id) : null;
   if (terminal) terminal.term.clear();
+}
+
+function resetActivePaneLayout() {
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length <= 1) {
+    toast("Open another pane to reset split layout.");
+    return;
+  }
+  clearPaneLayoutsForWorkspace(workspace);
+  requestAnimationFrame(() => {
+    for (const panel of workspace.panels) {
+      const terminal = state.terminals.get(panel.id);
+      if (terminal) scheduleFitTerminal(terminal, true);
+    }
+  });
+  toast("Split layout reset.");
 }
 
 function changeTerminalFontSize(delta) {
