@@ -152,10 +152,6 @@ extension AppDelegate {
                 originalWorkspaceIds: originalWorkspaceIdsByIndex,
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
             )
-            if let originalWindowId {
-                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
-                ClosedItemHistoryStore.shared.flushPendingSaves()
-            }
             return true
         }
     }
