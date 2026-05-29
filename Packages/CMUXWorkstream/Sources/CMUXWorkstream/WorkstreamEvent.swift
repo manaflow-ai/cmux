@@ -63,6 +63,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case exitPlanMode = "ExitPlanMode"
         case todoWrite = "TodoWrite"
         case stop = "Stop"
+        case subagentStart = "SubagentStart"
         case subagentStop = "SubagentStop"
         case notification = "Notification"
     }

@@ -2065,6 +2065,30 @@ def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root:
         raise AssertionError(f"SubagentStop should stay distinct in Feed, got {event!r}")
 
 
+def test_claude_subagent_start_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-claude-subagent-start.sock",
+        {
+            "session_id": "claude-session",
+            "cwd": "/tmp/project",
+            "hook_event_name": "SubagentStart",
+            "agent_id": "subagent-1",
+            "agent_type": "general-purpose",
+        },
+        None,
+        source="claude",
+    )
+    if stdout != {}:
+        raise AssertionError(f"SubagentStart telemetry should not emit a decision: {stdout!r}")
+    params = frame["params"]
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"SubagentStart should not wait for Feed reply: {frame!r}")
+    event = params["event"]
+    if event.get("hook_event_name") != "SubagentStart" or event.get("_source") != "claude":
+        raise AssertionError(f"SubagentStart should stay distinct in Feed, got {event!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -2110,6 +2134,7 @@ def main() -> int:
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_claude_subagent_start_stays_distinct_feed_telemetry(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")

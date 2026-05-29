@@ -71,6 +71,77 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+cmux_env_truthy() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    esac
+    return 1
+}
+
+prepend_path_entry() {
+    local entry="$1"
+    [[ -n "$entry" ]] || return 0
+    case ":${PATH:-}:" in
+        *":$entry:"*) return 0 ;;
+    esac
+    export PATH="$entry${PATH:+:$PATH}"
+}
+
+ensure_claude_teams_tmux_shim() {
+    [[ -n "${HOME:-}" ]] || return 1
+
+    local shim_dir="$HOME/.cmuxterm/claude-teams-bin"
+    local shim_path="$shim_dir/tmux"
+    mkdir -p "$shim_dir" || return 1
+
+    local temp_path
+    temp_path="$(mktemp "$shim_dir/tmux.XXXXXX")" || return 1
+    cat >"$temp_path" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
+EOF
+    chmod 0755 "$temp_path" || {
+        rm -f "$temp_path"
+        return 1
+    }
+    if [[ -f "$shim_path" ]] && cmp -s "$temp_path" "$shim_path"; then
+        rm -f "$temp_path" || return 1
+        chmod 0755 "$shim_path" || return 1
+    else
+        mv -f "$temp_path" "$shim_path" || {
+            rm -f "$temp_path"
+            return 1
+        }
+    fi
+
+    printf '%s' "$shim_dir"
+}
+
+configure_cmux_claude_agent_teams_environment() {
+    if cmux_env_truthy "${CMUX_CLAUDE_AGENT_TEAMS_DISABLED:-}" || cmux_env_truthy "${CMUX_CLAUDE_TEAMS_DISABLED:-}"; then
+        return 0
+    fi
+
+    local shim_dir
+    shim_dir="$(ensure_claude_teams_tmux_shim)" || return 0
+    prepend_path_entry "$shim_dir"
+    export CMUX_CLAUDE_TEAMS_CMUX_BIN="${CMUX_CLAUDE_TEAMS_CMUX_BIN:-${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}"
+    if [[ -z "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS+x}" || -z "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}" ]]; then
+        export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+    fi
+
+    [[ -n "${CMUX_WORKSPACE_ID:-}" && -n "${CMUX_SURFACE_ID:-}" ]] || return 0
+
+    local pane_token="${CMUX_PANE_ID:-$CMUX_SURFACE_ID}"
+    pane_token="${pane_token#%}"
+    local window_token="${CMUX_WINDOW_ID:-$CMUX_WORKSPACE_ID}"
+    export TMUX="/tmp/cmux-claude-teams/${CMUX_WORKSPACE_ID},${window_token},${pane_token}"
+    export TMUX_PANE="%$pane_token"
+    export TERM="${CMUX_CLAUDE_TEAMS_TERM:-screen-256color}"
+    unset TERM_PROGRAM
+}
+
 CLAUDE_AUTH_SELECTION_ENV_KEYS=(
     ANTHROPIC_API_KEY
     ANTHROPIC_MODEL
@@ -441,6 +512,7 @@ export CMUX_AGENT_LAUNCH_KIND="claude"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
 export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
+configure_cmux_claude_agent_teams_environment
 if GUARD_PATH="$(ensure_node_options_restore_module)"; then
     if [[ ${NODE_OPTIONS+x} ]]; then
         export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
@@ -466,9 +538,10 @@ fi
 #   This is Claude Code's native blocking decision hook. It covers
 #   permissions, ExitPlanMode, and AskUserQuestion without using
 #   PreToolUse denial as a side channel.
-# - SubagentStop: feed telemetry only. It must not run the visible Stop
-#   hook because a subagent finishing should not notify like the parent.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+# - SubagentStart/SubagentStop: feed telemetry only. SubagentStop must not
+#   run the visible Stop hook because a subagent finishing should not notify
+#   like the parent.
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SubagentStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
