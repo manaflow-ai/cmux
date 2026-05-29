@@ -826,7 +826,8 @@ final class SessionIndexStore: ObservableObject {
         if let m = out.model, let bracket = m.firstIndex(of: "[") {
             out.model = String(m[..<bracket])
         }
-        out.resumeCwd = folderDecodedCwd ?? firstCwd ?? out.cwd
+        // The JSONL cwd is authoritative when present; project directory decoding is lossy.
+        out.resumeCwd = firstCwd ?? folderDecodedCwd ?? out.cwd
         return out
     }
 
