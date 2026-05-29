@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -8,41 +9,44 @@ import CmuxTerminal
 #endif
 
 @MainActor
-final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
-    func testMoveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelTitle() throws {
+@Suite("AppDelegate move tab to new workspace", .serialized)
+struct AppDelegateMoveTabToNewWorkspaceTests {
+    @Test("Move surface to new workspace creates single-panel workspace from panel title")
+    func moveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelTitle() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-        let remainingPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
-        let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let remainingPanelId = try #require(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
         sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "Build logs")
 
         let originalWorkspaceCount = manager.tabs.count
-        let result = try XCTUnwrap(app.moveSurfaceToNewWorkspace(
+        let result = try #require(app.moveSurfaceToNewWorkspace(
             panelId: movedPanel.id,
             focus: false,
             focusWindow: false
         ))
 
-        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
-        XCTAssertEqual(result.sourceWindowId, windowId)
-        XCTAssertEqual(result.sourceWorkspaceId, sourceWorkspace.id)
-        XCTAssertEqual(result.destinationWindowId, windowId)
-        XCTAssertEqual(manager.tabs.count, originalWorkspaceCount + 1)
-        XCTAssertEqual(destinationWorkspace.title, "Build logs")
-        XCTAssertEqual(destinationWorkspace.panels.count, 1)
-        XCTAssertNotNil(destinationWorkspace.panels[movedPanel.id])
-        XCTAssertNil(sourceWorkspace.panels[movedPanel.id])
-        XCTAssertNotNil(sourceWorkspace.panels[remainingPanelId])
-        XCTAssertEqual(result.paneId, destinationWorkspace.paneId(forPanelId: movedPanel.id)?.id)
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        #expect(result.sourceWindowId == windowId)
+        #expect(result.sourceWorkspaceId == sourceWorkspace.id)
+        #expect(result.destinationWindowId == windowId)
+        #expect(manager.tabs.count == originalWorkspaceCount + 1)
+        #expect(destinationWorkspace.title == "Build logs")
+        #expect(destinationWorkspace.panels.count == 1)
+        #expect(destinationWorkspace.panels[movedPanel.id] != nil)
+        #expect(sourceWorkspace.panels[movedPanel.id] == nil)
+        #expect(sourceWorkspace.panels[remainingPanelId] != nil)
+        #expect(result.paneId == destinationWorkspace.paneId(forPanelId: movedPanel.id)?.id)
     }
 
-    func testMoveSurfaceToNewWorkspacePreservesTerminalTextBoxStateWhenDefaultsEnabled() throws {
+    @Test("Move surface to new workspace preserves terminal text box state when defaults enabled")
+    func moveSurfaceToNewWorkspacePreservesTerminalTextBoxStateWhenDefaultsEnabled() throws {
         let defaults = UserDefaults.standard
         let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
         let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
@@ -70,103 +74,106 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-        let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
-        XCTAssertFalse(movedPanel.isTextBoxActive)
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        #expect(!movedPanel.isTextBoxActive)
 
         defaults.set(true, forKey: showKey)
         defaults.set(true, forKey: focusKey)
 
-        let result = try XCTUnwrap(app.moveSurfaceToNewWorkspace(
+        let result = try #require(app.moveSurfaceToNewWorkspace(
             panelId: movedPanel.id,
             focus: false,
             focusWindow: false
         ))
 
-        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
-        let destinationPanel = try XCTUnwrap(destinationWorkspace.panels[movedPanel.id] as? TerminalPanel)
-        XCTAssertFalse(destinationPanel.isTextBoxActive)
-        XCTAssertNotEqual(destinationPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        let destinationPanel = try #require(destinationWorkspace.panels[movedPanel.id] as? TerminalPanel)
+        #expect(!destinationPanel.isTextBoxActive)
+        #expect(destinationPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
     }
 
-    func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
+    @Test("Move browser bonsplit tab to new workspace requests address bar focus")
+    func moveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-        let browserPanel = try XCTUnwrap(
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try #require(
             sourceWorkspace.newBrowserSurface(
                 inPane: sourcePaneId,
-                url: try XCTUnwrap(URL(string: "https://example.com")),
+                url: try #require(URL(string: "https://example.com")),
                 focus: false
             )
         )
-        let browserTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(browserPanel.id)?.uuid)
+        let browserTabId = try #require(sourceWorkspace.surfaceIdFromPanelId(browserPanel.id)?.uuid)
         browserPanel.noteWebViewFocused()
-        XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.webView))
+        #expect(browserPanel.preferredFocusIntentForActivation() == .browser(.webView))
 
-        let result = try XCTUnwrap(app.moveBonsplitTabToNewWorkspace(
+        let result = try #require(app.moveBonsplitTabToNewWorkspace(
             tabId: browserTabId,
             focus: true,
             focusWindow: false
         ))
 
-        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
-        let movedBrowserPanel = try XCTUnwrap(destinationWorkspace.panels[browserPanel.id] as? BrowserPanel)
-        XCTAssertEqual(destinationWorkspace.panels.count, 1)
-        XCTAssertFalse(destinationWorkspace.panels.values.contains { $0 is TerminalPanel })
-        XCTAssertEqual(destinationWorkspace.focusedPanelId, movedBrowserPanel.id)
-        XCTAssertEqual(movedBrowserPanel.preferredFocusIntentForActivation(), .browser(.addressBar))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        let movedBrowserPanel = try #require(destinationWorkspace.panels[browserPanel.id] as? BrowserPanel)
+        #expect(destinationWorkspace.panels.count == 1)
+        #expect(!destinationWorkspace.panels.values.contains { $0 is TerminalPanel })
+        #expect(destinationWorkspace.focusedPanelId == movedBrowserPanel.id)
+        #expect(movedBrowserPanel.preferredFocusIntentForActivation() == .browser(.addressBar))
     }
 
-    func testMoveSurfaceToNewWorkspaceRejectsOnlyPanel() throws {
+    @Test("Move surface to new workspace rejects only panel")
+    func moveSurfaceToNewWorkspaceRejectsOnlyPanel() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let onlyPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let onlyPanelId = try #require(sourceWorkspace.focusedTerminalPanel?.id)
 
-        XCTAssertFalse(app.canMoveSurfaceToNewWorkspace(panelId: onlyPanelId))
-        XCTAssertNil(app.moveSurfaceToNewWorkspace(panelId: onlyPanelId, focus: false, focusWindow: false))
-        XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertNotNil(sourceWorkspace.panels[onlyPanelId])
+        #expect(!app.canMoveSurfaceToNewWorkspace(panelId: onlyPanelId))
+        #expect(app.moveSurfaceToNewWorkspace(panelId: onlyPanelId, focus: false, focusWindow: false) == nil)
+        #expect(manager.tabs.count == 1)
+        #expect(sourceWorkspace.panels[onlyPanelId] != nil)
     }
 
-    func testMoveTerminalBonsplitTabToExistingWorkspaceClosesEmptiedSourceWorkspace() throws {
+    @Test("Move terminal bonsplit tab to existing workspace closes emptied source workspace")
+    func moveTerminalBonsplitTabToExistingWorkspaceClosesEmptiedSourceWorkspace() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
-        let movedBonsplitTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let movedPanelId = try #require(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedBonsplitTabId = try #require(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
         let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
-        let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
+        let destinationOriginalPanelId = try #require(destinationWorkspace.focusedTerminalPanel?.id)
 
-        XCTAssertTrue(app.canMoveBonsplitTab(tabId: movedBonsplitTabId, toWorkspace: destinationWorkspace.id))
-        XCTAssertTrue(app.moveBonsplitTab(
+        #expect(app.canMoveBonsplitTab(tabId: movedBonsplitTabId, toWorkspace: destinationWorkspace.id))
+        #expect(app.moveBonsplitTab(
             tabId: movedBonsplitTabId,
             toWorkspace: destinationWorkspace.id,
             focus: false,
             focusWindow: false
         ))
 
-        XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
-        XCTAssertEqual(manager.tabs.map(\.id), [destinationWorkspace.id])
-        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
-        XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
-        XCTAssertNotNil(destinationWorkspace.panels[destinationOriginalPanelId])
-        XCTAssertEqual(destinationWorkspace.panels.count, 2)
+        #expect(!manager.tabs.contains { $0.id == sourceWorkspace.id })
+        #expect(manager.tabs.map(\.id) == [destinationWorkspace.id])
+        #expect(sourceWorkspace.panels.isEmpty)
+        #expect(destinationWorkspace.panels[movedPanelId] != nil)
+        #expect(destinationWorkspace.panels[destinationOriginalPanelId] != nil)
+        #expect(destinationWorkspace.panels.count == 2)
     }
 
     /// Regression for https://github.com/manaflow-ai/cmux/issues/4946.
@@ -175,35 +182,36 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     /// workspace's `customTitle`. Pinning blocks the OSC-driven
     /// `applyProcessTitle` pipeline, which is what feeds claude code's
     /// dynamic `✳ <topic>` titles into the workspace row.
-    func testMoveSurfaceToNewWorkspaceDoesNotPinCustomTitleAndAllowsLaterOSCUpdates() throws {
+    @Test("Move surface to new workspace does not pin custom title and allows later OSC updates")
+    func moveSurfaceToNewWorkspaceDoesNotPinCustomTitleAndAllowsLaterOSCUpdates() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-        let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
 
         // Seed the source panel's title with what a shell PROMPT_COMMAND
         // typically emits before the user starts claude. This is the value
         // the buggy code pins onto the detached workspace's `customTitle`.
         sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "user@host:~/git/repo")
 
-        let result = try XCTUnwrap(app.moveSurfaceToNewWorkspace(
+        let result = try #require(app.moveSurfaceToNewWorkspace(
             panelId: movedPanel.id,
             focus: false,
             focusWindow: false
         ))
-        let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
 
         // 1. The destination workspace must not have its title pinned. A
         //    drag-created workspace should behave like one created via
         //    "New Workspace" — `customTitle` stays `nil` until the user
         //    renames it explicitly.
-        XCTAssertNil(
-            destinationWorkspace.customTitle,
+        #expect(
+            destinationWorkspace.customTitle == nil,
             "Detached workspace must not pin customTitle; pinning blocks OSC title updates."
         )
 
@@ -213,39 +221,39 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         //    workspace title never moves off the shell prompt.
         let claudeTitle = "✳ Investigate workspace title bug"
         destinationWorkspace.applyProcessTitle(claudeTitle)
-        XCTAssertEqual(
-            destinationWorkspace.title,
-            claudeTitle,
+        #expect(
+            destinationWorkspace.title == claudeTitle,
             "applyProcessTitle must update self.title on a freshly detached workspace."
         )
     }
 
-    func testMoveSurfaceToExistingWorkspaceClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
+    @Test("Move surface to existing workspace closes emptied source workspace and focuses destination")
+    func moveSurfaceToExistingWorkspaceClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
         app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let movedPanelId = try #require(sourceWorkspace.focusedTerminalPanel?.id)
         let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
-        let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
+        let destinationOriginalPanelId = try #require(destinationWorkspace.focusedTerminalPanel?.id)
 
-        XCTAssertTrue(app.moveSurface(
+        #expect(app.moveSurface(
             panelId: movedPanelId,
             toWorkspace: destinationWorkspace.id,
             focus: true,
             focusWindow: false
         ))
 
-        XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
-        XCTAssertEqual(manager.tabs.map(\.id), [destinationWorkspace.id])
-        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
-        XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
-        XCTAssertNotNil(destinationWorkspace.panels[destinationOriginalPanelId])
-        XCTAssertEqual(destinationWorkspace.panels.count, 2)
-        XCTAssertEqual(manager.selectedWorkspace?.id, destinationWorkspace.id)
-        XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
+        #expect(!manager.tabs.contains { $0.id == sourceWorkspace.id })
+        #expect(manager.tabs.map(\.id) == [destinationWorkspace.id])
+        #expect(sourceWorkspace.panels.isEmpty)
+        #expect(destinationWorkspace.panels[movedPanelId] != nil)
+        #expect(destinationWorkspace.panels[destinationOriginalPanelId] != nil)
+        #expect(destinationWorkspace.panels.count == 2)
+        #expect(manager.selectedWorkspace?.id == destinationWorkspace.id)
+        #expect(destinationWorkspace.focusedPanelId == movedPanelId)
     }
 }
