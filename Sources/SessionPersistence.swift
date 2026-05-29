@@ -1526,6 +1526,28 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionProjectPanelSnapshot: Codable, Sendable {
+    var projectPath: String
+    var selectedNodePath: String?
+    var activeTab: String?
+    var selectedSchemeName: String?
+    var selectedConfigurationName: String?
+
+    init(
+        projectPath: String,
+        selectedNodePath: String? = nil,
+        activeTab: String? = nil,
+        selectedSchemeName: String? = nil,
+        selectedConfigurationName: String? = nil
+    ) {
+        self.projectPath = projectPath
+        self.selectedNodePath = selectedNodePath
+        self.activeTab = activeTab
+        self.selectedSchemeName = selectedSchemeName
+        self.selectedConfigurationName = selectedConfigurationName
+    }
+}
+
 struct SessionNotificationSnapshot: Codable, Sendable {
     var id: UUID
     var title: String
@@ -1605,6 +1627,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var project: SessionProjectPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
