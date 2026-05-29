@@ -17,7 +17,7 @@ struct ContentView: View {
                 .font(.title2.weight(.semibold))
             Text(String(
                 localized: "sampleSidebarApp.detail",
-                defaultValue: "Install this app, then choose CMUX Extensions from the cmux sidebar selector to host the extension."
+                defaultValue: "Keep this app installed, then open cmux, use the sidebar puzzle button, choose Manage Extensions, enable this extension, and choose the extension sidebar."
             ))
             .foregroundStyle(.secondary)
         }

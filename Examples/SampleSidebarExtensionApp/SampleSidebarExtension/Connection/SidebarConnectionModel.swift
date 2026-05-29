@@ -11,14 +11,32 @@ final class SidebarConnectionModel: @unchecked Sendable {
     private(set) var errorText: String?
 
     @ObservationIgnored
+    private var connection: NSXPCConnection?
+
+    @ObservationIgnored
     private var host: CMUXSidebarHostXPC?
 
     private init() {}
 
     func accept(connection: NSXPCConnection) -> Bool {
+        self.connection?.invalidate()
         connection.exportedInterface = NSXPCInterface(with: CMUXSidebarExtensionXPC.self)
         connection.exportedObject = SidebarExtensionXPCReceiver(model: self)
         connection.remoteObjectInterface = NSXPCInterface(with: CMUXSidebarHostXPC.self)
+        connection.invalidationHandler = { [weak self] in
+            guard let model = self else { return }
+            Task { @MainActor [model] in
+                model.clearConnection()
+            }
+        }
+        connection.interruptionHandler = { [weak self] in
+            guard let model = self else { return }
+            Task { @MainActor [model] in
+                model.host = nil
+                model.errorText = String(localized: "sampleSidebar.waitingForHost", defaultValue: "Waiting for cmux")
+            }
+        }
+        self.connection = connection
         host = connection.remoteObjectProxyWithErrorHandler { [weak self] error in
             guard let model = self else { return }
             let message = error.localizedDescription
@@ -100,6 +118,12 @@ final class SidebarConnectionModel: @unchecked Sendable {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+
+    private func clearConnection() {
+        connection = nil
+        host = nil
+        errorText = String(localized: "sampleSidebar.waitingForHost", defaultValue: "Waiting for cmux")
     }
 }
 

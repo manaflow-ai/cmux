@@ -10883,7 +10883,10 @@ struct VerticalTabsSidebar: View {
             return .accepted
 
         case .openURL(let urlString):
-            guard let url = URL(string: urlString), NSWorkspace.shared.open(url) else {
+            guard let url = URL(string: urlString),
+                  let scheme = url.scheme?.lowercased(),
+                  ["https", "http"].contains(scheme),
+                  NSWorkspace.shared.open(url) else {
                 return CMUXExtensionActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened")

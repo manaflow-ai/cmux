@@ -5,10 +5,16 @@ import Observation
 import SwiftUI
 
 struct CMUXInstalledExtensionSidebarHostView: View {
+    private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
+
     var snapshotProvider: @MainActor () -> CMUXSidebarSnapshot
     var actionHandler: @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
 
     @State private var identity: AppExtensionIdentity?
+    @State private var enabledIdentities: [AppExtensionIdentity] = []
+    @State private var selectedExtensionBundleID = UserDefaults.standard.string(
+        forKey: Self.selectedExtensionBundleIDDefaultsKey
+    )
     @State private var isLoading = true
     @State private var errorText: String?
     @State private var disabledExtensionCount = 0
@@ -30,10 +36,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     },
                     onDeactivation: { error in
                         xpcHost.invalidate()
+                        self.identity = nil
                         errorText = error?.localizedDescription
                     }
                 )
                     .accessibilityIdentifier("CMUXExtensionSidebarHostView")
+                    .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     if isLoading {
@@ -61,6 +69,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if enabledIdentities.count > 1 {
+                            enabledExtensionPicker
                         }
                         Button {
                             if let browserAnchorView {
@@ -129,6 +140,33 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
+    private var enabledExtensionPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(
+                localized: "sidebar.extensions.choose.detail",
+                defaultValue: "Choose which enabled extension should replace the sidebar."
+            ))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
+                Button {
+                    selectExtension(enabledIdentity)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: enabledIdentity.bundleIdentifier == selectedExtensionBundleID ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 11, weight: .medium))
+                        Text(enabledIdentity.localizedName)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private func observeEnabledExtensionIdentities(
         extensionPointIdentifier: String,
         staticExtensionPointIdentifier: StaticString
@@ -137,6 +175,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             let extensionPoint = try AppExtensionPoint(identifier: staticExtensionPointIdentifier)
             let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
             observeModernExtensionMonitor(monitor)
+            let identityTask = Task { @MainActor in
+                try? await observeIdentitySequence(extensionPointIdentifier: extensionPointIdentifier)
+            }
+            defer {
+                identityTask.cancel()
+            }
             while !Task.isCancelled {
                 await waitForModernExtensionMonitorChange(monitor)
                 observeModernExtensionMonitor(monitor)
@@ -144,6 +188,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             return
         }
 
+        try await observeIdentitySequence(extensionPointIdentifier: extensionPointIdentifier)
+    }
+
+    private func observeIdentitySequence(extensionPointIdentifier: String) async throws {
         var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
             .makeAsyncIterator()
         let availabilityTask = Task {
@@ -152,6 +200,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 guard let availability = await availabilityUpdates.next() else { break }
                 disabledExtensionCount = availability.disabledCount
                 unapprovedExtensionCount = availability.unapprovedCount
+                if let currentIdentities = try? await loadCurrentExtensionIdentities(
+                    extensionPointIdentifier: extensionPointIdentifier
+                ) {
+                    applyEnabledExtensionIdentities(currentIdentities)
+                }
             }
         }
         defer {
@@ -163,14 +216,38 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
+    private func loadCurrentExtensionIdentities(extensionPointIdentifier: String) async throws -> [AppExtensionIdentity] {
+        var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
+            .makeAsyncIterator()
+        return await identities.next() ?? []
+    }
+
     private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
-        let nextIdentity = identities.sorted { $0.localizedName < $1.localizedName }.first
+        let sortedIdentities = identities.sorted { $0.localizedName < $1.localizedName }
+        enabledIdentities = sortedIdentities
+        let nextIdentity: AppExtensionIdentity?
+        if let selectedExtensionBundleID,
+           let selectedIdentity = sortedIdentities.first(where: { $0.bundleIdentifier == selectedExtensionBundleID }) {
+            nextIdentity = selectedIdentity
+        } else if sortedIdentities.count == 1 {
+            nextIdentity = sortedIdentities[0]
+            selectedExtensionBundleID = nextIdentity?.bundleIdentifier
+            UserDefaults.standard.set(nextIdentity?.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
+        } else {
+            nextIdentity = nil
+        }
         if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
             xpcHost.invalidate()
             identity = nextIdentity
         }
         isLoading = false
         errorText = nil
+    }
+
+    private func selectExtension(_ selectedIdentity: AppExtensionIdentity) {
+        selectedExtensionBundleID = selectedIdentity.bundleIdentifier
+        UserDefaults.standard.set(selectedIdentity.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
+        applyEnabledExtensionIdentities(enabledIdentities)
     }
 
     @available(macOS 26.0, *)
@@ -183,13 +260,53 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @available(macOS 26.0, *)
     private func waitForModernExtensionMonitorChange(_ monitor: AppExtensionPoint.Monitor) async {
-        await withCheckedContinuation { continuation in
-            withObservationTracking {
-                _ = monitor.state
-            } onChange: {
-                continuation.resume()
+        let continuationBox = MonitorContinuationBox()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                continuationBox.set(continuation)
+                withObservationTracking {
+                    _ = monitor.state
+                } onChange: {
+                    continuationBox.resume()
+                }
             }
+        } onCancel: {
+            continuationBox.cancel()
         }
+    }
+}
+
+private final class MonitorContinuationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isCancelled = false
+
+    func set(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        if isCancelled {
+            lock.unlock()
+            continuation.resume()
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume() {
+        lock.lock()
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
+    }
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
     }
 }
 

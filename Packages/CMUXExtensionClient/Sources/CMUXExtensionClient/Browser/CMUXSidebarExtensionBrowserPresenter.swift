@@ -9,7 +9,7 @@ public enum CMUXSidebarExtensionBrowserPresenter {
         let browserViewController = EXAppExtensionBrowserViewController()
         browserViewController.title = title
 
-        let browserPanel = NSPanel(contentViewController: browserViewController)
+        let browserPanel = SidebarExtensionBrowserPanel(contentViewController: browserViewController)
         browserPanel.title = title
         browserPanel.styleMask = [.titled, .closable, .resizable, .utilityWindow]
         browserPanel.contentMinSize = NSSize(width: 560, height: 460)
@@ -20,7 +20,6 @@ public enum CMUXSidebarExtensionBrowserPresenter {
 
         if let parentWindow = anchorView.window {
             browserPanel.setFrameOrigin(Self.panelOrigin(anchorView: anchorView, parentWindow: parentWindow, panel: browserPanel))
-            parentWindow.addChildWindow(browserPanel, ordered: .above)
         } else {
             browserPanel.center()
         }
@@ -41,21 +40,33 @@ public enum CMUXSidebarExtensionBrowserPresenter {
 
 @available(macOS 13.0, *)
 @MainActor
+private final class SidebarExtensionBrowserPanel: NSPanel {
+    override func cancelOperation(_ sender: Any?) {
+        close()
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "w" {
+            close()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+@available(macOS 13.0, *)
+@MainActor
 private final class BrowserPanelController: NSObject, NSWindowDelegate {
     static let shared = BrowserPanelController()
 
-    private weak var parentWindow: NSWindow?
     private var panel: NSPanel?
 
     func show(panel: NSPanel) {
         if let existingPanel = self.panel {
-            if let parentWindow {
-                parentWindow.removeChildWindow(existingPanel)
-            }
             existingPanel.close()
         }
         self.panel = panel
-        self.parentWindow = panel.parent
         panel.delegate = self
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -63,10 +74,6 @@ private final class BrowserPanelController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === panel else { return }
-        if let parentWindow, let panel {
-            parentWindow.removeChildWindow(panel)
-        }
         self.panel = nil
-        self.parentWindow = nil
     }
 }

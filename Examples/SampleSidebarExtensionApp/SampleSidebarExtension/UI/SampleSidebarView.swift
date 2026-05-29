@@ -4,24 +4,27 @@ struct SampleSidebarView: View {
     var model: SidebarConnectionModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let insights = model.insights {
-                header(insights)
-                if let selected = insights.selectedWorkspace {
-                    WorkspaceInsightRow(
-                        insight: selected,
-                        action: { model.selectWorkspace(selected.id) }
-                    )
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let insights = model.insights {
+                    header(insights)
+                    if let selected = insights.selectedWorkspace {
+                        WorkspaceInsightRow(
+                            insight: selected,
+                            action: { model.selectWorkspace(selected.id) }
+                        )
+                    }
+                    Divider()
+                    focusQueue(insights)
+                } else {
+                    waitingState
                 }
-                Divider()
-                focusQueue(insights)
-            } else {
-                waitingState
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -47,7 +50,7 @@ struct SampleSidebarView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(insights.focusQueue.prefix(8)) { insight in
+                ForEach(insights.focusQueue) { insight in
                     WorkspaceInsightRow(
                         insight: insight,
                         action: { model.selectWorkspace(insight.id) }

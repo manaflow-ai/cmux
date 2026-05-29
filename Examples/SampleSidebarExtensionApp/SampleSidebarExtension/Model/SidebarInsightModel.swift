@@ -23,7 +23,7 @@ struct SidebarInsightModel {
         pullRequestCount = insights.reduce(0) { $0 + $1.pullRequestCount }
         selectedWorkspace = insights.first(where: \.isSelected)
         focusQueue = insights
-            .filter(\.hasSignal)
+            .filter { $0.hasSignal && !$0.isSelected }
             .sorted { lhs, rhs in
                 if lhs.score != rhs.score { return lhs.score > rhs.score }
                 return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
