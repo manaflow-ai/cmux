@@ -1356,7 +1356,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         invalidPanelSnapshot.filePreview = nil
         invalidPanelSnapshot.rightSidebarTool = nil
         invalidWorkspaceSnapshot.panels = [invalidPanelSnapshot]
-        invalidWorkspaceSnapshot.layout = .pane(SessionPaneLayoutSnapshot(
+        invalidWorkspaceSnapshot.layout = .pane(SessionPanePaneLayoutSnapshot(
             panelIds: [invalidPanelSnapshot.id],
             selectedPanelId: invalidPanelSnapshot.id
         ))
