@@ -996,8 +996,11 @@ img.ProseMirror-separator {
 
 .composer-footer-codex {
   container: composer-footer / inline-size;
-  display: grid;
-  gap: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  overflow: visible;
   justify-content: normal;
   padding: 0 0.5rem;
 }

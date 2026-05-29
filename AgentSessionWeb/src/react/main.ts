@@ -714,16 +714,15 @@ function SessionSurface({
           "div",
           {
             className:
-              "composer-footer composer-footer-codex grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] mb-2 px-2",
+              "composer-footer composer-footer-codex flex flex-nowrap items-center gap-1 overflow-hidden mb-2 pr-2 pl-2",
           },
-          leftControls,
-          h("div", { className: "flex items-center" }),
           h(
             "div",
-            { className: "flex w-full min-w-0 items-center justify-end gap-2" },
-            h("div", { className: "flex min-w-0 flex-1 justify-end" }, secondaryControls),
-            actionCluster,
+            { className: "flex min-w-0 flex-1 flex-nowrap items-center gap-1" },
+            leftControls,
+            secondaryControls,
           ),
+          h("div", { className: "flex min-w-0 items-center gap-3" }, actionCluster),
         ),
       );
   const composerControls = h(
