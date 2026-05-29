@@ -1156,6 +1156,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
         guard previewMode != mode else { return }
+        if mode != .text {
+            textLoadGeneration += 1
+        }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
@@ -1165,13 +1168,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never> {
+        guard previewMode == .text else {
+            return Task {}
+        }
         textLoadGeneration += 1
         let generation = textLoadGeneration
         let fileURL = fileURL
 
         return Task { [weak self, fileURL, generation, replacingDirtyContent] in
             let result = await FilePreviewTextLoader.load(url: fileURL)
-            guard let self, self.textLoadGeneration == generation else { return }
+            guard let self,
+                  self.textLoadGeneration == generation,
+                  self.previewMode == .text else { return }
             self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
         }
     }

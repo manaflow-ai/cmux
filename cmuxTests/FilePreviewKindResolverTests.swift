@@ -52,6 +52,31 @@ struct FilePreviewKindResolverTests {
         #expect(FilePreviewKindResolver.mode(for: url) == .media)
     }
 
+    @MainActor
+    @Test("Media previews ignore stale text-load completions")
+    func mediaPreviewsIgnoreStaleTextLoadCompletions() async throws {
+        let url = try temporaryOversizedMPEGTransportStream(
+            extension: "mts",
+            packetSize: 192,
+            syncOffset: 4
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+
+        #expect(panel.previewMode == .text)
+        let resolvedAsMedia = await waitForPreviewMode(panel, .media)
+        #expect(resolvedAsMedia)
+        #expect(panel.isFileUnavailable == false)
+
+        await panel.loadTextContent().value
+
+        #expect(panel.previewMode == .media)
+        #expect(panel.isFileUnavailable == false)
+        #expect(panel.textContent.isEmpty)
+    }
+
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
         try temporaryFile(extension: fileExtension, data: Data(contents.utf8))
     }
@@ -61,6 +86,22 @@ struct FilePreviewKindResolverTests {
             .appendingPathComponent("cmux-file-preview-\(UUID().uuidString)")
             .appendingPathExtension(fileExtension)
         try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    private func temporaryOversizedMPEGTransportStream(
+        extension fileExtension: String,
+        packetSize: Int,
+        syncOffset: Int
+    ) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-\(UUID().uuidString)")
+            .appendingPathExtension(fileExtension)
+        _ = FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.write(contentsOf: mpegTransportStreamData(packetSize: packetSize, syncOffset: syncOffset))
+        try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
         return url
     }
 
@@ -75,5 +116,16 @@ struct FilePreviewKindResolverTests {
         data[syncOffset + packetSize + 2] = 0x00
         data[syncOffset + packetSize + 3] = 0x10
         return data
+    }
+
+    @MainActor
+    private func waitForPreviewMode(_ panel: FilePreviewPanel, _ mode: FilePreviewMode) async -> Bool {
+        for _ in 0..<1000 {
+            if panel.previewMode == mode {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
     }
 }
