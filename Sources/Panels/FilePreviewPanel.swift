@@ -1002,7 +1002,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     init(
         workspaceId: UUID,
         filePath: String,
-        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = FilePreviewTextLoader.load(url:)
+        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
+            await FilePreviewTextLoader.load(url: url)
+        }
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
