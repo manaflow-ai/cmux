@@ -360,6 +360,7 @@ public struct BrowserSection: View {
                         Spacer(minLength: 0)
                         Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
                             model.set(httpAllowlistDraft)
+                            httpAllowlistSyncedValue = httpAllowlistDraft
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -496,14 +497,16 @@ public struct BrowserSection: View {
     }
 
     /// Builds the Browsing History row subtitle, matching the legacy
-    /// `browserHistorySubtitle`: dynamic phrasing when the count is
-    /// known, a generic instruction otherwise.
+    /// `browserHistorySubtitle`: a loading message when the host has
+    /// not loaded the history store yet, then dynamic phrasing once
+    /// the count is known. Keys mirror legacy
+    /// `settings.browser.history.subtitleLoading/Empty/One/Many`.
     private func historySubtitle(count: Int?) -> String {
         switch count {
         case .none:
-            return String(localized: "settings.browser.history.subtitle", defaultValue: "Clear visited-page suggestions from the browser omnibar.")
+            return String(localized: "settings.browser.history.subtitleLoading", defaultValue: "Checking browsing history...")
         case .some(0):
-            return String(localized: "settings.browser.history.subtitleNone", defaultValue: "No saved pages yet.")
+            return String(localized: "settings.browser.history.subtitleEmpty", defaultValue: "No saved pages yet.")
         case .some(1):
             return String(localized: "settings.browser.history.subtitleOne", defaultValue: "1 saved page appears in omnibar suggestions.")
         case .some(let n):

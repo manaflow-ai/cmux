@@ -17,6 +17,15 @@ public struct KeyboardShortcutsSection: View {
     @State private var chordModeActions: Set<String> = []
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
     @State private var bareKeyRejections: Set<String> = []
+    /// Per-action "rejected attempt" snapshot used to drive the red
+    /// validation banner. Legacy `ShortcutRecorderSettingsControl`
+    /// stores `rejectedAttempt` and never writes the conflicting
+    /// shortcut; the package previously wrote first then detected the
+    /// conflict at render time, which meant the conflict actually
+    /// persisted on disk and the Undo button could not roll it back.
+    /// This state captures the conflicting action so the banner can
+    /// render without persisting the bad binding.
+    @State private var conflictRejections: [String: ShortcutAction] = [:]
 
     public init(
         jsonStore: JSONConfigStore,
@@ -115,10 +124,15 @@ public struct KeyboardShortcutsSection: View {
     private func actionRow(_ action: ShortcutAction) -> some View {
         let override = bindings[action.rawValue]
         let effective = override ?? action.defaultStroke.map { StoredShortcut(first: $0) }
-        let conflict = effective.flatMap { detectConflict(for: action, stroke: $0) }
         let isUnbound = effective?.isUnbound ?? true
         let canRestore = isUnbound && restoreShortcuts[action.rawValue] != nil
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
+        // Drive the validation banner off the explicit rejection state,
+        // not off live bindings. Legacy never persists a conflicting
+        // shortcut: `ShortcutRecorderSettingsControl` captures the
+        // rejected attempt and shows the banner without ever writing
+        // the bad value, so Undo simply clears `rejectedAttempt`.
+        let conflict = conflictRejections[action.rawValue]
         let validationMessage: String? = {
             if bareKeyRejected {
                 return String(
@@ -169,6 +183,7 @@ public struct KeyboardShortcutsSection: View {
 
                 Button {
                     bareKeyRejections.remove(action.rawValue)
+                    conflictRejections.removeValue(forKey: action.rawValue)
                     if canRestore, let restore = restoreShortcuts[action.rawValue] {
                         Task { await restoreBinding(restore, for: action) }
                     } else if let effective, !effective.isUnbound {
@@ -213,6 +228,7 @@ public struct KeyboardShortcutsSection: View {
                     // having to record a different shortcut.
                     Button(String(localized: "shortcut.recorder.undo", defaultValue: "Undo")) {
                         bareKeyRejections.remove(action.rawValue)
+                        conflictRejections.removeValue(forKey: action.rawValue)
                     }
                     .buttonStyle(.link)
                     .font(.caption)
@@ -362,10 +378,35 @@ public struct KeyboardShortcutsSection: View {
                 // restore stroke so the X/restore button flips back to
                 // "Unbind" instead of stale "Restore previous shortcut".
                 pruneRestoreShortcuts()
+                // Mirror legacy `ShortcutRecorderSettingsControl.onChange(of: shortcut)`
+                // which clears `rejectedAttempt = nil` whenever the
+                // shortcut changes. Externally-edited cmux.json should
+                // dismiss a stale rejection banner for that action.
+                pruneConflictRejections()
             }
         }
         streamTask = task
         await task.value
+    }
+
+    private func pruneConflictRejections() {
+        guard !conflictRejections.isEmpty else { return }
+        // Drop banners for actions whose binding now resolves cleanly.
+        // Legacy `ShortcutRecorderSettingsControl` clears `rejectedAttempt`
+        // on `.onChange(of: shortcut)`, so an externally-edited binding
+        // (cmux.json reload) dismisses the validation banner too.
+        for key in Array(conflictRejections.keys) {
+            guard let action = ShortcutAction(rawValue: key) else {
+                conflictRejections.removeValue(forKey: key)
+                continue
+            }
+            let effective = bindings[action.rawValue] ?? action.defaultStroke.map { StoredShortcut(first: $0) }
+            if let effective, detectConflict(for: action, stroke: effective) == nil {
+                conflictRejections.removeValue(forKey: key)
+            } else if effective == nil {
+                conflictRejections.removeValue(forKey: key)
+            }
+        }
     }
 
     private func pruneRestoreShortcuts() {
@@ -381,19 +422,37 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
+        let proposed = StoredShortcut(first: stroke)
+        if let conflict = detectConflict(for: action, stroke: proposed) {
+            // Mirror legacy `KeyboardShortcutSettings.Action.normalizedRecordedShortcutResult`:
+            // never write a conflicting binding. Surface the rejection
+            // through `conflictRejections` so the banner + Undo button
+            // can drive the user back to a usable state.
+            conflictRejections[action.rawValue] = conflict
+            bareKeyRejections.remove(action.rawValue)
+            return
+        }
         var updated = bindings
-        updated[action.rawValue] = StoredShortcut(first: stroke)
+        updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
+        conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
     private func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+        if let conflict = detectConflict(for: action, stroke: chord) {
+            conflictRejections[action.rawValue] = conflict
+            chordModeActions.remove(action.rawValue)
+            bareKeyRejections.remove(action.rawValue)
+            return
+        }
         var updated = bindings
         updated[action.rawValue] = chord
         chordModeActions.remove(action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
+        conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
@@ -407,6 +466,7 @@ public struct KeyboardShortcutsSection: View {
         var updated = bindings
         updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
@@ -414,11 +474,14 @@ public struct KeyboardShortcutsSection: View {
         var updated = bindings
         updated.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        conflictRejections.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
     private func resetAll() async {
         restoreShortcuts.removeAll()
+        bareKeyRejections.removeAll()
+        conflictRejections.removeAll()
         await write([:])
     }
 

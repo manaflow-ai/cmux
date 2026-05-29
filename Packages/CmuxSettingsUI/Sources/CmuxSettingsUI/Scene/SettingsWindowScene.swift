@@ -50,6 +50,16 @@ public struct SettingsWindowRoot: View {
     // sibling hits inside one section must each be selectable.
     @SceneStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
     @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // Legacy `SettingsRootView` binds `NavigationSplitView`'s
+    // `columnVisibility` so the user can collapse the sidebar via the
+    // toolbar button (or the SidebarCommands menu) and have that state
+    // persist for the lifetime of the window. Without a binding,
+    // `NavigationSplitView` is locked to whatever its initial layout
+    // resolved to, which makes the chevron toggle a no-op in the
+    // package window. Keep this in @State (not @SceneStorage) because
+    // legacy stores it on the transient `SettingsDraftState`, not in
+    // SceneStorage.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     // Mirrors legacy SettingsView.settingsNavigationGeneration. When
     // multiple navigation requests fire in quick succession (e.g. the
     // sidebar selection changes plus an external app.cmux.settings
@@ -85,18 +95,23 @@ public struct SettingsWindowRoot: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var sidebarSelectionBinding: Binding<String?> {
-        Binding<String?>(
+    // Legacy uses a non-optional `Binding<String>` because a sidebar
+    // selection always points at *some* entry (section row or setting
+    // hit). Mirroring that here lets List's selection semantics behave
+    // identically — particularly that clicking the same row again
+    // doesn't transiently nil-out the selection and break SceneStorage
+    // round-trips.
+    private var sidebarSelectionBinding: Binding<String> {
+        Binding<String>(
             get: { self.selectedSidebarEntryID },
             set: { newValue in
-                guard let entryID = newValue else { return }
-                self.selectSidebarEntry(entryID)
+                self.selectSidebarEntry(newValue)
             }
         )
     }
 
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
         } detail: {
             detailScroll
@@ -201,12 +216,33 @@ public struct SettingsWindowRoot: View {
     /// `proxy.scrollTo(...)` so every click — including repeat clicks
     /// or sibling search hits — drives a scroll.
     private func selectSidebarEntry(_ entryID: String) {
-        selectedSidebarEntryID = entryID
-        let section = parentSection(for: entryID)
+        // Mirror legacy `SettingsRootView.selectSidebarEntry`: bail if
+        // the entry id doesn't resolve to a known search-index entry,
+        // so stale SceneStorage values or out-of-band selection writes
+        // can't corrupt the section pane. The lookup also resolves the
+        // entry's target section in one place rather than re-parsing
+        // the id string.
+        let index = searchIndex
+        guard let entry = index.entries.first(where: { $0.id == entryID }) else { return }
+        selectedSidebarEntryID = entry.id
+        let section = parentSection(for: entry)
         if selectedSectionRaw != section.rawValue {
             selectedSectionRaw = section.rawValue
         }
-        postNavigationRequest(target: section, anchorID: entryID, highlight: isSearching)
+        postNavigationRequest(target: section, anchorID: entry.id, highlight: isSearching)
+    }
+
+    /// Maps a resolved search-index entry to its target section,
+    /// matching legacy `SettingsSearchEntry.target` semantics. Section
+    /// entries decode their target from the canonical "section:<raw>"
+    /// id; setting entries carry their parent directly on the kind.
+    private func parentSection(for entry: SettingsSearchIndex.Entry) -> SettingsSectionID {
+        switch entry.kind {
+        case .section:
+            return parentSection(for: entry.id)
+        case .setting(let parent):
+            return parent
+        }
     }
 
     /// Posts a `cmux.settings.navigate` notification with the same

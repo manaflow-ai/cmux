@@ -365,27 +365,35 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
 
-            if let hostActions {
-                SettingsCardDivider()
-                SettingsCardRow(
-                    configurationReview: .action,
-                    String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
-                    subtitle: String(localized: "settings.notifications.desktop.subtitle", defaultValue: "Request permission, open System Settings, or send a test notification.")
-                ) {
-                    HStack(spacing: 6) {
-                        Button(String(localized: "settings.notifications.desktop.request", defaultValue: "Request")) {
-                            hostActions.requestNotificationAuthorization()
-                        }
-                        .controlSize(.small)
-                        Button(String(localized: "settings.notifications.desktop.system", defaultValue: "System Settings…")) {
-                            hostActions.openSystemNotificationSettings()
-                        }
-                        .controlSize(.small)
-                        Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
-                            hostActions.sendTestNotification()
-                        }
-                        .controlSize(.small)
+            // Desktop Notifications — legacy renders this row
+            // unconditionally with a permission-state status text +
+            // one dynamic action button + Send Test. Without a host
+            // signal for the permission state, the package falls
+            // back to the .notDetermined baseline: subtitle "Desktop
+            // notifications are not enabled yet.", "Enable" action
+            // (which maps to requestNotificationAuthorization), and
+            // Send Test. Buttons disable when no host is wired.
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
+                subtitle: String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
+            ) {
+                HStack(spacing: 6) {
+                    Text(String(localized: "settings.notifications.desktop.status.unknown", defaultValue: "Permission unknown"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 98, alignment: .trailing)
+                    Button(String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")) {
+                        hostActions?.requestNotificationAuthorization()
                     }
+                    .controlSize(.small)
+                    .disabled(hostActions == nil)
+                    Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
+                        hostActions?.sendTestNotification()
+                    }
+                    .controlSize(.small)
+                    .disabled(hostActions == nil)
                 }
             }
             SettingsCardDivider()
