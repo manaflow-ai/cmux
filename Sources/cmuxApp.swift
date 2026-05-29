@@ -5399,6 +5399,21 @@ struct SettingsView: View {
         AgentConversationForkDestination(rawValue: forkConversationDefaultDestination) ?? AgentConversationForkDefaultSettings.defaultDestination
     }
 
+    private var forkConversationDefaultDestinationBinding: Binding<String> {
+        Binding(
+            get: {
+                selectedForkConversationDefaultDestination.rawValue
+            },
+            set: { newValue in
+                guard let destination = AgentConversationForkDestination(rawValue: newValue) else {
+                    forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
+                    return
+                }
+                forkConversationDefaultDestination = destination.rawValue
+            }
+        )
+    }
+
     private var workspaceWorkingDirectoryInheritanceSubtitle: String {
         if workspaceInheritWorkingDirectory {
             return String(
@@ -6312,7 +6327,7 @@ struct SettingsView: View {
                             String(localized: "settings.app.forkConversationDefaultDestination", defaultValue: "Fork Conversation Default"),
                             subtitle: selectedForkConversationDefaultDestination.settingsDescription,
                             controlWidth: pickerColumnWidth,
-                            selection: $forkConversationDefaultDestination
+                            selection: forkConversationDefaultDestinationBinding
                         ) {
                             ForEach(AgentConversationForkDestination.allCases) { destination in
                                 Text(destination.settingsTitle).tag(destination.rawValue)

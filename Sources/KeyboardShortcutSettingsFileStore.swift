@@ -405,11 +405,11 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
-            guard let destination = AgentConversationForkDestination(rawValue: raw) else {
+            if let destination = AgentConversationForkDestination(rawValue: raw) {
+                snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
+            } else {
                 logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
         }
         if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
             snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)

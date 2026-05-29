@@ -1106,6 +1106,61 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
     }
 
+    func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
+        let defaults = UserDefaults.standard
+        let forkKey = AgentConversationForkDefaultSettings.key
+        let inheritanceKey = WorkspaceWorkingDirectoryInheritanceSettings.key
+        let previousForkValue = defaults.object(forKey: forkKey)
+        let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousForkValue {
+                defaults.set(previousForkValue, forKey: forkKey)
+            } else {
+                defaults.removeObject(forKey: forkKey)
+            }
+            if let previousInheritanceValue {
+                defaults.set(previousInheritanceValue, forKey: inheritanceKey)
+            } else {
+                defaults.removeObject(forKey: inheritanceKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: forkKey)
+        defaults.removeObject(forKey: inheritanceKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "forkConversationDefaultDestination": "sideways",
+                "workspaceInheritWorkingDirectory": false
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
+        XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
+    }
+
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SidebarWorkspaceTitleWrapSettings.key
