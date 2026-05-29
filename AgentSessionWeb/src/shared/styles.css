@@ -514,6 +514,10 @@ select {
   margin: 0 auto;
 }
 
+.above-composer-suggestion-shell {
+  container-type: inline-size;
+}
+
 .composer-stack {
   display: grid;
   gap: 6px;

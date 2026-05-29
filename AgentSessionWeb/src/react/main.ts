@@ -801,7 +801,7 @@ function AboveComposerPlanSuggestion({
 }) {
   return h(
     "div",
-    { className: "pointer-events-auto flex w-full max-w-full justify-center" },
+    { className: "above-composer-suggestion-shell pointer-events-auto flex w-full max-w-full justify-center" },
     h(
       "div",
       {
