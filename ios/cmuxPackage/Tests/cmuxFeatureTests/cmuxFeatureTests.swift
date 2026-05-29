@@ -2013,6 +2013,113 @@ import UIKit
     #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
 }
 
+@Test func terminalReplayGateBuffersLiveBytesUntilReplaySequenceIsKnown() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 10, data: Data("tail".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 10,
+        replayData: Data("replay".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["replay", "tail"])
+}
+
+@Test func terminalReplayGateDropsLiveBytesAlreadyCoveredByReplay() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 5, data: Data("live".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 9,
+        replayData: Data("replay-live".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["replay-live"])
+}
+
+@Test func terminalReplayGateKeepsOnlyUncoveredLiveByteSuffix() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 7, data: Data("ABCDE".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 10,
+        replayData: Data("replay".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["replay", "DE"])
+}
+
+@Test func terminalReplayGateDropsLiveBytesBeforeTrimmedReplayWindow() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 10, data: Data("stale".utf8)) == .buffered)
+
+    let segments = gate.finishReplay(
+        replayEndSeq: 105,
+        replayData: Data("window".utf8)
+    )
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["window"])
+}
+
+@Test func terminalReplayGateFlushesBufferedLiveBytesIfReplayFails() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+
+    #expect(gate.enqueueLiveBytes(seq: 20, data: Data("second".utf8)) == .buffered)
+    #expect(gate.enqueueLiveBytes(seq: 10, data: Data("first".utf8)) == .buffered)
+
+    let segments = gate.failReplay()
+
+    #expect(segments.map { String(decoding: $0, as: UTF8.self) } == ["first", "second"])
+}
+
+@Test func terminalReplayGateFailsClosedOnPendingLiveOverflow() {
+    var gate = MobileTerminalReplayGate(requestID: UUID())
+    let oversizedLiveTail = Data(
+        repeating: UInt8(ascii: "x"),
+        count: MobileTerminalReplayGate.maximumPendingLiveByteCount + 1
+    )
+
+    #expect(gate.enqueueLiveBytes(seq: 0, data: oversizedLiveTail) == .overflow)
+    #expect(gate.finishReplay(replayEndSeq: UInt64(oversizedLiveTail.count), replayData: Data("replay".utf8)).isEmpty)
+}
+
+@Test func mobileEventBufferDeliversBufferedEventsInOrder() async {
+    let buffer = MobileEventBuffer(maxBufferedEventCount: 4, maxBufferedByteCount: 128)
+    let first = MobileEventEnvelope(topic: "workspace.updated", payloadJSON: Data("one".utf8), streamID: nil)
+    let second = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: Data("two".utf8), streamID: nil)
+
+    #expect(await buffer.enqueue(first))
+    #expect(await buffer.enqueue(second))
+
+    #expect(await buffer.next()?.topic == "workspace.updated")
+    #expect(await buffer.next()?.topic == "terminal.bytes")
+}
+
+@Test func mobileEventBufferFailsClosedOnByteOverflow() async {
+    let buffer = MobileEventBuffer(maxBufferedEventCount: 4, maxBufferedByteCount: 24)
+    let small = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: Data("abc".utf8), streamID: nil)
+    let large = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: Data(String(repeating: "x", count: 32).utf8), streamID: nil)
+
+    #expect(await buffer.enqueue(small))
+    #expect(await buffer.enqueue(large) == false)
+    #expect(await buffer.next()?.topic == nil)
+    #expect(await buffer.enqueue(small) == false)
+}
+
+@Test func mobileEventBufferFailsClosedOnEventCountOverflow() async {
+    let buffer = MobileEventBuffer(maxBufferedEventCount: 1, maxBufferedByteCount: 128)
+    let first = MobileEventEnvelope(topic: "workspace.updated", payloadJSON: nil, streamID: nil)
+    let second = MobileEventEnvelope(topic: "terminal.bytes", payloadJSON: nil, streamID: nil)
+
+    #expect(await buffer.enqueue(first))
+    #expect(await buffer.enqueue(second) == false)
+    #expect(await buffer.next()?.topic == nil)
+}
+
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
@@ -3256,4 +3363,3 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
     let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
-

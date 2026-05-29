@@ -178,6 +178,97 @@ struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     }
 }
 
+struct MobileTerminalReplayGate: Equatable, Sendable {
+    enum LiveBytesResult: Equatable, Sendable {
+        case buffered
+        case emit([Data])
+        case overflow
+    }
+
+    private struct LiveChunk: Equatable, Sendable {
+        var seq: UInt64
+        var data: Data
+
+        var endSeq: UInt64 {
+            seq &+ UInt64(data.count)
+        }
+    }
+
+    static let maximumPendingLiveByteCount = 1024 * 1024
+
+    let requestID: UUID
+    private var isReplayPending = true
+    private var pendingLiveChunks: [LiveChunk] = []
+    private var pendingLiveByteCount = 0
+
+    init(requestID: UUID) {
+        self.requestID = requestID
+    }
+
+    mutating func enqueueLiveBytes(seq: UInt64, data: Data) -> LiveBytesResult {
+        guard !data.isEmpty else { return .buffered }
+        guard isReplayPending else {
+            return .emit([data])
+        }
+
+        pendingLiveChunks.append(LiveChunk(seq: seq, data: data))
+        pendingLiveByteCount += data.count
+        guard pendingLiveByteCount <= Self.maximumPendingLiveByteCount else {
+            isReplayPending = false
+            _ = drainPendingLiveChunks()
+            return .overflow
+        }
+        return .buffered
+    }
+
+    mutating func finishReplay(replayEndSeq: UInt64, replayData: Data?) -> [Data] {
+        guard isReplayPending else { return [] }
+        isReplayPending = false
+
+        var segments: [Data] = []
+        let replayByteCount = replayData?.count ?? 0
+        let replayStartSeq = replayEndSeq >= UInt64(replayByteCount)
+            ? replayEndSeq - UInt64(replayByteCount)
+            : 0
+        if let replayData, !replayData.isEmpty {
+            segments.append(replayData)
+        }
+
+        for chunk in drainPendingLiveChunks() {
+            guard chunk.endSeq > replayStartSeq else { continue }
+            guard chunk.endSeq > replayEndSeq else { continue }
+            if chunk.seq < replayEndSeq {
+                let offset = Int(replayEndSeq &- chunk.seq)
+                if offset < chunk.data.count {
+                    segments.append(Data(chunk.data.dropFirst(offset)))
+                }
+            } else {
+                segments.append(chunk.data)
+            }
+        }
+        return segments
+    }
+
+    mutating func failReplay() -> [Data] {
+        guard isReplayPending else { return [] }
+        isReplayPending = false
+        return drainPendingLiveChunks().map(\.data)
+    }
+
+    private mutating func drainPendingLiveChunks() -> [LiveChunk] {
+        defer {
+            pendingLiveChunks.removeAll()
+            pendingLiveByteCount = 0
+        }
+        return pendingLiveChunks.sorted { left, right in
+            if left.seq == right.seq {
+                return left.data.count < right.data.count
+            }
+            return left.seq < right.seq
+        }
+    }
+}
+
 public enum MobileConnectionState: Equatable, Sendable {
     case disconnected
     case connected
@@ -1492,7 +1583,14 @@ public final class CMUXMobileShellStore {
             // `terminal.updated` notifications drove the now-deleted Swift
             // snapshot refresh path, so we no longer subscribe to them.
             let topics: [String] = ["workspace.updated", "terminal.bytes"]
-            let stream = await client.subscribe(to: Set(topics))
+            let subscription = await client.subscribe(to: Set(topics)) { [weak self] in
+                self?.handleTerminalEventBufferOverflow()
+            }
+            defer {
+                Task {
+                    await client.unsubscribe(subscription)
+                }
+            }
             let requestData: Data
             do {
                 requestData = try MobileCoreRPCClient.requestData(
@@ -1520,7 +1618,7 @@ public final class CMUXMobileShellStore {
                 return
             }
             // Keep the listener alive without keeping the shell store alive.
-            for await event in stream {
+            while let event = await subscription.next() {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
@@ -1554,6 +1652,15 @@ public final class CMUXMobileShellStore {
         scheduleWorkspaceListRefreshFromEvent()
     }
 
+    private func handleTerminalEventBufferOverflow() {
+        guard connectionState == .connected else {
+            return
+        }
+        connectionError = Self.localizedConnectionError(for: MobileShellConnectionError.terminalEventBufferOverflow, route: activeRoute)
+        connectionState = .disconnected
+        clearRemoteConnectionContext()
+    }
+
     /// Per-surface byte sinks for the libghostty render path. A mounted
     /// `GhosttySurfaceView` registers itself here and receives raw PTY
     /// bytes pushed from the Mac via `terminal.bytes` events. The Mac
@@ -1562,20 +1669,24 @@ public final class CMUXMobileShellStore {
     /// byte. The iOS surface feeds them into its own libghostty,
     /// producing the same grid by construction.
     private var terminalByteSinksBySurfaceID: [String: (Data) -> Void] = [:]
+    private var terminalReplayGatesBySurfaceID: [String: MobileTerminalReplayGate] = [:]
 
     public func registerTerminalByteSink(
         surfaceID: String,
         sink: @escaping (Data) -> Void
     ) {
         terminalByteSinksBySurfaceID[surfaceID] = sink
+        let replayRequestID = UUID()
+        terminalReplayGatesBySurfaceID[surfaceID] = MobileTerminalReplayGate(requestID: replayRequestID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, requestID: replayRequestID)
     }
 
     public func unregisterTerminalByteSink(surfaceID: String) {
         terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayGatesBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -1649,22 +1760,24 @@ public final class CMUXMobileShellStore {
 
     /// Cold-attach replay: pull the Mac's per-surface byte ring buffer
     /// once and feed it into the local libghostty surface so the iPhone
-    /// starts with the same grid the Mac currently shows. Live
-    /// `terminal.bytes` events keep flowing in parallel; sinks are
-    /// callable from the moment they register, so any live byte that
-    /// arrives during the in-flight replay request is appended after
-    /// the replay buffer naturally.
-    private func requestTerminalReplay(surfaceID: String) {
+    /// starts with the same grid the Mac currently shows. Live `terminal.bytes`
+    /// events can race ahead of the replay RPC on the same multiplexed
+    /// connection, so they are buffered by `MobileTerminalReplayGate` until the
+    /// replay end sequence is known. Bytes already covered by replay are then
+    /// dropped before the remaining live tail is fed into libghostty.
+    private func requestTerminalReplay(surfaceID: String, requestID: UUID) {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=no_remote_client")
             #endif
+            finishTerminalReplayFailure(surfaceID: surfaceID, requestID: requestID)
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             #if DEBUG
             mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=workspace_not_found")
             #endif
+            finishTerminalReplayFailure(surfaceID: surfaceID, requestID: requestID)
             return
         }
         Task { @MainActor [weak self] in
@@ -1682,18 +1795,21 @@ public final class CMUXMobileShellStore {
                 let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let b64 = payload?["data_b64"] as? String
                 let bytes = b64.flatMap { Data(base64Encoded: $0) }
-                #if DEBUG
                 let seq = (payload?["seq"] as? NSNumber)?.uint64Value ?? 0
+                #if DEBUG
                 let cols = (payload?["columns"] as? NSNumber)?.intValue ?? -1
                 let rows = (payload?["rows"] as? NSNumber)?.intValue ?? -1
                 mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
                 #endif
-                guard let bytes, !bytes.isEmpty else {
-                    return
-                }
-                self.terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+                self.finishTerminalReplay(
+                    surfaceID: surfaceID,
+                    requestID: requestID,
+                    replayEndSeq: seq,
+                    replayData: bytes
+                )
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                self.finishTerminalReplayFailure(surfaceID: surfaceID, requestID: requestID)
             }
         }
     }
@@ -1713,15 +1829,63 @@ public final class CMUXMobileShellStore {
             let payload = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
             let surfaceID = payload["surface_id"] as? String,
             let b64 = payload["data_b64"] as? String,
-            let bytes = Data(base64Encoded: b64)
+            let bytes = Data(base64Encoded: b64),
+            let seq = (payload["seq"] as? NSNumber)?.uint64Value
         else {
             return
         }
         #if DEBUG
-        let seq = (payload["seq"] as? NSNumber)?.uint64Value ?? 0
         mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(seq, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
         #endif
-        terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+        if var replayGate = terminalReplayGatesBySurfaceID[surfaceID] {
+            switch replayGate.enqueueLiveBytes(seq: seq, data: bytes) {
+            case .buffered:
+                terminalReplayGatesBySurfaceID[surfaceID] = replayGate
+                return
+            case let .emit(segments):
+                terminalReplayGatesBySurfaceID[surfaceID] = replayGate
+                emitTerminalByteSegments(surfaceID: surfaceID, segments: segments)
+                return
+            case .overflow:
+                terminalReplayGatesBySurfaceID.removeValue(forKey: surfaceID)
+                handleTerminalEventBufferOverflow()
+                return
+            }
+        }
+        emitTerminalByteSegments(surfaceID: surfaceID, segments: [bytes])
+    }
+
+    private func finishTerminalReplay(
+        surfaceID: String,
+        requestID: UUID,
+        replayEndSeq: UInt64,
+        replayData: Data?
+    ) {
+        guard var replayGate = terminalReplayGatesBySurfaceID[surfaceID],
+              replayGate.requestID == requestID else {
+            return
+        }
+        terminalReplayGatesBySurfaceID.removeValue(forKey: surfaceID)
+        emitTerminalByteSegments(
+            surfaceID: surfaceID,
+            segments: replayGate.finishReplay(replayEndSeq: replayEndSeq, replayData: replayData)
+        )
+    }
+
+    private func finishTerminalReplayFailure(surfaceID: String, requestID: UUID) {
+        guard var replayGate = terminalReplayGatesBySurfaceID[surfaceID],
+              replayGate.requestID == requestID else {
+            return
+        }
+        terminalReplayGatesBySurfaceID.removeValue(forKey: surfaceID)
+        emitTerminalByteSegments(surfaceID: surfaceID, segments: replayGate.failReplay())
+    }
+
+    private func emitTerminalByteSegments(surfaceID: String, segments: [Data]) {
+        guard let sink = terminalByteSinksBySurfaceID[surfaceID] else { return }
+        for segment in segments where !segment.isEmpty {
+            sink(segment)
+        }
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {
@@ -1855,7 +2019,7 @@ public final class CMUXMobileShellStore {
                 || normalizedMessage.contains("invalid token")
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
+        case .invalidResponse, .connectionClosed, .requestTimedOut, .terminalEventBufferOverflow:
             return false
         }
     }
@@ -1910,6 +2074,8 @@ public final class CMUXMobileShellStore {
             return L10n.string("mobile.pairing.attachTicketExpired", defaultValue: "This pairing link expired. Pair again with a fresh QR/link from that computer.")
         case .authorizationFailed:
             return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in on your computer with the same account, or pair with a QR/link from that computer.")
+        case .terminalEventBufferOverflow:
+            return L10n.string("mobile.pairing.terminalEventBufferOverflow", defaultValue: "Terminal output was too large to sync safely. Reconnect, then rerun with less output.")
         case .invalidResponse, .connectionClosed, .rpcError:
             return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
         }
@@ -2018,6 +2184,7 @@ private enum MobileShellConnectionError: LocalizedError {
     case insecureManualRoute
     case attachTicketExpired
     case authorizationFailed(String)
+    case terminalEventBufferOverflow
     case rpcError(String?, String)
 
     var errorDescription: String? {
@@ -2034,6 +2201,8 @@ private enum MobileShellConnectionError: LocalizedError {
             return "Mobile attach ticket expired"
         case let .authorizationFailed(message):
             return message
+        case .terminalEventBufferOverflow:
+            return "Mobile terminal event buffer overflowed"
         case let .rpcError(_, message):
             return message
         }
@@ -2122,10 +2291,18 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
-    /// Subscribe to server-pushed events. Returns a stream of envelopes
-    /// matching any of the requested topics. Cancel by terminating iteration.
-    func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
-        await session.addEventListener(topics: topics).stream
+    /// Subscribe to server-pushed events. The subscription queue is bounded by
+    /// bytes and count, so high-volume terminal output fails closed instead of
+    /// growing memory without limit.
+    func subscribe(
+        to topics: Set<String>,
+        onOverflow: @escaping @MainActor @Sendable () -> Void
+    ) async -> MobileEventSubscription {
+        await session.addEventListener(topics: topics, onOverflow: onOverflow)
+    }
+
+    func unsubscribe(_ subscription: MobileEventSubscription) async {
+        await session.removeListener(id: subscription.id)
     }
 
     static func requestData(
@@ -2249,7 +2426,7 @@ final class MobileCoreRPCClient: @unchecked Sendable {
 
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return method != "mobile.host.status" && method != "mobile.attach_ticket.create"
+        return method != "mobile.host.status"
     }
 
     private static func ticketCoversTerminalRequest(
@@ -2459,6 +2636,113 @@ public struct MobileEventEnvelope: Sendable {
     public let topic: String
     public let payloadJSON: Data?
     public let streamID: String?
+
+    var bufferedByteCount: Int {
+        topic.utf8.count
+            + (payloadJSON?.count ?? 0)
+            + (streamID?.utf8.count ?? 0)
+    }
+}
+
+actor MobileEventBuffer {
+    private let maxBufferedEventCount: Int
+    private let maxBufferedByteCount: Int
+    private var bufferedEvents: [MobileEventEnvelope] = []
+    private var bufferedByteCount = 0
+    private var waiters: [UUID: CheckedContinuation<MobileEventEnvelope?, Never>] = [:]
+    private var isFinished = false
+
+    init(
+        maxBufferedEventCount: Int = 1024,
+        maxBufferedByteCount: Int = 4 * 1024 * 1024
+    ) {
+        self.maxBufferedEventCount = maxBufferedEventCount
+        self.maxBufferedByteCount = maxBufferedByteCount
+    }
+
+    func enqueue(_ event: MobileEventEnvelope) -> Bool {
+        guard !isFinished else {
+            return false
+        }
+        if let waiterID = waiters.keys.first,
+           let waiter = waiters.removeValue(forKey: waiterID) {
+            waiter.resume(returning: event)
+            return true
+        }
+
+        let eventByteCount = event.bufferedByteCount
+        guard eventByteCount <= maxBufferedByteCount,
+              bufferedEvents.count < maxBufferedEventCount,
+              bufferedByteCount + eventByteCount <= maxBufferedByteCount else {
+            finish()
+            return false
+        }
+        bufferedEvents.append(event)
+        bufferedByteCount += eventByteCount
+        return true
+    }
+
+    func next() async -> MobileEventEnvelope? {
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if !bufferedEvents.isEmpty {
+                    let event = bufferedEvents.removeFirst()
+                    bufferedByteCount = max(0, bufferedByteCount - event.bufferedByteCount)
+                    continuation.resume(returning: event)
+                    return
+                }
+                guard !isFinished else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                waiters[waiterID] = continuation
+            }
+        } onCancel: {
+            Task {
+                await self.cancelWaiter(id: waiterID)
+            }
+        }
+    }
+
+    func finish() {
+        guard !isFinished else {
+            return
+        }
+        isFinished = true
+        bufferedEvents.removeAll(keepingCapacity: false)
+        bufferedByteCount = 0
+        let waiterSnapshot = waiters
+        waiters.removeAll()
+        for (_, waiter) in waiterSnapshot {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let waiter = waiters.removeValue(forKey: id) else {
+            return
+        }
+        waiter.resume(returning: nil)
+    }
+}
+
+final class MobileEventSubscription: @unchecked Sendable {
+    let id: UUID
+    private let buffer: MobileEventBuffer
+
+    init(id: UUID, buffer: MobileEventBuffer) {
+        self.id = id
+        self.buffer = buffer
+    }
+
+    func next() async -> MobileEventEnvelope? {
+        await buffer.next()
+    }
+
+    fileprivate func finish() async {
+        await buffer.finish()
+    }
 }
 
 /// Owns a single persistent transport for a `MobileCoreRPCClient`, multiplexes
@@ -2470,15 +2754,12 @@ public struct MobileEventEnvelope: Sendable {
 private actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
-
-    struct EventSubscription {
-        let id: UUID
-        let stream: AsyncStream<MobileEventEnvelope>
-    }
+    typealias EventOverflowHandler = @MainActor @Sendable () -> Void
 
     private struct EventListener {
         let topics: Set<String>
-        let continuation: AsyncStream<MobileEventEnvelope>.Continuation
+        let buffer: MobileEventBuffer
+        let onOverflow: EventOverflowHandler
     }
 
     private struct PendingWrite: Sendable {
@@ -2515,6 +2796,9 @@ private actor MobileCoreRPCSession {
     }
 
     func send(payload: Data, requestID: String) async throws -> Data {
+        guard !isTearingDown else {
+            throw MobileShellConnectionError.connectionClosed
+        }
         _ = try await ensureConnected()
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
 
@@ -2546,27 +2830,42 @@ private actor MobileCoreRPCSession {
         }
     }
 
-    func addEventListener(topics: Set<String>) -> EventSubscription {
+    func addEventListener(
+        topics: Set<String>,
+        onOverflow: @escaping EventOverflowHandler
+    ) -> MobileEventSubscription {
         let id = UUID()
-        var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
-        let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
-            continuation = cont
-        }
-        listeners[id] = EventListener(topics: topics, continuation: continuation)
-        continuation.onTermination = { [weak self] _ in
-            guard let self else { return }
-            Task { await self.removeListener(id: id) }
-        }
-        return EventSubscription(id: id, stream: stream)
+        let buffer = MobileEventBuffer()
+        listeners[id] = EventListener(
+            topics: topics,
+            buffer: buffer,
+            onOverflow: onOverflow
+        )
+        return MobileEventSubscription(id: id, buffer: buffer)
     }
 
-    func removeListener(id: UUID) {
-        listeners.removeValue(forKey: id)
+    func removeListener(id: UUID) async {
+        guard let listener = listeners.removeValue(forKey: id) else {
+            return
+        }
+        await listener.buffer.finish()
     }
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
         isTearingDown = true
+        let writeQueueSnapshot = writeQueue
+        writeQueue = nil
+        writeQueueSnapshot?.finish()
+        writerTask?.cancel()
+        writerTask = nil
+        connectionTask?.task.cancel()
+        connectionTask = nil
+        installedConnectionID = nil
+        let transportSnapshot = transport
+        transport = nil
+        readerTask?.cancel()
+        readerTask = nil
         let pendingSnapshot = pending
         pending.removeAll()
         queuedRequestIDs.removeAll()
@@ -2577,30 +2876,20 @@ private actor MobileCoreRPCSession {
         let listenerSnapshot = listeners
         listeners.removeAll()
         for (_, listener) in listenerSnapshot {
-            listener.continuation.finish()
+            await listener.buffer.finish()
         }
-        // Stop the writer loop before closing the transport so we don't try to
-        // write into a half-closed socket and never trigger
-        // sendAlreadyInProgress on a torn-down state.
-        writeQueue?.finish()
-        writeQueue = nil
-        writerTask?.cancel()
-        writerTask = nil
-        connectionTask?.task.cancel()
-        connectionTask = nil
-        installedConnectionID = nil
-        if let transport {
-            await transport.close()
+        if let transportSnapshot {
+            await transportSnapshot.close()
         }
-        transport = nil
-        readerTask?.cancel()
-        readerTask = nil
         isTearingDown = false
     }
 
     // MARK: - private
 
     private func ensureConnected() async throws -> any CmxByteTransport {
+        guard !isTearingDown else {
+            throw MobileShellConnectionError.connectionClosed
+        }
         if let transport { return transport }
 
         let connectionID: UUID
@@ -2700,12 +2989,12 @@ private actor MobileCoreRPCSession {
                 return
             }
             for frame in frames {
-                dispatch(frame: frame)
+                await dispatch(frame: frame)
             }
         }
     }
 
-    private func dispatch(frame: Data) {
+    private func dispatch(frame: Data) async {
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
         guard let envelope = parsed else { return }
         if (envelope["kind"] as? String) == "event" {
@@ -2718,8 +3007,20 @@ private actor MobileCoreRPCSession {
             }
             let streamID = envelope["stream_id"] as? String
             let event = MobileEventEnvelope(topic: topic, payloadJSON: payloadData, streamID: streamID)
-            for (_, listener) in listeners where listener.topics.contains(topic) {
-                listener.continuation.yield(event)
+            var overflowedListeners: [(UUID, EventListener)] = []
+            for (id, listener) in listeners where listener.topics.contains(topic) {
+                let accepted = await listener.buffer.enqueue(event)
+                if !accepted {
+                    overflowedListeners.append((id, listener))
+                }
+            }
+            for (id, listener) in overflowedListeners {
+                guard listeners.removeValue(forKey: id) != nil else {
+                    continue
+                }
+                Task { @MainActor in
+                    listener.onOverflow()
+                }
             }
             return
         }

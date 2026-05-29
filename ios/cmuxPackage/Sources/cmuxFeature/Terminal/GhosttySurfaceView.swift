@@ -79,7 +79,7 @@ extension TerminalSurfaceHosting {
 /// hops below.
 final class GhosttySurfaceBridge: @unchecked Sendable {
     private let lock = NSLock()
-    private var _surfaceView: GhosttySurfaceView?
+    private weak var _surfaceView: GhosttySurfaceView?
 
     var surfaceView: GhosttySurfaceView? {
         get {
@@ -127,11 +127,9 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 }
 
 private enum GhosttySurfaceDisposer {
-    static let queue = DispatchQueue(label: "GhosttySurfaceDisposer.queue")
-
     static func dispose(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
+        GhosttySurfaceView.outputQueue.async {
             ghostty_surface_free(surface)
             retainedBridge.release()
         }
@@ -526,7 +524,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     // `ghostty_surface_process_output` off the main thread so a potential
     // Ghostty internal mutex/futex wait can't freeze the UI. Ordering is
     // preserved because the queue is serial.
-    private static let outputQueue = DispatchQueue(
+    fileprivate static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )

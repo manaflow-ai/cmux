@@ -802,7 +802,7 @@ final class MobileHostService {
 
     nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.attach_ticket.create":
+        case "mobile.host.status":
             return false
         default:
             return true

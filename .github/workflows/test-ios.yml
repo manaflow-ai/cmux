@@ -135,6 +135,17 @@ jobs:
           cat /tmp/simulator.env
           cat /tmp/simulator.env >> "$GITHUB_ENV"
 
+      - name: Download GhosttyKit
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git ls-tree HEAD ghostty | awk '{print $3}')"
+          if [ -z "$GHOSTTY_SHA" ]; then
+            echo "Unable to determine ghostty submodule SHA" >&2
+            exit 1
+          fi
+          GHOSTTY_SHA="$GHOSTTY_SHA" ./scripts/download-prebuilt-ghosttykit.sh
+
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |

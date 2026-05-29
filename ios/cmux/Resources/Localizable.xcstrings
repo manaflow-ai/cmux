@@ -246,6 +246,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータで同じアカウントにサインインするか、そのコンピュータの QR/リンクでペアリングしてください。" } }
       }
     },
+    "mobile.pairing.terminalEventBufferOverflow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal output was too large to sync safely. Reconnect, then rerun with less output." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル出力が大きすぎるため、安全に同期できませんでした。再接続してから、出力を減らして再実行してください。" } }
+      }
+    },
     "mobile.pairing.stackAuthTokenUnavailable" : {
       "extractionState" : "manual",
       "localizations" : {
