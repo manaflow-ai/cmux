@@ -1270,292 +1270,307 @@ function renderSettingsInspector() {
   settingsChrome.className = "settings-react-host";
   const nodes = [settingsChrome];
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  const shouldBuildSection = (id) => state.settingsCategory === id || searching;
 
-  const quickSection = settingsSection("Quick setup");
-  quickSection.append(settingsPresetGrid());
-  appendSettingsSection(nodes, "quick", quickSection);
-
-  const workspaceSection = settingsSection("Workspace");
-  const titleInput = document.createElement("input");
-  titleInput.className = "setting-control";
-  titleInput.value = workspace?.title || "";
-  titleInput.placeholder = "Workspace name";
-  titleInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") titleInput.blur();
-  });
-  titleInput.addEventListener("blur", () => renameWorkspaceTo(titleInput.value));
-  workspaceSection.append(settingRow("Name", titleInput));
-  workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
-  workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
-  appendSettingsSection(nodes, "workspace", workspaceSection);
-
-  const appearanceSection = settingsSection("Appearance");
-  const themeSelect = document.createElement("select");
-  themeSelect.className = "setting-select";
-  for (const [value, label] of themeOptions) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    themeSelect.append(option);
+  if (shouldBuildSection("quick")) {
+    const quickSection = settingsSection("Quick setup");
+    quickSection.append(settingsPresetGrid());
+    nodes.push(quickSection);
   }
-  themeSelect.value = state.settings.theme;
-  themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
-  appearanceSection.append(settingRow("Theme", themeSelect));
-  appearanceSection.append(settingRow("Accent", swatchGrid(accentOptions, state.settings.accent, (accent) => updateSettings({ accent }))));
-  appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
-  appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
-  const imageInput = document.createElement("input");
-  imageInput.className = "setting-control";
-  imageInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
-  imageInput.placeholder = "https://image-url";
-  imageInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") imageInput.blur();
-  });
-  imageInput.addEventListener("blur", () => {
-    const next = imageInput.value.trim();
-    if (next || !isBackgroundPreset(state.settings.backgroundImage)) {
-      updateSettings({ backgroundImage: next });
-      renderSettingsInspector();
-    }
-  });
-  appearanceSection.append(settingRow("Custom image", imageInput, true));
-  const imageActions = document.createElement("div");
-  imageActions.className = "settings-actions background-actions";
-  imageActions.append(
-    settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
-    settingsActionButton("Clear image", () => {
-      updateSettings({ backgroundImage: "" });
-      renderSettingsInspector();
-    }, "danger", "background image local file wallpaper reset remove")
-  );
-  imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper clear");
-  appearanceSection.append(imageActions);
-
-  const opacityInput = document.createElement("input");
-  opacityInput.className = "setting-control";
-  opacityInput.type = "range";
-  opacityInput.min = "0";
-  opacityInput.max = "42";
-  opacityInput.value = String(state.settings.backgroundOpacity);
-  opacityInput.oninput = () => updateSettings({ backgroundOpacity: Number(opacityInput.value) });
-  appearanceSection.append(settingRow("Image strength", opacityInput));
-  appendSettingsSection(nodes, "appearance", appearanceSection);
-
-  const browserSection = settingsSection("Browser");
-  const homeInput = document.createElement("input");
-  homeInput.className = "setting-control";
-  homeInput.value = state.settings.browserHomeUrl;
-  homeInput.placeholder = "https://www.bing.com";
-  homeInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") homeInput.blur();
-  });
-  homeInput.addEventListener("blur", () => {
-    updateSettings({ browserHomeUrl: homeInput.value || defaultSettings.browserHomeUrl });
-    homeInput.value = state.settings.browserHomeUrl;
-  });
-  browserSection.append(settingRow("Home page", homeInput, true));
-  const homeActions = document.createElement("div");
-  homeActions.className = "settings-actions";
-  homeActions.append(
-    settingsActionButton("Open", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
-    settingsActionButton("Reset", () => {
-      updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
-      renderSettingsInspector();
-    })
-  );
-  browserSection.append(homeActions);
-  appendSettingsSection(nodes, "browser", browserSection);
-
-  const layoutSection = settingsSection("Layout");
-  const densitySelect = document.createElement("select");
-  densitySelect.className = "setting-select";
-  for (const value of ["comfortable", "compact"]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value[0].toUpperCase() + value.slice(1);
-    densitySelect.append(option);
-  }
-  densitySelect.value = state.settings.density;
-  densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
-  layoutSection.append(settingRow("Density", densitySelect));
-  const toolbarSelect = document.createElement("select");
-  toolbarSelect.className = "setting-select";
-  for (const [value, label] of toolbarModeOptions) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    toolbarSelect.append(option);
-  }
-  toolbarSelect.value = state.settings.toolbarMode;
-  toolbarSelect.onchange = () => updateSettings({ toolbarMode: toolbarSelect.value });
-  layoutSection.append(settingRow("Toolbar", toolbarSelect, false, "top bar command strip compact standard expanded shortcuts actions"));
-  const sidebarWidthRange = document.createElement("input");
-  sidebarWidthRange.className = "setting-control";
-  sidebarWidthRange.type = "range";
-  sidebarWidthRange.min = "188";
-  sidebarWidthRange.max = "304";
-  sidebarWidthRange.step = "4";
-  sidebarWidthRange.value = String(state.settings.sidebarWidth);
-  const sidebarWidthRow = settingRow(`Sidebar ${state.settings.sidebarWidth}px`, sidebarWidthRange);
-  sidebarWidthRange.oninput = () => {
-    updateSettings({ sidebarWidth: Number(sidebarWidthRange.value) });
-    sidebarWidthRow.querySelector(".setting-label").textContent = `Sidebar ${state.settings.sidebarWidth}px`;
-  };
-  layoutSection.append(sidebarWidthRow);
-  layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
-  layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
-  layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
-  appendSettingsSection(nodes, "layout", layoutSection);
-
-  const terminalSection = settingsSection("Terminal");
-  const fontSelect = document.createElement("select");
-  fontSelect.className = "setting-select";
-  for (const [value, label] of terminalFontOptions) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    fontSelect.append(option);
-  }
-  fontSelect.value = state.settings.terminalFontFamily;
-  fontSelect.onchange = () => updateSettings({ terminalFontFamily: fontSelect.value });
-  terminalSection.append(settingRow("Font", fontSelect));
-  const fontRange = document.createElement("input");
-  fontRange.className = "setting-control";
-  fontRange.type = "range";
-  fontRange.min = "10";
-  fontRange.max = "22";
-  fontRange.value = String(state.terminalFontSize);
-  const fontRow = settingRow(`Text size ${state.terminalFontSize}px`, fontRange);
-  fontRange.oninput = () => {
-    updateSettings({ terminalFontSize: Number(fontRange.value) });
-    fontRow.querySelector(".setting-label").textContent = `Text size ${state.terminalFontSize}px`;
-  };
-  terminalSection.append(fontRow);
-  const lineHeightRange = document.createElement("input");
-  lineHeightRange.className = "setting-control";
-  lineHeightRange.type = "range";
-  lineHeightRange.min = "1";
-  lineHeightRange.max = "1.5";
-  lineHeightRange.step = "0.02";
-  lineHeightRange.value = String(state.settings.terminalLineHeight);
-  const lineHeightRow = settingRow(`Line height ${formatLineHeight(state.settings.terminalLineHeight)}`, lineHeightRange);
-  lineHeightRange.oninput = () => {
-    updateSettings({ terminalLineHeight: Number(lineHeightRange.value) });
-    lineHeightRow.querySelector(".setting-label").textContent = `Line height ${formatLineHeight(state.settings.terminalLineHeight)}`;
-  };
-  terminalSection.append(lineHeightRow);
-  const paddingRange = document.createElement("input");
-  paddingRange.className = "setting-control";
-  paddingRange.type = "range";
-  paddingRange.min = "0";
-  paddingRange.max = "16";
-  paddingRange.value = String(state.settings.terminalPadding);
-  const paddingRow = settingRow(`Padding ${state.settings.terminalPadding}px`, paddingRange);
-  paddingRange.oninput = () => {
-    updateSettings({ terminalPadding: Number(paddingRange.value) });
-    paddingRow.querySelector(".setting-label").textContent = `Padding ${state.settings.terminalPadding}px`;
-  };
-  terminalSection.append(paddingRow);
-  const scrollbackRange = document.createElement("input");
-  scrollbackRange.className = "setting-control";
-  scrollbackRange.type = "range";
-  scrollbackRange.min = "2000";
-  scrollbackRange.max = "50000";
-  scrollbackRange.step = "2000";
-  scrollbackRange.value = String(state.settings.terminalScrollback);
-  const scrollbackRow = settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange);
-  scrollbackRange.oninput = () => {
-    updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
-    scrollbackRow.querySelector(".setting-label").textContent = `Scrollback ${state.settings.terminalScrollback}`;
-  };
-  terminalSection.append(scrollbackRow);
-  const cursorSelect = document.createElement("select");
-  cursorSelect.className = "setting-select";
-  for (const [value, label] of terminalCursorStyles) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    cursorSelect.append(option);
-  }
-  cursorSelect.value = state.settings.terminalCursorStyle;
-  cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
-  terminalSection.append(settingRow("Cursor", cursorSelect));
-  terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
-  terminalSection.append(settingRow(
-    "Background color",
-    colorPicker(state.settings.terminalBackground, (terminalBackground) => updateSettings({ terminalBackground }), terminalColorDefaults.background),
-    false,
-    "terminal background color custom hex"
-  ));
-  terminalSection.append(settingRow(
-    "Text color",
-    colorPicker(state.settings.terminalForeground, (terminalForeground) => updateSettings({ terminalForeground }), terminalColorDefaults.foreground),
-    false,
-    "terminal foreground text color custom hex"
-  ));
-  terminalSection.append(settingRow(
-    "Cursor color",
-    colorPicker(state.settings.terminalCursorColor, (terminalCursorColor) => updateSettings({ terminalCursorColor }), terminalColorDefaults.cursor),
-    false,
-    "terminal cursor color custom hex"
-  ));
-  const colorActions = document.createElement("div");
-  colorActions.className = "settings-actions";
-  colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor");
-  colorActions.append(
-    settingsActionButton("Reset terminal colors", () => {
-      updateSettings({
-        terminalBackground: "",
-        terminalForeground: "",
-        terminalCursorColor: ""
-      });
-      renderSettingsInspector();
-    }, "", "terminal color reset default background foreground cursor")
-  );
-  terminalSection.append(colorActions);
-  const profileSelect = document.createElement("select");
-  profileSelect.className = "setting-select";
-  for (const [value, label] of terminalProfiles) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    profileSelect.append(option);
-  }
-  profileSelect.value = state.settings.terminalProfile;
-  profileSelect.onchange = () => {
-    updateSettings({ terminalProfile: profileSelect.value });
-    renderSettingsInspector();
-  };
-  terminalSection.append(settingRow("Default shell", profileSelect));
-  if (state.settings.terminalProfile === "custom") {
-    const shellInput = document.createElement("input");
-    shellInput.className = "setting-control";
-    shellInput.value = state.settings.terminalCustomShell;
-    shellInput.placeholder = "C:\\\\Path\\\\to\\\\shell.exe";
-    shellInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") shellInput.blur();
+  if (shouldBuildSection("workspace")) {
+    const workspaceSection = settingsSection("Workspace");
+    const titleInput = document.createElement("input");
+    titleInput.className = "setting-control";
+    titleInput.value = workspace?.title || "";
+    titleInput.placeholder = "Workspace name";
+    titleInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") titleInput.blur();
     });
-    shellInput.addEventListener("blur", () => updateSettings({ terminalCustomShell: shellInput.value }));
-    terminalSection.append(settingRow("Shell path", shellInput, true));
+    titleInput.addEventListener("blur", () => renameWorkspaceTo(titleInput.value));
+    workspaceSection.append(settingRow("Name", titleInput));
+    workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
+    workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
+    nodes.push(workspaceSection);
   }
-  const restart = document.createElement("button");
-  restart.className = "notification-action";
-  restart.textContent = "Restart active terminal";
-  restart.onclick = () => restartActiveTerminal();
-  terminalSection.append(restart);
-  appendSettingsSection(nodes, "terminal", terminalSection);
 
-  const actionsSection = settingsSection("Settings data");
-  const actions = document.createElement("div");
-  actions.className = "settings-actions";
-  actions.append(
-    settingsActionButton("Export", exportSettings),
-    settingsActionButton("Import", importSettings),
-    settingsActionButton("Reset", resetSettings, "danger")
-  );
-  actionsSection.append(actions);
-  appendSettingsSection(nodes, "data", actionsSection);
+  if (shouldBuildSection("appearance")) {
+    const appearanceSection = settingsSection("Appearance");
+    const themeSelect = document.createElement("select");
+    themeSelect.className = "setting-select";
+    for (const [value, label] of themeOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      themeSelect.append(option);
+    }
+    themeSelect.value = state.settings.theme;
+    themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
+    appearanceSection.append(settingRow("Theme", themeSelect));
+    appearanceSection.append(settingRow("Accent", swatchGrid(accentOptions, state.settings.accent, (accent) => updateSettings({ accent }))));
+    appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
+    appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
+
+    const imageInput = document.createElement("input");
+    imageInput.className = "setting-control";
+    imageInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
+    imageInput.placeholder = "https://image-url";
+    imageInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") imageInput.blur();
+    });
+    imageInput.addEventListener("blur", () => {
+      const next = imageInput.value.trim();
+      if (next || !isBackgroundPreset(state.settings.backgroundImage)) {
+        updateSettings({ backgroundImage: next });
+        renderSettingsInspector();
+      }
+    });
+    appearanceSection.append(settingRow("Custom image", imageInput, true));
+    const imageActions = document.createElement("div");
+    imageActions.className = "settings-actions background-actions";
+    imageActions.append(
+      settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
+      settingsActionButton("Clear image", () => {
+        updateSettings({ backgroundImage: "" });
+        renderSettingsInspector();
+      }, "danger", "background image local file wallpaper reset remove")
+    );
+    imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper clear");
+    appearanceSection.append(imageActions);
+
+    const opacityInput = document.createElement("input");
+    opacityInput.className = "setting-control";
+    opacityInput.type = "range";
+    opacityInput.min = "0";
+    opacityInput.max = "42";
+    opacityInput.value = String(state.settings.backgroundOpacity);
+    opacityInput.oninput = () => updateSettings({ backgroundOpacity: Number(opacityInput.value) });
+    appearanceSection.append(settingRow("Image strength", opacityInput));
+    nodes.push(appearanceSection);
+  }
+
+  if (shouldBuildSection("browser")) {
+    const browserSection = settingsSection("Browser");
+    const homeInput = document.createElement("input");
+    homeInput.className = "setting-control";
+    homeInput.value = state.settings.browserHomeUrl;
+    homeInput.placeholder = "https://www.bing.com";
+    homeInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") homeInput.blur();
+    });
+    homeInput.addEventListener("blur", () => {
+      updateSettings({ browserHomeUrl: homeInput.value || defaultSettings.browserHomeUrl });
+      homeInput.value = state.settings.browserHomeUrl;
+    });
+    browserSection.append(settingRow("Home page", homeInput, true));
+    const homeActions = document.createElement("div");
+    homeActions.className = "settings-actions";
+    homeActions.append(
+      settingsActionButton("Open", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
+      settingsActionButton("Reset", () => {
+        updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
+        renderSettingsInspector();
+      })
+    );
+    browserSection.append(homeActions);
+    nodes.push(browserSection);
+  }
+
+  if (shouldBuildSection("layout")) {
+    const layoutSection = settingsSection("Layout");
+    const densitySelect = document.createElement("select");
+    densitySelect.className = "setting-select";
+    for (const value of ["comfortable", "compact"]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value[0].toUpperCase() + value.slice(1);
+      densitySelect.append(option);
+    }
+    densitySelect.value = state.settings.density;
+    densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
+    layoutSection.append(settingRow("Density", densitySelect));
+    const toolbarSelect = document.createElement("select");
+    toolbarSelect.className = "setting-select";
+    for (const [value, label] of toolbarModeOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      toolbarSelect.append(option);
+    }
+    toolbarSelect.value = state.settings.toolbarMode;
+    toolbarSelect.onchange = () => updateSettings({ toolbarMode: toolbarSelect.value });
+    layoutSection.append(settingRow("Toolbar", toolbarSelect, false, "top bar command strip compact standard expanded shortcuts actions"));
+    const sidebarWidthRange = document.createElement("input");
+    sidebarWidthRange.className = "setting-control";
+    sidebarWidthRange.type = "range";
+    sidebarWidthRange.min = "188";
+    sidebarWidthRange.max = "304";
+    sidebarWidthRange.step = "4";
+    sidebarWidthRange.value = String(state.settings.sidebarWidth);
+    const sidebarWidthRow = settingRow(`Sidebar ${state.settings.sidebarWidth}px`, sidebarWidthRange);
+    sidebarWidthRange.oninput = () => {
+      updateSettings({ sidebarWidth: Number(sidebarWidthRange.value) });
+      sidebarWidthRow.querySelector(".setting-label").textContent = `Sidebar ${state.settings.sidebarWidth}px`;
+    };
+    layoutSection.append(sidebarWidthRow);
+    layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
+    layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
+    layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
+    nodes.push(layoutSection);
+  }
+
+  if (shouldBuildSection("terminal")) {
+    const terminalSection = settingsSection("Terminal");
+    const fontSelect = document.createElement("select");
+    fontSelect.className = "setting-select";
+    for (const [value, label] of terminalFontOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      fontSelect.append(option);
+    }
+    fontSelect.value = state.settings.terminalFontFamily;
+    fontSelect.onchange = () => updateSettings({ terminalFontFamily: fontSelect.value });
+    terminalSection.append(settingRow("Font", fontSelect));
+    const fontRange = document.createElement("input");
+    fontRange.className = "setting-control";
+    fontRange.type = "range";
+    fontRange.min = "10";
+    fontRange.max = "22";
+    fontRange.value = String(state.terminalFontSize);
+    const fontRow = settingRow(`Text size ${state.terminalFontSize}px`, fontRange);
+    fontRange.oninput = () => {
+      updateSettings({ terminalFontSize: Number(fontRange.value) });
+      fontRow.querySelector(".setting-label").textContent = `Text size ${state.terminalFontSize}px`;
+    };
+    terminalSection.append(fontRow);
+    const lineHeightRange = document.createElement("input");
+    lineHeightRange.className = "setting-control";
+    lineHeightRange.type = "range";
+    lineHeightRange.min = "1";
+    lineHeightRange.max = "1.5";
+    lineHeightRange.step = "0.02";
+    lineHeightRange.value = String(state.settings.terminalLineHeight);
+    const lineHeightRow = settingRow(`Line height ${formatLineHeight(state.settings.terminalLineHeight)}`, lineHeightRange);
+    lineHeightRange.oninput = () => {
+      updateSettings({ terminalLineHeight: Number(lineHeightRange.value) });
+      lineHeightRow.querySelector(".setting-label").textContent = `Line height ${formatLineHeight(state.settings.terminalLineHeight)}`;
+    };
+    terminalSection.append(lineHeightRow);
+    const paddingRange = document.createElement("input");
+    paddingRange.className = "setting-control";
+    paddingRange.type = "range";
+    paddingRange.min = "0";
+    paddingRange.max = "16";
+    paddingRange.value = String(state.settings.terminalPadding);
+    const paddingRow = settingRow(`Padding ${state.settings.terminalPadding}px`, paddingRange);
+    paddingRange.oninput = () => {
+      updateSettings({ terminalPadding: Number(paddingRange.value) });
+      paddingRow.querySelector(".setting-label").textContent = `Padding ${state.settings.terminalPadding}px`;
+    };
+    terminalSection.append(paddingRow);
+    const scrollbackRange = document.createElement("input");
+    scrollbackRange.className = "setting-control";
+    scrollbackRange.type = "range";
+    scrollbackRange.min = "2000";
+    scrollbackRange.max = "50000";
+    scrollbackRange.step = "2000";
+    scrollbackRange.value = String(state.settings.terminalScrollback);
+    const scrollbackRow = settingRow(`Scrollback ${state.settings.terminalScrollback}`, scrollbackRange);
+    scrollbackRange.oninput = () => {
+      updateSettings({ terminalScrollback: Number(scrollbackRange.value) });
+      scrollbackRow.querySelector(".setting-label").textContent = `Scrollback ${state.settings.terminalScrollback}`;
+    };
+    terminalSection.append(scrollbackRow);
+    const cursorSelect = document.createElement("select");
+    cursorSelect.className = "setting-select";
+    for (const [value, label] of terminalCursorStyles) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      cursorSelect.append(option);
+    }
+    cursorSelect.value = state.settings.terminalCursorStyle;
+    cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
+    terminalSection.append(settingRow("Cursor", cursorSelect));
+    terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
+    terminalSection.append(settingRow(
+      "Background color",
+      colorPicker(state.settings.terminalBackground, (terminalBackground) => updateSettings({ terminalBackground }), terminalColorDefaults.background),
+      false,
+      "terminal background color custom hex"
+    ));
+    terminalSection.append(settingRow(
+      "Text color",
+      colorPicker(state.settings.terminalForeground, (terminalForeground) => updateSettings({ terminalForeground }), terminalColorDefaults.foreground),
+      false,
+      "terminal foreground text color custom hex"
+    ));
+    terminalSection.append(settingRow(
+      "Cursor color",
+      colorPicker(state.settings.terminalCursorColor, (terminalCursorColor) => updateSettings({ terminalCursorColor }), terminalColorDefaults.cursor),
+      false,
+      "terminal cursor color custom hex"
+    ));
+    const colorActions = document.createElement("div");
+    colorActions.className = "settings-actions";
+    colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor");
+    colorActions.append(
+      settingsActionButton("Reset terminal colors", () => {
+        updateSettings({
+          terminalBackground: "",
+          terminalForeground: "",
+          terminalCursorColor: ""
+        });
+        renderSettingsInspector();
+      }, "", "terminal color reset default background foreground cursor")
+    );
+    terminalSection.append(colorActions);
+    const profileSelect = document.createElement("select");
+    profileSelect.className = "setting-select";
+    for (const [value, label] of terminalProfiles) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      profileSelect.append(option);
+    }
+    profileSelect.value = state.settings.terminalProfile;
+    profileSelect.onchange = () => {
+      updateSettings({ terminalProfile: profileSelect.value });
+      renderSettingsInspector();
+    };
+    terminalSection.append(settingRow("Default shell", profileSelect));
+    if (state.settings.terminalProfile === "custom") {
+      const shellInput = document.createElement("input");
+      shellInput.className = "setting-control";
+      shellInput.value = state.settings.terminalCustomShell;
+      shellInput.placeholder = "C:\\\\Path\\\\to\\\\shell.exe";
+      shellInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") shellInput.blur();
+      });
+      shellInput.addEventListener("blur", () => updateSettings({ terminalCustomShell: shellInput.value }));
+      terminalSection.append(settingRow("Shell path", shellInput, true));
+    }
+    const restart = document.createElement("button");
+    restart.className = "notification-action";
+    restart.textContent = "Restart active terminal";
+    restart.onclick = () => restartActiveTerminal();
+    terminalSection.append(restart);
+    nodes.push(terminalSection);
+  }
+
+  if (shouldBuildSection("data")) {
+    const actionsSection = settingsSection("Settings data");
+    const actions = document.createElement("div");
+    actions.className = "settings-actions";
+    actions.append(
+      settingsActionButton("Export", exportSettings),
+      settingsActionButton("Import", importSettings),
+      settingsActionButton("Reset", resetSettings, "danger")
+    );
+    actionsSection.append(actions);
+    nodes.push(actionsSection);
+  }
 
   const empty = document.createElement("div");
   empty.className = "settings-empty";
@@ -1678,12 +1693,6 @@ function settingsCategoryNav() {
     nav.append(button);
   }
   return nav;
-}
-
-function appendSettingsSection(nodes, id, section) {
-  if (state.settingsCategory === id || normalizeSettingsQuery(state.settingsQuery)) {
-    nodes.push(section);
-  }
 }
 
 function settingsCategoryLabel(id) {
