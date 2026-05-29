@@ -275,6 +275,11 @@ select {
   font-family: var(--vscode-editor-font-family, var(--font-mono));
 }
 
+.vertical-scroll-fade-mask {
+  --top-fade: var(--edge-fade-distance, 2rem);
+  --bottom-fade: var(--edge-fade-distance, 2rem);
+}
+
 .codex-user-turn,
 .codex-assistant-turn,
 .codex-notice-turn {
@@ -456,10 +461,19 @@ select {
   color: var(--color-token-foreground);
 }
 
+.codex-tool-activity-output-frame {
+  position: relative;
+  min-height: 1.25rem;
+  padding-right: 0;
+}
+
 .codex-tool-activity-output {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   max-width: min(100%, var(--markdown-wide-block-max-width));
   max-height: 140px;
-  min-height: 1.25rem;
   margin: 0;
   padding: 8px;
   overflow-x: auto;

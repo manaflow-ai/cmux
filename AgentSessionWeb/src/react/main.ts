@@ -1025,10 +1025,15 @@ function TranscriptTurn({ entry }: { entry: TranscriptEntry }) {
           ),
         ),
         entry.output
-          ? h("pre", {
-              className: "codex-tool-activity-output text-size-code-sm font-vscode-editor",
-              dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
-            })
+          ? h(
+              "div",
+              { className: "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem]" },
+              h("div", {
+                className:
+                  "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
+                dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
+              }),
+            )
           : null,
       );
   }
