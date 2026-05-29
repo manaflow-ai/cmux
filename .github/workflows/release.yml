@@ -16,7 +16,7 @@ env:
 
 jobs:
   build-sign-notarize:
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout

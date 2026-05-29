@@ -159,6 +159,47 @@
       "type": "string",
       "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."
     },
+    "workspaceGroups": {
+      "type": "object",
+      "title": "workspaceGroups",
+      "description": "Per-cwd customization for sidebar workspace groups. The anchor workspace's cwd is matched against the keys in `byCwd`; longest-match wins. Keys containing `*` or `?` are matched as fnmatch globs (with `~` expanded); other keys are path prefixes.",
+      "additionalProperties": false,
+      "properties": {
+        "byCwd": {
+          "type": "object",
+          "description": "Map of cwd patterns to group customization. Empty when omitted.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "color": {
+                "type": "string",
+                "description": "Hex color (e.g. \"#7A4FD8\") applied as the group header tint when the group itself has no explicit customColor."
+              },
+              "icon": {
+                "type": "string",
+                "description": "SF Symbol name (e.g. \"folder.fill\", \"ladybug.fill\") for the group header. Falls back to \"folder.fill\" when omitted."
+              },
+              "contextMenu": {
+                "type": "array",
+                "description": "Items appearing in the right-click menu on the group's + button. Same schema as the global ui.newWorkspace.contextMenu entries.",
+                "items": {
+                  "oneOf": [
+                    { "type": "string" },
+                    { "type": "object", "additionalProperties": true }
+                  ]
+                }
+              },
+              "newWorkspacePlacement": {
+                "type": "string",
+                "enum": ["top", "end"],
+                "description": "Where the group's + button places its new workspace within the group: `top` (second slot, just after the anchor) or `end` (after the last member). Falls back to the global default when omitted."
+              }
+            }
+          }
+        }
+      }
+    },
     "surfaceTabBarButtons": {
       "title": "surfaceTabBarButtons",
       "description": "Legacy root-level surface tab bar buttons. Prefer ui.surfaceTabBar.buttons for new configs.",
@@ -227,6 +268,13 @@
           "enum": ["top", "afterCurrent", "end"],
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
+        },
+        "forkConversationDefaultDestination": {
+          "type": "string",
+          "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
+          "default": "right",
+          "descriptionKey": "schemaDescriptions.app.forkConversationDefaultDestination",
+          "description": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
@@ -982,6 +1030,8 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "groupSelectedWorkspaces",
+              "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
