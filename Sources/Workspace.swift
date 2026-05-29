@@ -6480,7 +6480,12 @@ final class WorkspaceRemoteSessionController {
                     "remote.relay.startFailed relayPort=\(relayPort) " +
                     "error=\(startupFailure)"
                 )
-                relayServer?.stop()
+                if let relayServer {
+                    relayServer.stop()
+                    if cliRelayServer === relayServer {
+                        cliRelayServer = nil
+                    }
+                }
                 publishDaemonStatus(
                     .error,
                     detail: "Remote SSH relay unavailable: \(startupFailure) (retry in \(retrySeconds)s)"
@@ -6516,8 +6521,12 @@ final class WorkspaceRemoteSessionController {
                 "remote.relay.startFailed relayPort=\(relayPort) " +
                 "error=\(error.localizedDescription)"
             )
-            relayServer?.stop()
-            cliRelayServer = nil
+            if let relayServer {
+                relayServer.stop()
+                if cliRelayServer === relayServer {
+                    cliRelayServer = nil
+                }
+            }
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
         }
     }
@@ -6855,12 +6864,24 @@ final class WorkspaceRemoteSessionController {
 
         cancelStaleReverseRelayViaControlMasterLocked(relayPort: relayPort)
         do {
-            let result = try sshExec(arguments: arguments, timeout: 6)
+            var result = try sshExec(arguments: arguments, timeout: 6)
             guard result.status == 0 else {
                 let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
                     ?? "ssh exited \(result.status)"
                 debugLog("remote.relay.controlmaster.forwardFailed \(detail) \(debugConfigSummary())")
-                return false
+                guard cleanupStaleRemoteRelayListenerLocked(relayPort: relayPort) else {
+                    return false
+                }
+
+                result = try sshExec(arguments: arguments, timeout: 6)
+                guard result.status == 0 else {
+                    let retryDetail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                        ?? "ssh exited \(result.status)"
+                    debugLog("remote.relay.controlmaster.forwardRetryFailed \(retryDetail) \(debugConfigSummary())")
+                    return false
+                }
+                reverseRelayControlMasterForwardSpec = forwardSpec
+                return true
             }
             reverseRelayControlMasterForwardSpec = forwardSpec
             return true
@@ -6888,6 +6909,44 @@ final class WorkspaceRemoteSessionController {
             debugLog("remote.relay.controlmaster.cancelStale relayPort=\(relayPort) \(debugConfigSummary())")
         } catch {
             debugLog("remote.relay.controlmaster.cancelStaleIgnored \(error.localizedDescription) \(debugConfigSummary())")
+        }
+    }
+
+    private func cleanupStaleRemoteRelayListenerLocked(relayPort: Int) -> Bool {
+        guard let script = Self.remoteStaleRelayListenerCleanupScript(
+            relayPort: relayPort,
+            persistentDaemonSlot: configuration.persistentDaemonSlot
+        ) else {
+            debugLog("remote.relay.remoteListener.cleanupSkipped reason=no-persistent-slot relayPort=\(relayPort)")
+            return false
+        }
+
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        do {
+            let result = try sshExec(
+                arguments: ["-S", "none"] + sshCommonArguments(batchMode: true, dropControlPath: true) + [
+                    configuration.destination,
+                    command,
+                ],
+                timeout: 8
+            )
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                    ?? "ssh exited \(result.status)"
+                debugLog("remote.relay.remoteListener.cleanupFailed relayPort=\(relayPort) \(detail) \(debugConfigSummary())")
+                return false
+            }
+
+            let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if output.isEmpty {
+                debugLog("remote.relay.remoteListener.cleanupNoop relayPort=\(relayPort) \(debugConfigSummary())")
+            } else {
+                debugLog("remote.relay.remoteListener.cleanup relayPort=\(relayPort) \(Self.debugLogSnippet(output)) \(debugConfigSummary())")
+            }
+            return true
+        } catch {
+            debugLog("remote.relay.remoteListener.cleanupFailed relayPort=\(relayPort) \(error.localizedDescription) \(debugConfigSummary())")
+            return false
         }
     }
 
@@ -6939,10 +6998,10 @@ final class WorkspaceRemoteSessionController {
         return message.isEmpty ? "remote daemon bootstrap failed" : message
     }
 
-    private func sshCommonArguments(batchMode: Bool) -> [String] {
+    private func sshCommonArguments(batchMode: Bool, dropControlPath: Bool = false) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
-                return backgroundSSHOptions(configuration.sshOptions)
+                return backgroundSSHOptions(configuration.sshOptions, dropControlPath: dropControlPath)
             }
             return normalizedSSHOptions(configuration.sshOptions)
         }()
@@ -6990,11 +7049,14 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func backgroundSSHOptions(_ options: [String]) -> [String] {
-        let batchSSHControlOptionKeys: Set<String> = [
+    private func backgroundSSHOptions(_ options: [String], dropControlPath: Bool = false) -> [String] {
+        var batchSSHControlOptionKeys: Set<String> = [
             "controlmaster",
             "controlpersist",
         ]
+        if dropControlPath {
+            batchSSHControlOptionKeys.insert("controlpath")
+        }
         return normalizedSSHOptions(options).filter { option in
             guard let key = sshOptionKey(option) else { return false }
             return !batchSSHControlOptionKeys.contains(key)
@@ -7353,6 +7415,99 @@ final class WorkspaceRemoteSessionController {
         fi
         rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).tty"
         """
+    }
+
+    static func remoteStaleRelayListenerCleanupScript(
+        relayPort: Int,
+        persistentDaemonSlot: String?
+    ) -> String? {
+        guard relayPort > 0, relayPort <= 65535 else { return nil }
+        guard let persistentDaemonSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot) else {
+            return nil
+        }
+
+        return """
+        cmux_stale_relay_listener_cleanup=1
+        cmux_relay_port='\(relayPort)'
+        cmux_persistent_slot=\(shellSingleQuoted(persistentDaemonSlot))
+        cmux_listener_pids=''
+        if command -v lsof >/dev/null 2>&1; then
+          cmux_listener_pids="$(lsof -nP -iTCP:"$cmux_relay_port" -sTCP:LISTEN -Fpn 2>/dev/null | awk -v port="$cmux_relay_port" '
+            /^p/ { pid = substr($0, 2); next }
+            /^n/ {
+              name = substr($0, 2)
+              if (pid ~ /^[0-9]+$/ && name ~ ("(^|[^0-9])127[.]0[.]0[.]1:" port "$")) {
+                seen[pid] = 1
+              }
+            }
+            END {
+              for (pid in seen) print pid
+            }
+          ')"
+        fi
+        [ -n "$cmux_listener_pids" ] || exit 0
+        cmux_ps_output="$(ps -axo pid=,ppid=,command= 2>/dev/null || true)"
+        for cmux_listener_pid in $cmux_listener_pids; do
+          case "$cmux_listener_pid" in
+            ''|*[!0-9]*) continue ;;
+          esac
+          cmux_listener_command="$(printf '%s\\n' "$cmux_ps_output" | awk -v target="$cmux_listener_pid" '$1 == target { $1 = ""; $2 = ""; sub(/^[[:space:]]+/, ""); print; exit }')"
+          case "$cmux_listener_command" in
+            *sshd*|*ssh*) ;;
+            *) continue ;;
+          esac
+          cmux_child_pids="$(printf '%s\\n' "$cmux_ps_output" | awk -v parent="$cmux_listener_pid" -v slot="$cmux_persistent_slot" '
+            $2 == parent &&
+            index($0, "cmuxd-remote") &&
+            index($0, "serve") &&
+            index($0, "--stdio") &&
+            index($0, "--persistent") &&
+            index($0, slot) &&
+            $1 ~ /^[0-9]+$/ {
+              print $1
+            }
+          ')"
+          cmux_cleanup_reason=child
+          if [ -z "$cmux_child_pids" ]; then
+            cmux_cleanup_reason=metadata
+            cmux_metadata_ok=0
+            cmux_daemon_map="$HOME/.cmux/relay/${cmux_relay_port}.daemon_path"
+            cmux_auth_file="$HOME/.cmux/relay/${cmux_relay_port}.auth"
+            if [ -r "$cmux_daemon_map" ]; then
+              cmux_daemon_path="$(tr -d '\\r\\n' < "$cmux_daemon_map")"
+              case "$cmux_daemon_path" in
+                *cmuxd-remote*) cmux_metadata_ok=1 ;;
+              esac
+            fi
+            if [ "$cmux_metadata_ok" -ne 1 ] && [ -r "$cmux_auth_file" ]; then
+              cmux_auth_payload="$(tr -d '\\r\\n' < "$cmux_auth_file")"
+              case "$cmux_auth_payload" in
+                *relay_id*relay_token*) cmux_metadata_ok=1 ;;
+              esac
+            fi
+            [ "$cmux_metadata_ok" -eq 1 ] || continue
+          fi
+          kill -TERM "$cmux_listener_pid" $cmux_child_pids 2>/dev/null || true
+          for cmux_child_pid in $cmux_child_pids; do
+            kill -0 "$cmux_child_pid" 2>/dev/null && kill -KILL "$cmux_child_pid" 2>/dev/null || true
+          done
+          kill -0 "$cmux_listener_pid" 2>/dev/null && kill -KILL "$cmux_listener_pid" 2>/dev/null || true
+          cmux_child_list="$(printf '%s\\n' "$cmux_child_pids" | tr '\\n' ' ' | sed 's/[[:space:]]*$//')"
+          printf 'cmux_stale_relay_killed pid=%s children=%s port=%s reason=%s\\n' "$cmux_listener_pid" "$cmux_child_list" "$cmux_relay_port" "$cmux_cleanup_reason"
+        done
+        """
+    }
+
+    private static func normalizedPersistentDaemonSlotForRemoteCleanup(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed != ".",
+              trimmed != "..",
+              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return trimmed
     }
 
     private func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
