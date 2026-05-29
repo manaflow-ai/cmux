@@ -389,6 +389,31 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "workspacesOnRight",
+                settingsKey: SidebarPositionSettings.workspacesOnRightKey,
+                title: {
+                    String(localized: "settings.app.workspacesOnRight", defaultValue: "Workspaces on Right")
+                },
+                sectionTitle: sidebar,
+                keywords: [
+                    "sidebar.workspacesOnRight",
+                    "sidebar",
+                    "position",
+                    "layout",
+                    "swap",
+                    "right",
+                    "left",
+                    "workspace",
+                    "workspaces",
+                    "vscode",
+                    "primary",
+                    "side",
+                    "bar",
+                ],
+                defaultValue: SidebarPositionSettings.defaultWorkspacesOnRight,
+                defaultsKey: SidebarPositionSettings.workspacesOnRightKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "terminalShowScrollBar",
                 settingsKey: "terminal.showScrollBar",
                 title: {

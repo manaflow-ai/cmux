@@ -1370,6 +1370,79 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    func testMinimalModeSidebarTitlebarControlsFrameCanUseTrailingPlacement() {
+        let contentBounds = NSRect(x: 0, y: 0, width: 500, height: 120)
+
+        let frame = minimalModeSidebarTitlebarControlsFrame(
+            contentBounds: contentBounds,
+            contentViewIsFlipped: false,
+            trafficLightFrameInContent: nil,
+            placement: .trailing
+        )
+
+        XCTAssertEqual(
+            frame.minX,
+            contentBounds.maxX
+                - MinimalModeSidebarTitlebarControlsMetrics.hostWidth
+                - MinimalModeSidebarTitlebarControlsMetrics.trailingInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(frame.width, MinimalModeSidebarTitlebarControlsMetrics.hostWidth, accuracy: 0.001)
+    }
+
+    func testMinimalModeSidebarFallbackActionSlotUsesTrailingPlacement() {
+        let suiteName = "WindowDragHandleHitTests.sidebarTrailingPlacement.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: "titlebarControlsStyle")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.test")
+        setMinimalModeSidebarTitlebarControlsAvailable(true, placement: .trailing, in: window)
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let xRange = MinimalModeSidebarTitlebarControlsMetrics.horizontalRange(
+            contentBounds: contentView.bounds,
+            placement: .trailing,
+            defaults: defaults
+        )
+        let buttonRanges = TitlebarControlsHitRegions.buttonXRanges(config: TitlebarControlsStyle.classic.config)
+        let point = NSPoint(
+            x: xRange.lowerBound + buttonRanges[MinimalModeSidebarControlActionSlot.showNotifications.rawValue].lowerBound + 1,
+            y: contentView.bounds.maxY - 10
+        )
+
+        XCTAssertEqual(
+            minimalModeSidebarControlActionSlot(window: window, locationInWindow: point, defaults: defaults),
+            .showNotifications
+        )
+        XCTAssertTrue(
+            isMinimalModeSidebarChromeHoverCandidate(window: window, locationInWindow: point, defaults: defaults),
+            "Hover reveal should follow the right-aligned titlebar control frame."
+        )
+
+        let oldLeadingPoint = NSPoint(
+            x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
+                + buttonRanges[MinimalModeSidebarControlActionSlot.showNotifications.rawValue].lowerBound
+                + 1,
+            y: point.y
+        )
+        XCTAssertNil(
+            minimalModeSidebarControlActionSlot(window: window, locationInWindow: oldLeadingPoint, defaults: defaults),
+            "Right-aligned controls should not leave an active fallback hit target on the left."
+        )
+    }
+
     func testSuppressedTitlebarDoubleClickConsumesWithoutWindowAction() {
         XCTAssertEqual(
             handleTitlebarDoubleClick(window: nil, behavior: .suppress),
@@ -1760,6 +1833,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
             titlebarHeight: 36,
+            titlebarLeadingReserve: 0,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },

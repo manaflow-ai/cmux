@@ -11184,6 +11184,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.attach(to: window)
     }
 
+    func titlebarControlsWorkspaceSidebarWidth(preferredWindow: NSWindow?) -> CGFloat? {
+        guard SidebarPositionSettings.workspacesOnRight(),
+              let context = contextForMainWindow(preferredWindow),
+              context.sidebarState.isVisible else {
+            return nil
+        }
+        return CGFloat(
+            SessionPersistencePolicy.sanitizedSidebarWidth(
+                Double(context.sidebarState.persistedWidth)
+            )
+        )
+    }
+
     func applyWindowDecorations(to window: NSWindow) {
         windowDecorationsController.apply(to: window)
     }

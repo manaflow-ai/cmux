@@ -1,5 +1,6 @@
 import Combine
 import CoreGraphics
+import Foundation
 
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
@@ -13,6 +14,15 @@ final class SidebarState: ObservableObject {
 
     func toggle() {
         isVisible.toggle()
+    }
+}
+
+enum SidebarPositionSettings {
+    static let workspacesOnRightKey = "sidebar.workspacesOnRight"
+    static let defaultWorkspacesOnRight = false
+
+    static func workspacesOnRight(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: workspacesOnRightKey) as? Bool ?? defaultWorkspacesOnRight
     }
 }
 

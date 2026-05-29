@@ -1792,6 +1792,11 @@ enum TitlebarWindowGeometryNotifications {
 }
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
+    private enum TrailingWorkspaceAlignment {
+        static let leadingInset: CGFloat = 10
+        static let trailingInset: CGFloat = 8
+    }
+
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
@@ -1898,6 +1903,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: observedWindowChanged)
     }
 
+    func refreshLayoutForSidebarPlacement() {
+        lastAppliedLayoutSnapshot = nil
+        scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
+    }
+
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
         let currentWindow = view.window
@@ -1971,19 +1981,40 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             titlebarHeight: titlebarHeight
         )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
-            leadingInset: debugSnapshot.leftControlsLeadingInset
+        let preferredLayoutAttribute = UpdateTitlebarAccessoryController.preferredControlsLayoutAttribute()
+        let workspaceSidebarWidth = AppDelegate.shared?.titlebarControlsWorkspaceSidebarWidth(
+            preferredWindow: view.window
         )
+        let alignsToTrailingWorkspaceSidebar = preferredLayoutAttribute == .right && workspaceSidebarWidth != nil
+        let xOffset = alignsToTrailingWorkspaceSidebar
+            ? 0
+            : MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+                leadingInset: debugSnapshot.leftControlsLeadingInset
+            )
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: contentSize.height,
             containerHeight: containerHeight,
             trafficLightFrame: trafficLightFrame,
             debugSnapshot: debugSnapshot
         )
+        let containerWidth: CGFloat
+        let hostingX: CGFloat
+        if let workspaceSidebarWidth, preferredLayoutAttribute == .right {
+            let minimumWidthForContent = contentSize.width
+                + TrailingWorkspaceAlignment.leadingInset
+                + TrailingWorkspaceAlignment.trailingInset
+            containerWidth = max(workspaceSidebarWidth, minimumWidthForContent)
+            hostingX = containerWidth == workspaceSidebarWidth
+                ? TrailingWorkspaceAlignment.leadingInset
+                : containerWidth - minimumWidthForContent + TrailingWorkspaceAlignment.leadingInset
+        } else {
+            containerWidth = contentSize.width + abs(xOffset)
+            hostingX = xOffset
+        }
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
-            xOffset: xOffset,
+            xOffset: hostingX,
             yOffset: yOffset
         )
         guard titlebarControlsShouldApplyLayout(
@@ -1993,10 +2024,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         lastAppliedLayoutSnapshot = nextLayoutSnapshot
-        let containerWidth = contentSize.width + abs(xOffset)
         preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
         containerView.setFrameSize(NSSize(width: containerWidth, height: containerHeight))
-        hostingView.frame = NSRect(x: xOffset, y: yOffset, width: contentSize.width, height: contentSize.height)
+        hostingView.frame = NSRect(x: hostingX, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
     private func applyWorkspaceTitlebarVisibility() {
@@ -2725,6 +2755,8 @@ final class UpdateTitlebarAccessoryController {
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
+    private var lastKnownControlsLayoutAttribute: NSLayoutConstraint.Attribute =
+        UpdateTitlebarAccessoryController.preferredControlsLayoutAttribute()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
@@ -2784,7 +2816,7 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.reattachIfPresentationModeChanged()
+                self?.applyUserDefaultsDrivenAccessoryState()
             }
         })
 
@@ -2792,18 +2824,27 @@ final class UpdateTitlebarAccessoryController {
         // AppKit does not provide a stable cross-SDK API for this. Startup scans handle this case.
     }
 
-    private func reattachIfPresentationModeChanged() {
-
+    private func applyUserDefaultsDrivenAccessoryState() {
         let currentMode = WorkspacePresentationModeSettings.mode()
-        guard currentMode != lastKnownPresentationMode else { return }
+        let currentLayoutAttribute = Self.preferredControlsLayoutAttribute()
+        guard currentMode != lastKnownPresentationMode
+                || currentLayoutAttribute != lastKnownControlsLayoutAttribute else {
+            return
+        }
         lastKnownPresentationMode = currentMode
+        lastKnownControlsLayoutAttribute = currentLayoutAttribute
 
         if currentMode == .standard {
             attachToExistingWindows()
         }
         for window in attachedWindows.allObjects {
+            applyControlsPlacement(for: window)
             applyAccessoryVisibility(for: window)
         }
+    }
+
+    fileprivate static func preferredControlsLayoutAttribute() -> NSLayoutConstraint.Attribute {
+        SidebarPositionSettings.workspacesOnRight() ? .right : .left
     }
 
     private func attachToExistingWindows() {
@@ -2868,6 +2909,7 @@ final class UpdateTitlebarAccessoryController {
 
         // Don't re-attach controls if already attached.
         guard !attachedWindows.contains(window) else {
+            applyControlsPlacement(for: window)
             applyAccessoryVisibility(for: window)
             return
         }
@@ -2876,13 +2918,14 @@ final class UpdateTitlebarAccessoryController {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared
             )
-            controls.layoutAttribute = .left
+            controls.layoutAttribute = Self.preferredControlsLayoutAttribute()
             controls.view.identifier = controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
             controlsControllers.add(controls)
         }
 
         attachedWindows.add(window)
+        applyControlsPlacement(for: window)
         applyAccessoryVisibility(for: window)
 
 #if DEBUG
@@ -2908,6 +2951,21 @@ final class UpdateTitlebarAccessoryController {
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
         }
+    }
+
+    private func applyControlsPlacement(for window: NSWindow) {
+        guard canAccessTitlebarAccessories(on: window) else { return }
+        let layoutAttribute = Self.preferredControlsLayoutAttribute()
+        for accessory in window.titlebarAccessoryViewControllers
+            where accessory.view.identifier == controlsIdentifier {
+            accessory.layoutAttribute = layoutAttribute
+            if let controls = accessory as? TitlebarControlsAccessoryViewController {
+                controls.refreshLayoutForSidebarPlacement()
+            }
+        }
+        window.contentView?.superview?.needsLayout = true
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
     }
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
