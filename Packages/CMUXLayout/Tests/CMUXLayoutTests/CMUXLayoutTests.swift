@@ -5146,6 +5146,31 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertFalse(state.needsFrameClock)
     }
 
+    func testCanvasCameraInteractionDefaultHoldCoversSparseTrackpadWheelBursts() {
+        var state = CanvasCameraInteractionState()
+
+        XCTAssertGreaterThanOrEqual(CanvasCameraInteractionState.defaultUnphasedHoldFrames, 24)
+        XCTAssertFalse(state.apply(.unphasedUpdate(.panning)))
+        XCTAssertEqual(state.phase, .panning)
+
+        for _ in 0..<20 {
+            XCTAssertFalse(state.tickDisplayFrame())
+            XCTAssertEqual(state.phase, .panning)
+            XCTAssertTrue(state.needsFrameClock)
+        }
+
+        XCTAssertFalse(state.apply(.unphasedUpdate(.panning)))
+        XCTAssertEqual(state.phase, .panning)
+        XCTAssertTrue(state.needsFrameClock)
+
+        for _ in 0..<CanvasCameraInteractionState.defaultUnphasedHoldFrames {
+            _ = state.tickDisplayFrame()
+        }
+
+        XCTAssertEqual(state.phase, .idle)
+        XCTAssertFalse(state.needsFrameClock)
+    }
+
     func testCanvasCameraInteractionCanEndImmediatelyForReset() {
         var state = CanvasCameraInteractionState(unphasedHoldFrameCount: 2)
 

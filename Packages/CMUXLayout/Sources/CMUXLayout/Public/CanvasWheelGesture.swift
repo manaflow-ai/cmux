@@ -54,7 +54,7 @@ public enum CanvasCameraInteractionEvent: Sendable, Equatable {
 }
 
 public struct CanvasCameraInteractionState: Sendable, Equatable {
-    public static let defaultUnphasedHoldFrames = 12
+    public static let defaultUnphasedHoldFrames = 24
 
     public private(set) var phase: CanvasInteractionPhase
     public private(set) var unphasedHoldFramesRemaining: Int
