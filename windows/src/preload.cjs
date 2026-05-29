@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld("cmuxNative", {
   openExternal(url) {
     return ipcRenderer.invoke("open-external", url);
   },
+  openPath(filePath) {
+    return ipcRenderer.invoke("open-path", filePath);
+  },
   writeClipboard(text) {
     return ipcRenderer.invoke("clipboard:write-text", text);
   },

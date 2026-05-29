@@ -189,6 +189,13 @@ if (!hasLock) {
     }
     return false;
   });
+  ipcMain.handle("open-path", async (_event, filePath) => {
+    if (typeof filePath !== "string" || !filePath.trim()) return { ok: false, error: "missing path" };
+    const targetPath = path.resolve(filePath);
+    if (!fs.existsSync(targetPath)) return { ok: false, error: "path not found" };
+    const error = await shell.openPath(targetPath);
+    return { ok: !error, error };
+  });
   ipcMain.handle("clipboard:write-text", (_event, text) => {
     clipboard.writeText(String(text || ""));
     return true;

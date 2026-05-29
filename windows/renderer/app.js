@@ -537,6 +537,7 @@ const commands = [
   { id: "workspace.new", label: "New Workspace", shortcut: "Ctrl+N", run: () => createWorkspace() },
   { id: "workspace.rename", label: "Rename Workspace", shortcut: "", run: () => renameActiveWorkspace() },
   { id: "workspace.color", label: "Change Workspace Color", shortcut: "", run: () => cycleWorkspaceColor() },
+  { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
@@ -2352,6 +2353,7 @@ function showWorkspaceContextMenu(event, workspace) {
   actions.append(
     contextMenuButton(isActive ? "Focused" : "Focus", () => focusWorkspace(workspace.id), isActive),
     contextMenuButton("Rename", () => renameWorkspaceById(workspace.id, workspace.title)),
+    contextMenuButton("Open folder", () => openWorkspaceFolder(workspace), !workspace.cwd),
     contextMenuButton("New terminal here", () => createPanel("terminal", "right", { workspaceId: workspace.id })),
     contextMenuButton("Open browser here", () => openBrowserPrompt(workspace.id)),
     contextMenuButton("New workspace", () => createWorkspace()),
@@ -2398,6 +2400,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
     contextMenuButton("Change workspace color", cycleWorkspaceColor),
+    contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Notifications", () => openInspector("notifications")),
@@ -2552,6 +2555,16 @@ function paletteEntries() {
       search: normalizeSettingsQuery(`workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
       run: () => focusWorkspace(workspace.id)
     });
+    if (workspace.cwd) {
+      entries.push({
+        id: `workspace.folder.${workspace.id}`,
+        label: `Open folder: ${workspace.title || "Workspace"}`,
+        meta: workspace.cwdShort || workspace.cwd,
+        shortcut: "Folder",
+        search: normalizeSettingsQuery(`open folder explorer directory workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
+        run: () => openWorkspaceFolder(workspace)
+      });
+    }
     for (const [panelIndex, panel] of workspace.panels.entries()) {
       const label = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
       entries.push({
@@ -2627,6 +2640,20 @@ async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
     method: "PATCH",
     body: JSON.stringify({ color })
   });
+}
+
+async function openWorkspaceFolder(workspace = activeWorkspace()) {
+  if (!workspace?.cwd) {
+    toast("No workspace folder to open.");
+    return;
+  }
+  if (!window.cmuxNative?.openPath) {
+    toast("Open folder is available in the desktop app.");
+    return;
+  }
+  const result = await window.cmuxNative.openPath(workspace.cwd);
+  const ok = result === true || result?.ok;
+  toast(ok ? "Workspace folder opened." : "Workspace folder could not be opened.");
 }
 
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
