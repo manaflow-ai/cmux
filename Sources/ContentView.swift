@@ -11148,7 +11148,7 @@ struct VerticalTabsSidebar: View {
 
         static func rowVerticalPadding(compact: Bool) -> CGFloat {
             let height = rowHeight(compact: compact)
-            precondition(iconSize <= height, "iconSize must not exceed browser-stack sidebar row height")
+            precondition(iconSize <= height, "iconSize (\(iconSize)) must not exceed rowHeight (\(height))")
             return (height - iconSize) / 2
         }
 
