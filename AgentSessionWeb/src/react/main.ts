@@ -624,18 +624,7 @@ function SessionSurface({
       isPlanMode,
       state,
     }),
-    h(ComposerFooterButton, {
-      ariaLabel: state.context?.copy.browseWeb ?? "Browse web",
-      icon: globeIcon(),
-      onClick: () => insertSkillMenuItem("research"),
-    }),
     isSingleLineComposer ? null : permissionsControl(false),
-    h(ComposerFooterButton, {
-      ariaLabel: state.context?.copy.skillPlan ?? "Plan",
-      icon: sparkleIcon(),
-      isSelected: isPlanMode,
-      onClick: togglePlanMode,
-    }),
     !isSingleLineComposer && isPlanMode
       ? h(ComposerModeIndicator, {
           icon: sparkleIcon("icon-xs"),
@@ -1286,32 +1275,6 @@ function ComposerTopTray({
   );
 }
 
-function ComposerFooterButton({
-  ariaLabel,
-  icon,
-  isSelected = false,
-  onClick,
-}: {
-  ariaLabel: string;
-  icon: React.ReactNode;
-  isSelected?: boolean;
-  onClick: () => void;
-}) {
-  return h(
-    "button",
-    {
-      className:
-        `codex-tool ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
-      type: "button",
-      "aria-label": ariaLabel,
-      "aria-pressed": isSelected,
-      "data-state": isSelected ? "open" : "closed",
-      onClick,
-    },
-    icon,
-  );
-}
-
 function ComposerModeIndicator({
   icon,
   label,
@@ -1591,6 +1554,7 @@ function AddContextDropdown({
             label: addPhotosAndFilesLabel,
             onSelect: onPickFiles,
           }),
+          hasIdeContext || planItem ? h(AddContextSeparator) : null,
           hasIdeContext
             ? h(AddContextMenuSwitchItem, {
                 checked: isAutoContextOn,
@@ -1599,7 +1563,6 @@ function AddContextDropdown({
                 onSelect: onToggleAutoContext,
               })
             : null,
-          hasIdeContext || planItem ? h(AddContextSeparator) : null,
           planItem
             ? h(AddContextMenuSwitchItem, {
                 checked: isPlanMode,
@@ -1942,16 +1905,6 @@ function paperclipIcon(className = "icon-sm") {
     h("path", {
       d: "M4.43945 12.8041V7.68261C4.43945 7.30642 4.74446 7.00141 5.12066 7.00141C5.49685 7.00141 5.80186 7.30642 5.80186 7.68261V12.8041C5.80186 15.2565 7.78984 17.2445 10.2422 17.2445C12.6945 17.2445 14.6825 15.2565 14.6825 12.8041V5.9751C14.6823 4.46587 13.4589 3.24247 11.9497 3.24229C10.4403 3.24229 9.21606 4.46576 9.21588 5.9751V12.8041C9.21588 13.3708 9.67553 13.8304 10.2422 13.8304C10.8088 13.8304 11.2685 13.3708 11.2685 12.8041V7.68261C11.2685 7.30642 11.5735 7.00141 11.9497 7.00141C12.3257 7.00159 12.6309 7.30653 12.6309 7.68261V12.8041C12.6309 14.1232 11.5612 15.1929 10.2422 15.1929C8.92314 15.1929 7.85347 14.1232 7.85347 12.8041V5.9751C7.85365 3.71337 9.68791 1.87988 11.9497 1.87988C14.2113 1.88006 16.0447 3.71348 16.0449 5.9751V12.8041C16.0449 16.0089 13.4469 18.6069 10.2422 18.6069C7.03745 18.6069 4.43945 16.0089 4.43945 12.8041Z",
       fill: "currentColor",
-    }),
-  );
-}
-
-function globeIcon() {
-  return h(
-    "svg",
-    { className: "icon-sm", width: "20", height: "20", viewBox: "0 0 20 20", fill: "currentColor", "aria-hidden": true },
-    h("path", {
-      d: "M10 2.125C14.3492 2.125 17.875 5.65076 17.875 10C17.875 14.3492 14.3492 17.875 10 17.875C5.65076 17.875 2.125 14.3492 2.125 10C2.125 5.65076 5.65076 2.125 10 2.125ZM7.88672 10.625C7.94334 12.3161 8.22547 13.8134 8.63965 14.9053C8.87263 15.5194 9.1351 15.9733 9.39453 16.2627C9.65437 16.5524 9.86039 16.625 10 16.625C10.1396 16.625 10.3456 16.5524 10.6055 16.2627C10.8649 15.9733 11.1274 15.5194 11.3604 14.9053C11.7745 13.8134 12.0567 12.3161 12.1133 10.625H7.88672ZM3.40527 10.625C3.65313 13.2734 5.45957 15.4667 7.89844 16.2822C7.7409 15.997 7.5977 15.6834 7.4707 15.3486C6.99415 14.0923 6.69362 12.439 6.63672 10.625H3.40527ZM13.3633 10.625C13.3064 12.439 13.0059 14.0923 12.5293 15.3486C12.4022 15.6836 12.2582 15.9969 12.1006 16.2822C14.5399 15.467 16.3468 13.2737 16.5947 10.625H13.3633ZM12.1006 3.7168C12.2584 4.00235 12.4021 4.31613 12.5293 4.65137C13.0059 5.90775 13.3064 7.56102 13.3633 9.375H16.5947C16.3468 6.72615 14.54 4.53199 12.1006 3.7168ZM10 3.375C9.86039 3.375 9.65437 3.44756 9.39453 3.7373C9.1351 4.02672 8.87263 4.48057 8.63965 5.09473C8.22547 6.18664 7.94334 7.68388 7.88672 9.375H12.1133C12.0567 7.68388 11.7745 6.18664 11.3604 5.09473C11.1274 4.48057 10.8649 4.02672 10.6055 3.7373C10.3456 3.44756 10.1396 3.375 10 3.375ZM7.89844 3.7168C5.45942 4.53222 3.65314 6.72647 3.40527 9.375H6.63672C6.69362 7.56102 6.99415 5.90775 7.4707 4.65137C7.59781 4.31629 7.74073 4.00224 7.89844 3.7168Z",
     }),
   );
 }
