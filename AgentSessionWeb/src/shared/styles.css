@@ -892,8 +892,11 @@ img.ProseMirror-separator {
 
 .codex-user-attachment-tray {
   max-width: 77%;
+}
+
+.codex-user-attachment-tray .codex-attachment-row {
+  min-width: 0;
   justify-content: flex-end;
-  padding: 0;
 }
 
 .composer-attachment-image {

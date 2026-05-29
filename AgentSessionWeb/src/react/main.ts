@@ -702,13 +702,17 @@ function SessionSurface({
         "div",
         { className: "contents" },
         attachments.length > 0
-          ? h(ComposerAttachmentTray, {
-              attachments,
-              copy: state.context?.copy,
-              onRemove: (id: string) => {
-                setAttachments((current) => current.filter((attachment) => attachment.id !== id));
-              },
-            })
+          ? h(
+              "div",
+              { className: "px-2 py-1.5" },
+              h(ComposerAttachmentTray, {
+                attachments,
+                copy: state.context?.copy,
+                onRemove: (id: string) => {
+                  setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+                },
+              }),
+            )
           : null,
         composerInputWrapper,
         h(
@@ -999,14 +1003,21 @@ function ComposerAttachmentTray({
 }) {
   return h(
     "div",
-    { className: `codex-attachment-tray flex gap-1.5 overflow-x-auto px-3 pt-2 pb-1${className ? ` ${className}` : ""}` },
-    attachments.map((attachment) =>
-      h(ComposerAttachmentCard, {
-        attachment,
-        copy,
-        key: attachment.id,
-        onRemove,
-      }),
+    {
+      className: `codex-attachment-tray w-full overflow-x-auto${className ? ` ${className}` : ""}`,
+      "data-composer-attachments-row": true,
+    },
+    h(
+      "div",
+      { className: "codex-attachment-row flex min-w-max items-end gap-2" },
+      attachments.map((attachment) =>
+        h(ComposerAttachmentCard, {
+          attachment,
+          copy,
+          key: attachment.id,
+          onRemove,
+        }),
+      ),
     ),
   );
 }
