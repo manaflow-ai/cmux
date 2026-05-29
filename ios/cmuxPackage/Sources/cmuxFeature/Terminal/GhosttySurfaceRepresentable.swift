@@ -51,6 +51,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        #if DEBUG
+        private var didRunSoakInputScript = false
+        #endif
 
         init(surfaceID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
@@ -63,6 +66,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             store?.registerTerminalByteSink(surfaceID: surfaceID) { [weak surfaceView] data in
                 surfaceView?.processOutput(data)
             }
+            #if DEBUG
+            installSoakInputScriptIfNeeded(surfaceView: surfaceView)
+            #endif
         }
 
         func detach() {
@@ -98,6 +104,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
             }
         }
+
+        #if DEBUG
+        private func installSoakInputScriptIfNeeded(surfaceView: GhosttySurfaceView) {
+            guard let input = ProcessInfo.processInfo.environment["CMUX_MOBILE_SOAK_INPUT_TEXT"],
+                  !input.isEmpty else {
+                return
+            }
+
+            surfaceView.onOutputProcessedForTesting = { [weak self, weak surfaceView] in
+                guard let self, !self.didRunSoakInputScript else { return }
+                self.didRunSoakInputScript = true
+                let decoded = input
+                    .replacingOccurrences(of: "\\r", with: "\r")
+                    .replacingOccurrences(of: "\\n", with: "\n")
+                surfaceView?.simulateInputProxyTextChangeForTesting(decoded, isComposing: false)
+            }
+        }
+        #endif
     }
 }
 #endif

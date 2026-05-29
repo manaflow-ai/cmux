@@ -922,6 +922,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Hop back to main for Swift-side state updates and diagnostics.
             DispatchQueue.main.async {
                 guard let self else { return }
+                self.syncRendererLayerFrameForCurrentGeometry()
                 self.needsDraw = true
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
@@ -1097,10 +1098,12 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if let config = runtime?.config {
                 applyBackgroundColorFromConfig(config)
             }
-            // Hide the snapshot fallback immediately. The Metal renderer
-            // handles all rendering once the surface exists.
+            // Keep the fallback hidden until real output arrives, but do
+            // not mark the surface as rendered until Ghostty has processed
+            // bytes. Ghostty may create its private IOSurfaceLayer lazily
+            // during that first output pass.
             snapshotFallbackView.isHidden = true
-            surfaceHasReceivedOutput = true
+            surfaceHasReceivedOutput = false
         }
         syncSurfaceGeometry()
         startDisplayLink()
@@ -1137,6 +1140,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let blinkChanged = cursorBlinkState.advance(now: now)
         if needsDraw || blinkChanged {
             needsDraw = false
+            syncRendererLayerFrameForCurrentGeometry()
             ghostty_surface_render_now(surface)
             updateCursorOverlay()
         }
@@ -1415,6 +1419,11 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             sublayer.contentsScale = scale
         }
+    }
+
+    private func syncRendererLayerFrameForCurrentGeometry() {
+        guard !lastRenderRect.isEmpty else { return }
+        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: lastRenderRect)
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
