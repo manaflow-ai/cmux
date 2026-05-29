@@ -442,7 +442,7 @@ enum TitlebarControlsLayoutMetrics {
         let shortcutHintOverflow = reservesShortcutHintOverflow
             ? hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
             : 0
-        NSSize(
+        return NSSize(
             width: outerLeadingPadding
                 + config.groupPadding.leading
                 + buttonRowWidth(config: config)
