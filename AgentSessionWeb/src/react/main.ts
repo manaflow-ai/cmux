@@ -986,6 +986,7 @@ function TranscriptTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Trans
             dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
           },
         ),
+        entry.text.trim().length > 0 ? h(AssistantMessageActions, { copy, text: entry.text }) : null,
       );
     case "notice":
       return h(
@@ -1185,6 +1186,59 @@ function UserMessageActions({
           type: "button",
           className:
             `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+          "aria-label": activeLabel,
+          title: activeLabel,
+          onClick: copyMessage,
+        },
+        isCopied ? checkIcon("icon-xs") : copyIcon("icon-xs"),
+      ),
+    ),
+  );
+}
+
+function AssistantMessageActions({ copy, text }: { copy?: AgentSessionCopy; text: string }) {
+  const [isCopied, setIsCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  const copyLabel = copy?.copyAssistantMessage ?? "";
+  const copiedLabel = copy?.copiedAssistantMessage ?? copyLabel;
+  const activeLabel = isCopied ? copiedLabel : copyLabel;
+  const buttonRef = useCallback((node: HTMLButtonElement | null) => {
+    if (node !== null || resetTimerRef.current === null) {
+      return;
+    }
+    window.clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = null;
+  }, []);
+  const copyMessage = useCallback(() => {
+    const content = text.trim();
+    if (!content) {
+      return;
+    }
+    const writePromise = navigator.clipboard?.writeText(content);
+    void writePromise?.catch(() => undefined);
+    setIsCopied(true);
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+    resetTimerRef.current = window.setTimeout(() => {
+      setIsCopied(false);
+      resetTimerRef.current = null;
+    }, 2000);
+  }, [text]);
+
+  return h(
+    "div",
+    { className: "codex-assistant-message-actions flex items-center gap-1" },
+    h(
+      "div",
+      { className: "ms-1 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" },
+      h(
+        "button",
+        {
+          ref: buttonRef,
+          type: "button",
+          className:
+            `codex-assistant-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`,
           "aria-label": activeLabel,
           title: activeLabel,
           onClick: copyMessage,

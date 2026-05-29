@@ -430,6 +430,14 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.copyOutput",
                             defaultValue: "Copy output"
                         ),
+                        "copyAssistantMessage": String(
+                            localized: "agentSession.web.copyAssistantMessage",
+                            defaultValue: "Copy"
+                        ),
+                        "copiedAssistantMessage": String(
+                            localized: "agentSession.web.copiedAssistantMessage",
+                            defaultValue: "Copied"
+                        ),
                         "copyUserMessage": String(
                             localized: "agentSession.web.copyUserMessage",
                             defaultValue: "Copy message"
