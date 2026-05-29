@@ -51,7 +51,6 @@
   --color-token-scrollbar-slider-active-background: color-mix(in srgb, var(--agent-muted) 54%, transparent);
   --shadow-md: 0px 2px 4px -1px #00000014;
   --shadow-xl: 0px 8px 16px -4px #0000001f;
-  --shadow-xl-spread: 0px 0px 0px 0.5px var(--tw-shadow-color, var(--color-token-border)), var(--shadow-xl);
   --text-xs: 11px;
   --text-sm: 12px;
   --text-base: 14px;
@@ -801,7 +800,8 @@ select {
 }
 
 .shadow-xl-spread {
-  box-shadow: var(--shadow-xl-spread);
+  --tw-shadow: 0px 0px 0px 0.5px var(--tw-shadow-color, var(--color-token-border)), var(--shadow-xl);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
 
 .hide-scrollbar {
