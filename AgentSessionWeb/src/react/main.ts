@@ -36,6 +36,7 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
+import { applyCodexDocumentMetadata } from "../shared/theme";
 import type {
   AgentSessionAttachment,
   AgentSessionCopy,
@@ -1940,37 +1941,6 @@ function activityGlyph(entry: TranscriptEntry): string {
     default:
       return "*";
   }
-}
-
-function applyCodexDocumentMetadata() {
-  const root = document.documentElement;
-  root.dataset.codexWindowType = "electron";
-  root.dataset.windowType = "electron";
-  root.dataset.codexOs = codexOs();
-  if (document.body) {
-    document.body.dataset.codexWindowType = "electron";
-  }
-}
-
-function codexOs(): string {
-  const maybeNavigator = navigator as Navigator & {
-    userAgentData?: { platform?: string };
-  };
-  const platform = (
-    maybeNavigator.userAgentData?.platform ??
-    maybeNavigator.platform ??
-    maybeNavigator.userAgent
-  ).toLowerCase();
-  if (platform.includes("win")) {
-    return "win32";
-  }
-  if (platform.includes("mac") || platform.includes("darwin")) {
-    return "darwin";
-  }
-  if (platform.includes("linux")) {
-    return "linux";
-  }
-  return "unknown";
 }
 
 const root = document.getElementById("root");

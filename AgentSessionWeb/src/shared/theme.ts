@@ -23,15 +23,11 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   const root = document.documentElement;
   root.dataset.theme = theme.isDark ? "dark" : "light";
-  root.dataset.codexWindowType = "electron";
-  root.dataset.windowType = "electron";
+  applyCodexDocumentMetadata();
   root.classList.toggle("dark", theme.isDark);
   root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
-  if (document.body) {
-    document.body.dataset.codexWindowType = "electron";
-  }
   for (const [key, variable] of Object.entries(cssVariables) as Array<
     [keyof AgentSessionTheme, string | null]
   >) {
@@ -40,4 +36,41 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
     }
     root.style.setProperty(variable, String(theme[key]));
   }
+}
+
+export function applyCodexDocumentMetadata(): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const root = document.documentElement;
+  root.dataset.codexWindowType = "electron";
+  root.dataset.windowType = "electron";
+  root.dataset.codexOs = codexOs();
+  if (document.body) {
+    document.body.dataset.codexWindowType = "electron";
+  }
+}
+
+function codexOs(): string {
+  if (typeof navigator === "undefined") {
+    return "unknown";
+  }
+  const maybeNavigator = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
+  const platform = (
+    maybeNavigator.userAgentData?.platform ??
+    maybeNavigator.platform ??
+    maybeNavigator.userAgent
+  ).toLowerCase();
+  if (platform.includes("win")) {
+    return "win32";
+  }
+  if (platform.includes("mac") || platform.includes("darwin")) {
+    return "darwin";
+  }
+  if (platform.includes("linux")) {
+    return "linux";
+  }
+  return "unknown";
 }
