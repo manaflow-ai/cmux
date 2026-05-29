@@ -73,6 +73,59 @@
   --spacing-token-button-composer-gap: var(--spacing);
 }
 
+@property --top-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --bottom-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@property --edge-fade-distance {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 1rem;
+}
+
+@keyframes edge-fade {
+  0%,
+  1% {
+    --top-fade: 0;
+    --bottom-fade: var(--edge-fade-distance, 1rem);
+  }
+
+  99%,
+  100% {
+    --top-fade: var(--edge-fade-distance, 1rem);
+    --bottom-fade: 0;
+  }
+}
+
+@supports (animation-timeline: --scroll-fade) {
+  .vertical-scroll-fade-mask {
+    -webkit-mask: linear-gradient(
+      to bottom in oklch,
+      oklch(60% 0 0 / 0),
+      oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
+      oklch(60% 0 0 / 0)
+    );
+    mask: linear-gradient(
+      to bottom in oklch,
+      oklch(60% 0 0 / 0),
+      oklch(85% 0 0) var(--top-fade) calc(100% - var(--bottom-fade)),
+      oklch(60% 0 0 / 0)
+    );
+    animation-name: edge-fade;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: scroll(self y);
+  }
+}
+
 :root {
   color-scheme: dark;
   font-family: var(--font-sans);
@@ -273,11 +326,6 @@ select {
 
 .font-vscode-editor {
   font-family: var(--vscode-editor-font-family, var(--font-mono));
-}
-
-.vertical-scroll-fade-mask {
-  --top-fade: var(--edge-fade-distance, 2rem);
-  --bottom-fade: var(--edge-fade-distance, 2rem);
 }
 
 .codex-user-turn,
