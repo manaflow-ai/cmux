@@ -9720,7 +9720,7 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
-private struct SidebarTabItemSettingsSnapshot: Equatable {
+struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
     let showsWorkspaceDescription: Bool
@@ -10059,12 +10059,12 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State private var dragState = SidebarDragState()
+    @State var dragState = SidebarDragState()
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -10237,7 +10237,7 @@ struct VerticalTabsSidebar: View {
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
-    private struct WorkspaceListRenderContext {
+    struct WorkspaceListRenderContext {
         let tabs: [Workspace]
         /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
         /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
@@ -10258,73 +10258,6 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
 
         var workspaceIds: [UUID] { tabIds }
-    }
-
-    /// One drawable row in the workspace sidebar: either a collapsible group header
-    /// or a workspace row. Group sections are inferred from contiguous runs of
-    /// workspaces in `tabs` that share the same `groupId`. `TabManager`
-    /// normalizes the tab order so all members of a group are adjacent.
-    private enum SidebarWorkspaceRenderItem: Identifiable {
-        case groupHeader(WorkspaceGroup, memberCount: Int)
-        case workspace(Workspace)
-
-        var id: String {
-            switch self {
-            case .groupHeader(let group, _):
-                return "group.\(group.id.uuidString)"
-            case .workspace(let workspace):
-                return "workspace.\(workspace.id.uuidString)"
-            }
-        }
-    }
-
-    private static func sidebarWorkspaceRenderItems(
-        tabs: [Workspace],
-        groupsById: [UUID: WorkspaceGroup]
-    ) -> [SidebarWorkspaceRenderItem] {
-        guard !tabs.isEmpty else { return [] }
-        var memberCountByGroupId: [UUID: Int] = [:]
-        for tab in tabs {
-            if let gid = tab.groupId {
-                memberCountByGroupId[gid, default: 0] += 1
-            }
-        }
-        var items: [SidebarWorkspaceRenderItem] = []
-        items.reserveCapacity(tabs.count + groupsById.count)
-        var lastEmittedGroupId: UUID? = nil
-        var emittedHeaders: Set<UUID> = []
-        var collapsedByGroupId: [UUID: Bool] = [:]
-        var skipChildrenUntilNextGroup = false
-        for tab in tabs {
-            let groupId = tab.groupId
-            if groupId != lastEmittedGroupId {
-                lastEmittedGroupId = groupId
-                skipChildrenUntilNextGroup = false
-                if let groupId, let group = groupsById[groupId] {
-                    if !emittedHeaders.contains(groupId) {
-                        let count = memberCountByGroupId[groupId] ?? 0
-                        items.append(.groupHeader(group, memberCount: count))
-                        emittedHeaders.insert(groupId)
-                        collapsedByGroupId[groupId] = group.isCollapsed
-                    }
-                    // Whether the header is freshly emitted or this is a
-                    // second contiguous run of the same group (legacy
-                    // reorder paths can leave a group's members in two
-                    // non-adjacent runs), respect the same collapse decision
-                    // so collapsed members never leak as orphan rows.
-                    skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
-                }
-            }
-            // Anchor workspaces are represented exclusively by the group header.
-            // No row is emitted for them, collapsed or not.
-            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
-                continue
-            }
-            if groupId == nil || !skipChildrenUntilNextGroup {
-                items.append(.workspace(tab))
-            }
-        }
-        return items
     }
 
     var body: some View {
@@ -11459,7 +11392,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let renderItems = Self.sidebarWorkspaceRenderItems(
+        let renderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: renderContext.tabs,
             groupsById: renderContext.workspaceGroupById
         )
@@ -11468,7 +11401,7 @@ struct VerticalTabsSidebar: View {
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
         return LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderItems) { item in
+            ForEach(renderItems, id: \.id) { item in
                 switch item {
                 case .groupHeader(let group, let memberCount):
                     sidebarWorkspaceGroupHeader(group: group, memberCount: memberCount, renderContext: renderContext)
@@ -11677,181 +11610,13 @@ struct VerticalTabsSidebar: View {
         .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
     }
 
-    @ViewBuilder
-    private func sidebarWorkspaceGroupHeader(
-        group: WorkspaceGroup,
-        memberCount: Int,
-        renderContext: WorkspaceListRenderContext
-    ) -> some View {
-        let settings = renderContext.tabItemSettings
-        let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-        let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
-        let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
-        // The anchor's only sidebar surface is this header, so we have to
-        // surface its unread state here — otherwise background work in the
-        // anchor goes unnoticed (no badge, no message). The TabItemView path
-        // does the same read for every other row.
-        //
-        // When the group is collapsed, member rows aren't rendered either,
-        // so child unread totals would also vanish. Aggregate across every
-        // member so the collapsed header reflects the whole group's unread
-        // state instead of just the anchor's.
-        let anchorUnreadCount: Int = {
-            if group.isCollapsed {
-                return tabManager.tabs.reduce(0) { partial, tab in
-                    tab.groupId == group.id
-                        ? partial + notificationStore.unreadCount(forTabId: tab.id)
-                        : partial
-                }
-            }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
-        }()
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
-        SidebarWorkspaceGroupHeaderView(
-            groupId: group.id,
-            anchorWorkspaceId: group.anchorWorkspaceId,
-            name: group.name,
-            iconSymbol: effectiveIcon,
-            tintHex: effectiveColor,
-            isCollapsed: group.isCollapsed,
-            isPinned: group.isPinned,
-            isAnchorActive: isAnchorActive,
-            memberCount: memberCount,
-            anchorUnreadCount: anchorUnreadCount,
-            shortcutDigit: shortcutDigit,
-            shortcutModifierSymbol: modifierSymbol,
-            showsShortcutHint: showsHintForAnchor,
-            shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
-            shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
-            cwdContextMenuItems: cwdContextMenuItems,
-            onToggleCollapsed: { [weak tabManager, groupId = group.id] in
-                tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
-            },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
-                guard let tabManager else { return }
-                guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
-                // Route through the shared selection path so the click clears
-                // restored/unread notification state, records an explicit
-                // workspace-resume, and behaves identically to clicking a
-                // regular workspace row — assigning selectedTabId directly
-                // would skip all of that even when the anchor was already
-                // selected.
-                tabManager.selectWorkspace(anchorTab)
-                // Reset the multi-selection set to just the anchor so
-                // subsequent context-menu/shortcut actions target the
-                // focused workspace instead of stale sidebar selections.
-                if selectedTabIds.wrappedValue != [anchorId] {
-                    selectedTabIds.wrappedValue = [anchorId]
-                }
-                // Refresh the range-selection anchor for subsequent
-                // Shift-click — otherwise selecting a row, clicking a group
-                // header, then Shift-clicking another row would extend from
-                // the stale prior row instead of the anchor.
-                if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
-                    lastSidebarSelectionIndex.wrappedValue = anchorIndex
-                }
-            },
-            onTapPlus: { [weak tabManager, groupId = group.id, placement = resolvedConfig?.newWorkspacePlacement] in
-                guard let tabManager else { return }
-                let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
-                _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
-            },
-            onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
-                guard let tabManager else { return }
-                SidebarWorkspaceGroupContextMenuRunner.run(
-                    item: item,
-                    tabManager: tabManager,
-                    groupId: groupId
-                )
-            },
-            onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
-                guard let tabManager else { return }
-                presentSidebarWorkspaceGroupRenamePrompt(
-                    tabManager: tabManager,
-                    groupId: groupId,
-                    currentName: currentName
-                )
-            },
-            onTogglePinned: { [weak tabManager, groupId = group.id] in
-                tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
-            },
-            onUngroup: { [weak tabManager, groupId = group.id] in
-                tabManager?.ungroupWorkspaceGroup(groupId: groupId)
-            },
-            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name] in
-                guard let tabManager else { return }
-                let otherMemberCount = max(tabManager.tabs.filter { $0.groupId == groupId }.count - 1, 0)
-                guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
-                tabManager.deleteWorkspaceGroup(groupId: groupId)
-            },
-            onEditConfig: {
-                SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
-            },
-            onOpenDocs: {
-                SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            }
-        )
-        .id(group.anchorWorkspaceId)
-        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
-        // Publish the anchor workspace's id + frame from the header so the
-        // shared scroll/drop overlay infrastructure (which keys off the
-        // workspace UUID) can target the anchor even though there's no
-        // separate row drawn for it.
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
-        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
-            [anchorId: anchor]
-        }
-        .onDrag { [groupId = group.id] in
-            SidebarWorkspaceGroupDragPayload.provider(for: groupId)
-        }
-        // Header accepts BOTH payloads:
-        //  - group drag → reorder this group's section
-        //  - workspace drag → add the dragged workspace to this group (vital
-        //    for collapsed groups, where no member rows are rendered so the
-        //    only droppable target IS the header)
-        .onDrop(
-            of: SidebarWorkspaceGroupDragPayload.dropContentTypes
-                + SidebarTabDragPayload.dropContentTypes,
-            isTargeted: nil
-        ) { [dragState, dragAutoScrollController] providers in
-            SidebarWorkspaceGroupDragPayload.loadGroupId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedId in
-                guard let draggedId, draggedId != targetGroupId, let tabManager else { return }
-                guard let targetIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == targetGroupId }) else { return }
-                tabManager.moveWorkspaceGroup(groupId: draggedId, toIndex: targetIndex)
-            }
-            SidebarTabDragPayload.loadTabId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedTabId in
-                guard let draggedTabId, let tabManager else { return }
-                tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
-            }
-            // Custom onDrop path bypasses SidebarTabDropDelegate.performDrop,
-            // so the drag-state cleanup it normally runs (draggedTabId,
-            // dropIndicator, autoscroll) must happen here. Without this, the
-            // dragged-row highlight or drop indicator can persist after a
-            // successful header drop — especially for collapsed groups
-            // where no member rows exist to take the drop.
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
-            dragAutoScrollController.stop()
-            return true
-        }
-    }
-
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
     }
 }
 
-private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
+struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     static let defaultValue: Set<UUID> = []
 
     static func reduce(value: inout Set<UUID>, nextValue: () -> Set<UUID>) {
@@ -11859,7 +11624,7 @@ private struct SidebarWorkspaceRowIdsPreferenceKey: PreferenceKey {
     }
 }
 
-private struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
+struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     static let defaultValue: [UUID: Anchor<CGRect>] = [:]
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
@@ -14252,7 +14017,7 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
-private struct TabItemView: View, Equatable {
+struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
@@ -16096,93 +15861,6 @@ private struct TabItemView: View, Equatable {
         _ = alert.runModal()
     }
 
-    @ViewBuilder
-    private func workspaceGroupContextMenuSection(
-        targetIds: [UUID],
-        isMulti: Bool
-    ) -> some View {
-        let targetWorkspaces = targetIds.compactMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let eligibleTargets = targetWorkspaces.filter { !$0.isPinned }
-        let eligibleTargetIds = eligibleTargets.map(\.id)
-        // Pinned workspaces cannot be grouped; if every target is pinned, hide the
-        // group-related entries entirely.
-        if !eligibleTargetIds.isEmpty {
-            // Source the group list from the row's precomputed immutable
-            // snapshot (the row is .equatable() and excludes tabManager from
-            // ==, so reading tabManager.workspaceGroups here would give the
-            // menu stale data after a group is added/renamed elsewhere).
-            let groups = workspaceGroupMenuSnapshot.items
-            let allTargetsInSameGroup: UUID? = {
-                let groupIds = eligibleTargets.map(\.groupId)
-                guard let first = groupIds.first, groupIds.allSatisfy({ $0 == first }) else {
-                    return nil
-                }
-                return first
-            }()
-            let hasAnyGroupedTarget = eligibleTargets.contains { $0.groupId != nil }
-
-            let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
-            let groupSelectedLabel = isMulti
-                ? String(
-                    localized: "contextMenu.workspaceGroup.newFromSelection",
-                    defaultValue: "New Group from Selection"
-                )
-                : String(
-                    localized: "contextMenu.workspaceGroup.newFromWorkspace",
-                    defaultValue: "New Group from Workspace"
-                )
-            if let key = groupSelectedShortcut.keyEquivalent {
-                Button(groupSelectedLabel) {
-                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
-                }
-                .keyboardShortcut(key, modifiers: groupSelectedShortcut.eventModifiers)
-            } else {
-                Button(groupSelectedLabel) {
-                    promptNewWorkspaceGroup(workspaceIds: eligibleTargetIds)
-                }
-            }
-
-            Menu(
-                String(
-                    localized: "contextMenu.workspaceGroup.moveTo",
-                    defaultValue: "Move to Group"
-                )
-            ) {
-                ForEach(groups) { group in
-                    Button(group.name) {
-                        for id in eligibleTargetIds {
-                            tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
-                        }
-                    }
-                    .disabled(allTargetsInSameGroup == group.id)
-                }
-            }
-            .disabled(groups.isEmpty)
-
-            if hasAnyGroupedTarget {
-                Button(
-                    String(
-                        localized: "contextMenu.workspaceGroup.remove",
-                        defaultValue: "Remove from Group"
-                    )
-                ) {
-                    for id in eligibleTargetIds {
-                        tabManager.removeWorkspaceFromGroup(workspaceId: id)
-                    }
-                }
-            }
-        }
-    }
-
-    private func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
-        guard !workspaceIds.isEmpty else { return }
-        // Skip the name prompt: TabManager auto-names the new group ("Group N").
-        // Users can rename via the header context menu.
-        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
-    }
-
     private func promptRename() {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
@@ -16561,7 +16239,7 @@ enum SidebarDragAutoScrollPlanner {
 }
 
 @MainActor
-private final class SidebarDragAutoScrollController: ObservableObject {
+final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
@@ -16699,60 +16377,11 @@ private final class SidebarDragAutoScrollController: ObservableObject {
 /// each TabItemView so the row's `==` covers group changes (renames, adds,
 /// deletes) — the row's snapshot-boundary rule forbids reading
 /// `tabManager.workspaceGroups` from inside the contextMenu builder.
-struct WorkspaceGroupMenuSnapshot: Equatable {
-    struct Item: Equatable, Identifiable {
-        let id: UUID
-        let name: String
-    }
-    let items: [Item]
-}
-
-enum SidebarWorkspaceGroupDragPayload {
-    static let typeIdentifier = "com.cmux.sidebar-group-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-    static let dropContentTypes: [UTType] = [dropContentType]
-    private static let prefix = "cmux.sidebar-group."
-
-    static func provider(for groupId: UUID) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let payload = "\(prefix)\(groupId.uuidString)"
-        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
-            let data = payload.data(using: .utf8)
-            Task { @MainActor in
-                completion(data, nil)
-            }
-            return nil
-        }
-        return provider
-    }
-
-    /// Block-style decode from NSItemProvider drop payload to a group UUID.
-    static func loadGroupId(
-        from providers: [NSItemProvider],
-        completion: @escaping (UUID?) -> Void
-    ) {
-        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeIdentifier) }) else {
-            completion(nil)
-            return
-        }
-        _ = provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
-            guard let data,
-                  let raw = String(data: data, encoding: .utf8),
-                  raw.hasPrefix(prefix),
-                  let uuid = UUID(uuidString: String(raw.dropFirst(prefix.count))) else {
-                DispatchQueue.main.async { completion(nil) }
-                return
-            }
-            DispatchQueue.main.async { completion(uuid) }
-        }
-    }
-}
-
 enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
-    private static let prefix = "cmux.sidebar-tab."
+    static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
         let provider = NSItemProvider()
@@ -16767,29 +16396,6 @@ enum SidebarTabDragPayload {
         return provider
     }
 
-    /// Async decode helper that mirrors SidebarWorkspaceGroupDragPayload.loadGroupId.
-    /// Used by drop targets that accept both payload kinds (group header
-    /// accepts workspace drops, which is the only path for adding to a
-    /// collapsed group).
-    static func loadTabId(
-        from providers: [NSItemProvider],
-        completion: @escaping (UUID?) -> Void
-    ) {
-        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeIdentifier) }) else {
-            completion(nil)
-            return
-        }
-        _ = provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
-            guard let data,
-                  let raw = String(data: data, encoding: .utf8),
-                  raw.hasPrefix(prefix),
-                  let uuid = UUID(uuidString: String(raw.dropFirst(prefix.count))) else {
-                DispatchQueue.main.async { completion(nil) }
-                return
-            }
-            DispatchQueue.main.async { completion(uuid) }
-        }
-    }
 }
 
 enum BonsplitTabDragPayload {
@@ -16944,7 +16550,7 @@ enum SidebarWorkspaceSelectionSyncPolicy {
 }
 
 @MainActor
-private struct SidebarTabDropDelegate: DropDelegate {
+struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
     let dragState: SidebarDragState
