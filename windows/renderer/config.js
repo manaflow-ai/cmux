@@ -18,6 +18,9 @@ export const defaultSettings = {
   terminalScrollback: 12000,
   terminalCursorStyle: "block",
   terminalCursorBlink: true,
+  terminalBackground: "",
+  terminalForeground: "",
+  terminalCursorColor: "",
   terminalProfile: "auto",
   terminalCustomShell: ""
 };
@@ -106,6 +109,12 @@ export const toolbarModeOptions = [
   ["expanded", "Expanded", "Show every toolbar shortcut on the top bar."]
 ];
 
+export const terminalColorDefaults = {
+  background: "#20221d",
+  foreground: "#d9d7c9",
+  cursor: "#72a4ff"
+};
+
 export const terminalAppearanceKeys = new Set([
   "theme",
   "accent",
@@ -115,7 +124,10 @@ export const terminalAppearanceKeys = new Set([
   "terminalPadding",
   "terminalScrollback",
   "terminalCursorStyle",
-  "terminalCursorBlink"
+  "terminalCursorBlink",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursorColor"
 ]);
 
 export const settingsPresets = [
@@ -139,7 +151,10 @@ export const settingsPresets = [
       terminalFontSize: 13,
       terminalLineHeight: 1.22,
       terminalPadding: 8,
-      terminalScrollback: 12000
+      terminalScrollback: 12000,
+      terminalBackground: "",
+      terminalForeground: "",
+      terminalCursorColor: ""
     }
   },
   {
@@ -162,7 +177,10 @@ export const settingsPresets = [
       terminalFontSize: 14,
       terminalLineHeight: 1.18,
       terminalPadding: 6,
-      terminalScrollback: 10000
+      terminalScrollback: 10000,
+      terminalBackground: "",
+      terminalForeground: "",
+      terminalCursorColor: ""
     }
   },
   {
@@ -185,7 +203,10 @@ export const settingsPresets = [
       terminalFontSize: 13,
       terminalLineHeight: 1.16,
       terminalPadding: 4,
-      terminalScrollback: 6000
+      terminalScrollback: 6000,
+      terminalBackground: "",
+      terminalForeground: "",
+      terminalCursorColor: ""
     }
   },
   {
@@ -208,7 +229,10 @@ export const settingsPresets = [
       terminalFontSize: 14,
       terminalLineHeight: 1.24,
       terminalPadding: 10,
-      terminalScrollback: 12000
+      terminalScrollback: 12000,
+      terminalBackground: "",
+      terminalForeground: "",
+      terminalCursorColor: ""
     }
   }
 ];

@@ -5,6 +5,7 @@ import {
   settingsCategories,
   settingsPresets,
   terminalAppearanceKeys,
+  terminalColorDefaults,
   terminalCursorStyles,
   terminalFontOptions,
   terminalProfiles,
@@ -98,6 +99,11 @@ function colorInputValue(value, fallback = "#5d8cff") {
   return isSafeCustomColor(color) ? color : fallback;
 }
 
+function normalizeTerminalColor(value) {
+  const color = String(value || "").trim();
+  return isSafeCustomColor(color) ? color : "";
+}
+
 function normalizeSettings(input = {}, legacyFontSize = 0) {
   const parsed = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const next = {
@@ -125,6 +131,9 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.showAdvanced = next.toolbarMode === "expanded";
   next.performanceMode = Boolean(next.performanceMode);
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
+  next.terminalBackground = normalizeTerminalColor(next.terminalBackground);
+  next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
+  next.terminalCursorColor = normalizeTerminalColor(next.terminalCursorColor);
   next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   next.terminalPadding = clamp(next.terminalPadding, 0, 16);
@@ -227,20 +236,23 @@ function replaceChildrenIfChanged(parent, nodes) {
 
 function terminalTheme() {
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--color-accent").trim() || "#72a4ff";
+  const background = state.settings.terminalBackground || terminalColorDefaults.background;
+  const foreground = state.settings.terminalForeground || terminalColorDefaults.foreground;
+  const cursor = state.settings.terminalCursorColor || accent;
   return {
-    background: "#20221d",
-    foreground: "#d9d7c9",
-    cursor: accent,
+    background,
+    foreground,
+    cursor,
     cursorAccent: "#111316",
     selectionBackground: "#315a92",
-    black: "#20221d",
+    black: background,
     red: "#f07178",
     green: "#88c070",
     yellow: "#d9c77f",
     blue: "#72a4ff",
     magenta: "#c792ea",
     cyan: "#75c7c6",
-    white: "#d9d7c9",
+    white: foreground,
     brightBlack: "#63675d",
     brightRed: "#ff8f8f",
     brightGreen: "#9bd980",
@@ -1446,6 +1458,38 @@ function renderSettingsInspector() {
   cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
   terminalSection.append(settingRow("Cursor", cursorSelect));
   terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
+  terminalSection.append(settingRow(
+    "Background color",
+    colorPicker(state.settings.terminalBackground, (terminalBackground) => updateSettings({ terminalBackground }), terminalColorDefaults.background),
+    false,
+    "terminal background color custom hex"
+  ));
+  terminalSection.append(settingRow(
+    "Text color",
+    colorPicker(state.settings.terminalForeground, (terminalForeground) => updateSettings({ terminalForeground }), terminalColorDefaults.foreground),
+    false,
+    "terminal foreground text color custom hex"
+  ));
+  terminalSection.append(settingRow(
+    "Cursor color",
+    colorPicker(state.settings.terminalCursorColor, (terminalCursorColor) => updateSettings({ terminalCursorColor }), terminalColorDefaults.cursor),
+    false,
+    "terminal cursor color custom hex"
+  ));
+  const colorActions = document.createElement("div");
+  colorActions.className = "settings-actions";
+  colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor");
+  colorActions.append(
+    settingsActionButton("Reset terminal colors", () => {
+      updateSettings({
+        terminalBackground: "",
+        terminalForeground: "",
+        terminalCursorColor: ""
+      });
+      renderSettingsInspector();
+    }, "", "terminal color reset default background foreground cursor")
+  );
+  terminalSection.append(colorActions);
   const profileSelect = document.createElement("select");
   profileSelect.className = "setting-select";
   for (const [value, label] of terminalProfiles) {
@@ -1709,18 +1753,18 @@ function swatchGrid(colors, activeColor, onPick) {
   return grid;
 }
 
-function colorPicker(activeColor, onPick) {
+function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
   const wrapper = document.createElement("div");
   wrapper.className = "color-picker";
   const input = document.createElement("input");
   input.className = "setting-control color-picker-input";
   input.type = "color";
-  input.value = colorInputValue(activeColor);
+  input.value = colorInputValue(activeColor, fallback);
   input.dataset.settingsSearch = normalizeSettingsQuery("custom color picker hex");
   let committedColor = input.value;
   const swatch = document.createElement("span");
   swatch.className = "color-picker-preview";
-  swatch.style.setProperty("--picked-color", colorInputValue(activeColor));
+  swatch.style.setProperty("--picked-color", colorInputValue(activeColor, fallback));
   input.addEventListener("input", () => {
     swatch.style.setProperty("--picked-color", input.value);
   });
