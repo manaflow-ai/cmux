@@ -132,6 +132,7 @@ extension CMUXCLI {
     private enum DiffViewerLimits {
         static let repoOptions = 4
         static let branchBaseOptions = 4
+        static let remotePatchChunkBytes = 512 * 1024
     }
 
     private struct OpenArguments {
@@ -351,7 +352,7 @@ extension CMUXCLI {
         var rootPath: String
     }
 
-    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v3 remote-stream-diffhub-api\n".utf8)
+    private static let diffViewerHTTPServerHealthResponse = Data("ok wait-v4 remote-stream-large-chunks\n".utf8)
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -4452,7 +4453,7 @@ extension CMUXCLI {
         }
 
         let handle = stdoutPipe.fileHandleForReading
-        let firstChunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+        let firstChunk = try handle.read(upToCount: DiffViewerLimits.remotePatchChunkBytes) ?? Data()
         if firstChunk.isEmpty {
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
@@ -4492,7 +4493,7 @@ extension CMUXCLI {
         try sendAllDiffViewerHTTPData(firstChunk, fileDescriptor: fd)
 
         while true {
-            let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+            let data = try handle.read(upToCount: DiffViewerLimits.remotePatchChunkBytes) ?? Data()
             if data.isEmpty {
                 break
             }
@@ -6124,6 +6125,7 @@ extension CMUXCLI {
               const gitMarkerWithNewline = "\\n" + gitMarker;
               const gitMarkerSearchTailLength = gitMarkerWithNewline.length - 1;
               const nonWhitespacePattern = /\\S/;
+              let sawFirstStreamedFile = false;
 
               function nextGitBoundaryIndex(text, start) {
                 const offset = Math.max(start, 0);
@@ -6176,6 +6178,11 @@ extension CMUXCLI {
               async function appendCompleteFileText(fileText) {
                 if (fileText.trim() === "") {
                   return;
+                }
+                if (!sawFirstStreamedFile) {
+                  sawFirstStreamedFile = true;
+                  streamMetrics.firstFileAt = performance.now();
+                  console.timeEnd("--     first streamed file");
                 }
                 const metadata = commitMetadataFromFileText(fileText);
                 if (metadata != null) {
@@ -6265,6 +6272,8 @@ extension CMUXCLI {
               const splitter = createStreamingPatchFileSplitter();
               let currentPatchPrefix;
               let patchMetadataIndex = 0;
+              console.time("--     first streamed file");
+              console.time("--     reading patch stream");
               while (true) {
                 const { done, value } = await reader.read();
                 if (done) {
@@ -6278,6 +6287,7 @@ extension CMUXCLI {
                 splitter.push(decoder.decode(value, { stream: true }));
                 await drainPatchFileSplitter(splitter);
               }
+              console.timeEnd("--     reading patch stream");
 
               const finalFile = splitter.finish();
               if (finalFile.fileText != null) {
@@ -6299,6 +6309,9 @@ extension CMUXCLI {
               document.body.dataset.streamFlushCount = String(metrics.flushCount ?? 0);
               document.body.dataset.streamMaxBatchSize = String(metrics.maxBatchSize ?? 0);
               document.body.dataset.streamTreeRefreshCount = String(metrics.treeRefreshCount ?? 0);
+              if (Number.isFinite(metrics.firstFileAt) && metrics.firstFileAt > 0) {
+                document.body.dataset.streamFirstFileMs = String(Math.round(metrics.firstFileAt - metrics.startedAt));
+              }
               if (Number.isFinite(metrics.completedAt) && metrics.completedAt > 0) {
                 document.body.dataset.streamElapsedMs = String(Math.round(metrics.completedAt - metrics.startedAt));
               }
