@@ -6021,8 +6021,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         ))
     }
 
-    func testTextBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() async throws {
-        let mentionIndexStore = TextBoxMentionIndexStore()
+    func testTextBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() throws {
+        var cache = TextBoxMentionFileIndexCache()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-\(UUID().uuidString)",
@@ -6043,14 +6043,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             encoding: .utf8
         )
 
-        let suggestions = await mentionIndexStore.suggestions(
+        let suggestions = cache.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 13),
                 query: "TextBoxInput",
                 trigger: "@"
             ),
-            rootDirectory: root.path
+            rootDirectory: root.path,
+            scanFiles: TextBoxMentionIndexStore.scanFiles
         )
 
         XCTAssertEqual(suggestions.first?.title, "@Sources/TextBoxInput.swift")
@@ -6127,38 +6128,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
-        let mentionIndexStore = TextBoxMentionIndexStore()
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-textbox-skills-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? fileManager.removeItem(at: root) }
-
-        let skillDirectory = root
-            .appendingPathComponent("skills", isDirectory: true)
-            .appendingPathComponent("sample-dollar-skill", isDirectory: true)
-        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
-        try "name: sample-dollar-skill\n".write(
-            to: skillDirectory.appendingPathComponent("SKILL.md"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let suggestions = await mentionIndexStore.suggestions(
-            for: TextBoxMentionQuery(
-                kind: .skill,
-                range: NSRange(location: 0, length: 20),
-                query: "sample-dollar",
-                trigger: "$"
-            ),
-            rootDirectory: root.path
-        )
+    func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() {
+        let index = TextBoxMentionCandidateIndex(candidates: [
+            makeTextBoxMentionSkillCandidate(
+                skillName: "sample-dollar-skill",
+                skillPath: "/tmp/cmux-textbox-skills/sample-dollar-skill/SKILL.md"
+            )
+        ])
+        let suggestions = index.rankedCandidates(matching: "sample-dollar", limit: 8)
+            .map { $0.suggestion(trigger: "$") }
 
         XCTAssertEqual(suggestions.first?.title, "$sample-dollar-skill")
         XCTAssertEqual(suggestions.first?.systemImageName, "sparkle.magnifyingglass")
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[$sample-dollar-skill](") == true)
+    }
+
+    private nonisolated func makeTextBoxMentionSkillCandidate(
+        skillName: String,
+        skillPath: String
+    ) -> TextBoxMentionCandidate {
+        TextBoxMentionCandidate(
+            title: "/\(skillName)",
+            subtitle: skillPath,
+            insertionText: "[$\(skillName)](\(skillPath))",
+            systemImageName: "sparkle.magnifyingglass",
+            searchKey: "\(skillName) \(skillPath)".lowercased(),
+            priority: 0
+        )
     }
 
     func testTextBoxMentionRefreshClearsStaleSuggestionsBeforeLookup() {

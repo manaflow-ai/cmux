@@ -1592,7 +1592,7 @@ struct TextBoxMentionCandidate: Sendable {
     }
 }
 
-private struct TextBoxMentionCandidateIndex: Sendable {
+struct TextBoxMentionCandidateIndex: Sendable {
     private let corpus: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
     private let nucleoIndex: CommandPaletteNucleoSearchIndex<TextBoxMentionCandidate>?
 
@@ -1767,7 +1767,7 @@ actor TextBoxMentionIndexStore {
         return index
     }
 
-    private static func scanFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
+    static func scanFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
