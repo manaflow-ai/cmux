@@ -1208,6 +1208,7 @@ extension Workspace {
                             let next = command.index(after: index)
                             guard next < command.endIndex else {
                                 isComplete = false
+                                index = command.endIndex
                                 break
                             }
                             value.append(command[next])
@@ -1225,6 +1226,7 @@ extension Workspace {
                     let next = command.index(after: index)
                     guard next < command.endIndex else {
                         isComplete = false
+                        index = command.endIndex
                         break
                     }
                     value.append(command[next])

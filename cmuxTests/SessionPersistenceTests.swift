@@ -4952,6 +4952,27 @@ extension SessionPersistenceTests {
         XCTAssertFalse(input.contains("http://old-subrouter:9999/v1"))
     }
 
+    func testHermesAgentHookSurfaceResumeHandlesMalformedTrailingEscape() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "hermes-agent",
+            command: "cd '/tmp/project' && '/opt/homebrew/bin/hermes' \\",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            environment: [
+                "CUSTOM_BASE_URL": "http://subrouter-team:31415/v1",
+            ],
+            autoResume: true
+        )
+
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false
+        ))
+
+        XCTAssertTrue(input.contains("config set model.provider"))
+    }
+
     func testHermesAgentHookSurfaceResumeSkipsCodexBootstrapForExplicitProvider() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "hermes-agent",
