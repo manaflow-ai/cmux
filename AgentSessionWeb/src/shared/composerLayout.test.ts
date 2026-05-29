@@ -41,6 +41,19 @@ test("composer auto layout expands when text no longer fits", () => {
   expect(shouldUseSingleLineComposer({ ...base, singleLineTextWidth: 209 })).toBe(false);
 });
 
+test("composer auto layout can return to single line after resize", () => {
+  const base = {
+    composerLayoutMode: "auto-single-line" as const,
+    hasVisibleAttachments: false,
+    isEditorMultiline: false,
+    isVoiceLayoutActive: false,
+    singleLineTextWidth: 320,
+  };
+
+  expect(shouldUseSingleLineComposer({ ...base, singleLineInputWidth: 300 })).toBe(false);
+  expect(shouldUseSingleLineComposer({ ...base, singleLineInputWidth: 380 })).toBe(true);
+});
+
 test("composer multiline mode never uses the single-line shell", () => {
   expect(shouldUseSingleLineComposer({
     composerLayoutMode: "multiline",

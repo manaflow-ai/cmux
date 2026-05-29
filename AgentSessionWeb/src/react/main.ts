@@ -740,7 +740,7 @@ function SessionSurface({
     "div",
     {
       key: "composer-input",
-      ref: isSingleLineComposer ? composerLayout.inputMeasureRef : undefined,
+      ref: composerLayout.inputMeasureRef,
       className: isSingleLineComposer
         ? "min-w-0"
         : "mb-1 flex-grow overflow-y-auto px-3",
