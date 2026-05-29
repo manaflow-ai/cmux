@@ -846,7 +846,8 @@ final class SessionIndexStore: ObservableObject {
             out.model = String(m[..<bracket])
         }
         // The JSONL cwd is authoritative when present; project directory decoding is lossy.
-        out.resumeCwd = firstCwd ?? folderDecodedCwd ?? out.cwd
+        let transcriptCwd = parsedCwdFromTranscript ? out.cwd : nil
+        out.resumeCwd = firstCwd ?? transcriptCwd ?? folderDecodedCwd ?? out.cwd
         return out
     }
 

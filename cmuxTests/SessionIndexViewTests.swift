@@ -257,6 +257,37 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandUsesTranscriptCwdBeforeAmbiguousDecodeWhenInitialRecordExceedsRescueCap() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("huge-start-project", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        let slashDecodedAlternative = fixture.root
+            .appendingPathComponent("huge", isDirectory: true)
+            .appendingPathComponent("start", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: slashDecodedAlternative, withIntermediateDirectories: true)
+
+        let sessionId = "session-huge-initial-record"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path],
+            firstContent: String(repeating: "x", count: SessionIndexStore.firstCompleteClaudeCwdByteCap + 1024)
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(laterCwd.path)) && claude --resume \(sessionId)"
+        )
+    }
+
     func testGrokResumeCommandPreservesSpecifics() {
         let entry = makeEntry(
             agent: .grok,
