@@ -6,6 +6,13 @@ private let mobileTerminalByteTeeLog = Logger(
     category: "mobile-terminal-byte-tee"
 )
 
+/// Serial queue so fan-out preserves byte order even though the upstream
+/// callback runs off the main thread.
+private let mobileTerminalByteTeePublishQueue = DispatchQueue(
+    label: "dev.cmux.mobile.byte-tee.publish",
+    qos: .userInitiated
+)
+
 /// Captures raw PTY-output bytes from every cmux terminal surface and
 /// publishes them to subscribed mobile clients as `terminal.bytes`
 /// events. Provides a per-surface ring buffer that mobile clients can
@@ -36,23 +43,16 @@ final class MobileTerminalByteTee {
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
     private let replayBudget: Int = 256 * 1024
-    /// Serial queue so fan-out preserves byte order even though the
-    /// upstream callback runs off the main thread.
-    private let publishQueue = DispatchQueue(
-        label: "dev.cmux.mobile.byte-tee.publish",
-        qos: .userInitiated
-    )
 
     private init() {}
 
     /// Non-isolated entry point called from the C tee trampoline. Safe
     /// to invoke from any thread.
-    nonisolated func append(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
-        guard let base = bytes.baseAddress, bytes.count > 0 else { return }
-        let copy = Data(bytes: base, count: bytes.count)
-        publishQueue.async { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.publishFromMain(surfaceID: surfaceID, data: copy)
+    nonisolated static func append(surfaceID: UUID, data: Data) {
+        guard !data.isEmpty else { return }
+        mobileTerminalByteTeePublishQueue.async {
+            Task { @MainActor in
+                MobileTerminalByteTee.shared.publishFromMain(surfaceID: surfaceID, data: data)
             }
         }
     }
@@ -106,8 +106,8 @@ public let cmuxMobileTerminalByteTeeCallback: @convention(c) (
     let box = Unmanaged<MobileTerminalByteTeeUserdata>.fromOpaque(userdata).takeUnretainedValue()
     let count = Int(len)
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
-        let buffer = UnsafeBufferPointer(start: rebound, count: count)
-        MobileTerminalByteTee.shared.append(surfaceID: box.surfaceID, bytes: buffer)
+        let copy = Data(bytes: rebound, count: count)
+        MobileTerminalByteTee.append(surfaceID: box.surfaceID, data: copy)
     }
 }
 
