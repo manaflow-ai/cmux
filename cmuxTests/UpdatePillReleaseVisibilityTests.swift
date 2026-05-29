@@ -219,16 +219,23 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsUseDeterministicContentSize() {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
-        XCTAssertEqual(classic.width, 158, accuracy: 0.001)
+        XCTAssertEqual(classic.width, 164, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             classic.width,
             MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
             "Default titlebar controls should fit inside the sidebar chrome lane."
         )
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.outerLeadingPadding
+                + TitlebarControlsLayoutMetrics.buttonRowWidth(config: TitlebarControlsStyle.classic.config),
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            accuracy: 0.001,
+            "Release-size buttons should fill the sidebar control host without needing cramped spacing."
+        )
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
-        XCTAssertEqual(compact.width, 150, accuracy: 0.001)
+        XCTAssertEqual(compact.width, 128, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 
@@ -252,7 +259,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlStylesUseLayoutSpacingForFiveButtons() {
         let expectedSpacing: [(style: TitlebarControlsStyle, spacing: CGFloat)] = [
-            (.classic, 3),
+            (.classic, 10),
             (.compact, 6),
             (.roomy, 14),
             (.pillGroup, 8),
