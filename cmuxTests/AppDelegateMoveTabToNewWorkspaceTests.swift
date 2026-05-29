@@ -10,8 +10,8 @@ import Testing
 @MainActor
 @Suite("AppDelegate move tab to new workspace", .serialized)
 struct AppDelegateMoveTabToNewWorkspaceTests {
-    @Test("Move surface to new workspace creates single-panel workspace from panel title")
-    func moveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelTitle() throws {
+    @Test("Move surface to new workspace creates single-panel workspace from panel custom title")
+    func moveSurfaceToNewWorkspaceCreatesSinglePanelWorkspaceFromPanelCustomTitle() throws {
         let app = AppDelegate()
         let windowId = UUID()
         let manager = TabManager()
@@ -37,6 +37,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(result.destinationWindowId == windowId)
         #expect(manager.tabs.count == originalWorkspaceCount + 1)
         #expect(destinationWorkspace.title == "Build logs")
+        #expect(destinationWorkspace.customTitle == "Build logs")
         #expect(destinationWorkspace.panels.count == 1)
         #expect(destinationWorkspace.panels[movedPanel.id] != nil)
         #expect(sourceWorkspace.panels[movedPanel.id] == nil)
@@ -177,10 +178,10 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
     /// Regression for https://github.com/manaflow-ai/cmux/issues/4946.
     ///
-    /// Detaching a tab into a new workspace must not pin the destination
-    /// workspace's `customTitle`. Pinning blocks the OSC-driven
-    /// `applyProcessTitle` pipeline, which is what feeds claude code's
-    /// dynamic `✳ <topic>` titles into the workspace row.
+    /// Detaching a tab with only a process-derived title into a new workspace
+    /// must not pin the destination workspace's `customTitle`. Pinning blocks
+    /// the OSC-driven `applyProcessTitle` pipeline, which is what feeds claude
+    /// code's dynamic `✳ <topic>` titles into the workspace row.
     @Test("Move surface to new workspace does not pin custom title and allows later OSC updates")
     func moveSurfaceToNewWorkspaceDoesNotPinCustomTitleAndAllowsLaterOSCUpdates() throws {
         let app = AppDelegate()
@@ -193,10 +194,11 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
         let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
 
-        // Seed the source panel's title with what a shell PROMPT_COMMAND
-        // typically emits before the user starts claude. This is the value
-        // the buggy code pins onto the detached workspace's `customTitle`.
-        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "user@host:~/git/repo")
+        // Seed the source panel's process-derived title with what a shell
+        // PROMPT_COMMAND typically emits before the user starts claude. This
+        // is the value the buggy code pins onto the detached workspace's
+        // `customTitle`.
+        #expect(sourceWorkspace.updatePanelTitle(panelId: movedPanel.id, title: "user@host:~/git/repo"))
 
         let result = try #require(app.moveSurfaceToNewWorkspace(
             panelId: movedPanel.id,
@@ -223,6 +225,37 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(
             destinationWorkspace.title == claudeTitle,
             "applyProcessTitle must update self.title on a freshly detached workspace."
+        )
+    }
+
+    @Test("Move surface to new workspace preserves manually renamed tab title")
+    func moveSurfaceToNewWorkspacePreservesManuallyRenamedTabTitle() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        #expect(sourceWorkspace.updatePanelTitle(panelId: movedPanel.id, title: "user@host:~/git/repo"))
+        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "Deploy logs")
+
+        let result = try #require(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            focus: false,
+            focusWindow: false
+        ))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+
+        #expect(destinationWorkspace.title == "Deploy logs")
+        #expect(destinationWorkspace.customTitle == "Deploy logs")
+
+        destinationWorkspace.applyProcessTitle("claude investigation")
+        #expect(
+            destinationWorkspace.title == "Deploy logs",
+            "A manually renamed tab should stay pinned after it becomes a workspace."
         )
     }
 
