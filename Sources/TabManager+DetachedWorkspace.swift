@@ -74,8 +74,8 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            // Only explicit caller-provided names pin `customTitle`. Panel-derived
-            // titles are just initial labels; pinning them would block OSC-driven
+            // Only intentional names pin `customTitle`. Process-derived titles
+            // are just initial labels; pinning them would block OSC-driven
             // `applyProcessTitle` updates from reaching the workspace row. See
             // https://github.com/manaflow-ai/cmux/issues/4946.
             if let customTitle, !customTitle.isEmpty {
