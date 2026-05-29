@@ -338,6 +338,10 @@ final class WindowDecorationsController {
             switch slot {
             case .toggleSidebar:
                 _ = AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: window)
+            case .sidebarProvider:
+                if let anchorView {
+                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: nil)
+                }
             case .showNotifications:
                 let resolvedAnchorView = NotificationsAnchorRegistry.shared.closestAnchor(
                     in: window,

@@ -1,5 +1,6 @@
 import ExtensionFoundation
 import ExtensionKit
+import Foundation
 import SwiftUI
 
 @available(macOS 14.0, *)
@@ -8,8 +9,31 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
     public typealias NSViewControllerType = EXHostViewController
 
     /// Tracks the configuration currently installed on the host view controller.
-    public final class Coordinator {
+    public final class Coordinator: NSObject, EXHostViewControllerDelegate {
         fileprivate var currentKey: HostConfigurationKey?
+        private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
+        private let onDeactivation: (@MainActor (Error?) -> Void)?
+
+        fileprivate init(
+            onConnection: (@MainActor (NSXPCConnection) -> Void)?,
+            onDeactivation: (@MainActor (Error?) -> Void)?
+        ) {
+            self.onConnection = onConnection
+            self.onDeactivation = onDeactivation
+        }
+
+        public func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
+            guard let onConnection else { return }
+            do {
+                onConnection(try viewController.makeXPCConnection())
+            } catch {
+                onDeactivation?(error)
+            }
+        }
+
+        public func hostViewControllerWillDeactivate(_ viewController: EXHostViewController, error: (any Error)?) {
+            onDeactivation?(error)
+        }
     }
 
     fileprivate struct HostConfigurationKey: Equatable {
@@ -19,20 +43,29 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
 
     private let identity: AppExtensionIdentity
     private let sceneID: String
+    private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
+    private let onDeactivation: (@MainActor (Error?) -> Void)?
 
     /// Creates a sidebar extension host view.
     /// - Parameters:
     ///   - identity: Extension identity to host.
     ///   - sceneID: ExtensionKit scene identifier to render.
-    public init(identity: AppExtensionIdentity, sceneID: String = CMUXSidebarExtensionPoint.defaultSceneID) {
+    public init(
+        identity: AppExtensionIdentity,
+        sceneID: String = CMUXSidebarExtensionPoint.defaultSceneID,
+        onConnection: (@MainActor (NSXPCConnection) -> Void)? = nil,
+        onDeactivation: (@MainActor (Error?) -> Void)? = nil
+    ) {
         self.identity = identity
         self.sceneID = sceneID
+        self.onConnection = onConnection
+        self.onDeactivation = onDeactivation
     }
 
     /// Creates the configuration-tracking coordinator.
     /// - Returns: Coordinator for the hosted extension configuration.
     public func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(onConnection: onConnection, onDeactivation: onDeactivation)
     }
 
     /// Creates the ExtensionKit host view controller.
@@ -40,6 +73,7 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
     /// - Returns: Configured `EXHostViewController`.
     public func makeNSViewController(context: Context) -> EXHostViewController {
         let viewController = EXHostViewController()
+        viewController.delegate = context.coordinator
         context.coordinator.currentKey = configurationKey
         viewController.configuration = EXHostViewController.Configuration(
             appExtension: identity,

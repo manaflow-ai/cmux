@@ -133,6 +133,7 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
 
 final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
+    weak var sidebarProviderAnchorView: NSView?
 }
 
 @MainActor
@@ -311,6 +312,21 @@ struct NotificationsAnchorView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+struct TitlebarControlAnchorView: NSViewRepresentable {
+    let onResolve: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = AnchorNSView()
+        view.onLayout = { [weak view] in
+            guard let view else { return }
+            onResolve(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 final class AnchorNSView: NSView {
     var onLayout: (() -> Void)?
 
@@ -415,12 +431,28 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
             return .focusHistoryForward
         }
     }
+
+    var titlebarButtonIndex: Int {
+        switch self {
+        case .toggleSidebar:
+            return 0
+        case .showNotifications:
+            return 2
+        case .newTab:
+            return 3
+        case .focusHistoryBack:
+            return 4
+        case .focusHistoryForward:
+            return 5
+        }
+    }
 }
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
     static let hintRightSafetyShift: CGFloat = 10
     static let hintTrailingBaseInset: CGFloat = 8
+    static let extraButtonCount = 1
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -429,7 +461,7 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
+        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count + extraButtonCount)
         let gapCount = max(0, buttonCount - 1)
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
@@ -705,6 +737,7 @@ struct TitlebarControlsView: View {
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
+    let onShowSidebarProviderMenu: (NSView) -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
@@ -841,6 +874,27 @@ struct TitlebarControlsView: View {
                 sidebarIconLabel(config: config, iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
+
+            TitlebarControlButton(
+                config: config,
+                foregroundColor: foregroundColor,
+                accessibilityIdentifier: "titlebarControl.sidebarProvider",
+                accessibilityLabel: String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar"),
+                action: {
+                    guard let anchorView = viewModel.sidebarProviderAnchorView else { return }
+                    onShowSidebarProviderMenu(anchorView)
+                },
+                rightClickAction: { anchorView, event in
+                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: event)
+                }) {
+                iconLabel(
+                    systemName: "puzzlepiece.extension",
+                    config: config,
+                    iconGeometryKeyPrefix: "titlebarControl_sidebarProviderIcon"
+                )
+            }
+            .background(TitlebarControlAnchorView { viewModel.sidebarProviderAnchorView = $0 })
+            .safeHelp(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar"))
 
             TitlebarControlButton(
                 config: config,
@@ -1024,7 +1078,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
+        let index = CGFloat(slot.titlebarButtonIndex)
         return (index + 1) * config.buttonSize + index * config.spacing
     }
 
@@ -1282,6 +1336,9 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onToggleNotifications: { [viewModel] in
                     onToggleNotifications(viewModel.notificationsAnchorView)
                 },
+                onShowSidebarProviderMenu: { anchorView in
+                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: nil)
+                },
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
@@ -1310,6 +1367,8 @@ struct HiddenTitlebarSidebarControlsView: View {
                 switch slot {
                 case .toggleSidebar:
                     onToggleSidebar()
+                case .sidebarProvider:
+                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: nil)
                 case .showNotifications:
                     onToggleNotifications(anchorView)
                 case .newTab:
@@ -1818,6 +1877,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let toggleNotifications: () -> Void = { [weak containerView] in
             _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true, anchorView: containerView)
         }
+        let showSidebarProviderMenu: (NSView) -> Void = { anchorView in
+            CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: nil)
+        }
         let newTab = { _ = AppDelegate.shared?.performNewWorkspaceAction(debugSource: "titlebar.accessoryNewWorkspace") }
         let focusHistoryBack = { [weak containerView] in
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateBack()
@@ -1831,6 +1893,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
+                onShowSidebarProviderMenu: showSidebarProviderMenu,
                 onNewTab: newTab,
                 onFocusHistoryBack: focusHistoryBack,
                 onFocusHistoryForward: focusHistoryForward,

@@ -47,6 +47,46 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testSidebarXPCCodecRoundTripsSnapshotActionAndResult() throws {
+        let workspaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let snapshot = CMUXSidebarSnapshot(
+            sequence: 43,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CMUXSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Build",
+                    detail: "Running tests",
+                    isPinned: true,
+                    rootPath: "/tmp/cmux",
+                    projectRootPath: "/tmp/cmux",
+                    gitBranch: "feature/sidebar",
+                    unreadCount: 2,
+                    latestNotification: "Tests failed",
+                    listeningPorts: [3000],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"]
+                ),
+            ]
+        )
+        let decodedSnapshot = try CMUXSidebarXPCCodec.decodeSnapshot(
+            try CMUXSidebarXPCCodec.encodeSnapshot(snapshot)
+        )
+        #expect(decodedSnapshot == snapshot)
+
+        let action = CMUXSidebarAction.selectWorkspace(workspaceID)
+        let decodedAction = try CMUXSidebarXPCCodec.decodeAction(
+            try CMUXSidebarXPCCodec.encodeAction(action)
+        )
+        #expect(decodedAction == action)
+
+        let result = CMUXExtensionActionResult(accepted: false, message: "Not found")
+        let decodedResult = try CMUXSidebarXPCCodec.decodeActionResult(
+            try CMUXSidebarXPCCodec.encodeActionResult(result)
+        )
+        #expect(decodedResult == result)
+    }
+
+    @Test
     func testManifestValidationRejectsUnsupportedAPIVersion() {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",

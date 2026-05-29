@@ -39,7 +39,7 @@
       location = "container:Examples"
       name = "Examples">
       <FileRef
-         location = "group:CMUXSampleSidebarExtension">
+         location = "group:SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj">
       </FileRef>
       <FileRef
          location = "group:CmuxExtensionSidebarExamples">
