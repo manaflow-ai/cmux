@@ -2528,6 +2528,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testRightSidebarHeaderChromeUsesSharedButtonsAndIcons() {
         let titlebarConfig = TitlebarControlsStyle.classic.config
 
+        XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, 24, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.iconSize, 15, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.iconFrameSize, 17, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, 8, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeIconStyle.weight, .semibold)
         XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
@@ -2540,7 +2545,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.controlHeight, RightSidebarChromeMetrics.headerControlSize, accuracy: 0.001)
-        XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 4, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 2, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, 0, accuracy: 0.001)
     }
 

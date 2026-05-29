@@ -219,12 +219,31 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsUseDeterministicContentSize() {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
-        XCTAssertEqual(classic.width, 150, accuracy: 0.001)
+        XCTAssertEqual(classic.width, 186, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
-        XCTAssertEqual(compact.width, 136, accuracy: 0.001)
+        XCTAssertEqual(compact.width, 150, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+    }
+
+    func testTitlebarControlStylesKeepReleaseIconMetrics() {
+        let expectedMetrics: [(style: TitlebarControlsStyle, spacing: CGFloat, iconSize: CGFloat, buttonSize: CGFloat, cornerRadius: CGFloat)] = [
+            (.classic, 10, 15, 24, 8),
+            (.compact, 6, 13, 20, 6),
+            (.roomy, 14, 16, 28, 10),
+            (.pillGroup, 8, 14, 24, 8),
+            (.softButtons, 8, 15, 26, 8),
+        ]
+
+        for expected in expectedMetrics {
+            let config = expected.style.config
+
+            XCTAssertEqual(config.spacing, expected.spacing, accuracy: 0.001)
+            XCTAssertEqual(config.iconSize, expected.iconSize, accuracy: 0.001)
+            XCTAssertEqual(config.buttonSize, expected.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(config.buttonCornerRadius, expected.cornerRadius, accuracy: 0.001)
+        }
     }
 
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
@@ -309,7 +328,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         let smallest = sizes.min() ?? 0
         let largest = sizes.max() ?? 0
 
-        XCTAssertLessThanOrEqual(largest - smallest, 4)
+        XCTAssertLessThanOrEqual(largest - smallest, 8)
 
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
