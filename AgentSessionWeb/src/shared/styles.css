@@ -239,12 +239,17 @@ select {
 }
 
 .agent-thread {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--conversation-block-gap, 12px);
   padding-top: 10px;
   padding-bottom: 24px;
   overflow-x: hidden;
+}
+
+:root[data-codex-window-type="electron"] .agent-thread {
+  --color-token-description-foreground: color-mix(in srgb, var(--color-token-foreground) 70%, transparent);
 }
 
 .agent-thread[data-empty] {
