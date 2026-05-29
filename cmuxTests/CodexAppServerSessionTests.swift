@@ -41,6 +41,55 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testOpenCodeProcessStdoutLogsAreNotAssistantOutput() throws {
+        let serverURL = try #require(URL(string: "http://127.0.0.1:49211"))
+
+        expectEqual(
+            AgentSessionProcessStore.openCodeProcessOutputDisposition(
+                text: "opencode server listening on http://127.0.0.1:49211\n",
+                stream: "stdout"
+            ),
+            .serverURL(serverURL)
+        )
+        expectEqual(
+            AgentSessionProcessStore.openCodeProcessOutputDisposition(
+                text: "INFO request completed\n",
+                stream: "stdout"
+            ),
+            .suppress
+        )
+        expectEqual(
+            AgentSessionProcessStore.openCodeProcessOutputDisposition(
+                text: "OpenCode session could not be created.\n",
+                stream: "stderr"
+            ),
+            .emit
+        )
+    }
+
+    @Test
+    func testOpenCodeEventStreamEOFPolicyFailsOnlyForLiveSession() {
+        expectTrue(
+            AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
+                isCancelled: false,
+                processIsRunning: true
+            )
+        )
+        expectFalse(
+            AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
+                isCancelled: true,
+                processIsRunning: true
+            )
+        )
+        expectFalse(
+            AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
+                isCancelled: false,
+                processIsRunning: false
+            )
+        )
+    }
+
+    @Test
     func testOpenCodeEventTextAccumulatorEmitsAssistantTextDeltasAfterRoleAndPartAreKnown() {
         var accumulator = OpenCodeEventTextAccumulator()
 

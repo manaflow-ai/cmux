@@ -7,6 +7,12 @@ final class AgentSessionProcessStore {
         let sessionId: String
     }
 
+    enum OpenCodeProcessOutputDisposition: Equatable {
+        case emit
+        case suppress
+        case serverURL(URL)
+    }
+
     var eventSink: (([String: Any]) -> Void)?
     var activeProviderSink: ((Bool) -> Void)? {
         didSet {
@@ -261,11 +267,19 @@ final class AgentSessionProcessStore {
     }
 
     private func handleOutputLine(_ text: String, session: RunningSession, stream: String) {
-        if session.providerID == .opencode,
-           session.openCodeBaseURL == nil,
-           let baseURL = openCodeServerURL(from: text) {
-            session.openCodeBaseURL = baseURL
-            createOpenCodeSession(session)
+        if session.providerID == .opencode {
+            switch Self.openCodeProcessOutputDisposition(text: text, stream: stream) {
+            case .serverURL(let baseURL):
+                if session.openCodeBaseURL == nil {
+                    session.openCodeBaseURL = baseURL
+                    createOpenCodeSession(session)
+                }
+                return
+            case .suppress:
+                return
+            case .emit:
+                break
+            }
         }
 
         if stream == "stdout",
@@ -302,7 +316,17 @@ final class AgentSessionProcessStore {
         )
     }
 
-    private func openCodeServerURL(from text: String) -> URL? {
+    static func openCodeProcessOutputDisposition(text: String, stream: String) -> OpenCodeProcessOutputDisposition {
+        if let baseURL = openCodeServerURL(from: text) {
+            return .serverURL(baseURL)
+        }
+        if stream == "stdout" {
+            return .suppress
+        }
+        return .emit
+    }
+
+    private static func openCodeServerURL(from text: String) -> URL? {
         let marker = "opencode server listening on "
         guard let range = text.range(of: marker) else { return nil }
         let rawURL = text[range.upperBound...]
@@ -443,6 +467,16 @@ final class AgentSessionProcessStore {
             for event in parser.flush() {
                 handleOpenCodeEvent(event, sessionId: sessionId, openCodeSessionID: openCodeSessionID)
             }
+            guard Self.openCodeEventStreamEOFRequiresFailure(
+                isCancelled: Task.isCancelled,
+                processIsRunning: sessions[sessionId]?.process.isRunning == true
+            ) else {
+                return
+            }
+            failOpenCodeEventStream(
+                sessionId: sessionId,
+                openCodeSessionID: openCodeSessionID
+            )
         } catch {
             guard !Task.isCancelled else { return }
 #if DEBUG
@@ -453,6 +487,10 @@ final class AgentSessionProcessStore {
                 openCodeSessionID: openCodeSessionID
             )
         }
+    }
+
+    static func openCodeEventStreamEOFRequiresFailure(isCancelled: Bool, processIsRunning: Bool) -> Bool {
+        !isCancelled && processIsRunning
     }
 
     private func failOpenCodeEventStream(sessionId: String, openCodeSessionID: String) {
