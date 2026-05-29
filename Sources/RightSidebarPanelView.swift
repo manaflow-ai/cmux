@@ -299,6 +299,7 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+        .titlebarInteractiveControl()
     }
 
     private var closeButton: some View {
@@ -351,6 +352,7 @@ struct RightSidebarPanelView: View {
         }
         .rightSidebarHeaderControlAlignment()
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .titlebarInteractiveControl()
     }
 
     @ViewBuilder
@@ -585,6 +587,7 @@ private struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .titlebarInteractiveControl()
         .background(MinimalModeTitlebarControlHitRegionView())
         .onHover { isHovered = $0 }
         .help(helpText)

@@ -413,6 +413,10 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
 /// titlebar space. Treat those as pass-through so explicit sibling checks decide.
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
+    if windowDragHandleHitBelongsToTitlebarInteractiveControl(view) {
+        return false
+    }
+
     let className = String(describing: type(of: view))
     if className.contains("HostContainerView")
         || className.contains("AppKitWindowHostingView")
@@ -421,6 +425,21 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     }
     if let window = view.window, view === window.contentView {
         return true
+    }
+    return false
+}
+
+private func windowDragHandleHitBelongsToTitlebarInteractiveControl(_ view: NSView) -> Bool {
+    let contentView = view.window?.contentView
+    var candidate: NSView? = view
+    while let current = candidate {
+        if current.identifier == TitlebarInteractiveHostingView<AnyView>.viewIdentifier {
+            return true
+        }
+        if let contentView, current === contentView {
+            break
+        }
+        candidate = current.superview
     }
     return false
 }

@@ -490,7 +490,10 @@
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A060000000000000002 /* TitlebarChromeGeometryReporting.swift */; };
+		F50030030000000000000001 /* TitlebarInteractiveControlHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030030000000000000002 /* TitlebarInteractiveControlHost.swift */; };
+		F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */; };
 		F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */; };
+		F50030010000000000000001 /* TitlebarInteractiveHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030010000000000000002 /* TitlebarInteractiveHostingView.swift */; };
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
 		E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */; };
@@ -1099,7 +1102,10 @@
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		C4160A060000000000000002 /* TitlebarChromeGeometryReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/TitlebarChromeGeometryReporting.swift; sourceTree = "<group>"; };
+		F50030030000000000000002 /* TitlebarInteractiveControlHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlHost.swift; sourceTree = "<group>"; };
+		F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlModifier.swift; sourceTree = "<group>"; };
 		F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlTests.swift; sourceTree = "<group>"; };
+		F50030010000000000000002 /* TitlebarInteractiveHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveHostingView.swift; sourceTree = "<group>"; };
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
 		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
 		E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxWorkspacePaneOverlayView.swift; sourceTree = "<group>"; };
@@ -1362,6 +1368,9 @@
 				C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */,
 				C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */,
 				C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */,
+				F50030030000000000000002 /* TitlebarInteractiveControlHost.swift */,
+				F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */,
+				F50030010000000000000002 /* TitlebarInteractiveHostingView.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
@@ -2428,6 +2437,9 @@
 				D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
 				C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */,
+				F50030030000000000000001 /* TitlebarInteractiveControlHost.swift in Sources */,
+				F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */,
+				F50030010000000000000001 /* TitlebarInteractiveHostingView.swift in Sources */,
 				C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */,
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				E30760000000000000000002 /* TmuxWorkspacePaneOverlayView.swift in Sources */,
