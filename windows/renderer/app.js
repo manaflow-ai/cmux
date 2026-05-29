@@ -43,6 +43,7 @@ const state = {
   dragPanelId: null,
   zoomedPanelId: null,
   contextMenu: null,
+  activeDialog: null,
   resizing: null,
   sidebarResizing: null,
   inspectorResizing: null,
@@ -2377,8 +2378,13 @@ function settingsCommandCard(command, group) {
   return card;
 }
 
-function runSettingsCommand(command) {
-  if (isDangerCommand(command) && !confirm(`Run ${command.label}?`)) return;
+async function runSettingsCommand(command) {
+  if (isDangerCommand(command) && !await showConfirmDialog({
+    title: command.label,
+    message: "This command changes or closes current workspace state.",
+    confirmLabel: "Run",
+    danger: true
+  })) return;
   command.run();
 }
 
@@ -2696,10 +2702,149 @@ function contextColorPicker(activeColor, onPick) {
   return wrapper;
 }
 
-function renamePanel(panel) {
-  const title = prompt("Tab name", panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"));
+function showTextDialog({
+  title,
+  message = "",
+  value = "",
+  placeholder = "",
+  confirmLabel = "Save",
+  cancelLabel = "Cancel",
+  multiline = false,
+  readOnly = false
+} = {}) {
+  if (state.activeDialog) state.activeDialog.close(null);
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement("div");
+  overlay.className = "dialog-backdrop";
+  overlay.innerHTML = `
+    <div class="app-dialog" role="dialog" aria-modal="true">
+      <div class="dialog-title"></div>
+      <div class="dialog-message"></div>
+      <div class="dialog-field"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button dialog-cancel" type="button"></button>
+        <button class="dialog-button primary dialog-confirm" type="button"></button>
+      </div>
+    </div>
+  `;
+  const titleNode = overlay.querySelector(".dialog-title");
+  const messageNode = overlay.querySelector(".dialog-message");
+  const field = overlay.querySelector(".dialog-field");
+  const cancel = overlay.querySelector(".dialog-cancel");
+  const confirm = overlay.querySelector(".dialog-confirm");
+  titleNode.textContent = title || "cmux";
+  messageNode.textContent = message;
+  messageNode.hidden = !message;
+  cancel.textContent = cancelLabel;
+  confirm.textContent = confirmLabel;
+  const input = document.createElement(multiline ? "textarea" : "input");
+  input.className = "dialog-input";
+  if (!multiline) input.type = "text";
+  input.value = value || "";
+  input.placeholder = placeholder;
+  input.readOnly = readOnly;
+  field.append(input);
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      overlay.remove();
+      state.activeDialog = null;
+      if (previousFocus?.focus) previousFocus.focus();
+      resolve(result);
+    };
+    state.activeDialog = { close: cleanup };
+    cancel.onclick = () => cleanup(null);
+    confirm.onclick = () => cleanup(readOnly ? input.value : input.value.trim());
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) cleanup(null);
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup(null);
+      }
+      if (event.key === "Enter" && (!multiline || event.ctrlKey)) {
+        event.preventDefault();
+        cleanup(readOnly ? input.value : input.value.trim());
+      }
+    });
+    document.body.append(overlay);
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  });
+}
+
+function showConfirmDialog({
+  title,
+  message = "",
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  danger = false
+} = {}) {
+  if (state.activeDialog) state.activeDialog.close(false);
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement("div");
+  overlay.className = "dialog-backdrop";
+  overlay.innerHTML = `
+    <div class="app-dialog" role="dialog" aria-modal="true">
+      <div class="dialog-title"></div>
+      <div class="dialog-message"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button dialog-cancel" type="button"></button>
+        <button class="dialog-button primary dialog-confirm" type="button"></button>
+      </div>
+    </div>
+  `;
+  const titleNode = overlay.querySelector(".dialog-title");
+  const messageNode = overlay.querySelector(".dialog-message");
+  const cancel = overlay.querySelector(".dialog-cancel");
+  const confirm = overlay.querySelector(".dialog-confirm");
+  titleNode.textContent = title || "Confirm";
+  messageNode.textContent = message;
+  messageNode.hidden = !message;
+  cancel.textContent = cancelLabel;
+  confirm.textContent = confirmLabel;
+  confirm.classList.toggle("danger", danger);
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      overlay.remove();
+      state.activeDialog = null;
+      if (previousFocus?.focus) previousFocus.focus();
+      resolve(result);
+    };
+    state.activeDialog = { close: cleanup };
+    cancel.onclick = () => cleanup(false);
+    confirm.onclick = () => cleanup(true);
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) cleanup(false);
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup(false);
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        cleanup(true);
+      }
+    });
+    document.body.append(overlay);
+    requestAnimationFrame(() => confirm.focus());
+  });
+}
+
+async function renamePanel(panel) {
+  const title = await showTextDialog({
+    title: "Rename tab",
+    value: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
+    placeholder: "Tab name",
+    confirmLabel: "Rename"
+  });
   if (!title) return;
-  updatePanel(panel.id, { title: title.trim() });
+  updatePanel(panel.id, { title });
 }
 
 function duplicatePanel(panel) {
@@ -2894,7 +3039,12 @@ async function renameActiveWorkspace() {
 }
 
 async function renameWorkspaceById(workspaceId, currentTitle = "") {
-  const title = prompt("Workspace name", currentTitle);
+  const title = await showTextDialog({
+    title: "Rename workspace",
+    value: currentTitle,
+    placeholder: "Workspace name",
+    confirmLabel: "Rename"
+  });
   if (!title) return;
   await renameWorkspaceTo(title, workspaceId);
 }
@@ -3000,7 +3150,12 @@ async function createPanel(type, direction = "right", options = {}) {
 }
 
 async function openBrowserPrompt(workspaceId = null) {
-  const url = prompt("Open URL", state.settings.browserHomeUrl);
+  const url = await showTextDialog({
+    title: "Open browser",
+    value: state.settings.browserHomeUrl,
+    placeholder: "Search or URL",
+    confirmLabel: "Open"
+  });
   if (url === null) return;
   await createPanel("browser", "right", { url, workspaceId });
 }
@@ -3311,13 +3466,27 @@ async function exportSettings() {
     toast("Settings copied to clipboard.");
     return;
   }
-  prompt("cmux settings JSON", payload);
+  await showTextDialog({
+    title: "Settings JSON",
+    message: "Clipboard access is unavailable. The current settings are shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
 }
 
 async function importSettings() {
   const clipboard = await readClipboardText();
   const suggested = clipboard.trim().startsWith("{") ? clipboard : "";
-  const raw = prompt("Paste cmux settings JSON", suggested);
+  const raw = await showTextDialog({
+    title: "Import settings",
+    message: "Paste exported cmux Windows settings JSON.",
+    value: suggested,
+    placeholder: "{ ... }",
+    confirmLabel: "Import",
+    multiline: true
+  });
   if (raw === null) return;
   try {
     state.settings = normalizeSettings(JSON.parse(raw));
@@ -3332,8 +3501,13 @@ async function importSettings() {
   }
 }
 
-function resetSettings() {
-  if (!confirm("Reset cmux Windows settings to defaults?")) return;
+async function resetSettings() {
+  if (!await showConfirmDialog({
+    title: "Reset settings",
+    message: "Restore cmux Windows settings to defaults.",
+    confirmLabel: "Reset",
+    danger: true
+  })) return;
   state.settings = normalizeSettings(defaultSettings);
   state.terminalFontSize = state.settings.terminalFontSize;
   saveSettings();
@@ -3443,6 +3617,7 @@ elements.paletteInput.addEventListener("keydown", (event) => {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
+  if (state.activeDialog) return;
   if (event.key === "Escape" && state.contextMenu && !state.contextMenu.hidden) {
     hideContextMenu();
   } else if (event.ctrlKey && event.shiftKey && key === "p") {
