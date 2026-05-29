@@ -1483,7 +1483,6 @@ img.ProseMirror-separator {
   align-items: center;
   justify-content: center;
   outline: none;
-  font-weight: 500;
 }
 
 .codex-tool,
@@ -1518,7 +1517,6 @@ img.ProseMirror-separator {
   min-width: 0;
   overflow: hidden;
   color: var(--color-token-foreground);
-  font-weight: 600;
   text-overflow: ellipsis;
 }
 
@@ -1767,7 +1765,6 @@ img.ProseMirror-separator {
 .codex-start {
   width: auto;
   min-width: 56px;
-  font-weight: 500;
 }
 
 .codex-circle-action::before {
