@@ -319,6 +319,7 @@ button {
 .settings-action,
 .settings-nav-button,
 .settings-preset,
+.workspace-starter,
 .background-preset,
 .context-action,
 .context-color,
@@ -401,6 +402,7 @@ button {
 .settings-action:focus-visible,
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
+.workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
 .background-preset:focus-visible,
 .context-action:focus-visible,
@@ -422,6 +424,7 @@ button {
 .settings-action:active,
 .settings-nav-button:active,
 .settings-preset:active,
+.workspace-starter:active,
 .settings-command-run:active,
 .background-preset:active,
 .context-action:active,
@@ -1582,6 +1585,90 @@ button {
   height: 26px;
 }
 
+.workspace-starter-list {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+}
+
+.workspace-starter-title {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.workspace-starter-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.workspace-starter {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: 3px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-starter:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.workspace-starter-title-text,
+.workspace-starter-body,
+.workspace-starter-panes {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-starter-title-text {
+  grid-column: 1;
+  grid-row: 1;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.workspace-starter-body {
+  grid-column: 1;
+  grid-row: 2;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.workspace-starter-panes {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  justify-self: start;
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane-warm);
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+  white-space: nowrap;
+}
+
 .settings-metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1704,12 +1791,17 @@ button {
 }
 
 .settings-action {
+  min-width: 0;
   height: 30px;
+  padding: 0 var(--space-2);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
   background: var(--color-pane-warm);
   color: var(--color-text);
   cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .settings-action:hover:not(:disabled) {

@@ -28,6 +28,27 @@ const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
 const closedPanelLimit = 12;
 
+const workspaceStarters = [
+  {
+    id: "terminalBrowser",
+    label: "Terminal + Browser",
+    body: "One shell beside the configured browser home page.",
+    panels: ["terminal", "browser"]
+  },
+  {
+    id: "twoTerminals",
+    label: "Two Terminals",
+    body: "Side-by-side shells for server and commands.",
+    panels: ["terminal", "terminal"]
+  },
+  {
+    id: "devTrio",
+    label: "Dev Trio",
+    body: "Two shells plus a browser pane for local app work.",
+    panels: ["terminal", "terminal", "browser"]
+  }
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -635,6 +656,9 @@ const commands = [
   { id: "workspace.color", label: "Change Workspace Color", shortcut: "", run: () => cycleWorkspaceColor() },
   { id: "workspace.changeFolder", label: "Change Workspace Folder", shortcut: "", run: () => chooseWorkspaceFolder() },
   { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
+  { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
+  { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
+  { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
@@ -1788,12 +1812,13 @@ function renderSettingsInspector() {
     folderActions.className = "settings-actions";
     folderActions.dataset.settingsSearch = normalizeSettingsQuery("workspace folder directory cwd choose open new");
     folderActions.append(
-      settingsActionButton("Choose folder", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker"),
-      settingsActionButton("Open folder", () => openWorkspaceFolder(), "", "workspace folder explorer directory"),
-      settingsActionButton("New from folder", () => createWorkspaceFromFolder(), "", "workspace folder new directory")
+      settingsActionButton("Choose", () => chooseWorkspaceFolder(), "", "workspace folder directory cwd picker choose folder"),
+      settingsActionButton("Open", () => openWorkspaceFolder(), "", "workspace folder explorer directory open folder"),
+      settingsActionButton("New", () => createWorkspaceFromFolder(), "", "workspace folder new directory new from folder")
     );
     workspaceSection.append(folderActions);
     workspaceSection.append(recentFoldersSettings());
+    workspaceSection.append(workspaceStarterGrid());
     workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
     workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
     nodes.push(workspaceSection);
@@ -2582,11 +2607,47 @@ function recentFoldersSettings() {
   return section;
 }
 
+function workspaceStarterGrid() {
+  const section = document.createElement("div");
+  section.className = "workspace-starter-list";
+  section.dataset.settingsSearch = normalizeSettingsQuery("workspace starter layout preset split terminal browser dev trio setup");
+
+  const title = document.createElement("div");
+  title.className = "workspace-starter-title";
+  title.textContent = "Workspace starters";
+  section.append(title);
+
+  const grid = document.createElement("div");
+  grid.className = "workspace-starter-grid";
+  for (const starter of workspaceStarters) {
+    const button = document.createElement("button");
+    button.className = "workspace-starter";
+    button.type = "button";
+    button.dataset.workspaceStarter = starter.id;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`workspace starter layout preset ${starter.label} ${starter.body} ${starter.panels.join(" ")}`);
+    button.innerHTML = `
+      <span class="workspace-starter-title-text"></span>
+      <span class="workspace-starter-body"></span>
+      <span class="workspace-starter-panes"></span>
+    `;
+    button.querySelector(".workspace-starter-title-text").textContent = starter.label;
+    button.querySelector(".workspace-starter-body").textContent = starter.body;
+    button.querySelector(".workspace-starter-panes").textContent = starter.panels
+      .map((type) => type === "browser" ? "web" : "term")
+      .join(" + ");
+    button.onclick = () => applyWorkspaceStarter(starter.id);
+    grid.append(button);
+  }
+  section.append(grid);
+  return section;
+}
+
 function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   const button = document.createElement("button");
   button.className = `settings-action${tone ? ` ${tone}` : ""}`;
   button.type = "button";
   button.textContent = label;
+  button.title = label;
   button.dataset.settingsSearch = normalizeSettingsQuery(`${label} ${searchTerms}`);
   button.onclick = onClick;
   return button;
@@ -3265,6 +3326,32 @@ async function setWorkspaceFolderFromRecent(folder) {
   }
 }
 
+async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?.id) {
+  const starter = workspaceStarters.find((candidate) => candidate.id === starterId);
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!starter || !workspace) {
+    toast("No workspace available.");
+    return;
+  }
+  clearPaneLayoutsForWorkspace(workspace);
+  try {
+    for (const type of starter.panels) {
+      await createPanel(type, "right", {
+        workspaceId: workspace.id,
+        focus: false,
+        reconcile: false,
+        url: type === "browser" ? state.settings.browserHomeUrl : undefined
+      });
+    }
+    await loadState();
+    if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
+    toast(`${starter.label} added.`);
+  } catch {
+    await loadState();
+    toast("Workspace starter could not be added.");
+  }
+}
+
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
@@ -3307,9 +3394,11 @@ async function createPanel(type, direction = "right", options = {}) {
       url: type === "browser" ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl) : undefined
     })
   });
-  await loadState();
-  if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
-    await focusWorkspace(workspace.id);
+  if (options.reconcile !== false) {
+    await loadState();
+    if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
+      await focusWorkspace(workspace.id);
+    }
   }
   return createdPanel;
 }
