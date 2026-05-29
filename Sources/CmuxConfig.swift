@@ -1952,10 +1952,12 @@ final class CmuxConfigStore: ObservableObject {
         // loadAll() runs on main without an explicit dispatch hop. The handle is
         // cancelled in deinit so the observer lives exactly as long as the store.
         trustObservationTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
+            // Map to Void so the non-Sendable `Notification` never crosses into
+            // this main-actor task; only the change signal is needed, not the value.
+            let signals = NotificationCenter.default.notifications(
                 named: CmuxActionTrust.didChangeNotification
-            )
-            for await _ in notifications {
+            ).map { _ in () }
+            for await _ in signals {
                 guard let self else { return }
                 self.loadAll()
             }

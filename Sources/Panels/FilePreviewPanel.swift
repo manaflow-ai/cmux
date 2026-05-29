@@ -2429,7 +2429,10 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
-    private var documentLoadTask: Task<Void, Never>?
+    private static let documentLoadQueue = DispatchQueue(
+        label: "com.cmux.file-preview.pdf-document-load",
+        qos: .userInitiated
+    )
 
     private struct PDFScrollBackgroundAppearance {
         let hostIdentifiers: Set<ObjectIdentifier>
@@ -2491,8 +2494,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     }
 
     func close() {
-        documentLoadTask?.cancel()
-        documentLoadTask = nil
         removeFromSuperview()
         removePDFScrollObserver()
         NotificationCenter.default.removeObserver(self)
@@ -2536,13 +2537,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         refreshPDFSmartFitWithoutViewportRestore()
 
         let loadURL = url
-        documentLoadTask?.cancel()
-        documentLoadTask = Task { [weak self, loadURL] in
-            let document = await Task.detached(priority: .userInitiated) {
-                PDFDocument(url: loadURL)
-            }.value
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
+        Self.documentLoadQueue.async { [weak self] in
+            let document = PDFDocument(url: loadURL)
+            DispatchQueue.main.async { [weak self] in
                 guard let self, self.currentURL == loadURL else { return }
                 self.applyLoadedPDFDocument(document, for: loadURL)
             }
@@ -3674,7 +3671,10 @@ final class FilePreviewImageContainerView: NSView {
     private var rotationAccumulator: CGFloat = 0
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
-    private var imageLoadTask: Task<Void, Never>?
+    private static let imageLoadQueue = DispatchQueue(
+        label: "com.cmux.file-preview.image-load",
+        qos: .userInitiated
+    )
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -3721,8 +3721,6 @@ final class FilePreviewImageContainerView: NSView {
     }
 
     func close() {
-        imageLoadTask?.cancel()
-        imageLoadTask = nil
         removeFromSuperview()
         documentView.imageView.image = nil
         currentURL = nil
@@ -3749,13 +3747,9 @@ final class FilePreviewImageContainerView: NSView {
         applyScale()
 
         let loadURL = url
-        imageLoadTask?.cancel()
-        imageLoadTask = Task { [weak self, loadURL] in
-            let image = await Task.detached(priority: .userInitiated) {
-                NSImage(contentsOf: loadURL)
-            }.value
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
+        Self.imageLoadQueue.async { [weak self] in
+            let image = NSImage(contentsOf: loadURL)
+            DispatchQueue.main.async { [weak self] in
                 guard let self, self.currentURL == loadURL else { return }
                 self.applyLoadedImage(image)
             }
