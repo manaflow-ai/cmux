@@ -249,6 +249,7 @@ export const settingsCategories = [
   ["browser", "Browser"],
   ["layout", "Layout"],
   ["performance", "Performance"],
+  ["actions", "Actions"],
   ["terminal", "Terminal"],
   ["data", "Data"]
 ];

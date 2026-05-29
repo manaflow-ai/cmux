@@ -588,6 +588,7 @@ const commands = [
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
+  { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -1886,6 +1887,12 @@ function renderSettingsInspector() {
     nodes.push(performanceSection);
   }
 
+  if (shouldBuildSection("actions")) {
+    const actionsSection = settingsSection("Actions", "commands shortcuts keyboard palette run tools");
+    actionsSection.append(settingsCommandList());
+    nodes.push(actionsSection);
+  }
+
   if (shouldBuildSection("terminal")) {
     const terminalSection = settingsSection("Terminal");
     const fontSelect = document.createElement("select");
@@ -2203,6 +2210,14 @@ function applySettingsFilter() {
       item.hidden = !visible;
       sectionVisible ||= visible;
     }
+    for (const group of section.querySelectorAll(".settings-command-group")) {
+      const cardVisible = [...group.querySelectorAll(".settings-command-card")].some((card) => !card.hidden);
+      const groupVisible = cardVisible
+        || settingsSearchMatches(group.dataset.settingsSearch, query)
+        || settingsSearchMatches(section.dataset.settingsSearch, query);
+      group.hidden = !groupVisible;
+      sectionVisible ||= groupVisible;
+    }
     section.hidden = !sectionVisible;
     if (sectionVisible) visibleSections += 1;
   }
@@ -2267,6 +2282,82 @@ function resetRenderStats() {
   };
   renderSettingsInspector();
   toast("Performance stats reset.");
+}
+
+function commandGroupLabel(command) {
+  if (command.id.startsWith("workspace.")) return "Workspace";
+  if (command.id.startsWith("terminal.")) return "Terminal";
+  if (command.id.startsWith("browser.")) return "Browser";
+  if (command.id.startsWith("settings.")) return "Settings";
+  if (command.id.startsWith("notifications.")) return "Notifications";
+  if (command.id.startsWith("session.")) return "Session";
+  if (command.id.startsWith("sidebar.")) return "Layout";
+  return "Tools";
+}
+
+function isDangerCommand(command) {
+  return [
+    "workspace.close",
+    "terminal.close",
+    "terminal.closeOthers",
+    "terminal.closeRight",
+    "session.reset"
+  ].includes(command.id);
+}
+
+function settingsCommandList() {
+  const list = document.createElement("div");
+  list.className = "settings-command-list";
+  const grouped = new Map();
+  for (const command of commands) {
+    const group = commandGroupLabel(command);
+    if (!grouped.has(group)) grouped.set(group, []);
+    grouped.get(group).push(command);
+  }
+  for (const [group, groupCommands] of grouped.entries()) {
+    const groupNode = document.createElement("div");
+    groupNode.className = "settings-command-group";
+    groupNode.dataset.settingsSearch = normalizeSettingsQuery(`actions commands shortcuts keyboard palette ${group}`);
+    const title = document.createElement("div");
+    title.className = "settings-command-group-title";
+    title.textContent = group;
+    groupNode.append(title);
+    for (const command of groupCommands) {
+      groupNode.append(settingsCommandCard(command, group));
+    }
+    list.append(groupNode);
+  }
+  return list;
+}
+
+function settingsCommandCard(command, group) {
+  const card = document.createElement("div");
+  card.className = "settings-command-card";
+  card.dataset.settingsSearch = normalizeSettingsQuery(`actions commands shortcuts keyboard palette run ${group} ${command.id} ${command.label} ${command.shortcut}`);
+  const text = document.createElement("div");
+  text.className = "settings-command-text";
+  const label = document.createElement("span");
+  label.className = "settings-command-label";
+  label.textContent = command.label;
+  const id = document.createElement("span");
+  id.className = "settings-command-id";
+  id.textContent = command.id;
+  text.append(label, id);
+  const shortcut = document.createElement("span");
+  shortcut.className = "settings-command-shortcut";
+  shortcut.textContent = command.shortcut || "Palette";
+  const run = document.createElement("button");
+  run.className = `settings-command-run${isDangerCommand(command) ? " danger" : ""}`;
+  run.type = "button";
+  run.textContent = "Run";
+  run.onclick = () => runSettingsCommand(command);
+  card.append(text, shortcut, run);
+  return card;
+}
+
+function runSettingsCommand(command) {
+  if (isDangerCommand(command) && !confirm(`Run ${command.label}?`)) return;
+  command.run();
 }
 
 function toggleInput(checked, onChange) {
@@ -2535,6 +2626,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
     contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
+    contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
     contextMenuButton("Reset session", resetSession, false, "danger")

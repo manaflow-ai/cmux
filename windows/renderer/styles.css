@@ -399,6 +399,7 @@ button {
 .settings-action:focus-visible,
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
+.settings-command-run:focus-visible,
 .background-preset:focus-visible,
 .context-action:focus-visible,
 .context-color:focus-visible,
@@ -418,6 +419,7 @@ button {
 .settings-action:active,
 .settings-nav-button:active,
 .settings-preset:active,
+.settings-command-run:active,
 .background-preset:active,
 .context-action:active,
 .rail-button:active,
@@ -1529,6 +1531,92 @@ button {
   text-overflow: ellipsis;
   color: var(--color-faint);
   font-size: 11px;
+}
+
+.settings-command-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.settings-command-group {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.settings-command-group-title {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.settings-command-card {
+  min-width: 0;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(58px, auto) 44px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.settings-command-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-command-label,
+.settings-command-id,
+.settings-command-shortcut {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-command-label {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-command-id {
+  color: var(--color-faint);
+  font: 10px/1.1 var(--font-mono);
+}
+
+.settings-command-shortcut {
+  justify-self: end;
+  max-width: 116px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  color: var(--color-muted);
+  background: var(--color-pane-warm);
+  font: 10px/1 var(--font-mono);
+}
+
+.settings-command-run {
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.settings-command-run:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+}
+
+.settings-command-run.danger {
+  color: oklch(88% 0.08 28);
 }
 
 .settings-action {
