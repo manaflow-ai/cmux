@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 import Observation
 import Darwin
@@ -6,6 +8,12 @@ import Bonsplit
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
+    /// Dependency container for the new settings packages. Constructed
+    /// once at app launch and injected into the SwiftUI environment via
+    /// `.settingsRuntime(_:)`; descendant views resolve their settings
+    /// through it via the `@Setting` property wrapper.
+    private let settingsRuntime: SettingsRuntime
+
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -26,6 +34,24 @@ struct cmuxApp: App {
     }
 
     init() {
+        // Build the settings container once. All injected dependencies
+        // (the catalog, the two stores, the error log) live on this
+        // single struct; nothing in the package or app references a
+        // shared static.
+        let settingsCatalog = SettingCatalog()
+        let configFileURL = CmuxConfigLocation().userConfigFile
+        self.settingsRuntime = SettingsRuntime(
+            catalog: settingsCatalog,
+            userDefaultsStore: UserDefaultsSettingsStore(
+                defaults: .standard,
+                migrating: settingsCatalog.all
+            ),
+            jsonStore: JSONConfigStore(fileURL: configFileURL),
+            errorLog: SettingsErrorLog(),
+            accountFlow: HostAccountFlow(authManager: .shared),
+            hostActions: HostSettingsActions(configFileURL: configFileURL)
+        )
+
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
@@ -217,6 +243,7 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindowBootstrapView()
+                .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
@@ -644,7 +671,11 @@ struct cmuxApp: App {
         }
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
-            SettingsWindowRootView()
+            SettingsWindowRoot(runtime: settingsRuntime)
+                .settingsRuntime(settingsRuntime)
+                .background(WindowAccessor(dedupeByWindow: false) { window in
+                    SettingsWindowPresenter.configure(window: window)
+                })
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
         .defaultSize(width: 980, height: 680)
@@ -655,6 +686,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
+                .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
@@ -5237,41 +5269,31 @@ struct SettingsView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
-    private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-    @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
-    private var customClaudePath = ""
-    @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
-    private var customRipgrepPath = ""
-    @AppStorage(AgentSubagentNotificationSettings.suppressNotificationsKey)
-    private var suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
-    @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
-    private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
-    @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
-    private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
-    @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
-    private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
-    @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
-    @AppStorage(CmdClickSupportedFileRouteSettings.key)
-    private var openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
-    @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+    @Setting(\.integrations.claudeCodeHooksEnabled) private var claudeCodeHooksEnabled
+    @Setting(\.integrations.claudeCodeCustomClaudePath) private var customClaudePath
+    @Setting(\.integrations.ripgrepCustomBinaryPath) private var customRipgrepPath
+    @Setting(\.integrations.suppressSubagentNotifications) private var suppressSubagentNotifications
+    @Setting(\.integrations.cursorHooksEnabled) private var cursorHooksEnabled
+    @Setting(\.integrations.geminiHooksEnabled) private var geminiHooksEnabled
+    @Setting(\.app.sendAnonymousTelemetry) private var sendAnonymousTelemetry
+    @Setting(\.app.preferredEditor) private var preferredEditorCommand
+    @Setting(\.app.openSupportedFilesInCmux) private var openSupportedFilesInCmux
+    @Setting(\.app.openMarkdownInCmuxViewer) private var openMarkdownInCmuxViewer
     @AppStorage(AutomationSettings.portBaseKey) private var cmuxPortBase = AutomationSettings.defaultPortBase
     @AppStorage(AutomationSettings.portRangeKey) private var cmuxPortRange = AutomationSettings.defaultPortRange
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.customSearchEngineNameKey) private var browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
     @AppStorage(BrowserSearchSettings.customSearchEngineURLTemplateKey) private var browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
-    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
-    @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
-    @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
-    @AppStorage(BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-    private var browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
-    @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
-    @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
-    @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @Setting(\.browser.showSearchSuggestions) private var browserSearchSuggestionsEnabled
+    @Setting(\.browser.disabled) private var browserDisabled
+    @Setting(\.browser.discardHiddenWebViews) private var browserHiddenWebViewDiscardEnabled
+    @Setting(\.browser.hiddenWebViewDiscardDelaySeconds) private var browserHiddenWebViewDiscardDelay
+    @Setting(\.browser.importHintDismissed) private var isBrowserImportHintDismissed
+    @Setting(\.browser.showImportHintOnBlankTabs) private var showBrowserImportHintOnBlankTabs
+    @Setting(\.browser.reactGrabVersion) private var reactGrabVersion
+    @Setting(\.browser.openTerminalLinksInCmuxBrowser) private var openTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
@@ -5282,50 +5304,39 @@ struct SettingsView: View {
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
-    @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-    @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
-    @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
-    @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
-    @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
+    @Setting(\.notifications.dockBadge) private var notificationDockBadgeEnabled
+    @Setting(\.notifications.unreadPaneRing) private var notificationPaneRingEnabled
+    @Setting(\.notifications.paneFlash) private var notificationPaneFlashEnabled
+    @Setting(\.notifications.showInMenuBar) private var showMenuBarExtra
+    @Setting(\.app.menuBarOnly) private var menuBarOnly
     @AppStorage(QuitWarningSettings.confirmQuitKey)
     private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
-    @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
-    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
-    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
-    private var warnBeforeClosingTabXButton = CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton
-    @AppStorage(CloseTabWarningSettings.hideTabCloseButtonKey)
-    private var hideTabCloseButton = CloseTabWarningSettings.defaultHideTabCloseButton
-    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
-    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
-    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+    @Setting(\.app.warnBeforeQuit) private var warnBeforeQuitShortcut
+    @Setting(\.app.warnBeforeClosingTab) private var warnBeforeClosingTab
+    @Setting(\.app.warnBeforeClosingTabXButton) private var warnBeforeClosingTabXButton
+    @Setting(\.app.hideTabCloseButton) private var hideTabCloseButton
+    @Setting(\.app.renameSelectsExistingName) private var commandPaletteRenameSelectAllOnFocus
+    @Setting(\.app.commandPaletteSearchesAllSurfaces) private var commandPaletteSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(AgentConversationForkDefaultSettings.key)
     private var forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
-    @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
-    private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
-    @AppStorage(LastSurfaceCloseShortcutSettings.key)
-    private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
-    @AppStorage(PaneFirstClickFocusSettings.enabledKey)
-    private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
-    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
-    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @Setting(\.app.workspaceInheritWorkingDirectory) private var workspaceInheritWorkingDirectory
+    @Setting(\.app.keepWorkspaceOpenWhenClosingLastSurface) private var closeWorkspaceOnLastSurfaceShortcut
+    @Setting(\.app.focusPaneOnFirstClick) private var paneFirstClickFocusEnabled
+    @Setting(\.terminal.showScrollBar) private var showTerminalScrollBar
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
-    @AppStorage(TerminalCopyOnSelectSettings.copyOnSelectKey)
-    private var terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
+    @Setting(\.terminal.copyOnSelect) private var terminalCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
-    @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-    private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
-    @AppStorage(AgentHibernationSettings.enabledKey)
-    private var agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
+    @Setting(\.terminal.autoResumeAgentSessions) private var autoResumeAgentSessions
+    @Setting(\.terminal.agentHibernationEnabled) private var agentHibernationEnabled
     @AppStorage(AgentHibernationSettings.idleSecondsKey)
     private var agentHibernationIdleSeconds = AgentHibernationSettings.defaultIdleSeconds
     @AppStorage(AgentHibernationSettings.maxLiveTerminalsKey)
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
-    @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
-    @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
+    @Setting(\.app.reorderOnNotification) private var workspaceAutoReorder
+    @Setting(\.app.iMessageMode) private var iMessageMode
     // iMessageModeGroupSortSettings.{sortInsideGroupsKey,floatGroupsKey}
     // exist in UserDefaults but are not surfaced in Settings yet — the
     // sort path doesn't read them yet. Re-add @AppStorage bindings here
@@ -5363,8 +5374,13 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    // Dogfood: first @AppStorage call site converted to the new
+    // CmuxSettings/CmuxSettingsUI primitives. Resolves the
+    // SettingsRuntime injected on the Settings Window scene and
+    // routes reads/writes through UserDefaultsSettingsStore actor +
+    // DefaultsValueModel observation. UserDefaults key is the same
+    // ("rightSidebar.beta.dock.enabled") so existing values round-trip.
+    @Setting(\.betaFeatures.rightSidebarDock) private var rightSidebarDockEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -9057,68 +9073,13 @@ private struct GlobalHotkeySection: View {
 
 private struct SettingsWindowRootView: View {
     @State private var draftState = SettingsDraftState()
-    @State private var windowReference = WeakSettingsWindowReference()
-    @State private var shouldRenderSettingsContent = true
 
     var body: some View {
-        Group {
-            if shouldRenderSettingsContent {
-                SettingsRootView(draftState: draftState)
-            } else {
-                Color.clear
-                    .frame(
-                        minWidth: SettingsWindowPresenter.minimumSize.width,
-                        minHeight: SettingsWindowPresenter.minimumSize.height
-                    )
-            }
-        }
-        .background(WindowAccessor { window in
-            windowReference.window = window
-            SettingsWindowPresenter.configure(window: window)
-            setContentVisibility(!window.isMiniaturized)
-        })
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-            windowReference.window = nil
-        }
+        SettingsRootView(draftState: draftState)
+            .background(WindowAccessor(dedupeByWindow: false) { window in
+                SettingsWindowPresenter.configure(window: window)
+            })
     }
-
-    private func isObservedWindow(_ object: Any?) -> Bool {
-        guard
-            let notificationWindow = object as? NSWindow,
-            let window = windowReference.window
-        else {
-            return false
-        }
-        return notificationWindow === window
-    }
-
-    private func setContentVisibility(_ isVisible: Bool) {
-        guard shouldRenderSettingsContent != isVisible else { return }
-        shouldRenderSettingsContent = isVisible
-    }
-}
-
-@MainActor
-private final class WeakSettingsWindowReference {
-    weak var window: NSWindow?
 }
 
 @MainActor
