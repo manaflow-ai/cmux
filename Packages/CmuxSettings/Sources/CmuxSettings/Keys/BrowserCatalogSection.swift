@@ -86,10 +86,14 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "reactGrabVersion"
     )
 
+    /// Stored under `browserDisabledOverride` — the key the runtime
+    /// gate `BrowserAvailabilitySettings.isDisabled()` actually reads.
+    /// (The intuitive `browserDisabled` is read by nothing, so the
+    /// "Enable cmux Browser" toggle was a no-op until this was aligned.)
     public let disabled = DefaultsKey<Bool>(
         id: "browser.disabled",
         defaultValue: false,
-        userDefaultsKey: "browserDisabled"
+        userDefaultsKey: "browserDisabledOverride"
     )
 
     public let importHintVariant = DefaultsKey<String>(
