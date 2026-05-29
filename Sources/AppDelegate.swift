@@ -3031,8 +3031,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
-        if let originalWindowId = snapshot.windowId {
+        if let originalWindowId = snapshot.windowId,
+           originalWindowId != context.windowId {
             ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
+            ClosedItemHistoryStore.shared.flushPendingSaves()
         }
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
@@ -7525,7 +7527,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         closedWindowHistoryWorkspaceIds: [UUID] = [],
-        remapClosedWorkspaceWindowIdsFromSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -7544,9 +7545,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
                 )
             }
-            if remapClosedWorkspaceWindowIdsFromSnapshot,
-               let originalWindowId = sessionWindowSnapshot.windowId {
+            if let originalWindowId = sessionWindowSnapshot.windowId,
+               originalWindowId != windowId {
                 ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
+                ClosedItemHistoryStore.shared.flushPendingSaves()
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }

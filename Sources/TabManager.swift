@@ -10098,11 +10098,13 @@ extension TabManager {
     ) {
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
+        var didRequestHistoryRemap = false
         for index in 0..<count {
             guard let originalWorkspaceId = originalWorkspaceIds[index],
                   originalWorkspaceId != tabs[index].id else {
                 continue
             }
+            didRequestHistoryRemap = true
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
@@ -10111,6 +10113,9 @@ extension TabManager {
                 to: tabs[index].id,
                 panelIdMap: panelIdMap
             )
+        }
+        if didRequestHistoryRemap {
+            ClosedItemHistoryStore.shared.flushPendingSaves()
         }
     }
 
@@ -10121,7 +10126,9 @@ extension TabManager {
         guard !originalWorkspaceIds.isEmpty else { return }
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
+        var didRequestHistoryRemap = false
         for index in 0..<count {
+            didRequestHistoryRemap = true
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
@@ -10130,6 +10137,9 @@ extension TabManager {
                 to: tabs[index].id,
                 panelIdMap: panelIdMap
             )
+        }
+        if didRequestHistoryRemap {
+            ClosedItemHistoryStore.shared.flushPendingSaves()
         }
     }
 }

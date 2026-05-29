@@ -114,11 +114,15 @@ extension AppDelegate {
         case .window(let windowEntry):
             var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
             var restoredTabManager: TabManager?
+            var windowSnapshot = windowEntry.snapshot
+            if windowSnapshot.windowId == nil {
+                windowSnapshot.windowId = windowEntry.windowId
+            }
+            let originalWindowId = windowSnapshot.windowId
             let windowId = createMainWindow(
-                sessionWindowSnapshot: windowEntry.snapshot,
+                sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: shouldActivate,
                 closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds,
-                remapClosedWorkspaceWindowIdsFromSnapshot: false,
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager
@@ -130,11 +134,16 @@ extension AppDelegate {
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
                 hasLivePanels: hasLivePanels
             ) else {
+                if let originalWindowId {
+                    ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: windowId, to: originalWindowId)
+                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                }
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
                 return false
             }
-            if let oldWindowId = windowEntry.windowId {
-                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: oldWindowId, to: windowId)
+            if let originalWindowId {
+                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
+                ClosedItemHistoryStore.shared.flushPendingSaves()
             }
             return true
         }

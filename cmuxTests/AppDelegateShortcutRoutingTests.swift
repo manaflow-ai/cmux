@@ -1312,51 +1312,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(liveManager.tabs.contains { $0.customTitle == "Closed Previous Workspace" })
     }
 
-    func testCreateMainWindowCanDeferClosedWorkspaceWindowIdRemap() throws {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        ClosedItemHistoryStore.shared.removeAll()
-        defer { ClosedItemHistoryStore.shared.removeAll() }
-
-        let baselineWindowIds = mainWindowIds()
-        defer {
-            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
-                closeWindow(withId: windowId)
-            }
-        }
-
-        let oldWindowId = UUID()
-        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
-        let closedWorkspaceManager = TabManager(autoWelcomeIfNeeded: false)
-        let closedWorkspace = try XCTUnwrap(closedWorkspaceManager.selectedWorkspace)
-        let closedRecordId = UUID()
-        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
-            id: closedRecordId,
-            closedAt: Date(timeIntervalSince1970: 1_700_000_002),
-            entry: .workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: closedWorkspace.id,
-                windowId: oldWindowId,
-                workspaceIndex: 0,
-                snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
-            ))
-        ))
-
-        _ = appDelegate.createMainWindow(
-            sessionWindowSnapshot: sessionWindowSnapshot(tabManager: restoredManager, windowId: oldWindowId),
-            shouldActivate: false,
-            remapClosedWorkspaceWindowIdsFromSnapshot: false
-        )
-
-        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: closedRecordId)?.record)
-        guard case .workspace(let entry) = record.entry else {
-            return XCTFail("Expected workspace history")
-        }
-        XCTAssertEqual(entry.windowId, oldWindowId)
-    }
-
     func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
