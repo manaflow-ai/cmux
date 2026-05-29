@@ -97,22 +97,20 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
             do {
                 let model = try adapter.load(at: url)
                 if Task.isCancelled { return }
-                await MainActor.run {
-                    guard let self else { return }
-                    self.applyLoaded(model)
-                }
+                await self?.applyLoaded(model)
             } catch {
                 if Task.isCancelled { return }
-                await MainActor.run {
-                    guard let self else { return }
-                    self.lastLoadError = Self.describe(error)
-                    if let previousModel {
-                        self.loadState = .loaded(previousModel)
-                    } else {
-                        self.loadState = .failed(self.lastLoadError ?? "Unknown error")
-                    }
-                }
+                await self?.applyLoadError(error, previousModel: previousModel)
             }
+        }
+    }
+
+    private func applyLoadError(_ error: Error, previousModel: ProjectModel?) {
+        lastLoadError = Self.describe(error)
+        if let previousModel {
+            loadState = .loaded(previousModel)
+        } else {
+            loadState = .failed(lastLoadError ?? "Unknown error")
         }
     }
 
