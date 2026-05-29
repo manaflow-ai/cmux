@@ -629,6 +629,24 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Rewrites stale Hermes Codex provider")
+    func rewritesStaleHermesCodexProvider() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider", "openai-codex", "--model", "gpt-5.5"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider", "custom", "--model", "gpt-5.5"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["hermes", "--provider=openai-codex", "--model", "gpt-5.5"],
+                launcher: "hermes-agent",
+                fallbackKind: "hermes-agent"
+            ) == ["hermes", "--provider=custom", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Drops Amp --label and its value while preserving later options")
     func dropsAmpLabelValueAndPreservesLaterOptions() {
         // --label takes a value. If --label isn't in valueOptions, the

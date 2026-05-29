@@ -7,8 +7,29 @@ public enum HermesAgentCodexEnvironment {
     public static let customBaseURLEnvironmentKey = "CUSTOM_BASE_URL"
 
     public static func argumentsWithDefaultProvider(_ arguments: [String]) -> [String] {
-        guard !containsProviderOverride(arguments) else { return arguments }
-        return ["--provider", defaultProvider] + arguments
+        var result: [String] = []
+        var hasProviderOverride = false
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--provider", index + 1 < arguments.count {
+                hasProviderOverride = true
+                result.append(argument)
+                let provider = arguments[index + 1]
+                result.append(provider == "openai-codex" ? defaultProvider : provider)
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--provider=") {
+                hasProviderOverride = true
+                let provider = String(argument.dropFirst("--provider=".count))
+                result.append(provider == "openai-codex" ? "--provider=\(defaultProvider)" : argument)
+            } else {
+                result.append(argument)
+            }
+            index += 1
+        }
+        return hasProviderOverride ? result : ["--provider", defaultProvider] + result
     }
 
     public static func applyingDefaultCodexBaseURL(
@@ -144,12 +165,6 @@ public enum HermesAgentCodexEnvironment {
             return normalizedURLString(from: components)
         }
         return nil
-    }
-
-    private static func containsProviderOverride(_ arguments: [String]) -> Bool {
-        arguments.contains { argument in
-            argument == "--provider" || argument.hasPrefix("--provider=")
-        }
     }
 
     private static func codexConfigPath(

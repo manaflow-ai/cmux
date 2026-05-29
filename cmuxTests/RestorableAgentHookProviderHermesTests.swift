@@ -43,6 +43,34 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testHermesAgentResumeCommandRewritesStaleCodexProvider() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "hermes-session-123",
+            workingDirectory: "/tmp/hermes repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: [
+                    "/opt/homebrew/bin/hermes",
+                    "--provider",
+                    "openai-codex",
+                    "--model",
+                    "gpt-5.5",
+                ],
+                workingDirectory: "/tmp/hermes repo",
+                environment: [:],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--model' 'gpt-5.5' '--resume' 'hermes-session-123'"
+        )
+    }
+
     func testHermesIndexedResumeCommandPinsHermesHome() {
         let entry = SessionEntry(
             id: "hermes-agent:hermes-session-123",
