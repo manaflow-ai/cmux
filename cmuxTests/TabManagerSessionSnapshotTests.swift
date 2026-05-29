@@ -1993,6 +1993,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let requestData = try JSONSerialization.data(withJSONObject: request, options: []) + Data([0x0A])
         let rewrittenData = restoredWorkspace.rewriteRemoteRelayCommandLine(requestData)
         let params = try decodedParams(from: rewrittenData)
+        let requestDataWithoutNewline = try JSONSerialization.data(withJSONObject: request, options: [])
+        let rewrittenDataWithoutNewline = restoredWorkspace.rewriteRemoteRelayCommandLine(requestDataWithoutNewline)
+        XCTAssertEqual(rewrittenData.last, UInt8(0x0A))
+        XCTAssertNotEqual(rewrittenDataWithoutNewline.last, UInt8(0x0A))
 
         XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspace.id.uuidString)
         XCTAssertEqual(params["surface_id"] as? String, restoredPanelId.uuidString)

@@ -12802,7 +12802,10 @@ final class Workspace: Identifiable, ObservableObject {
               let rewritten = try? JSONSerialization.data(withJSONObject: request, options: []) else {
             return commandLine
         }
-        return rewritten + Data([0x0A])
+        if commandLine.last == 0x0A {
+            return rewritten + Data([0x0A])
+        }
+        return rewritten
     }
 
     private nonisolated static func remappedRemoteRelayValue(
