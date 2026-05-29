@@ -1245,9 +1245,21 @@ function ComposerTopTray({
         "div",
         { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
         items.length === 0
-          ? h("div", { className: "codex-top-tray-empty" }, emptyLabel)
-          : items.map((item, index) =>
-            h(
+          ? h(
+            "div",
+            {
+              className: "codex-top-tray-empty",
+              "cmdk-empty": "",
+              "data-cmdk-empty": true,
+              "data-command-menu-empty-state": "true",
+            },
+            emptyLabel,
+          )
+          : items.map((item, index) => {
+            const titleClass = item.detail
+              ? "codex-top-tray-label max-w-[60%] flex-none truncate"
+              : "codex-top-tray-label min-w-0 flex-1 truncate";
+            return h(
               "button",
               {
                 key: item.id,
@@ -1263,13 +1275,19 @@ function ComposerTopTray({
               },
               h(
                 "div",
-                { className: "codex-top-tray-copy flex w-full min-w-0 items-center gap-2" },
+                { className: "codex-top-tray-copy flex w-full items-center gap-2" },
                 h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
-                h("span", { className: "codex-top-tray-label truncate" }, item.label),
-                h("span", { className: "codex-top-tray-detail flex-1 truncate text-sm text-token-description-foreground" }, item.detail),
+                h("div", { className: titleClass }, item.label),
+                item.detail
+                  ? h(
+                    "span",
+                    { className: "codex-top-tray-detail min-w-0 flex-1 truncate text-sm text-token-description-foreground" },
+                    item.detail,
+                  )
+                  : null,
               ),
-            ),
-          ),
+            );
+          }),
       ),
     ),
   );

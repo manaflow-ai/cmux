@@ -97,6 +97,7 @@
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   --agent-primary-text: #ffffff;
+  --gray-0: #ffffff;
   --color-background-surface: transparent;
   --color-background-surface-under: transparent;
   --color-background-elevated-primary: var(--agent-surface-elevated);
@@ -861,6 +862,28 @@ img.ProseMirror-separator {
   opacity: 1;
 }
 
+[cmdk-item][data-command-menu-loading="true"],
+[cmdk-item][data-command-menu-loading="true"]:hover,
+[cmdk-item][data-command-menu-loading="true"][data-selected="true"],
+[cmdk-item][data-command-menu-loading="true"][aria-selected="true"],
+[cmdk-item][data-command-menu-loading="true"]:focus-visible,
+[cmdk-item][data-command-menu-loading="true"]:active {
+  cursor: default;
+  background-color: transparent;
+  opacity: 0.6;
+}
+
+[cmdk-item][data-command-menu-empty-state="true"],
+[cmdk-item][data-command-menu-empty-state="true"]:hover,
+[cmdk-item][data-command-menu-empty-state="true"][data-selected="true"],
+[cmdk-item][data-command-menu-empty-state="true"][aria-selected="true"],
+[cmdk-item][data-command-menu-empty-state="true"]:focus-visible,
+[cmdk-item][data-command-menu-empty-state="true"]:active {
+  cursor: default;
+  background-color: transparent;
+  opacity: 1;
+}
+
 [cmdk-list] {
   display: flex;
   min-height: 0;
@@ -875,6 +898,60 @@ img.ProseMirror-separator {
 
 [cmdk-list]:focus-visible {
   outline: none;
+}
+
+.command-menu-dialog [cmdk-list] {
+  max-height: var(--command-menu-list-max-height);
+  scroll-padding-block-start: calc(var(--spacing) * 8);
+}
+
+.composer-home-top-menu [cmdk-list] {
+  max-height: none;
+}
+
+.composer-home-top-menu {
+  max-height: min(320px, var(--composer-top-menu-max-height, 320px));
+  overflow: hidden;
+}
+
+:where([cmdk-list]) > [cmdk-item]:not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) {
+  border-bottom-right-radius: var(--cmdk-bottom-item-radius);
+  border-bottom-left-radius: var(--cmdk-bottom-item-radius);
+}
+
+:where([cmdk-list]) > [cmdk-group]:not([hidden]):not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) [cmdk-item]:last-of-type {
+  border-bottom-right-radius: var(--cmdk-bottom-item-radius);
+  border-bottom-left-radius: var(--cmdk-bottom-item-radius);
+}
+
+:where([cmdk-list]) > [cmdk-list-sizer] > [cmdk-item]:not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) {
+  border-bottom-right-radius: var(--cmdk-bottom-item-radius);
+  border-bottom-left-radius: var(--cmdk-bottom-item-radius);
+}
+
+:where([cmdk-list]) > [cmdk-list-sizer] > [cmdk-group]:not([hidden]):not(:has(~ [cmdk-item], ~ [cmdk-group]:not([hidden]))) [cmdk-item]:last-of-type {
+  border-bottom-right-radius: var(--cmdk-bottom-item-radius);
+  border-bottom-left-radius: var(--cmdk-bottom-item-radius);
+}
+
+[cmdk-input] {
+  padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2.5);
+}
+
+[cmdk-input]:focus-visible {
+  outline: none;
+}
+
+[cmdk-empty],
+[data-cmdk-empty] {
+  display: flex;
+  min-height: calc(var(--spacing) * 8);
+  align-items: center;
+  padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2.5);
+  color: var(--color-token-description-foreground);
+  line-height: 1.4;
+  text-align: center;
+  white-space: pre-wrap;
 }
 
 [data-codex-window-type="electron"] [cmdk-root],
