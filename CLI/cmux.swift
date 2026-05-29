@@ -4523,6 +4523,10 @@ struct CMUXCLI {
         case "browser":
             try runBrowserCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Project pane
+        case "project":
+            try runProjectCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         // Legacy aliases shimmed onto the v2 browser command surface.
         case "open-browser":
             try runBrowserCommand(commandArgs: ["open"] + commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -4708,6 +4712,61 @@ struct CMUXCLI {
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
             let filePath = (payload["path"] as? String) ?? absolutePath
             print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+        }
+    }
+
+    private func runProjectCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
+        args = argsAfterFocus
+
+        // Treat first token as subcommand if it's "open", else require it.
+        guard let first = args.first?.lowercased() else {
+            throw CLIError(message: "project requires a subcommand. Usage: cmux project open <path-to-.xcodeproj-or-.xcworkspace>")
+        }
+        let subArgs: [String]
+        if first == "open" {
+            subArgs = Array(args.dropFirst())
+        } else if args.count == 1 {
+            subArgs = args
+        } else {
+            throw CLIError(message: "Unknown project subcommand: \(first). Usage: cmux project open <path>")
+        }
+
+        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+            throw CLIError(message: "project open requires a path. Usage: cmux project open <path-to-.xcodeproj-or-.xcworkspace>")
+        }
+        let absolutePath = resolvePath(rawPath)
+        var params: [String: Any] = ["path": absolutePath]
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+        try applyFocusOption(focusOpt, defaultValue: true, to: &params)
+
+        let payload = try client.sendV2(method: "project.open", params: params)
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let path = (payload["path"] as? String) ?? absolutePath
+            print("OK surface=\(surfaceText) pane=\(paneText) project=\(path)")
         }
     }
 
