@@ -822,6 +822,7 @@ function SessionSurface({
                   items: menuItems,
                   onChoose: insertComposerMenuItem,
                   onHighlight: setMenuIndex,
+                  query: menuQuery,
                 })
               : null,
             h(
@@ -1228,12 +1229,14 @@ function ComposerTopTray({
   items,
   onChoose,
   onHighlight,
+  query,
 }: {
   emptyLabel: string;
   highlightedIndex: number;
   items: ComposerMenuItem[];
   onChoose: (item: ComposerMenuItem) => void;
   onHighlight: (index: number) => void;
+  query: string;
 }) {
   return h(
     "div",
@@ -1259,6 +1262,8 @@ function ComposerTopTray({
             const titleClass = item.detail
               ? "codex-top-tray-label max-w-[60%] flex-none truncate"
               : "codex-top-tray-label min-w-0 flex-1 truncate";
+            const titleParts = composerMenuTitleParts(item.label, query);
+            const hasDimmedTitleParts = titleParts.some((part) => !part.isMatch);
             return h(
               "button",
               {
@@ -1277,7 +1282,20 @@ function ComposerTopTray({
                 "div",
                 { className: "codex-top-tray-copy flex w-full items-center gap-2" },
                 h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
-                h("div", { className: titleClass }, item.label),
+                h(
+                  "div",
+                  { className: titleClass },
+                  titleParts.map((part, partIndex) =>
+                    h(
+                      "span",
+                      {
+                        key: `${part.text}-${partIndex}`,
+                        className: !part.isMatch && hasDimmedTitleParts ? "text-token-description-foreground" : undefined,
+                      },
+                      part.text,
+                    )
+                  ),
+                ),
                 item.detail
                   ? h(
                     "span",
@@ -1785,6 +1803,29 @@ function filterComposerMenuItems(items: ComposerMenuItem[], query: string): Comp
   return items.filter((item) => {
     const haystack = `${item.label} ${item.detail} ${item.mention.name}`.toLowerCase();
     return haystack.includes(normalizedQuery);
+  });
+}
+
+function composerMenuTitleParts(title: string, query: string): Array<{ isMatch: boolean; text: string }> {
+  const characters = Array.from(title);
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return characters.map((text) => ({ isMatch: true, text }));
+  }
+  const lowercaseTitle = title.toLowerCase();
+  const lowercaseQuery = trimmedQuery.toLowerCase();
+  const exactIndex = lowercaseTitle.indexOf(lowercaseQuery);
+  if (exactIndex >= 0) {
+    const matchEnd = exactIndex + lowercaseQuery.length;
+    return characters.map((text, index) => ({ isMatch: index >= exactIndex && index < matchEnd, text }));
+  }
+  let queryIndex = 0;
+  return characters.map((text) => {
+    const isMatch = queryIndex < lowercaseQuery.length && text.toLowerCase() === lowercaseQuery[queryIndex];
+    if (isMatch) {
+      queryIndex += 1;
+    }
+    return { isMatch, text };
   });
 }
 
