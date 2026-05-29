@@ -69,6 +69,89 @@ const backgroundPresets = [
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 
+const settingsPresets = [
+  {
+    id: "balanced",
+    label: "Balanced",
+    body: "Default chrome, clear terminal, full status.",
+    settings: {
+      theme: "cmux",
+      accent: "oklch(61% 0.22 255)",
+      backgroundImage: "",
+      backgroundOpacity: 16,
+      density: "comfortable",
+      showTabs: true,
+      showStatusbar: true,
+      showAdvanced: false,
+      performanceMode: false,
+      sidebarWidth: 232,
+      terminalFontSize: 13,
+      terminalPadding: 8,
+      terminalScrollback: 12000
+    }
+  },
+  {
+    id: "focus",
+    label: "Focus",
+    body: "Tighter layout with quiet Harbor colors.",
+    settings: {
+      theme: "harbor",
+      accent: "oklch(66% 0.13 175)",
+      backgroundImage: "",
+      backgroundOpacity: 10,
+      density: "compact",
+      showTabs: true,
+      showStatusbar: false,
+      showAdvanced: false,
+      performanceMode: false,
+      sidebarWidth: 216,
+      terminalFontSize: 14,
+      terminalPadding: 6,
+      terminalScrollback: 10000
+    }
+  },
+  {
+    id: "performance",
+    label: "Performance",
+    body: "Cuts effects and keeps terminal history lighter.",
+    settings: {
+      theme: "graphite",
+      accent: "oklch(72% 0.17 230)",
+      backgroundImage: "",
+      backgroundOpacity: 0,
+      density: "compact",
+      showTabs: true,
+      showStatusbar: false,
+      showAdvanced: false,
+      performanceMode: true,
+      sidebarWidth: 204,
+      terminalFontSize: 13,
+      terminalPadding: 4,
+      terminalScrollback: 6000
+    }
+  },
+  {
+    id: "showcase",
+    label: "Showcase",
+    body: "Richer theme and soft background for demos.",
+    settings: {
+      theme: "orchid",
+      accent: "oklch(74% 0.18 305)",
+      backgroundImage: "preset:soft-aurora",
+      backgroundOpacity: 24,
+      density: "comfortable",
+      showTabs: true,
+      showStatusbar: true,
+      showAdvanced: false,
+      performanceMode: false,
+      sidebarWidth: 248,
+      terminalFontSize: 14,
+      terminalPadding: 10,
+      terminalScrollback: 12000
+    }
+  }
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -1068,6 +1151,10 @@ function renderSettingsInspector() {
   const workspace = activeWorkspace();
   const nodes = [];
 
+  const quickSection = settingsSection("Quick setup");
+  quickSection.append(settingsPresetGrid());
+  nodes.push(quickSection);
+
   const workspaceSection = settingsSection("Workspace");
   const titleInput = document.createElement("input");
   titleInput.className = "setting-control";
@@ -1294,6 +1381,32 @@ function settingsActionButton(label, onClick, tone = "") {
   button.textContent = label;
   button.onclick = onClick;
   return button;
+}
+
+function settingsPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "settings-preset-grid";
+  for (const preset of settingsPresets) {
+    const button = document.createElement("button");
+    button.className = `settings-preset${isActiveSettingsPreset(preset) ? " is-active" : ""}`;
+    button.type = "button";
+    button.innerHTML = `<span class="settings-preset-title"></span><span class="settings-preset-body"></span>`;
+    button.querySelector(".settings-preset-title").textContent = preset.label;
+    button.querySelector(".settings-preset-body").textContent = preset.body;
+    button.onclick = () => applySettingsPreset(preset);
+    grid.append(button);
+  }
+  return grid;
+}
+
+function isActiveSettingsPreset(preset) {
+  return Object.entries(preset.settings).every(([key, value]) => state.settings[key] === value);
+}
+
+function applySettingsPreset(preset) {
+  updateSettings(preset.settings);
+  renderSettingsInspector();
+  toast(`${preset.label} settings applied.`);
 }
 
 function ensureContextMenu() {
