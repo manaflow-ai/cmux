@@ -1033,6 +1033,114 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 1_000, accuracy: 0.001)
     }
 
+    func testResolvedWindowFramePreservesSavedSizeWhenSameDisplayTemporarilyShrinksDuringWake() {
+        let savedFrame = SessionRectSnapshot(x: 0, y: 0, width: 3_440, height: 1_410)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 3_440, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 3_440, height: 1_410)
+        )
+        let transientWakeDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 39, width: 3_440, height: 1_053),
+            visibleFrame: CGRect(x: 0, y: 39, width: 3_440, height: 1_053)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: savedDisplay,
+            availableDisplays: [transientWakeDisplay],
+            fallbackDisplay: transientWakeDisplay
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.width, 3_440, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
+        XCTAssertEqual(restored.maxY, transientWakeDisplay.visibleFrame.maxY, accuracy: 0.001)
+    }
+
+    func testDisplayReconfigurationDoesNotTreatUserShrinkAsVolatileGeometry() {
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let currentDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+
+        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+            savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
+            liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
+            cachedDisplay: savedDisplay,
+            liveDisplayID: 2,
+            displays: [currentDisplay],
+            reason: .displayReconfiguration
+        )
+
+        XCTAssertFalse(
+            shouldUseCachedFrame,
+            "A user shrink on unchanged display geometry should be saved, not replaced by stale cache"
+        )
+    }
+
+    func testSleepWakeTreatsSameDisplayShrinkAsVolatileGeometry() {
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let currentDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+
+        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+            savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
+            liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
+            cachedDisplay: savedDisplay,
+            liveDisplayID: 2,
+            displays: [currentDisplay],
+            reason: .sleepWake
+        )
+
+        XCTAssertTrue(
+            shouldUseCachedFrame,
+            "Sleep/wake can shrink windows before NSScreen reports the temporary display change"
+        )
+    }
+
+    func testDisplayReconfigurationKeepsCachedFrameWhenDisplayGeometryChanges() {
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let resizedDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_050)
+        )
+
+        let shouldUseCachedFrame = AppDelegate.shouldUseCachedWindowFrameDuringDisplayTransition(
+            savedFrame: CGRect(x: 120, y: 80, width: 1_200, height: 900),
+            liveFrame: CGRect(x: 120, y: 80, width: 900, height: 700),
+            cachedDisplay: savedDisplay,
+            liveDisplayID: 2,
+            displays: [resizedDisplay],
+            reason: .displayReconfiguration
+        )
+
+        XCTAssertTrue(
+            shouldUseCachedFrame,
+            "Display reconfiguration should still protect system-shrunk frames when display geometry changed"
+        )
+    }
+
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
         let savedDisplay = SessionDisplaySnapshot(
@@ -1055,9 +1163,10 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertNotNil(restored)
         guard let restored else { return }
-        XCTAssertTrue(resizedDisplay.visibleFrame.contains(restored))
-        XCTAssertNotEqual(restored.minX, 1_303, "Changed display geometry should clamp/remap frame")
-        XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
+        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
+        XCTAssertEqual(restored.minX, 640, accuracy: 0.001)
+        XCTAssertEqual(restored.maxY, resizedDisplay.visibleFrame.maxY, accuracy: 0.001)
     }
 
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
