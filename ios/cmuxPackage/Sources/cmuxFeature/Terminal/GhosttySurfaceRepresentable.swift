@@ -118,7 +118,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 let decoded = input
                     .replacingOccurrences(of: "\\r", with: "\r")
                     .replacingOccurrences(of: "\\n", with: "\n")
-                surfaceView?.simulateInputProxyTextChangeForTesting(decoded, isComposing: false)
+                guard let surfaceView else { return }
+                let normalized = decoded.replacingOccurrences(of: "\n", with: "\r")
+                self.ghosttySurfaceView(surfaceView, didProduceInput: Data(normalized.utf8))
             }
         }
         #endif

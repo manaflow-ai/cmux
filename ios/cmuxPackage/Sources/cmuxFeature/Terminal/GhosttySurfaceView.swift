@@ -886,9 +886,16 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var lastProcessOutputLogTime: CFTimeInterval = 0
+    #if DEBUG
+    private var testingAccessibilityOutputMirror = ""
+    private static let testingAccessibilityOutputMirrorLimit = 8 * 1024
+    #endif
 
     func processOutput(_ data: Data) {
         guard let surface else { return }
+        #if DEBUG
+        appendTestingAccessibilityOutput(data)
+        #endif
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -1428,11 +1435,110 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     #if DEBUG
     private func updateTestingAccessibilityState() {
-        if let renderedText = accessibilityRenderedTextForTesting(),
-           !renderedText.isEmpty {
-            accessibilityLabel = renderedText
+        let ghosttyReadText = accessibilityRenderedTextForTesting()
+        let labelText: String?
+        if let ghosttyReadText,
+           !ghosttyReadText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            labelText = ghosttyReadText
+        } else if !testingAccessibilityOutputMirror.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            labelText = testingAccessibilityOutputMirror
+        } else {
+            labelText = nil
+        }
+        if let labelText {
+            accessibilityLabel = labelText
         }
         accessibilityValue = rendererLayerDiagnosticsForTesting()
+    }
+
+    private func appendTestingAccessibilityOutput(_ data: Data) {
+        let mirrored = Self.testingAccessibilityPlainText(from: data)
+        if mirrored.reset {
+            testingAccessibilityOutputMirror = ""
+        }
+        guard !mirrored.text.isEmpty else { return }
+        testingAccessibilityOutputMirror.append(mirrored.text)
+        if testingAccessibilityOutputMirror.utf8.count > Self.testingAccessibilityOutputMirrorLimit {
+            testingAccessibilityOutputMirror = String(
+                testingAccessibilityOutputMirror.suffix(Self.testingAccessibilityOutputMirrorLimit)
+            )
+        }
+    }
+
+    private static func testingAccessibilityPlainText(from data: Data) -> (text: String, reset: Bool) {
+        let bytes = [UInt8](data)
+        var output: [UInt8] = []
+        var reset = false
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x1b {
+                let escaped = consumeEscapeSequence(bytes: bytes, start: index)
+                if escaped.isClearScreen {
+                    reset = true
+                }
+                index = escaped.nextIndex
+                continue
+            }
+
+            switch byte {
+            case 0x08:
+                if !output.isEmpty {
+                    output.removeLast()
+                }
+            case 0x0d:
+                if index + 1 < bytes.count, bytes[index + 1] == 0x0a {
+                    break
+                }
+                output.append(0x0a)
+            case 0x0a, 0x09:
+                output.append(byte)
+            case 0x20...0x7e:
+                output.append(byte)
+            default:
+                break
+            }
+            index += 1
+        }
+        return (String(decoding: output, as: UTF8.self), reset)
+    }
+
+    private static func consumeEscapeSequence(bytes: [UInt8], start: Int) -> (nextIndex: Int, isClearScreen: Bool) {
+        guard start + 1 < bytes.count else {
+            return (start + 1, false)
+        }
+        let introducer = bytes[start + 1]
+        if introducer == 0x5b {
+            var index = start + 2
+            var parameters: [UInt8] = []
+            while index < bytes.count {
+                let byte = bytes[index]
+                index += 1
+                if byte >= 0x40, byte <= 0x7e {
+                    return (index, byte == 0x4a && parameters.contains(0x32))
+                }
+                parameters.append(byte)
+            }
+            return (index, false)
+        }
+
+        if introducer == 0x5d {
+            var index = start + 2
+            while index < bytes.count {
+                if bytes[index] == 0x07 {
+                    return (index + 1, false)
+                }
+                if bytes[index] == 0x1b,
+                   index + 1 < bytes.count,
+                   bytes[index + 1] == 0x5c {
+                    return (index + 2, false)
+                }
+                index += 1
+            }
+            return (index, false)
+        }
+
+        return (min(start + 2, bytes.count), false)
     }
 
     private func rendererLayerDiagnosticsForTesting() -> String {
