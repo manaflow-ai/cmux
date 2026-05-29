@@ -2548,13 +2548,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             restoreDefaultsValue(savedLegacyTitlebar, forKey: WorkspaceTitlebarSettings.showTitlebarKey, defaults: defaults)
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        let window = makeRegisteredShortcutRoutingWindow(id: UUID())
+        defer { closeTestWindow(window) }
 
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected main window")
-            return
-        }
+        appDelegate.attachUpdateAccessory(to: window)
 
         let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
             window.titlebarAccessoryViewControllers.first {
@@ -2570,7 +2567,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         appDelegate.attachUpdateAccessory(to: window)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         guard let minimalAccessory = titlebarAccessory() else {
             XCTFail("Minimal mode should keep a hidden titlebar accessory so shortcut-driven popovers still have a controller")
