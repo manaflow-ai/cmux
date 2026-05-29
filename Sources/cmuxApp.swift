@@ -5324,6 +5324,10 @@ struct SettingsView: View {
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
+    // iMessageModeGroupSortSettings.{sortInsideGroupsKey,floatGroupsKey}
+    // exist in UserDefaults but are not surfaced in Settings yet — the
+    // sort path doesn't read them yet. Re-add @AppStorage bindings here
+    // when the sort logic lands.
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
@@ -7051,6 +7055,15 @@ struct SettingsView: View {
                         SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
                         SettingsCardDivider()
+
+                        // iMessage-mode group sort toggles are deliberately
+                        // not surfaced in Settings yet — the underlying
+                        // reorder path doesn't read
+                        // IMessageModeGroupSortSettings.{sortInsideGroups,
+                        // floatGroups} yet, so flipping the toggles wouldn't
+                        // change behavior. The settings keys ship persisted
+                        // so user-set values survive the upgrade that
+                        // activates the sort.
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
