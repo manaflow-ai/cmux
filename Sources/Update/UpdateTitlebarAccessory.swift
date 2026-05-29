@@ -35,7 +35,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         switch self {
         case .classic:
             return TitlebarControlsStyleConfig(
-                spacing: 10,
+                spacing: 3,
                 iconSize: HeaderChromeControlMetrics.iconSize,
                 buttonSize: HeaderChromeControlMetrics.buttonSize,
                 badgeSize: 12,
