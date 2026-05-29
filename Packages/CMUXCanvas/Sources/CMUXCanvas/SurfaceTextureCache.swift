@@ -10,10 +10,14 @@ public enum CanvasSurfaceTextureKind: String, Codable, Sendable, Equatable {
 public enum CanvasSurfaceTextureSourceSelectionPolicy {
     public static func selectedKind(
         preferSnapshot: Bool,
+        preferLiveTexture: Bool = false,
         allowLiveTextureFallback: Bool = true,
         hasLiveTexture: Bool,
         hasSnapshotTexture: Bool
     ) -> CanvasSurfaceTextureKind? {
+        if preferLiveTexture, hasLiveTexture {
+            return .live
+        }
         if preferSnapshot {
             if hasSnapshotTexture {
                 return .snapshot

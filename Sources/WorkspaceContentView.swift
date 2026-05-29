@@ -3173,6 +3173,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             let liveSurface = (workspace.panel(for: selected.id) as? TerminalPanel)?.hostedView.currentCanvasIOSurface()
             switch CanvasSurfaceTextureSourceSelectionPolicy.selectedKind(
                 preferSnapshot: preferFrozenPreviewTextures,
+                preferLiveTexture: preferFrozenPreviewTextures && liveSurface != nil,
                 allowLiveTextureFallback: allowLiveTextureFallback,
                 hasLiveTexture: liveSurface != nil,
                 hasSnapshotTexture: snapshotImage != nil
