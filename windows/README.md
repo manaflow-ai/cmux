@@ -37,7 +37,7 @@ Implemented in this milestone:
 - Browser panes through Electron `webview`, with iframe fallback outside Electron.
 - Named-pipe CLI/control protocol.
 - Native Windows window controls, draggable split dividers, terminal font-size controls, restart, and close-to-empty workspace home state.
-- Settings panel with category navigation, one-click setup presets, expanded themes/accent palettes, workspace names/colors, built-in/custom backgrounds, import/export/reset, density, sidebar width, tabs/status bar visibility, toolbar shortcut visibility, performance mode, terminal text size, terminal padding, and terminal scrollback.
+- Settings panel with category navigation, one-click setup presets, expanded themes/accent palettes, workspace names/colors, built-in/custom backgrounds, import/export/reset, density, sidebar width, tabs/status bar visibility, toolbar shortcut visibility, performance mode, terminal text size, terminal padding, cursor style/blink, default shell profile, and terminal scrollback.
 - Compact Tools menu for workspace/session actions so the default top bar stays simple.
 - Chrome-style surface tabs with a new-tab button, drag reordering, workspace drop targets, right-click rename/duplicate/move/close actions, and per-tab colors.
 - Workspace right-click menus for focus, rename, color, new terminal/browser, new workspace, and close actions.

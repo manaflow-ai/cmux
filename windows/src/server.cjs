@@ -71,16 +71,53 @@ function readBody(request) {
   });
 }
 
-function resolveShell() {
-  if (process.env.CMUX_WINDOWS_SHELL) return process.env.CMUX_WINDOWS_SHELL;
-  const candidates = process.platform === "win32"
-    ? ["pwsh.exe", "powershell.exe", "cmd.exe"]
-    : [process.env.SHELL || "/bin/sh", "/bin/bash", "/bin/sh"];
+const shellProfileIds = new Set(["auto", "pwsh", "powershell", "cmd", "wsl", "git-bash", "custom"]);
+
+function sanitizeShellProfile(value) {
+  const profile = String(value || "auto").trim();
+  return shellProfileIds.has(profile) ? profile : "auto";
+}
+
+function sanitizeShellPath(value) {
+  return String(value || "").trim().slice(0, 512);
+}
+
+function executableExists(candidate) {
+  if (!candidate) return false;
+  if (candidate.includes("\\") || candidate.includes("/") || path.isAbsolute(candidate)) {
+    return fs.existsSync(candidate);
+  }
+  const probe = process.platform === "win32"
+    ? spawnSync("where.exe", [candidate], { stdio: "ignore", windowsHide: true })
+    : spawnSync("command", ["-v", candidate], { shell: true, stdio: "ignore" });
+  return probe.status === 0;
+}
+
+function shellCandidates(profile, customShell) {
+  if (process.platform !== "win32") return [process.env.SHELL || "/bin/sh", "/bin/bash", "/bin/sh"];
+  if (profile === "custom") return [customShell, "pwsh.exe", "powershell.exe", "cmd.exe"];
+  if (profile === "pwsh") return ["pwsh.exe", "powershell.exe", "cmd.exe"];
+  if (profile === "powershell") return ["powershell.exe", "pwsh.exe", "cmd.exe"];
+  if (profile === "cmd") return ["cmd.exe", "powershell.exe"];
+  if (profile === "wsl") return ["wsl.exe", "pwsh.exe", "powershell.exe", "cmd.exe"];
+  if (profile === "git-bash") {
+    return [
+      path.join(process.env.ProgramFiles || "C:\\Program Files", "Git", "bin", "bash.exe"),
+      path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Git", "bin", "bash.exe"),
+      "bash.exe",
+      "pwsh.exe",
+      "powershell.exe",
+      "cmd.exe"
+    ];
+  }
+  if (process.env.CMUX_WINDOWS_SHELL) return [process.env.CMUX_WINDOWS_SHELL, "pwsh.exe", "powershell.exe", "cmd.exe"];
+  return ["pwsh.exe", "powershell.exe", "cmd.exe"];
+}
+
+function resolveShell(profile = "auto", customShell = "") {
+  const candidates = shellCandidates(sanitizeShellProfile(profile), sanitizeShellPath(customShell));
   for (const candidate of candidates) {
-    const probe = process.platform === "win32"
-      ? spawnSync("where.exe", [candidate], { stdio: "ignore", windowsHide: true })
-      : spawnSync("command", ["-v", candidate], { shell: true, stdio: "ignore" });
-    if (probe.status === 0) return candidate;
+    if (executableExists(candidate)) return candidate;
   }
   return process.platform === "win32" ? "cmd.exe" : "/bin/sh";
 }
@@ -146,7 +183,7 @@ class TerminalProcess {
   }
 
   start() {
-    const shellPath = resolveShell();
+    const shellPath = resolveShell(this.panel.shellProfile, this.panel.shellPath);
     const cwd = this.panel.cwd && fs.existsSync(this.panel.cwd)
       ? this.panel.cwd
       : os.homedir();
@@ -305,6 +342,8 @@ class CmuxWindowsRuntime {
               ? workspace.panels.map((panel) => ({
                 ...panel,
                 color: panel.color || "",
+                shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
+                shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
                 runtime: this,
                 needsAttention: false,
                 notificationText: ""
@@ -347,6 +386,8 @@ class CmuxWindowsRuntime {
           title: panel.title,
           color: panel.color || "",
           cwd: panel.cwd,
+          shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
+          shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
           url: panel.url
         }))
       }))
@@ -376,6 +417,8 @@ class CmuxWindowsRuntime {
       title: type === "browser" ? "Browser" : "Terminal",
       color: options.color || "",
       cwd: options.cwd || process.cwd(),
+      shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
+      shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",
       url: options.url || "https://example.com",
       needsAttention: false,
       notificationText: "",
@@ -426,6 +469,8 @@ class CmuxWindowsRuntime {
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
       branch: "",
+      shellProfile: panel.shellProfile || "",
+      shellPath: panel.shellPath || "",
       url: panel.url,
       needsAttention: panel.needsAttention,
       notificationText: panel.notificationText

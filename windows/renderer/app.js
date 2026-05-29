@@ -11,7 +11,11 @@ const defaultSettings = {
   sidebarWidth: 232,
   terminalFontSize: 13,
   terminalPadding: 8,
-  terminalScrollback: 12000
+  terminalScrollback: 12000,
+  terminalCursorStyle: "block",
+  terminalCursorBlink: true,
+  terminalProfile: "auto",
+  terminalCustomShell: ""
 };
 
 const themeOptions = [
@@ -68,6 +72,32 @@ const backgroundPresets = [
 ];
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
+
+const terminalProfiles = [
+  ["auto", "Auto"],
+  ["pwsh", "PowerShell 7"],
+  ["powershell", "Windows PowerShell"],
+  ["cmd", "Command Prompt"],
+  ["wsl", "WSL"],
+  ["git-bash", "Git Bash"],
+  ["custom", "Custom path"]
+];
+
+const terminalCursorStyles = [
+  ["block", "Block"],
+  ["bar", "Bar"],
+  ["underline", "Underline"]
+];
+
+const terminalAppearanceKeys = new Set([
+  "theme",
+  "accent",
+  "terminalFontSize",
+  "terminalPadding",
+  "terminalScrollback",
+  "terminalCursorStyle",
+  "terminalCursorBlink"
+]);
 
 const settingsPresets = [
   {
@@ -233,11 +263,15 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   if (!accentOptions.includes(next.accent)) next.accent = defaultSettings.accent;
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
+  if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
+  if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
+  next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
   next.showAdvanced = Boolean(next.showAdvanced);
   next.performanceMode = Boolean(next.performanceMode);
+  next.terminalCursorBlink = next.terminalCursorBlink !== false;
   next.sidebarWidth = clamp(next.sidebarWidth, 188, 304);
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   next.terminalPadding = clamp(next.terminalPadding, 0, 16);
@@ -305,6 +339,7 @@ function applySettings() {
 }
 
 function updateSettings(updates) {
+  const previous = state.settings;
   state.settings = normalizeSettings({
     ...state.settings,
     ...updates
@@ -312,7 +347,9 @@ function updateSettings(updates) {
   state.terminalFontSize = state.settings.terminalFontSize;
   saveSettings();
   applySettings();
-  refreshTerminalAppearance();
+  if (Object.keys(updates).some((key) => terminalAppearanceKeys.has(key) && previous[key] !== state.settings[key])) {
+    refreshTerminalAppearance();
+  }
 }
 
 function replaceChildrenIfChanged(parent, nodes) {
@@ -354,6 +391,8 @@ function refreshTerminalAppearance() {
   for (const session of state.terminals.values()) {
     session.term.options.fontSize = state.terminalFontSize;
     session.term.options.scrollback = state.settings.terminalScrollback;
+    session.term.options.cursorStyle = state.settings.terminalCursorStyle;
+    session.term.options.cursorBlink = state.settings.terminalCursorBlink;
     session.term.options.theme = terminalTheme();
     scheduleFitTerminal(session);
   }
@@ -961,7 +1000,8 @@ function ensureTerminal(panel, body) {
   body.appendChild(host);
 
   const term = new Terminal({
-    cursorBlink: true,
+    cursorBlink: state.settings.terminalCursorBlink,
+    cursorStyle: state.settings.terminalCursorStyle,
     allowProposedApi: true,
     convertEol: true,
     fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-mono"),
@@ -1322,6 +1362,43 @@ function renderSettingsInspector() {
     scrollbackRow.querySelector(".setting-label").textContent = `Scrollback ${state.settings.terminalScrollback}`;
   };
   terminalSection.append(scrollbackRow);
+  const cursorSelect = document.createElement("select");
+  cursorSelect.className = "setting-select";
+  for (const [value, label] of terminalCursorStyles) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    cursorSelect.append(option);
+  }
+  cursorSelect.value = state.settings.terminalCursorStyle;
+  cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
+  terminalSection.append(settingRow("Cursor", cursorSelect));
+  terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
+  const profileSelect = document.createElement("select");
+  profileSelect.className = "setting-select";
+  for (const [value, label] of terminalProfiles) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    profileSelect.append(option);
+  }
+  profileSelect.value = state.settings.terminalProfile;
+  profileSelect.onchange = () => {
+    updateSettings({ terminalProfile: profileSelect.value });
+    renderSettingsInspector();
+  };
+  terminalSection.append(settingRow("Default shell", profileSelect));
+  if (state.settings.terminalProfile === "custom") {
+    const shellInput = document.createElement("input");
+    shellInput.className = "setting-control";
+    shellInput.value = state.settings.terminalCustomShell;
+    shellInput.placeholder = "C:\\\\Path\\\\to\\\\shell.exe";
+    shellInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") shellInput.blur();
+    });
+    shellInput.addEventListener("blur", () => updateSettings({ terminalCustomShell: shellInput.value }));
+    terminalSection.append(settingRow("Shell path", shellInput, true));
+  }
   const restart = document.createElement("button");
   restart.className = "notification-action";
   restart.textContent = "Restart active terminal";
@@ -1739,12 +1816,16 @@ async function createPanel(type, direction = "right", options = {}) {
     ? state.data?.workspaces.find((candidate) => candidate.id === options.workspaceId)
     : activeWorkspace();
   if (!workspace) return;
+  const shellProfile = options.shellProfile || state.settings.terminalProfile;
+  const shellPath = options.shellPath || state.settings.terminalCustomShell;
   await api("/api/panels", {
     method: "POST",
     body: JSON.stringify({
       workspaceId: workspace.id,
       type,
       direction,
+      shellProfile: type === "terminal" ? shellProfile : undefined,
+      shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
       url: type === "browser" ? normalizeUrl(options.url || "https://example.com") : undefined
     })
   });

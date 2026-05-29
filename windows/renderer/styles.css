@@ -245,10 +245,10 @@ button {
   height: 26px;
   display: grid;
   place-items: center;
-  border: 1px solid oklch(50% 0.13 255);
+  border: 1px solid color-mix(in oklch, var(--color-accent) 70%, var(--color-line) 30%);
   border-radius: var(--radius-2);
   color: var(--color-accent-ink);
-  background: oklch(31% 0.14 255);
+  background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane) 58%);
   font: 800 11px/1 var(--font-mono);
 }
 
@@ -345,8 +345,8 @@ button {
 
 .workspace-row.is-active {
   border-color: var(--workspace-color, var(--color-accent));
-  background: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 92%, black 3%);
-  color: var(--color-accent-ink);
+  background: color-mix(in oklch, var(--workspace-color, var(--color-accent)) 18%, var(--color-pane) 82%);
+  color: var(--color-text);
 }
 
 .workspace-row:focus-visible,
@@ -401,7 +401,7 @@ button {
 }
 
 .workspace-row.is-active .workspace-attention {
-  background: var(--color-accent-ink);
+  background: var(--workspace-color, var(--color-accent));
 }
 
 .workspace-card {
@@ -467,7 +467,7 @@ button {
 .workspace-row.is-active .workspace-meta,
 .workspace-row.is-active .workspace-path,
 .workspace-row.is-active .workspace-branch {
-  color: oklch(90% 0.04 255);
+  color: var(--color-muted);
 }
 
 .workspace-branch {
@@ -647,8 +647,8 @@ button {
 }
 
 .tool-button.primary {
-  border-color: oklch(53% 0.16 255);
-  background: oklch(25% 0.09 255);
+  border-color: color-mix(in oklch, var(--color-accent) 68%, var(--color-line) 32%);
+  background: color-mix(in oklch, var(--color-accent) 30%, var(--color-pane) 70%);
   color: var(--color-accent-ink);
 }
 
@@ -658,7 +658,7 @@ button {
 }
 
 .tool-button.primary:hover {
-  background: oklch(30% 0.11 255);
+  background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane-active) 58%);
 }
 
 .surface-tabs {
@@ -706,7 +706,7 @@ button {
 
 .surface-tab.has-attention .surface-dot {
   background: var(--color-accent-hover);
-  box-shadow: 0 0 0 3px oklch(61% 0.22 255 / 20%);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-accent) 22%, transparent);
 }
 
 .surface-label {
@@ -725,6 +725,17 @@ button {
   border-radius: var(--radius-1);
   color: var(--color-faint);
   cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.surface-tab:hover .surface-close,
+.surface-tab.is-active .surface-close,
+.surface-close:focus-visible {
+  opacity: 1;
 }
 
 .surface-close:hover {
