@@ -4278,16 +4278,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        window: NSWindow? = nil
     ) -> UUID {
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+        let key: ObjectIdentifier
+        if let window {
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+            tabManager.window = window
+            key = ObjectIdentifier(window)
+        } else {
+            key = ObjectIdentifier(tabManager)
+        }
+
+        mainWindowContexts[key] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: nil
+            window: window
         )
         notifyMainWindowContextsDidChange()
         return windowId

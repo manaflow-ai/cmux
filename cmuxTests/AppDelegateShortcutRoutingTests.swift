@@ -938,26 +938,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
+#if DEBUG
+        let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
+        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
+            closeTestWindow(firstContext.window)
+            closeTestWindow(secondContext.window)
+            restoreDefaultsValue(previousWelcomeShown, forKey: WelcomeSettings.shownKey, defaults: .standard)
         }
 
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
+        let firstManager = firstContext.tabManager
+        let secondManager = secondContext.tabManager
 
         let firstCount = firstManager.tabs.count
         let secondCount = secondManager.tabs.count
 
-        secondWindow.makeKey()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        secondContext.window.makeKeyAndOrderFront(nil)
+        waitUntil(timeout: 1.0) {
+            NSApp.keyWindow === secondContext.window || secondContext.window.isKeyWindow
+        }
+        XCTAssertTrue(secondContext.window.isKeyWindow, "Test precondition: second lightweight window should be key")
 
         // Force a stale app-level pointer to a different manager.
         appDelegate.tabManager = firstManager
@@ -967,6 +971,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(firstManager.tabs.count, firstCount, "Stale pointer must not receive menu-driven workspace creation")
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Workspace creation should target key/main window context")
+#else
+        XCTFail("Lightweight main-window context registration is only available in DEBUG")
+#endif
     }
 
     func testToggleSidebarInActiveMainWindowIgnoresStaleTabManagerPointer() {
@@ -1268,29 +1275,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        secondWindow.makeKey()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: secondWindowId))
-#else
-        XCTFail("debugInjectWindowContextKeyMismatch is only available in DEBUG")
-#endif
+        let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
+        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
+            closeTestWindow(firstContext.window)
+            closeTestWindow(secondContext.window)
+            restoreDefaultsValue(previousWelcomeShown, forKey: WelcomeSettings.shownKey, defaults: .standard)
+        }
+
+        let firstManager = firstContext.tabManager
+        let secondManager = secondContext.tabManager
+
+        secondContext.window.makeKeyAndOrderFront(nil)
+        waitUntil(timeout: 1.0) {
+            NSApp.keyWindow === secondContext.window || secondContext.window.isKeyWindow
+        }
+        XCTAssertTrue(secondContext.window.isKeyWindow, "Test precondition: second lightweight window should be key")
+
+        XCTAssertTrue(appDelegate.debugInjectWindowContextKeyMismatch(windowId: secondContext.windowId))
 
         // Stale pointer should not receive the new workspace.
         appDelegate.tabManager = firstManager
@@ -1302,6 +1309,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(firstManager.tabs.count, firstCount, "Menu-driven add workspace should not route to stale window")
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Menu-driven add workspace should still route to key window context when object-key lookup misses")
+#else
+        XCTFail("Lightweight main-window context registration is only available in DEBUG")
+#endif
     }
 
     func testAddWorkspaceInPreferredMainWindowPrunesOrphanedContextWithoutLiveWindow() {
@@ -9735,6 +9745,26 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fileExplorerState: nil
         )
     }
+
+#if DEBUG
+    private func makeRegisteredLightweightMainWindowContext(
+        appDelegate: AppDelegate
+    ) -> (windowId: UUID, window: NSWindow, tabManager: TabManager) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            window: window
+        )
+        return (windowId, window, tabManager)
+    }
+#endif
 
     private func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
