@@ -734,6 +734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugSuppressSplitShortcutForTransientTerminalFocusStateOverride: Bool?
     var debugShortcutEventFocusContextOverride: ShortcutEventFocusContext?
     var debugSuppressShortcutRoutingContextForTesting = false
+    var debugAddWorkspaceInPreferredMainWindowCreationOverride: ((MainWindowContext, String?) -> UUID?)?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -7277,6 +7278,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shouldBringToFront {
             bringToFront(window)
         }
+
+        #if DEBUG
+        if let debugCreationOverride = debugAddWorkspaceInPreferredMainWindowCreationOverride {
+            let workspaceId = debugCreationOverride(context, workingDirectory)
+            if let workspaceId {
+                logWorkspaceCreationRouting(
+                    phase: "created",
+                    source: debugSource,
+                    reason: "workspace_created_debug_override",
+                    event: event,
+                    chosenContext: context,
+                    workspaceId: workspaceId,
+                    workingDirectory: workingDirectory
+                )
+            }
+            return workspaceId
+        }
+        #endif
 
         let workspace: Workspace
         if let workingDirectory {
@@ -13997,6 +14016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugSuppressSplitShortcutForTransientTerminalFocusStateOverride = nil
         debugShortcutEventFocusContextOverride = nil
         debugSuppressShortcutRoutingContextForTesting = false
+        debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
