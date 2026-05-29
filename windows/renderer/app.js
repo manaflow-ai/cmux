@@ -3,6 +3,7 @@ const defaultSettings = {
   accent: "oklch(61% 0.22 255)",
   backgroundImage: "",
   backgroundOpacity: 16,
+  browserHomeUrl: "https://www.bing.com",
   density: "comfortable",
   showTabs: true,
   showStatusbar: true,
@@ -187,6 +188,7 @@ const settingsCategories = [
   ["quick", "Quick"],
   ["workspace", "Workspace"],
   ["appearance", "Look"],
+  ["browser", "Browser"],
   ["layout", "Layout"],
   ["terminal", "Terminal"],
   ["data", "Data"]
@@ -266,6 +268,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
+  next.browserHomeUrl = normalizeUrl(next.browserHomeUrl || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
@@ -1085,85 +1088,155 @@ function ensureBrowser(panel, body) {
   bar.className = "browser-bar";
   const back = document.createElement("button");
   back.className = "browser-nav";
+  back.type = "button";
+  back.title = "Back";
   back.textContent = "<";
   const forward = document.createElement("button");
   forward.className = "browser-nav";
+  forward.type = "button";
+  forward.title = "Forward";
   forward.textContent = ">";
+  const reload = document.createElement("button");
+  reload.className = "browser-nav";
+  reload.type = "button";
+  reload.title = "Reload";
+  reload.textContent = "R";
+  const home = document.createElement("button");
+  home.className = "browser-nav";
+  home.type = "button";
+  home.title = "Home";
+  home.textContent = "H";
   const address = document.createElement("input");
   address.className = "browser-address";
   address.value = panel.url || "https://example.com";
   const go = document.createElement("button");
   go.className = "browser-go";
+  go.type = "button";
   go.textContent = "Go";
   const external = document.createElement("button");
   external.className = "browser-go";
+  external.type = "button";
   external.textContent = "Open";
   const status = document.createElement("div");
   status.className = "browser-status";
   status.textContent = "Loading";
-  bar.append(back, forward, address, go, external);
+  bar.append(back, forward, reload, home, address, go, external);
 
   const view = document.createElement(window.cmuxNative?.electron ? "webview" : "iframe");
   view.className = "browser-view";
-  view.src = normalizeUrl(address.value);
+  view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
   view.setAttribute("allowpopups", "true");
   if (view.tagName.toLowerCase() === "webview") {
     view.setAttribute("partition", "persist:cmux-browser");
     view.setAttribute("webpreferences", "contextIsolation=yes,nodeIntegration=no");
   }
+  const isWebview = view.tagName.toLowerCase() === "webview";
+  let webviewReady = !isWebview;
+
+  const setStatus = (message = "") => {
+    status.textContent = message;
+    status.classList.toggle("is-visible", Boolean(message));
+  };
+
+  const updateNavState = () => {
+    try {
+      back.disabled = !(isWebview && webviewReady && typeof view.canGoBack === "function" && view.canGoBack());
+      forward.disabled = !(isWebview && webviewReady && typeof view.canGoForward === "function" && view.canGoForward());
+      reload.disabled = isWebview && !webviewReady;
+    } catch {
+      back.disabled = true;
+      forward.disabled = true;
+      reload.disabled = true;
+    }
+  };
 
   const navigate = () => {
     if (!findPanelState(panel.id)) return;
-    const next = normalizeUrl(address.value);
+    const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     view.src = next;
+    setStatus("Loading");
     updatePanel(panel.id, { url: next });
   };
   go.onclick = navigate;
   external.onclick = () => {
     if (window.cmuxNative?.openExternal) {
-      window.cmuxNative.openExternal(normalizeUrl(address.value));
+      window.cmuxNative.openExternal(normalizeUrl(address.value, state.settings.browserHomeUrl));
     } else {
-      window.open(normalizeUrl(address.value), "_blank", "noopener");
+      window.open(normalizeUrl(address.value, state.settings.browserHomeUrl), "_blank", "noopener");
     }
   };
   address.addEventListener("keydown", (event) => {
     if (event.key === "Enter") navigate();
   });
   back.onclick = () => {
-    if (typeof view.goBack === "function" && view.canGoBack()) view.goBack();
+    if (isWebview && webviewReady && typeof view.goBack === "function" && !back.disabled) view.goBack();
   };
   forward.onclick = () => {
-    if (typeof view.goForward === "function" && view.canGoForward()) view.goForward();
+    if (isWebview && webviewReady && typeof view.goForward === "function" && !forward.disabled) view.goForward();
+  };
+  reload.onclick = () => {
+    if (reload.disabled) return;
+    if (typeof view.reload === "function") {
+      view.reload();
+    } else {
+      view.src = address.value;
+    }
+  };
+  home.onclick = () => {
+    address.value = state.settings.browserHomeUrl;
+    navigate();
   };
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
       address.value = event.url;
       if (findPanelState(panel.id)) updatePanel(panel.id, { url: event.url });
     }
+    updateNavState();
+  });
+  view.addEventListener("dom-ready", () => {
+    webviewReady = true;
+    updateNavState();
+  });
+  view.addEventListener("did-navigate-in-page", (event) => {
+    if (event.url) address.value = event.url;
+    updateNavState();
   });
   view.addEventListener("did-start-loading", () => {
-    status.textContent = "Loading";
-    status.classList.add("is-visible");
+    setStatus("Loading");
+    updateNavState();
   });
   view.addEventListener("did-stop-loading", () => {
-    status.classList.remove("is-visible");
+    setStatus("");
+    updateNavState();
   });
   view.addEventListener("did-fail-load", (event) => {
     if (event.errorCode === -3) return;
-    status.textContent = "Could not load here. Use Open.";
-    status.classList.add("is-visible");
+    setStatus("Could not load here. Use Open.");
+    updateNavState();
+  });
+  view.addEventListener("load", () => {
+    setStatus("");
+  });
+  view.addEventListener("error", () => {
+    setStatus("Could not load here. Use Open.");
   });
 
   shell.append(bar, status, view);
   body.append(shell);
-  state.browserViews.set(panel.id, { view, address });
+  state.browserViews.set(panel.id, { view, address, back, forward, reload, home });
+  updateNavState();
 }
 
-function normalizeUrl(value) {
+function normalizeUrl(value, fallback = "https://example.com") {
   let next = String(value || "").trim();
-  if (!next) next = "https://example.com";
-  if (!/^https?:\/\//i.test(next)) next = `https://${next}`;
+  if (!next) next = fallback;
+  if (/^https?:\/\//i.test(next)) return next;
+  if (/^localhost(?::\d+)?(?:\/|$)/i.test(next) || /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:\/|$)/.test(next)) {
+    return `http://${next}`;
+  }
+  if (!/\s/.test(next) && next.includes(".")) return `https://${next}`;
+  next = `https://www.bing.com/search?q=${encodeURIComponent(next)}`;
   return next;
 }
 
@@ -1292,6 +1365,31 @@ function renderSettingsInspector() {
   opacityInput.oninput = () => updateSettings({ backgroundOpacity: Number(opacityInput.value) });
   appearanceSection.append(settingRow("Image strength", opacityInput));
   appendSettingsSection(nodes, "appearance", appearanceSection);
+
+  const browserSection = settingsSection("Browser");
+  const homeInput = document.createElement("input");
+  homeInput.className = "setting-control";
+  homeInput.value = state.settings.browserHomeUrl;
+  homeInput.placeholder = "https://www.bing.com";
+  homeInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") homeInput.blur();
+  });
+  homeInput.addEventListener("blur", () => {
+    updateSettings({ browserHomeUrl: homeInput.value || defaultSettings.browserHomeUrl });
+    homeInput.value = state.settings.browserHomeUrl;
+  });
+  browserSection.append(settingRow("Home page", homeInput, true));
+  const homeActions = document.createElement("div");
+  homeActions.className = "settings-actions";
+  homeActions.append(
+    settingsActionButton("Open", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
+    settingsActionButton("Reset", () => {
+      updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
+      renderSettingsInspector();
+    })
+  );
+  browserSection.append(homeActions);
+  appendSettingsSection(nodes, "browser", browserSection);
 
   const layoutSection = settingsSection("Layout");
   const densitySelect = document.createElement("select");
@@ -1703,7 +1801,7 @@ function renamePanel(panel) {
 
 function duplicatePanel(panel) {
   if (panel.type === "browser") {
-    createPanel("browser", "right", { url: panel.url || "https://example.com" });
+    createPanel("browser", "right", { url: panel.url || state.settings.browserHomeUrl });
     return;
   }
   createPanel("terminal", "right");
@@ -1755,6 +1853,7 @@ async function createWorkspace() {
     method: "POST",
     body: JSON.stringify({ title: `Workspace ${state.data.workspaces.length + 1}` })
   });
+  await loadState();
 }
 
 async function renameActiveWorkspace() {
@@ -1826,16 +1925,17 @@ async function createPanel(type, direction = "right", options = {}) {
       direction,
       shellProfile: type === "terminal" ? shellProfile : undefined,
       shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
-      url: type === "browser" ? normalizeUrl(options.url || "https://example.com") : undefined
+      url: type === "browser" ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl) : undefined
     })
   });
+  await loadState();
   if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
     await focusWorkspace(workspace.id);
   }
 }
 
 async function openBrowserPrompt(workspaceId = null) {
-  const url = prompt("Open URL", "https://www.bing.com");
+  const url = prompt("Open URL", state.settings.browserHomeUrl);
   if (url === null) return;
   await createPanel("browser", "right", { url, workspaceId });
 }

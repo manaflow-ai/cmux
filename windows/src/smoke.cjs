@@ -1,8 +1,10 @@
 const net = require("node:net");
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { createCmuxWindowsRuntime } = require("./server.cjs");
 
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}-`));
 const pipeName = process.platform === "win32"
   ? `\\\\.\\pipe\\cmux-windows-smoke-${process.pid}`
   : path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}.sock`);
@@ -29,7 +31,7 @@ function pipeRoundTrip(command) {
 
 (async () => {
   const runtime = createCmuxWindowsRuntime({
-    dataDir: path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}`),
+    dataDir,
     pipeName
   });
   const info = await runtime.listen();

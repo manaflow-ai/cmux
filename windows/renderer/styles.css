@@ -354,6 +354,7 @@ button {
 .tool-button:focus-visible,
 .pane-tool:focus-visible,
 .browser-go:focus-visible,
+.browser-nav:focus-visible,
 .browser-address:focus-visible,
 .palette-input:focus-visible,
 .sidebar-action:focus-visible,
@@ -374,6 +375,7 @@ button {
 .tool-button:active,
 .pane-tool:active,
 .browser-go:active,
+.browser-nav:active,
 .sidebar-action:active,
 .settings-action:active,
 .settings-nav-button:active,
@@ -979,7 +981,7 @@ button {
 
 .browser-bar {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-1);
   padding: 4px var(--space-2);
@@ -994,6 +996,24 @@ button {
   place-items: center;
   color: var(--color-faint);
   font-family: var(--font-mono);
+}
+
+.browser-nav:hover,
+.browser-go:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+  color: var(--color-text);
+}
+
+.browser-nav:disabled {
+  opacity: .44;
+  cursor: default;
+}
+
+.browser-nav:disabled:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-faint);
 }
 
 .browser-address,
