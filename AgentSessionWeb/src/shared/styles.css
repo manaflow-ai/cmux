@@ -1626,9 +1626,9 @@ img.ProseMirror-separator {
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
   color: var(--color-token-foreground);
-  background: var(--composer-top-tray-background, color-mix(in oklab, var(--color-token-dropdown-background) 95%, transparent));
+  background: var(--composer-top-tray-background, color-mix(in oklab, var(--color-token-side-bar-background) 94%, transparent));
   box-shadow: none;
-  backdrop-filter: blur(8px);
+  backdrop-filter: none;
   isolation: isolate;
   overflow: hidden;
   --cmdk-bottom-item-radius: 0;
