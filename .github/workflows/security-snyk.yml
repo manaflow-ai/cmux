@@ -43,7 +43,7 @@ jobs:
 
       - name: Setup Snyk
         if: env.SNYK_TOKEN_PRESENT == 'true'
-        uses: snyk/actions/setup@master
+        uses: snyk/actions/setup@8e119fbb6c251787721d34ba683ed48eba792766 # master
 
       - name: Snyk Code scan
         if: env.SNYK_TOKEN_PRESENT == 'true'
@@ -58,7 +58,7 @@ jobs:
 
       - name: Upload Snyk Code SARIF
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
         with:
           sarif_file: snyk-code.sarif
           category: snyk-code-swift
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload Snyk Open Source SARIF
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
         with:
           sarif_file: snyk-oss.sarif
           category: snyk-open-source-web-npm
