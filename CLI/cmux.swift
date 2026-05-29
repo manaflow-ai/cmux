@@ -3617,6 +3617,14 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+        case "tmux":
+            try runTmux(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
         case "ssh-pty-attach":
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
         case "ssh-session-list":
@@ -3869,11 +3877,13 @@ struct CMUXCLI {
 
         case "surface-health":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
+            let includeTmuxPaneText = hasFlag(commandArgs, name: "--include-tmux-pane-text")
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
+            if includeTmuxPaneText { params["include_tmux_pane_text"] = true }
             let payload = try client.sendV2(method: "surface.health", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3892,7 +3902,31 @@ struct CMUXCLI {
                         } else {
                             inWindowStr = ""
                         }
-                        print("\(handle)  type=\(sType)\(inWindowStr)")
+                        let tmuxControl = surface["tmux_control"] as? [String: Any]
+                        let tmuxControlStr: String
+                        if let tmuxControl,
+                           (tmuxControl["active"] as? Bool) == true {
+                            let paneIds = (tmuxControl["pane_ids"] as? [Any] ?? [])
+                                .map { String(describing: $0) }
+                                .joined(separator: ",")
+                            if paneIds.isEmpty {
+                                tmuxControlStr = " " + String(
+                                    localized: "cli.surfaceHealth.tmuxActive",
+                                    defaultValue: "tmux=active"
+                                )
+                            } else {
+                                tmuxControlStr = " " + String.localizedStringWithFormat(
+                                    String(
+                                        localized: "cli.surfaceHealth.tmuxActivePanes",
+                                        defaultValue: "tmux=active panes=[%@]"
+                                    ),
+                                    paneIds
+                                )
+                            }
+                        } else {
+                            tmuxControlStr = ""
+                        }
+                        print("\(handle)  type=\(sType)\(inWindowStr)\(tmuxControlStr)")
                     }
                 }
             }
@@ -4860,6 +4894,7 @@ struct CMUXCLI {
         "swap-pane",
         "tab-action",
         "themes",
+        "tmux",
         "top",
         "tree",
         "trigger-flash",
@@ -6786,6 +6821,290 @@ struct CMUXCLI {
         )
     }
 
+    private struct TmuxAttachOptions {
+        var sessionName: String
+        var sshDestination: String?
+        var port: Int?
+        var identityFile: String?
+        var workspaceName: String?
+        var windowRaw: String?
+        var noFocus: Bool
+        var workingDirectory: String?
+        var sshOptions: [String]
+        var tmuxPath: String
+        var tmuxPathWasSpecified: Bool
+        var create: Bool
+        var socketName: String?
+        var socketPath: String?
+    }
+
+    private func runTmux(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "attach"
+        guard subcommand == "attach" else {
+            throw CLIError(message: "Usage: cmux tmux attach <session> [--ssh <destination>] [flags]")
+        }
+        let options = try parseTmuxAttachOptions(Array(commandArgs.dropFirst()), windowOverride: windowOverride)
+
+        if let sshDestination = options.sshDestination {
+            if options.workingDirectory != nil {
+                throw CLIError(message: "tmux attach: --cwd is only supported for local attaches")
+            }
+            let tmuxCommand = options.tmuxPathWasSpecified
+                ? tmuxControlAttachCommand(
+                    sessionName: options.sessionName,
+                    tmuxPath: options.tmuxPath,
+                    create: options.create,
+                    socketName: options.socketName,
+                    socketPath: options.socketPath
+                )
+                : remoteDefaultTmuxControlAttachCommand(
+                    sessionName: options.sessionName,
+                    create: options.create,
+                    socketName: options.socketName,
+                    socketPath: options.socketPath
+                )
+            let relayID = UUID().uuidString.lowercased()
+            let relayToken = try randomHex(byteCount: 32)
+            let workspaceName = options.workspaceName ?? "tmux \(options.sessionName) @ \(sshDestination)"
+            let sshCommandOptions = SSHCommandOptions(
+                destination: sshDestination,
+                port: options.port,
+                identityFile: options.identityFile,
+                workspaceName: workspaceName,
+                windowRaw: options.windowRaw,
+                noFocus: options.noFocus,
+                sshOptions: options.sshOptions,
+                extraArguments: [],
+                localSocketPath: client.socketPath,
+                remoteRelayPort: generateRemoteRelayPort()
+            )
+            try runSSHWithOptions(
+                sshCommandOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                persistentPTYCommand: tmuxCommand,
+                tmuxAttachSessionName: options.sessionName,
+                requirePersistentPTY: true
+            )
+            return
+        }
+
+        if options.port != nil || options.identityFile != nil || !options.sshOptions.isEmpty {
+            throw CLIError(message: "tmux attach: --port, --identity, and --ssh-option require --ssh <destination>")
+        }
+        var params: [String: Any] = [
+            "session_name": options.sessionName,
+            "create": options.create,
+            "focus": !options.noFocus,
+        ]
+        if options.tmuxPathWasSpecified {
+            params["tmux_path"] = options.tmuxPath
+        }
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: options.windowRaw)
+        if let workingDirectory = options.workingDirectory {
+            params["working_directory"] = resolvePath(workingDirectory)
+        }
+        if let workspaceName = options.workspaceName {
+            params["title"] = workspaceName
+        }
+        if let socketName = options.socketName {
+            params["socket_name"] = socketName
+        }
+        if let socketPath = options.socketPath {
+            params["socket_path"] = socketPath
+        }
+        let payload = try client.sendV2(method: "workspace.tmux.attach", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown"
+            print("OK workspace=\(workspaceHandle) session=\(options.sessionName) mode=local")
+        }
+    }
+
+    private func parseTmuxAttachOptions(
+        _ args: [String],
+        windowOverride: String?
+    ) throws -> TmuxAttachOptions {
+        var sessionName: String?
+        var sshDestination: String?
+        var port: Int?
+        var identityFile: String?
+        var workspaceName: String?
+        var windowRaw = windowOverride
+        var noFocus = false
+        var workingDirectory: String?
+        var sshOptions: [String] = []
+        var tmuxPath = "tmux"
+        var tmuxPathWasSpecified = false
+        var create = true
+        var socketName: String?
+        var socketPath: String?
+
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            switch arg {
+            case "--session":
+                sessionName = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--ssh":
+                sshDestination = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--port":
+                let raw = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+                guard let parsed = Int(raw), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "tmux attach: --port must be 1-65535")
+                }
+                port = parsed
+            case "--identity":
+                identityFile = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--name":
+                workspaceName = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--window":
+                windowRaw = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--no-focus":
+                noFocus = true
+                index += 1
+            case "--cwd":
+                workingDirectory = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--ssh-option":
+                let value = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    sshOptions.append(value)
+                }
+            case "--tmux-path":
+                tmuxPath = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+                tmuxPathWasSpecified = true
+            case "-L", "--socket-name":
+                socketName = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "-S", "--socket-path":
+                socketPath = try valueAfter(arg, in: args, index: &index, context: "tmux attach")
+            case "--create":
+                create = true
+                index += 1
+            case "--existing":
+                create = false
+                index += 1
+            default:
+                if arg.hasPrefix("-") {
+                    throw CLIError(message: "tmux attach: unknown flag '\(arg)'")
+                }
+                guard sessionName == nil else {
+                    throw CLIError(message: "tmux attach: unexpected argument '\(arg)'")
+                }
+                sessionName = arg
+                index += 1
+            }
+        }
+        guard let sessionName = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionName.isEmpty else {
+            throw CLIError(message: "tmux attach requires a session name")
+        }
+        if socketName != nil && socketPath != nil {
+            throw CLIError(message: "tmux attach: -L/--socket-name cannot be combined with -S/--socket-path")
+        }
+        return TmuxAttachOptions(
+            sessionName: sessionName,
+            sshDestination: nonEmptyTrimmed(sshDestination),
+            port: port,
+            identityFile: nonEmptyTrimmed(identityFile),
+            workspaceName: nonEmptyTrimmed(workspaceName),
+            windowRaw: nonEmptyTrimmed(windowRaw),
+            noFocus: noFocus,
+            workingDirectory: nonEmptyTrimmed(workingDirectory),
+            sshOptions: sshOptions,
+            tmuxPath: nonEmptyTrimmed(tmuxPath) ?? "tmux",
+            tmuxPathWasSpecified: tmuxPathWasSpecified,
+            create: create,
+            socketName: nonEmptyTrimmed(socketName),
+            socketPath: nonEmptyTrimmed(socketPath)
+        )
+    }
+
+    private func nonEmptyTrimmed(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func valueAfter(
+        _ option: String,
+        in args: [String],
+        index: inout Int,
+        context: String
+    ) throws -> String {
+        guard index + 1 < args.count else {
+            throw CLIError(message: "\(context): \(option) requires a value")
+        }
+        let value = args[index + 1]
+        index += 2
+        return value
+    }
+
+    private func tmuxControlAttachArguments(
+        sessionName: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> [String] {
+        var argv = ["-CC"]
+        if let socketName {
+            argv += ["-L", socketName]
+        }
+        if let socketPath {
+            argv += ["-S", socketPath]
+        }
+        if create {
+            argv += ["new", "-A", "-s", sessionName]
+        } else {
+            argv += ["attach", "-t", sessionName]
+        }
+        return argv
+    }
+
+    private func tmuxControlAttachCommand(
+        sessionName: String,
+        tmuxPath: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> String {
+        let argv = [tmuxPath] + tmuxControlAttachArguments(
+            sessionName: sessionName,
+            create: create,
+            socketName: socketName,
+            socketPath: socketPath
+        )
+        return argv.map(shellQuote).joined(separator: " ")
+    }
+
+    private func remoteDefaultTmuxControlAttachCommand(
+        sessionName: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> String {
+        let argv = tmuxControlAttachArguments(
+            sessionName: sessionName,
+            create: create,
+            socketName: socketName,
+            socketPath: socketPath
+        )
+        let commonRemotePathPrefix = "/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        return "PATH=\(commonRemotePathPrefix)${PATH:+:$PATH}; exec tmux \(argv.map(shellQuote).joined(separator: " "))"
+    }
+
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
@@ -6796,7 +7115,10 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        vmIDForSplitAttach: String? = nil
+        vmIDForSplitAttach: String? = nil,
+        persistentPTYCommand: String? = nil,
+        tmuxAttachSessionName: String? = nil,
+        requirePersistentPTY: Bool = false
     ) throws {
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
@@ -6822,6 +7144,7 @@ struct CMUXCLI {
         )
         let controlPathPreflightShellFunction = sshControlPathPreflightShellFunction(options: sshOptions)
         let initialSSHCommand = buildSSHCommandText(sshOptions)
+        let normalizedPersistentPTYCommand = persistentPTYCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh
         // gateway forwards shell-request PTYs but stalls on exec-channel I/O, and the bootstrap
         // script is only meaningful if cmuxd-remote is participating. Let ssh open a plain
@@ -6864,6 +7187,11 @@ struct CMUXCLI {
             sshOptions.extraArguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
+        if requirePersistentPTY && !usesPersistentSSHPTY {
+            throw CLIError(
+                message: "tmux attach --ssh requires SSH settings that support reusable reconnect; remove options that disable connection reuse or local reconnect callbacks"
+            )
+        }
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -6908,9 +7236,11 @@ struct CMUXCLI {
         }
         if usesPersistentSSHPTY,
            let remoteTerminalBootstrapScript {
+            let hasPersistentPTYCommand = normalizedPersistentPTYCommand?.isEmpty == false
             let ptyStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
                 options: sshOptions,
-                remoteShellCommand: remoteTerminalBootstrapScript,
+                remoteShellCommand: hasPersistentPTYCommand ? normalizedPersistentPTYCommand! : remoteTerminalBootstrapScript,
+                expandCommandPlaceholders: !hasPersistentPTYCommand,
                 localCommandScript: combinedLocalCommandScript,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
@@ -7012,6 +7342,9 @@ struct CMUXCLI {
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
             configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
+            if normalizedPersistentPTYCommand?.isEmpty == false {
+                configureParams["remote_pty_command"] = normalizedPersistentPTYCommand
+            }
             if sshOptions.skipDaemonBootstrap {
                 configureParams["skip_daemon_bootstrap"] = true
             }
@@ -7085,6 +7418,14 @@ struct CMUXCLI {
         if usesPersistentSSHPTY, let workspaceInitialSurfaceId {
             payload["ssh_pty_session_id"] = "ssh-\(workspaceId)-\(workspaceInitialSurfaceId)"
         }
+        if let tmuxAttachSessionName {
+            payload["tmux_session_name"] = tmuxAttachSessionName
+            if let normalizedPersistentPTYCommand {
+                payload["tmux_command"] = normalizedPersistentPTYCommand
+            } else {
+                payload["tmux_command"] = NSNull()
+            }
+        }
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -7092,7 +7433,11 @@ struct CMUXCLI {
             let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
             let remote = payload["remote"] as? [String: Any]
             let state = (remote?["state"] as? String) ?? "unknown"
-            print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
+            if let tmuxAttachSessionName {
+                print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) session=\(tmuxAttachSessionName) mode=ssh state=\(state)")
+            } else {
+                print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
+            }
         }
     }
 
@@ -7873,10 +8218,12 @@ struct CMUXCLI {
 
     private func buildReusableSSHPTYAttachStartupCommand(
         remoteShellCommand: String,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        expandCommandPlaceholders: Bool = true
     ) -> String {
         let attachScript = buildSSHPTYAttachScriptBody(
-            remoteShellCommand: remoteShellCommand
+            remoteShellCommand: remoteShellCommand,
+            expandCommandPlaceholders: expandCommandPlaceholders
         )
         return buildReusableSSHStartupCommand(
             sshCommand: attachScript,
@@ -7890,6 +8237,7 @@ struct CMUXCLI {
     private func buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
         options: SSHCommandOptions,
         remoteShellCommand: String,
+        expandCommandPlaceholders: Bool = true,
         localCommandScript: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
@@ -7897,7 +8245,8 @@ struct CMUXCLI {
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(
-            remoteShellCommand: remoteShellCommand
+            remoteShellCommand: remoteShellCommand,
+            expandCommandPlaceholders: expandCommandPlaceholders
         )
         let scriptBody = [
             "command \(authCommand) <&0",
@@ -7917,11 +8266,12 @@ struct CMUXCLI {
     }
 
     private func buildSSHPTYAttachScriptBody(
-        remoteShellCommand: String
+        remoteShellCommand: String,
+        expandCommandPlaceholders: Bool = true
     ) -> String {
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
-        let attachCommand = [
+        var attachArguments = [
             shellQuote(executablePath),
             "ssh-pty-attach",
             "--wait",
@@ -7929,7 +8279,11 @@ struct CMUXCLI {
             "--session-id", "\"$cmux_ssh_pty_session_id\"",
             "--attachment-id", "\"$cmux_ssh_pty_surface_id\"",
             "--command-b64", shellQuote(commandB64),
-        ].joined(separator: " ")
+        ]
+        if !expandCommandPlaceholders {
+            attachArguments.append("--literal-command")
+        }
+        let attachCommand = attachArguments.joined(separator: " ")
         return [
             "cmux_ssh_pty_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_ssh_pty_surface_id=\"${CMUX_SURFACE_ID:-}\"",
@@ -8060,9 +8414,8 @@ struct CMUXCLI {
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
             "unset -f cmux_cleanup 2>/dev/null || true",
-            "exit $cmux_status",
+            "exit \"$cmux_status\"",
         ].joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(wrapper))"
     }
@@ -9182,7 +9535,7 @@ struct CMUXCLI {
         let quotedSessionID = shellQuote(sessionID)
         let currentExecutable = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --require-existing --workspace \"$CMUX_WORKSPACE_ID\" --session-id \(quotedSessionID) --attachment-id \"${CMUX_SURFACE_ID:-}\""
-        return ([
+        let scriptBody = ([
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\(currentExecutable); fi",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
@@ -9190,6 +9543,10 @@ struct CMUXCLI {
             "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for SSH PTY attach.' >&2; exit 1; fi",
             "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
         ] + sshPTYAttachRetryLoopLines(command: attachCommand)).joined(separator: "\n")
+        return reusableShellStartupCommand(
+            scriptBody: scriptBody,
+            tempPrefix: "cmux-ssh-pty-attach"
+        )
     }
 
     private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
@@ -9238,12 +9595,13 @@ struct CMUXCLI {
         let (commandB64Opt, rem3) = parseOption(rem2, name: "--command-b64")
         let waitForReady = rem3.contains("--wait")
         let requireExisting = rem3.contains("--require-existing")
-        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" }
+        let literalCommand = rem3.contains("--literal-command")
+        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" && $0 != "--literal-command" }
         if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
         }
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--require-existing]")
+            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--literal-command] [--require-existing]")
         }
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         guard let workspaceRaw,
@@ -9264,12 +9622,14 @@ struct CMUXCLI {
                   var decoded = String(data: data, encoding: .utf8) else {
                 throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
             }
-            decoded = decoded
-                .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
-                .replacingOccurrences(
-                    of: "__CMUX_SURFACE_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
-                )
+            if !literalCommand {
+                decoded = decoded
+                    .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
+                    .replacingOccurrences(
+                        of: "__CMUX_SURFACE_ID__",
+                        with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
+                    )
+            }
             return decoded
         }
         var bridgeReachedReady = false
@@ -12698,6 +13058,34 @@ struct CMUXCLI {
               cmux ssh-session-cleanup --workspace workspace:2 --all
               cmux ssh-session-cleanup --all-workspaces --all
             """
+        case "tmux":
+            return """
+            Usage: cmux tmux attach <session> [flags]
+
+            Open a tmux control-mode workspace. Local attaches install an auto-resume
+            binding; SSH attaches use cmux's persistent remote PTY so restored
+            workspaces reconnect to the remote tmux session.
+
+            Flags:
+              --ssh <destination>          Attach over SSH
+              --session <name>             Session name (alternative to positional)
+              --existing                   Require an existing tmux session
+              --create                     Create if missing (default)
+              --tmux-path <path>           tmux executable (default: tmux)
+              -L, --socket-name <name>     tmux socket name
+              -S, --socket-path <path>     tmux socket path
+              --cwd <path>                 Local working directory
+              --name <title>               Workspace title
+              --port <n>                   SSH port
+              --identity <path>            SSH identity file
+              --ssh-option <option>        Additional SSH -o option
+              --window <id|ref|index>      Target window
+              --no-focus                   Do not select the new workspace
+
+            Examples:
+              cmux tmux attach cmuxcc
+              cmux tmux attach --ssh dev@example.com cmuxcc
+            """
         case "remote-daemon-status":
             return """
             Usage: cmux remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
@@ -12956,14 +13344,19 @@ struct CMUXCLI {
               cmux reload-config
             """
         case "surface-health":
+            let includeTmuxPaneTextDescription = String(
+                localized: "cli.surfaceHealth.flag.includeTmuxPaneText",
+                defaultValue: "Include raw tmux control pane text in JSON output"
+            )
             return """
-            Usage: cmux surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
+            Usage: cmux surface-health [--workspace <id|ref|index>] [--window <id|ref|index>] [--include-tmux-pane-text]
 
             List health details for surfaces in a workspace.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
+              --include-tmux-pane-text      \(includeTmuxPaneTextDescription)
 
             Example:
               cmux surface-health
@@ -30222,6 +30615,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          tmux attach <session> [--ssh <destination>] [--window <id|ref|index>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
@@ -30245,7 +30639,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           refresh-surfaces
           reload-config
-          surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
+          surface-health [--workspace <id|ref|index>] [--window <id|ref|index>] [--include-tmux-pane-text]
           debug-terminals
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]

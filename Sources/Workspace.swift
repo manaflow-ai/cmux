@@ -10941,6 +10941,11 @@ final class Workspace: Identifiable, ObservableObject {
         return terminalPanels.contains { $0.surface.surface != nil }
     }
 
+    func tmuxControlReport(forPanelId panelId: UUID, includePaneText: Bool = false) -> [String: Any]? {
+        guard let panel = panels[panelId] as? TerminalPanel else { return nil }
+        return panel.tmuxControlReportPayload(includePaneText: includePaneText)
+    }
+
     func panelTitle(panelId: UUID) -> String? {
         guard let panel = panels[panelId] else { return nil }
         let fallback = panelTitles[panelId] ?? panel.displayTitle

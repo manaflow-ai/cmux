@@ -150,6 +150,7 @@ final class TerminalPanel: Panel, ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
     }
 
     /// Create a new terminal panel with a fresh surface
@@ -204,6 +205,10 @@ final class TerminalPanel: Panel, ObservableObject {
     func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
         guard tmuxLayoutReport != report else { return }
         tmuxLayoutReport = report
+    }
+
+    func tmuxControlReportPayload(includePaneText: Bool = false) -> [String: Any] {
+        surface.tmuxControlReportPayload(includePaneText: includePaneText)
     }
 
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {

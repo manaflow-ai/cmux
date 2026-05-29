@@ -13,16 +13,24 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `176bd550f`, based on `ff6e1260d`, with the
+Current cmux pinned fork head: `3bc3ef04d`, based on `170879334`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
-regex bound for spaced file paths followed by prose. This head keeps the cmux
+the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, the URL/path
+regex bound for spaced file paths followed by prose, and the read-only tmux control-mode
+embedder bridge for https://github.com/manaflow-ai/cmux/issues/560. This head keeps the cmux
 theme picker hooks, exposes the manual surface IO needed by libghostty iOS
 clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
 prevents Cmd-hover from highlighting normal sentence text after a file path.
-It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
+It also supports Ctrl-N and Ctrl-P in the cmux theme picker, emits structured
+tmux control-mode enter, exit, topology, and pane output callbacks to embedded runtimes,
+and reports initial captured pane history or visible text for quiet tmux panes.
+It tears down defunct tmux viewers when they emit exit, avoiding duplicate exit
+notifications on error paths.
+It caps tmux pane-output payloads to the cmux observer retention limit before
+dispatching them to the embedder and logs debug metadata when truncation occurs.
+Non-embedded runtime builds ignore those embedder-only tmux events.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3bc3ef04d7e130bf91615cf495798fc60ffc2f9c-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -212,14 +220,54 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
+### 13) tmux control-mode embedder bridge
+
+- Commits:
+  - `ed123a8c0` (Expose tmux control-mode embedder events)
+  - `bf50ce410` (Handle tmux control action in GTK apprt)
+  - `e61ebe797` (Redact tmux pane output in action logs)
+  - `805a36015` (Skip tmux pane output info logs)
+  - `b1a61b0ee` (Treat tmux control as GTK no-op)
+  - `51e85dcbb` (Redact tmux control action logging)
+  - `4246f201e` (Redact tmux control notification logs)
+  - `3981bce99` (Emit captured tmux pane text)
+  - `3df6ae1fd` (Cap tmux control pane output payloads)
+  - `8e38caaa1` (Log tmux pane output truncation)
+  - `3bc3ef04d` (Add embedded tmux control callback)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/action.zig`
+  - `src/apprt/embedded.zig`
+  - `src/apprt/gtk/class/application.zig`
+  - `src/apprt/surface.zig`
+  - `src/terminal/tmux/layout.zig`
+  - `src/terminal/tmux/viewer.zig`
+  - `src/termio/stream_handler.zig`
+- Summary:
+  - Keeps using Ghostty's existing `terminal/tmux` viewer for `tmux -CC`.
+  - Emits embedded runtime actions when tmux control mode enters, exits, reports window topology, or produces pane output.
+  - Serializes read-only window layout and pane IDs as JSON without adding native pane virtualization.
+  - Handles the new embedder-only action in the GTK app runtime as a silent no-op.
+  - Redacts pane output bytes from formatted viewer actions so info logs never include raw terminal text.
+  - Skips per-chunk info logging for tmux pane output actions.
+  - Keeps GTK runtime handling silent for embedder-only tmux control actions.
+  - Redacts embedded apprt dispatch logging for tmux control actions down to event metadata and byte counts.
+  - Redacts raw tmux notification formatting for pane output and block payloads before stream handler info logs.
+  - Emits the captured pane history and visible pane body from Ghostty's tmux viewer as pane output events.
+  - Destroys defunct tmux viewers as soon as they emit exit and suppresses duplicate exit notifications.
+  - Caps pane-output payloads to 65,536 bytes before dispatching to embedded runtimes and logs debug metadata when truncation happens.
+  - Leaves terminal rendering ownership unchanged while cmux observes topology and pane text.
+
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
-`xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-themes-broken-ctrl-np`.
-Published `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through https://github.com/manaflow-ai/ghostty/pull/65,
+https://github.com/manaflow-ai/ghostty/pull/66, and
+https://github.com/manaflow-ai/ghostty/pull/69.
+Published `xcframework-3bc3ef04d7e130bf91615cf495798fc60ffc2f9c-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
+release and checksum pin must be regenerated whenever this commit changes, even
+for comment-only amends, because the release tag is keyed by the Ghostty commit
+SHA.
 
 ## Upstreamed fork changes
 

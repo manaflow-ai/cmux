@@ -2208,6 +2208,35 @@ class GhosttyApp {
                 }
             }
         }
+        runtimeConfig.tmux_control_cb = { userdata, tmuxEvent, paneId, dataPtr, dataLen in
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let terminalSurface = callbackContext.terminalSurface else { return }
+
+            let event: TmuxControlEvent?
+            switch tmuxEvent {
+            case GHOSTTY_TMUX_ENTER:
+                event = .enter
+            case GHOSTTY_TMUX_EXIT:
+                event = .exit
+            case GHOSTTY_TMUX_WINDOWS_CHANGED:
+                let data = TmuxControlPayload.data(
+                    from: dataPtr.map { UnsafeRawPointer($0) },
+                    byteCount: Int(dataLen)
+                )
+                event = .windowsChanged(data)
+            case GHOSTTY_TMUX_PANE_OUTPUT:
+                let data = TmuxControlPayload.data(
+                    from: dataPtr.map { UnsafeRawPointer($0) },
+                    byteCount: Int(dataLen),
+                    suffixLimit: TmuxControlState.paneTextByteLimit
+                )
+                event = .paneOutput(paneId: paneId, data: data)
+            default:
+                event = nil
+            }
+            guard let event else { return }
+            terminalSurface.enqueueTmuxControlEvent(event)
+        }
 
         // Create app
         Self.setInitializingRuntimeApp(self)
@@ -5107,6 +5136,120 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
+private enum TmuxControlPaneOutputCoalescer {
+    static func coalesced(
+        existing: TmuxControlEvent,
+        incoming: TmuxControlEvent,
+        maxBytes: Int
+    ) -> TmuxControlEvent? {
+        guard case .paneOutput(let paneId, let data) = incoming,
+              case .paneOutput(let lastPaneId, let existingData) = existing,
+              paneId == lastPaneId else { return nil }
+        var combined = existingData
+        combined.append(data)
+        if combined.count > maxBytes {
+            combined = Data(combined.suffix(maxBytes))
+        }
+        return .paneOutput(paneId: paneId, data: combined)
+    }
+}
+
+private enum TmuxControlQueuedItem: Sendable {
+    case event(generation: UInt64, TmuxControlEvent)
+    case reset(generation: UInt64)
+}
+
+private final class TmuxControlEventStream: @unchecked Sendable {
+    private struct State {
+        var items: [TmuxControlQueuedItem] = []
+        var signalPending = false
+        var generation: UInt64 = 0
+    }
+
+    let signals: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+    private let maxCoalescedPaneOutputBytes: Int
+    private let queue = DispatchQueue(
+        label: "com.cmux.tmux-control-event-stream.\(UUID().uuidString)",
+        qos: .userInitiated
+    )
+    private var state = State()
+
+    init(maxCoalescedPaneOutputBytes: Int) {
+        self.maxCoalescedPaneOutputBytes = maxCoalescedPaneOutputBytes
+        var continuation: AsyncStream<Void>.Continuation?
+        signals = AsyncStream(Void.self, bufferingPolicy: .bufferingNewest(1)) { streamContinuation in
+            continuation = streamContinuation
+        }
+        self.continuation = continuation!
+    }
+
+    func enqueue(_ event: TmuxControlEvent) {
+        queue.async { [self] in
+            enqueueItem(.event(generation: state.generation, event))
+        }
+    }
+
+    func reset(generation: UInt64) {
+        queue.async { [self] in
+            state.generation = max(state.generation, generation)
+            state.items.removeAll(keepingCapacity: true)
+            state.items.append(.reset(generation: state.generation))
+            signalIfNeeded(markSignalPending(&state))
+        }
+    }
+
+    func drain() async -> [TmuxControlQueuedItem] {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                let items = state.items
+                state.items.removeAll(keepingCapacity: true)
+                state.signalPending = false
+                continuation.resume(returning: items)
+            }
+        }
+    }
+
+    func finish() {
+        queue.async { [continuation] in
+            continuation.finish()
+        }
+    }
+
+    private func enqueueItem(_ item: TmuxControlQueuedItem) {
+        append(item, to: &state.items)
+        signalIfNeeded(markSignalPending(&state))
+    }
+
+    private func append(_ item: TmuxControlQueuedItem, to items: inout [TmuxControlQueuedItem]) {
+        if case .event(let generation, let event) = item,
+           let lastIndex = items.indices.last,
+           case .event(let existingGeneration, let existingEvent) = items[lastIndex],
+           generation == existingGeneration,
+           let coalesced = TmuxControlPaneOutputCoalescer.coalesced(
+                existing: existingEvent,
+                incoming: event,
+                maxBytes: maxCoalescedPaneOutputBytes
+           ) {
+            items[lastIndex] = .event(generation: generation, coalesced)
+            return
+        }
+
+        items.append(item)
+    }
+
+    private func markSignalPending(_ state: inout State) -> Bool {
+        guard !state.signalPending else { return false }
+        state.signalPending = true
+        return true
+    }
+
+    private func signalIfNeeded(_ shouldSignal: Bool) {
+        guard shouldSignal else { return }
+        continuation.yield(())
+    }
+}
+
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
     let recordedAt = Date()
@@ -5299,9 +5442,101 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
     private var activePortalHostLease: PortalHostLease?
+    private let tmuxControlEventStream = TmuxControlEventStream(
+        maxCoalescedPaneOutputBytes: TmuxControlState.paneTextByteLimit
+    )
+    private var tmuxControlEventProcessingTask: Task<Void, Never>?
+    @MainActor private var tmuxControlGeneration: UInt64 = 0
+    @Published private(set) var tmuxControlState = TmuxControlState()
+
+    func enqueueTmuxControlEvent(_ event: TmuxControlEvent) {
+        tmuxControlEventStream.enqueue(event)
+    }
+
+    private func startTmuxControlEventProcessing() {
+        tmuxControlEventProcessingTask = Task { [weak self, eventStream = tmuxControlEventStream] in
+            for await _ in eventStream.signals {
+                guard let self else { break }
+                await self.applyTmuxControlQueuedItems(await eventStream.drain())
+            }
+        }
+    }
+
+    private func stopTmuxControlEventProcessing() {
+        tmuxControlEventProcessingTask?.cancel()
+        tmuxControlEventProcessingTask = nil
+        tmuxControlEventStream.finish()
+    }
+
+    @MainActor
+    private func resetTmuxControlState() {
+        tmuxControlState = TmuxControlState()
+        tmuxControlGeneration &+= 1
+        let generation = tmuxControlGeneration
+        tmuxControlEventStream.reset(generation: generation)
+    }
+
+    @MainActor
+    private func applyTmuxControlQueuedItems(_ items: [TmuxControlQueuedItem]) {
+        guard !items.isEmpty else { return }
+        var next = tmuxControlState
+        var sawMatchingItem = false
+        for item in items {
+            switch item {
+            case .reset(let generation):
+                guard generation == tmuxControlGeneration else { continue }
+                next = TmuxControlState()
+                sawMatchingItem = true
+            case .event(let generation, let event):
+                guard generation == tmuxControlGeneration else { continue }
+                next.apply(event)
+                sawMatchingItem = true
+            }
+        }
+        guard sawMatchingItem, next != tmuxControlState else { return }
+        tmuxControlState = next
+#if DEBUG
+        if next.lastEvent != "pane_output" {
+            cmuxDebugLog(
+                "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
+                "event=\(next.lastEvent) panes=\(next.paneIds)"
+            )
+        }
+#endif
+    }
+
+    @MainActor
+    private func applyTmuxControlEvents(_ events: [TmuxControlEvent]) {
+        guard !events.isEmpty else { return }
+        var next = tmuxControlState
+        for event in events {
+            next.apply(event)
+        }
+        guard next != tmuxControlState else { return }
+        tmuxControlState = next
+#if DEBUG
+        if next.lastEvent != "pane_output" {
+            cmuxDebugLog(
+                "tmux.control surface=\(id.uuidString.prefix(5)) active=\(next.active) " +
+                "event=\(next.lastEvent) panes=\(next.paneIds)"
+            )
+        }
+#endif
+    }
+
+    @MainActor
+    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
+        applyTmuxControlEvents([event])
+    }
+
+    @MainActor
+    func tmuxControlReportPayload(includePaneText: Bool = false) -> [String: Any] {
+        tmuxControlState.debugPayload(includePaneText: includePaneText)
+    }
+
     @Published var searchState: SearchState? = nil {
-	        didSet {
-	            if let searchState {
+		        didSet {
+		            if let searchState {
 	                hostedView.cancelFocusRequest()
 #if DEBUG
                 cmuxDebugLog("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
@@ -5418,6 +5653,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         TerminalSurfaceRegistry.shared.register(self)
         self.hostedView.attachSurface(self)
+        startTmuxControlEventProcessing()
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let inheritedInput = configTemplate?.initialInput
@@ -5841,6 +6077,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// before deinit; deinit will skip the free if already torn down.
     @MainActor
     func teardownSurface() {
+        resetTmuxControlState()
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         closeHeadlessStartupWindowIfNeeded()
@@ -5877,6 +6114,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @MainActor
     func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+        resetTmuxControlState()
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         closeHeadlessStartupWindowIfNeeded()
@@ -7263,6 +7501,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        stopTmuxControlEventProcessing()
         TerminalSurfaceRegistry.shared.unregister(self)
         markPortalLifecycleClosed(reason: "deinit")
         closeHeadlessStartupWindowIfNeeded()

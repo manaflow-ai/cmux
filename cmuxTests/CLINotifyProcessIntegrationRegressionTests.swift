@@ -2395,6 +2395,477 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
     }
 
+    func testTmuxAttachCreatesLocalWorkspaceWithAutoResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattach")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.tmux.attach")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertNil(params["tmux_path"])
+            XCTAssertEqual(params["create"] as? Bool, true)
+            XCTAssertEqual(params["focus"] as? Bool, false)
+            XCTAssertEqual(params["working_directory"] as? String, "/tmp/cmux-tmux")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "session_name": "cmuxcc",
+                    "mode": "local",
+                    "tmux_command": "tmux -CC new -A -s cmuxcc",
+                    "resume_binding": [
+                        "kind": "tmux",
+                        "checkpoint_id": "cmuxcc",
+                        "auto_resume": true,
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--cwd", "/tmp/cmux-tmux", "--no-focus"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testTmuxAttachCommandWinsOverLocalPathNamedTmux() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachpath")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-command-path-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("tmux", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.tmux.attach")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertNil(params["tmux_path"])
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "session_name": "cmuxcc",
+                    "mode": "local",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--no-focus"],
+            environment: environment,
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+    }
+
+    func testTmuxAttachLocalPreservesExplicitTmuxPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachexplicitpath")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: MockSocketServerState()) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.tmux.attach")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertEqual(params["tmux_path"] as? String, "/opt/homebrew/bin/tmux")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "session_name": "cmuxcc",
+                    "mode": "local",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--tmux-path", "/opt/homebrew/bin/tmux", "--no-focus"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+    }
+
+    func testDefaultTmuxExecutablePathPrefersExecutableAbsolutePathEntries() {
+        let result = TerminalController.defaultTmuxExecutablePath(
+            environmentPath: "relative:/usr/bin::/opt/homebrew/bin",
+            commonPaths: ["/usr/local/bin/tmux"],
+            isExecutable: { $0 == "/opt/homebrew/bin/tmux" }
+        )
+
+        XCTAssertEqual(result, "/opt/homebrew/bin/tmux")
+    }
+
+    func testDefaultTmuxExecutablePathFallsBackToCommonExecutablePaths() {
+        let result = TerminalController.defaultTmuxExecutablePath(
+            environmentPath: "/usr/bin",
+            commonPaths: TerminalController.defaultTmuxExecutableCommonPaths,
+            isExecutable: { $0 == "/opt/local/bin/tmux" }
+        )
+
+        XCTAssertEqual(result, "/opt/local/bin/tmux")
+    }
+
+    func testDefaultTmuxExecutablePathSkipsExecutableDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let directoryNamedTmux = root.appendingPathComponent("tmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryNamedTmux, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directoryNamedTmux.path)
+
+        let fallbackTmux = root.appendingPathComponent("real-tmux")
+        FileManager.default.createFile(atPath: fallbackTmux.path, contents: Data("#!/bin/sh\n".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fallbackTmux.path)
+
+        let result = TerminalController.defaultTmuxExecutablePath(
+            environmentPath: root.path,
+            commonPaths: [fallbackTmux.path],
+            isExecutable: { TerminalController.isExecutableFilePath($0) }
+        )
+
+        XCTAssertEqual(result, fallbackTmux.path)
+    }
+
+    func testTmuxAttachLocalPreservesCallerContextFocusAndResolvesCwd() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachctx")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let expectedWorkingDirectory = (FileManager.default.currentDirectoryPath as NSString)
+            .appendingPathComponent(".")
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.tmux.attach")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["session_name"] as? String, "cmuxcc")
+            XCTAssertEqual(params["focus"] as? Bool, true)
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+            XCTAssertEqual(params["working_directory"] as? String, expectedWorkingDirectory)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": surfaceId,
+                    "surface_ref": "surface:1",
+                    "session_name": "cmuxcc",
+                    "mode": "local",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--cwd", "."],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK workspace=workspace:1 session=cmuxcc mode=local\n")
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+    }
+
+    func testTmuxAttachWorkspaceMethodAllowsExplicitFocus() {
+        XCTAssertTrue(TerminalController.explicitFocusParamAllowsFocus(
+            commandKey: "workspace.tmux.attach",
+            params: ["focus": true]
+        ))
+        XCTAssertFalse(TerminalController.explicitFocusParamAllowsFocus(
+            commandKey: "workspace.tmux.attach",
+            params: ["focus": false]
+        ))
+    }
+
+    func testTmuxAttachSSHUsesPersistentPTYCommand() throws {
+        let run = try runMockedSSH(
+            arguments: [],
+            cliArguments: ["tmux", "attach", "cmuxcc", "--ssh", "example.test", "--no-focus"]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
+        let tmuxCommand = "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}; exec tmux -CC new -A -s cmuxcc"
+        let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
+
+        XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand)"), initialScript)
+        XCTAssertTrue(terminalStartupScript.contains("--command-b64 \(encodedTmuxCommand)"), terminalStartupScript)
+        XCTAssertEqual(configureParams["remote_pty_command"] as? String, tmuxCommand)
+        XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
+        XCTAssertTrue(run.stdout.contains("session=cmuxcc mode=ssh"), run.stdout)
+    }
+
+    func testTmuxAttachSSHExistingSessionEncodesExactRemoteTmuxCommand() throws {
+        let run = try runMockedSSH(
+            arguments: [],
+            cliArguments: [
+                "tmux", "attach", "work session",
+                "--ssh", "example.test",
+                "--existing",
+                "--tmux-path", "/opt/bin/tmux",
+                "-L", "sock name",
+                "--no-focus",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
+        let tmuxCommand = "/opt/bin/tmux -CC -L 'sock name' attach -t 'work session'"
+        let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
+
+        XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand)"), initialScript)
+        XCTAssertTrue(terminalStartupScript.contains("--command-b64 \(encodedTmuxCommand)"), terminalStartupScript)
+        XCTAssertEqual(configureParams["remote_pty_command"] as? String, tmuxCommand)
+        XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
+        XCTAssertTrue(run.stdout.contains("session=work session mode=ssh"), run.stdout)
+    }
+
+    func testTmuxAttachSSHMarksPlaceholderLikeTargetsAsLiteral() throws {
+        let run = try runMockedSSH(
+            arguments: [],
+            cliArguments: [
+                "tmux", "attach", "__CMUX_WORKSPACE_ID__",
+                "--ssh", "example.test",
+                "--existing",
+                "-S", "/tmp/__CMUX_SURFACE_ID__.sock",
+                "--no-focus",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
+        let tmuxCommand = "PATH=/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}; exec tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
+        let encodedTmuxCommand = Data(tmuxCommand.utf8).base64EncodedString()
+
+        XCTAssertTrue(initialScript.contains("--command-b64 \(encodedTmuxCommand) --literal-command"), initialScript)
+        XCTAssertTrue(
+            terminalStartupScript.contains("--command-b64 \(encodedTmuxCommand) --literal-command"),
+            terminalStartupScript
+        )
+        XCTAssertEqual(configureParams["remote_pty_command"] as? String, tmuxCommand)
+        XCTAssertTrue(run.stdout.contains("session=__CMUX_WORKSPACE_ID__ mode=ssh"), run.stdout)
+    }
+
+    func testTmuxAttachSSHRejectsNonReconnectableSSHOptionsBeforeRPC() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachsshreconnect")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": "tmux attach SSH should fail before RPC"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "tmux", "attach", "cmuxcc",
+                "--ssh", "example.test",
+                "--ssh-option", "ControlMaster=no",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("tmux attach --ssh requires SSH settings that support reusable reconnect"),
+            result.stderr
+        )
+        XCTAssertTrue(
+            state.snapshot().isEmpty,
+            "tmux attach SSH with non-reconnectable options should fail before sending any RPC, saw \(state.snapshot())"
+        )
+    }
+
+    func testTmuxAttachSSHRejectsCwdUntilRemoteCwdIsSupported() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxattachsshcwd")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unexpected_method", "message": "tmux attach SSH --cwd should fail before RPC"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["tmux", "attach", "cmuxcc", "--ssh", "example.test", "--cwd", "/repo"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(
+            result.stderr.contains("tmux attach: --cwd is only supported for local attaches"),
+            result.stderr
+        )
+        XCTAssertTrue(
+            state.snapshot().isEmpty,
+            "tmux attach SSH --cwd should fail before sending any RPC, saw \(state.snapshot())"
+        )
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
@@ -2404,8 +2875,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
         let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
-        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+        let initialScript = try XCTUnwrap(self.decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(self.decodedReusableStartupScript(from: terminalStartupCommand))
 
         XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
         XCTAssertTrue(initialScript.contains("--wait"), initialScript)
@@ -2425,7 +2896,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
-        XCTAssertFalse(initialScript.contains("-surface"), initialScript)
+        XCTAssertFalse(initialScript.contains(" -surface "), initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
@@ -2452,7 +2923,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
-        XCTAssertFalse(terminalStartupScript.contains("-surface"), terminalStartupScript)
+        XCTAssertFalse(terminalStartupScript.contains(" -surface "), terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
@@ -2490,8 +2961,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 configureParams["terminal_startup_command"] as? String,
                 testCase.name
             )
-            let initialScript = decodedReusableStartupScript(from: initialCommand) ?? initialCommand
-            let terminalStartupScript = decodedReusableStartupScript(from: terminalStartupCommand) ?? terminalStartupCommand
+            let initialScript = self.decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            let terminalStartupScript = self.decodedReusableStartupScript(from: terminalStartupCommand) ?? terminalStartupCommand
 
             XCTAssertFalse(initialScript.contains("ssh-pty-attach"), testCase.name)
             XCTAssertFalse(terminalStartupScript.contains("ssh-pty-attach"), testCase.name)
@@ -2589,6 +3060,101 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
+        ])
+    }
+
+    func testSSHPTYAttachLiteralCommandPreservesPlaceholderTokens() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyliteral")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let command = "tmux -CC -S /tmp/__CMUX_SURFACE_ID__.sock attach -t __CMUX_WORKSPACE_ID__"
+        let encodedCommand = Data(command.utf8).base64EncodedString()
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_bridge":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["command"] as? String, command)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+        let bridgeHandled = startBridgeErrorServer(
+            listenerFD: bridge.fd,
+            message: "remote PTY start failed"
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+                "--attachment-id", surfaceId,
+                "--command-b64", encodedCommand,
+                "--literal-command",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [
             "workspace.remote.pty_bridge",
@@ -3363,12 +3929,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
-            XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
-            XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
-            XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("254|255"), initialCommand)
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
+            let initialScript = self.decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
+            XCTAssertTrue(initialScript.contains("--require-existing"), initialScript)
+            XCTAssertTrue(initialScript.contains(sessionId), initialScript)
+            XCTAssertTrue(initialScript.contains("CMUX_WORKSPACE_ID"), initialScript)
+            XCTAssertTrue(initialScript.contains("CMUX_SURFACE_ID"), initialScript)
+            XCTAssertTrue(initialScript.contains("254|255"), initialScript)
             return self.v2Response(
                 id: id,
                 ok: true,
@@ -3404,6 +3972,84 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertEqual(state.snapshot().count, 1)
+    }
+
+    func testSSHSessionAttachStartupCommandPropagatesBridgeFailureStatus() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshattachstatus")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "ssh-existing-session"
+        var capturedInitialCommand: String?
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            capturedInitialCommand = params["initial_command"] as? String
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": workspaceId,
+                    "workspace_ref": "workspace:1",
+                    "surface_id": "33333333-3333-3333-3333-333333333333",
+                    "surface_ref": "surface:1",
+                    "type": "terminal",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let fakeCLIURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-failing-ssh-pty-attach-\(UUID().uuidString).sh")
+        try """
+        #!/bin/sh
+        exit 42
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLIURL.path)
+        defer { try? FileManager.default.removeItem(at: fakeCLIURL) }
+
+        var attachEnvironment = ProcessInfo.processInfo.environment
+        attachEnvironment["CMUX_BUNDLED_CLI_PATH"] = fakeCLIURL.path
+        attachEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        attachEnvironment["CMUX_WORKSPACE_ID"] = workspaceId
+        attachEnvironment["CMUX_SURFACE_ID"] = "33333333-3333-3333-3333-333333333333"
+        let attachResult = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", try XCTUnwrap(capturedInitialCommand)],
+            environment: attachEnvironment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(attachResult.timedOut, attachResult.stderr)
+        XCTAssertEqual(attachResult.status, 42, attachResult.stderr)
     }
 
     func testSSHPTYAttachRequireExistingPassesBridgeFlag() throws {
@@ -7963,6 +8609,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         arguments sshArguments: [String],
         jsonOutput: Bool = false,
         omitWorkspaceCreateSurfaceID: Bool = false,
+        cliArguments: [String]? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> MockedSSHRun {
@@ -8021,6 +8668,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     ok: true,
                     result: ["remote": ["state": "connected"]]
                 )
+            case "workspace.rename":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "window_id": windowId,
+                    ]
+                )
             default:
                 return self.v2Response(
                     id: id,
@@ -8037,9 +8693,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let commandArguments = jsonOutput
-            ? ["--json", "--id-format", "uuids", "ssh", "example.test", "--no-focus"] + sshArguments
-            : ["ssh", "example.test", "--no-focus"] + sshArguments
+        let commandArguments: [String]
+        if let cliArguments {
+            commandArguments = jsonOutput
+                ? ["--json", "--id-format", "uuids"] + cliArguments
+                : cliArguments
+        } else {
+            commandArguments = jsonOutput
+                ? ["--json", "--id-format", "uuids", "ssh", "example.test", "--no-focus"] + sshArguments
+                : ["ssh", "example.test", "--no-focus"] + sshArguments
+        }
         let result = runProcess(
             executablePath: cliPath,
             arguments: commandArguments,

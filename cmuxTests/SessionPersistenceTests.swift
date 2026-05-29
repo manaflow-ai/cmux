@@ -4030,6 +4030,50 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testSnapshotPreservesCliTmuxControlBindingOverProcessDetectedAttach() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let controlCommand = "tmux -CC new -A -s cmuxcc"
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux cmuxcc",
+                    kind: "tmux",
+                    command: controlCommand,
+                    cwd: "/tmp/cmuxcc",
+                    checkpointId: "cmuxcc",
+                    source: "cli",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t cmuxcc",
+                cwd: "/tmp/cmuxcc",
+                checkpointId: "cmuxcc",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let resumeBinding = try XCTUnwrap(snapshot.panels.first?.terminal?.resumeBinding)
+
+        XCTAssertEqual(resumeBinding.source, "cli")
+        XCTAssertEqual(resumeBinding.command, controlCommand)
+        XCTAssertEqual(resumeBinding.autoResume, true)
+        XCTAssertTrue(resumeBinding.command.contains("-CC"))
+    }
+
+    @MainActor
     func testSnapshotUsesProcessDetectedSurfaceResumeBindingAfterWorkspaceMove() throws {
         let originalWorkspaceId = UUID()
         let workspace = Workspace()
@@ -4551,6 +4595,46 @@ extension SessionPersistenceTests {
             fileURL: storeURL,
             signingSecret: secret
         ))
+    }
+
+    func testTmuxControlResumeBindingPersistsAutoApprovalRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux cmuxcc",
+            kind: "tmux",
+            command: "tmux -CC new -A -s cmuxcc",
+            cwd: "/tmp/cmuxcc",
+            checkpointId: "cmuxcc",
+            source: "cli",
+            autoResume: true
+        )
+
+        let effectiveBinding = TerminalController.tmuxControlResumeBindingWithPersistedAutoApproval(
+            binding,
+            approvalStoreURL: storeURL,
+            signingSecret: secret
+        )
+
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.matchingRecord(
+            for: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(record.policy, .auto)
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+
+        let restoredBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(restoredBinding.approvalPolicy, .auto)
+        XCTAssertEqual(restoredBinding.approvalRecordId, record.id)
+        XCTAssertTrue(restoredBinding.allowsAutomaticResume)
     }
 
     func testSurfaceResumeApprovalWritesRecordsIntoCmuxJSON() throws {

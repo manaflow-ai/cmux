@@ -87,6 +87,26 @@ private func waitForWorkspaceSplitView(
 }
 
 @MainActor
+private func waitUntil(
+    _ description: String,
+    timeout: TimeInterval = 2.0,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    predicate: () -> Bool
+) throws {
+    let deadline = Date.now.addingTimeInterval(timeout)
+    repeat {
+        if predicate() { return }
+        _ = RunLoop.current.run(
+            mode: .default,
+            before: min(Date.now.addingTimeInterval(0.01), deadline)
+        )
+    } while Date.now < deadline
+
+    XCTFail("Timed out waiting for \(description)", file: file, line: line)
+}
+
+@MainActor
 final class WorkspaceSplitStartupCommandTests: XCTestCase {
     func testCustomLayoutSplitRatioSurvivesInitialBonsplitViewLayout() throws {
         let workspace = Workspace()
@@ -287,4 +307,169 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
         XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
     }
+
+    func testTmuxControlStateTracksTopologyTextAndExit() throws {
+        var state = TmuxControlState()
+
+        state.apply(.enter)
+        XCTAssertTrue(state.active)
+        XCTAssertEqual(state.lastEvent, "enter")
+
+        let topology = """
+        {
+          "session_id": 7,
+          "tmux_version": "3.4",
+          "pane_ids": [2, 1],
+          "windows": [
+            {
+              "id": 3,
+              "width": 120,
+              "height": 40,
+              "layout": {
+                "width": 120,
+                "height": 40,
+                "x": 0,
+                "y": 0,
+                "horizontal": [
+                  {"width": 60, "height": 40, "x": 0, "y": 0, "pane": 1},
+                  {"width": 60, "height": 40, "x": 60, "y": 0, "pane": 2}
+                ]
+              }
+            }
+          ]
+        }
+        """
+
+        state.apply(.windowsChanged(Data(topology.utf8)))
+        XCTAssertTrue(state.active)
+        XCTAssertEqual(state.sessionId, 7)
+        XCTAssertEqual(state.tmuxVersion, "3.4")
+        XCTAssertEqual(state.paneIds, [1, 2])
+        XCTAssertEqual(state.windows.first?.paneIds, [1, 2])
+
+        state.apply(.paneOutput(
+            paneId: 2,
+            data: Data("/tmp/cmux-known-path\n".utf8)
+        ))
+        XCTAssertEqual(state.lastEvent, "pane_output")
+        XCTAssertEqual(state.lastPaneOutputId, 2)
+        XCTAssertTrue(String(decoding: state.paneBytesById[2] ?? Data(), as: UTF8.self).contains("/tmp/cmux-known-path"))
+
+        let redactedPayload = state.debugPayload()
+        let redactedPanes = try XCTUnwrap(redactedPayload["panes"] as? [[String: Any]])
+        XCTAssertNil(redactedPanes.first { ($0["id"] as? UInt32) == 2 }?["text"])
+
+        let wave = "\u{1F30A}"
+        let waveBytes = Array(wave.utf8)
+        state.apply(.paneOutput(paneId: 2, data: Data(waveBytes.prefix(2))))
+        var textPayload = state.debugPayload(includePaneText: true)
+        var textPanes = try XCTUnwrap(textPayload["panes"] as? [[String: Any]])
+        XCTAssertEqual(textPanes.first { ($0["id"] as? UInt32) == 2 }?["text"] as? String, "/tmp/cmux-known-path\n")
+
+        state.apply(.paneOutput(paneId: 2, data: Data(waveBytes.suffix(2))))
+        textPayload = state.debugPayload(includePaneText: true)
+        textPanes = try XCTUnwrap(textPayload["panes"] as? [[String: Any]])
+        XCTAssertEqual(textPanes.first { ($0["id"] as? UInt32) == 2 }?["text"] as? String, "/tmp/cmux-known-path\n\(wave)")
+
+        state.apply(.windowsChanged(Data("{}".utf8)))
+        XCTAssertEqual(state.topologyParseError, "json_decode_failed")
+
+        state.apply(.exit)
+        XCTAssertFalse(state.active)
+        XCTAssertEqual(state.lastEvent, "exit")
+        XCTAssertTrue(state.paneIds.isEmpty)
+        XCTAssertTrue(state.paneBytesById.isEmpty)
+    }
+
+    func testTmuxControlPayloadCopiesOnlyPaneOutputSuffixWhenCapped() {
+        let bytes = Data((0..<128).map { UInt8($0) })
+        let copied = bytes.withUnsafeBytes { rawBuffer -> Data in
+            TmuxControlPayload.data(
+                from: rawBuffer.baseAddress,
+                byteCount: rawBuffer.count,
+                suffixLimit: 16
+            )
+        }
+
+        XCTAssertEqual(copied, Data(bytes.suffix(16)))
+    }
+
+    func testTmuxControlPaneTextDecodeKeepsValidSuffixAfterTruncatedLeadingBytes() throws {
+        var state = TmuxControlState()
+        state.apply(.enter)
+        state.apply(.windowsChanged(Data("""
+        {
+          "session_id": 1,
+          "tmux_version": "3.4",
+          "pane_ids": [1],
+          "windows": [
+            {
+              "id": 1,
+              "width": 80,
+              "height": 24,
+              "layout": {"width": 80, "height": 24, "x": 0, "y": 0, "pane": 1}
+            }
+          ]
+        }
+        """.utf8)))
+
+        state.apply(.paneOutput(paneId: 1, data: Data([0x80, 0x41])))
+        let payload = state.debugPayload(includePaneText: true)
+        let panes = try XCTUnwrap(payload["panes"] as? [[String: Any]])
+
+        XCTAssertEqual(panes.first?["text"] as? String, "A")
+    }
+
+    func testTmuxControlStreamKeepsEventsQueuedAfterHibernationResume() throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.applyTmuxControlEvent(.enter)
+        XCTAssertTrue(panel.surface.tmuxControlState.active)
+
+        panel.surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test")
+        XCTAssertFalse(panel.surface.tmuxControlState.active)
+
+        panel.surface.prepareAgentHibernationResume(initialInput: nil)
+        panel.surface.enqueueTmuxControlEvent(.enter)
+        panel.surface.enqueueTmuxControlEvent(.windowsChanged(Data("""
+        {
+          "session_id": 1,
+          "tmux_version": "3.4",
+          "pane_ids": [1],
+          "windows": [
+            {
+              "id": 1,
+              "width": 80,
+              "height": 24,
+              "layout": {"width": 80, "height": 24, "x": 0, "y": 0, "pane": 1}
+            }
+          ]
+        }
+        """.utf8)))
+
+        try waitUntil("tmux control state to resume after stream reset") {
+            panel.surface.tmuxControlState.active &&
+                panel.surface.tmuxControlState.paneIds == [1] &&
+                panel.surface.tmuxControlState.tmuxVersion == "3.4"
+        }
+    }
+
+    func testTmuxControlStateClearsOnRuntimeSurfaceTeardown() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.applyTmuxControlEvent(.enter)
+        XCTAssertTrue(panel.surface.tmuxControlState.active)
+
+        panel.surface.teardownSurface()
+        XCTAssertFalse(panel.surface.tmuxControlState.active)
+        XCTAssertTrue(panel.surface.tmuxControlState.paneIds.isEmpty)
+
+        panel.surface.applyTmuxControlEvent(.enter)
+        XCTAssertTrue(panel.surface.tmuxControlState.active)
+
+        panel.surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test")
+        XCTAssertFalse(panel.surface.tmuxControlState.active)
+        XCTAssertTrue(panel.surface.tmuxControlState.paneIds.isEmpty)
+    }
+
 }

@@ -3386,6 +3386,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceList(params: params))
         case "workspace.create":
             return v2Result(id: id, self.v2WorkspaceCreate(params: params))
+        case "workspace.tmux.attach":
+            return v2Result(id: id, self.v2WorkspaceTmuxAttach(params: params))
         case "workspace.select":
             return v2Result(id: id, self.v2WorkspaceSelect(params: params))
         case "workspace.current":
@@ -3837,6 +3839,7 @@ class TerminalController {
             "window.close",
             "workspace.list",
             "workspace.create",
+            "workspace.tmux.attach",
             "workspace.select",
             "workspace.current",
             "workspace.close",
@@ -5566,6 +5569,199 @@ class TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
     }
+
+    private func v2WorkspaceTmuxAttach(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let sessionName = v2RawString(params, "session_name")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionName.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_name", data: nil)
+        }
+        if v2HasNonNullParam(params, "create"), v2Bool(params, "create") == nil {
+            return .err(code: "invalid_params", message: "create must be a boolean", data: nil)
+        }
+        if v2HasNonNullParam(params, "focus"), v2Bool(params, "focus") == nil {
+            return .err(code: "invalid_params", message: "focus must be a boolean", data: nil)
+        }
+        let socketName = v2OptionalTrimmedRawString(params, "socket_name")
+        let socketPath = v2OptionalTrimmedRawString(params, "socket_path")
+        if socketName != nil && socketPath != nil {
+            return .err(code: "invalid_params", message: "socket_name and socket_path cannot both be set", data: nil)
+        }
+
+        let tmuxPath = v2OptionalTrimmedRawString(params, "tmux_path") ?? Self.defaultTmuxExecutablePath()
+        let create = v2Bool(params, "create") ?? true
+        let command = Self.tmuxControlAttachCommand(
+            tmuxPath: tmuxPath,
+            sessionName: sessionName,
+            create: create,
+            socketName: socketName,
+            socketPath: socketPath
+        )
+        let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
+        let title = v2OptionalTrimmedRawString(params, "title") ?? "tmux \(sessionName)"
+        let description = v2OptionalTrimmedRawString(params, "description")
+        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create tmux workspace", data: nil)
+        v2MainSync {
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                workingDirectory: workingDirectory,
+                initialTerminalCommand: command,
+                select: shouldFocus,
+                eagerLoadTerminal: !shouldFocus
+            )
+            workspace.setCustomDescription(description)
+            guard let surfaceId = workspace.focusedPanelId else {
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "surface_id": NSNull(),
+                    "surface_ref": NSNull(),
+                    "session_name": sessionName,
+                    "mode": "local",
+                    "tmux_command": command,
+                    "resume_binding": NSNull(),
+                ])
+                return
+            }
+            let binding = SurfaceResumeBindingSnapshot(
+                name: title,
+                kind: "tmux",
+                command: command,
+                cwd: workingDirectory,
+                checkpointId: sessionName,
+                source: "cli",
+                autoResume: true,
+                updatedAt: Date().timeIntervalSince1970
+            )
+            let effectiveBinding = Self.tmuxControlResumeBindingWithPersistedAutoApproval(binding)
+            _ = workspace.setSurfaceResumeBinding(effectiveBinding, panelId: surfaceId)
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "session_name": sessionName,
+                "mode": "local",
+                "tmux_command": command,
+                "resume_binding": v2SurfaceResumeBindingPayload(effectiveBinding),
+            ])
+        }
+        return result
+    }
+
+    nonisolated static func tmuxControlResumeBindingWithPersistedAutoApproval(
+        _ binding: SurfaceResumeBindingSnapshot,
+        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        guard let record = SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            fileURL: approvalStoreURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        ) else {
+            return SurfaceResumeApprovalStore.applyingStoredApproval(
+                to: binding,
+                fileURL: approvalStoreURL,
+                fileManager: fileManager,
+                signingSecret: signingSecret
+            )
+        }
+
+        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: approvalStoreURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        effectiveBinding.approvalPolicy = record.policy
+        effectiveBinding.approvalRecordId = record.id
+        effectiveBinding.autoResume = record.policy == .auto
+        return effectiveBinding
+    }
+
+    nonisolated static func defaultTmuxExecutablePath() -> String {
+        defaultTmuxExecutablePath(
+            environmentPath: ProcessInfo.processInfo.environment["PATH"],
+            commonPaths: defaultTmuxExecutableCommonPaths,
+            isExecutable: { isExecutableFilePath($0) }
+        )
+    }
+
+    nonisolated static var defaultTmuxExecutableCommonPaths: [String] {
+        ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/opt/local/bin/tmux", "/usr/bin/tmux"]
+    }
+
+    nonisolated static func isExecutableFilePath(_ path: String, fileManager: FileManager = .default) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+        return fileManager.isExecutableFile(atPath: path)
+    }
+
+    nonisolated static func defaultTmuxExecutablePath(
+        environmentPath: String?,
+        commonPaths: [String],
+        isExecutable: (String) -> Bool
+    ) -> String {
+        var candidates: [String] = []
+        if let environmentPath {
+            for rawDirectory in environmentPath.split(separator: ":", omittingEmptySubsequences: false) {
+                let directory = String(rawDirectory)
+                guard directory.hasPrefix("/") else { continue }
+                candidates.append((directory as NSString).appendingPathComponent("tmux"))
+            }
+        }
+        candidates.append(contentsOf: commonPaths)
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate).inserted {
+            if isExecutable(candidate) {
+                return candidate
+            }
+        }
+        return "tmux"
+    }
+
+    private static func tmuxControlAttachCommand(
+        tmuxPath: String,
+        sessionName: String,
+        create: Bool,
+        socketName: String?,
+        socketPath: String?
+    ) -> String {
+        var argv = [tmuxPath, "-CC"]
+        if let socketName {
+            argv += ["-L", socketName]
+        }
+        if let socketPath {
+            argv += ["-S", socketPath]
+        }
+        if create {
+            argv += ["new", "-A", "-s", sessionName]
+        } else {
+            argv += ["attach", "-t", sessionName]
+        }
+        return argv
+            .map { TerminalStartupShellQuoting.shellToken($0, allowingBareASCII: true) }
+            .joined(separator: " ")
+    }
+
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6214,6 +6410,8 @@ class TerminalController {
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remotePTYCommand = v2RawString(params, "remote_pty_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketURL = v2RawString(params, "daemon_websocket_url")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketToken = v2RawString(params, "daemon_websocket_token")?
@@ -6301,6 +6499,7 @@ class TerminalController {
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
+                remotePTYCommand: remotePTYCommand?.isEmpty == true ? nil : remotePTYCommand,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
@@ -7985,6 +8184,7 @@ class TerminalController {
                     item["requested_working_directory"] = v2OrNull(v2NonEmptyString(terminalPanel.requestedWorkingDirectory))
                     item["initial_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugInitialCommand()))
                     item["tmux_start_command"] = v2OrNull(v2NonEmptyString(terminalPanel.surface.debugTmuxStartCommand()))
+                    item["tmux_control_active"] = terminalPanel.surface.tmuxControlState.active
                     item["resume_binding"] = v2SurfaceResumeBindingPayload(ws.surfaceResumeBinding(panelId: panel.id))
                 }
                 return item
@@ -8830,6 +9030,11 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        if v2HasNonNullParam(params, "include_tmux_pane_text"),
+           v2Bool(params, "include_tmux_pane_text") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid include_tmux_pane_text", data: nil)
+        }
+        let includeTmuxPaneText = v2Bool(params, "include_tmux_pane_text") ?? false
 
         var payload: [String: Any]?
         v2MainSync {
@@ -8837,8 +9042,16 @@ class TerminalController {
             let panels = orderedPanels(in: ws)
             let items: [[String: Any]] = panels.enumerated().map { index, panel in
                 var inWindow: Any = NSNull()
+                var tmuxControl: Any = NSNull()
                 if let tp = panel as? TerminalPanel {
                     inWindow = tp.surface.isViewInWindow
+                    var tmuxPayload = ws.tmuxControlReport(
+                        forPanelId: tp.id,
+                        includePaneText: includeTmuxPaneText
+                    )
+                    tmuxPayload?["surface_id"] = tp.id.uuidString
+                    tmuxPayload?["surface_ref"] = v2Ref(kind: .surface, uuid: tp.id)
+                    tmuxControl = tmuxPayload ?? NSNull()
                 } else if let bp = panel as? BrowserPanel {
                     inWindow = bp.webView.window != nil
                 }
@@ -8847,7 +9060,8 @@ class TerminalController {
                     "id": panel.id.uuidString,
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "type": panel.panelType.rawValue,
-                    "in_window": inWindow
+                    "in_window": inWindow,
+                    "tmux_control": tmuxControl
                 ]
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
