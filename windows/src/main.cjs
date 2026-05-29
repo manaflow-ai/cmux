@@ -126,6 +126,11 @@ function buildMenu() {
         { label: "Command Palette", accelerator: "Ctrl+Shift+P", click: () => mainWindow?.webContents.send("cmux-command", "palette.toggle") },
         { label: "Toggle Sidebar", accelerator: "Ctrl+B", click: () => mainWindow?.webContents.send("cmux-command", "sidebar.toggle") },
         { type: "separator" },
+        { label: "Next Pane", accelerator: "Ctrl+Tab", click: () => mainWindow?.webContents.send("cmux-command", "terminal.nextPane") },
+        { label: "Previous Pane", accelerator: "Ctrl+Shift+Tab", click: () => mainWindow?.webContents.send("cmux-command", "terminal.previousPane") },
+        { label: "Next Workspace", accelerator: "Ctrl+PageDown", click: () => mainWindow?.webContents.send("cmux-command", "workspace.next") },
+        { label: "Previous Workspace", accelerator: "Ctrl+PageUp", click: () => mainWindow?.webContents.send("cmux-command", "workspace.previous") },
+        { type: "separator" },
         { role: "reload" },
         { role: "toggleDevTools" }
       ]

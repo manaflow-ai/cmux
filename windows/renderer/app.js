@@ -665,6 +665,8 @@ const commands = [
   { id: "workspace.color", label: "Change Workspace Color", shortcut: "", run: () => cycleWorkspaceColor() },
   { id: "workspace.changeFolder", label: "Change Workspace Folder", shortcut: "", run: () => chooseWorkspaceFolder() },
   { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
+  { id: "workspace.next", label: "Next Workspace", shortcut: "Ctrl+PageDown", run: () => cycleWorkspace(1) },
+  { id: "workspace.previous", label: "Previous Workspace", shortcut: "Ctrl+PageUp", run: () => cycleWorkspace(-1) },
   { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
   { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
   { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
@@ -673,6 +675,8 @@ const commands = [
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => createPanel("terminal", "down") },
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
+  { id: "terminal.nextPane", label: "Next Pane", shortcut: "Ctrl+Tab", run: () => cycleActivePane(1) },
+  { id: "terminal.previousPane", label: "Previous Pane", shortcut: "Ctrl+Shift+Tab", run: () => cycleActivePane(-1) },
   { id: "terminal.find", label: "Find in Active Terminal", shortcut: "Ctrl+F", run: () => openTerminalSearch() },
   { id: "terminal.findNext", label: "Find Next in Terminal", shortcut: "F3", run: () => findNextInTerminal() },
   { id: "terminal.findPrevious", label: "Find Previous in Terminal", shortcut: "Shift+F3", run: () => findPreviousInTerminal() },
@@ -3027,6 +3031,10 @@ function showToolbarMenu(event) {
     contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
     contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
     contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
+    contextMenuButton("Next pane", () => cycleActivePane(1), !panel || activeWorkspace()?.panels.length <= 1),
+    contextMenuButton("Previous pane", () => cycleActivePane(-1), !panel || activeWorkspace()?.panels.length <= 1),
+    contextMenuButton("Next workspace", () => cycleWorkspace(1), (state.data?.workspaces.length || 0) <= 1),
+    contextMenuButton("Previous workspace", () => cycleWorkspace(-1), (state.data?.workspaces.length || 0) <= 1),
     contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
@@ -3865,6 +3873,29 @@ async function focusPanel(panelId) {
   focusTerminalSession(panelId);
 }
 
+function cycleActivePane(delta = 1) {
+  const workspace = activeWorkspace();
+  const panels = workspace?.panels || [];
+  if (panels.length === 0) return false;
+  const activeIndex = panels.findIndex((panel) => panel.id === workspace.activePanelId);
+  const currentIndex = activeIndex >= 0 ? activeIndex : 0;
+  const nextPanel = panels[(currentIndex + delta + panels.length) % panels.length];
+  if (!nextPanel) return false;
+  focusPanel(nextPanel.id);
+  return true;
+}
+
+function cycleWorkspace(delta = 1) {
+  const workspaces = state.data?.workspaces || [];
+  if (workspaces.length === 0) return false;
+  const activeIndex = workspaces.findIndex((workspace) => workspace.id === state.data.activeWorkspaceId);
+  const currentIndex = activeIndex >= 0 ? activeIndex : 0;
+  const nextWorkspace = workspaces[(currentIndex + delta + workspaces.length) % workspaces.length];
+  if (!nextWorkspace) return false;
+  focusWorkspace(nextWorkspace.id);
+  return true;
+}
+
 function focusTerminalSession(panelId) {
   const terminal = state.terminals.get(panelId);
   if (terminal) setTimeout(() => terminal.term.focus(), 20);
@@ -4232,6 +4263,15 @@ window.addEventListener("keydown", (event) => {
   if (event.ctrlKey && key === "f") {
     consumeGlobalShortcut(event);
     openTerminalSearch();
+  } else if (event.ctrlKey && key === "tab") {
+    consumeGlobalShortcut(event);
+    cycleActivePane(event.shiftKey ? -1 : 1);
+  } else if (event.ctrlKey && event.key === "PageDown") {
+    consumeGlobalShortcut(event);
+    cycleWorkspace(1);
+  } else if (event.ctrlKey && event.key === "PageUp") {
+    consumeGlobalShortcut(event);
+    cycleWorkspace(-1);
   } else if (event.key === "F3") {
     consumeGlobalShortcut(event);
     if (event.shiftKey) findPreviousInTerminal();
