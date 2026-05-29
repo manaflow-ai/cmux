@@ -2020,25 +2020,101 @@ function renderPalette() {
   elements.palette.setAttribute("aria-hidden", String(!state.paletteOpen));
   if (!state.paletteOpen) return;
 
-  const query = elements.paletteInput.value.trim().toLowerCase();
-  const matches = commands.filter((command) => command.label.toLowerCase().includes(query));
+  const query = normalizeSettingsQuery(elements.paletteInput.value);
+  const matches = paletteEntries()
+    .filter((entry) => paletteEntryMatches(entry, query))
+    .sort((left, right) => paletteEntryScore(right, query) - paletteEntryScore(left, query));
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
-  elements.paletteList.replaceChildren(...matches.map((command, index) => {
+  const nodes = matches.map((entry, index) => {
     const button = document.createElement("button");
     button.className = `palette-item${index === state.paletteIndex ? " is-selected" : ""}`;
-    button.innerHTML = `<span></span><span class="palette-shortcut"></span>`;
-    button.querySelector("span").textContent = command.label;
-    button.querySelector(".palette-shortcut").textContent = command.shortcut;
-    button.onclick = () => runPaletteCommand(command);
+    button.innerHTML = `
+      <span class="palette-main">
+        <span class="palette-label"></span>
+        <span class="palette-meta"></span>
+      </span>
+      <span class="palette-shortcut"></span>
+    `;
+    button.querySelector(".palette-label").textContent = entry.label;
+    button.querySelector(".palette-meta").textContent = entry.meta;
+    button.querySelector(".palette-shortcut").textContent = entry.shortcut;
+    button.onclick = () => runPaletteCommand(entry);
     return button;
-  }));
+  });
+  if (nodes.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "palette-empty";
+    empty.textContent = "No matching commands, workspaces, panes, or settings.";
+    nodes.push(empty);
+  }
+  elements.paletteList.replaceChildren(...nodes);
 }
 
-function runPaletteCommand(command) {
+function paletteEntryMatches(entry, query) {
+  if (!query) return true;
+  return query.split(/\s+/).every((token) => entry.search.includes(token));
+}
+
+function paletteEntryScore(entry, query) {
+  if (!query) return 0;
+  let score = 0;
+  if (entry.search.includes(query)) score += 8;
+  if (entry.search.startsWith(query)) score += 4;
+  if (normalizeSettingsQuery(entry.label).includes(query)) score += 2;
+  return score;
+}
+
+function paletteEntries() {
+  const entries = commands.map((command) => ({
+    id: command.id,
+    label: command.label,
+    meta: "Command",
+    shortcut: command.shortcut,
+    search: normalizeSettingsQuery(`${command.label} ${command.shortcut} command`),
+    run: command.run
+  }));
+  for (const [workspaceIndex, workspace] of (state.data?.workspaces || []).entries()) {
+    entries.push({
+      id: `workspace.${workspace.id}`,
+      label: workspace.title || "Workspace",
+      meta: workspace.cwdShort || workspace.cwd || "",
+      shortcut: "Workspace",
+      search: normalizeSettingsQuery(`workspace ${workspaceIndex + 1} ${workspace.title} ${workspace.cwdShort} ${workspace.cwd}`),
+      run: () => focusWorkspace(workspace.id)
+    });
+    for (const [panelIndex, panel] of workspace.panels.entries()) {
+      const label = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
+      entries.push({
+        id: `panel.${panel.id}`,
+        label,
+        meta: `${workspace.title || "Workspace"} / ${panel.type === "browser" ? hostnameOf(panel.url) : panel.cwdShort || "~"}`,
+        shortcut: panel.type === "browser" ? "Browser" : "Pane",
+        search: normalizeSettingsQuery(`pane ${panelIndex + 1} workspace ${workspaceIndex + 1} panel tab ${label} ${panel.type} ${workspace.title} ${panel.cwdShort} ${panel.cwd} ${panel.url}`),
+        run: async () => {
+          if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
+          await focusPanel(panel.id);
+        }
+      });
+    }
+  }
+  for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
+    entries.push({
+      id: `settings.${id}`,
+      label: `Settings: ${label}`,
+      meta: "Settings category",
+      shortcut: "Settings",
+      search: normalizeSettingsQuery(`settings preferences customize ${label} ${id}`),
+      run: () => openSettingsCategory(id)
+    });
+  }
+  return entries;
+}
+
+function runPaletteCommand(entry) {
   state.paletteOpen = false;
   elements.paletteInput.value = "";
   renderPalette();
-  command.run();
+  entry.run();
 }
 
 async function createWorkspace() {
@@ -2318,6 +2394,14 @@ function toggleSidebar() {
 
 function openInspector(mode) {
   state.inspectorMode = state.inspectorMode === mode ? null : mode;
+  updateRailButtons();
+  render();
+}
+
+function openSettingsCategory(category = "all") {
+  state.inspectorMode = "settings";
+  state.settingsCategory = category;
+  state.settingsQuery = "";
   updateRailButtons();
   render();
 }

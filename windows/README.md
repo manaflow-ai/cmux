@@ -32,7 +32,7 @@ The runtime listens on `\\.\pipe\cmux-windows` on Windows and falls back to a te
 
 Implemented in this milestone:
 
-- Windows desktop shell with workspace sidebar, surface tabs, split panes, and command palette.
+- Windows desktop shell with workspace sidebar, surface tabs, split panes, and command palette for commands, workspaces, panes, and Settings categories.
 - Terminal panes backed by `node-pty` when available, with a pipe-based process fallback.
 - Browser panes through Electron `webview`, with iframe fallback outside Electron.
 - Named-pipe CLI/control protocol.

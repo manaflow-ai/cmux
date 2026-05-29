@@ -1645,6 +1645,30 @@ button {
   text-align: left;
 }
 
+.palette-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.palette-label,
+.palette-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.palette-label {
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.palette-meta {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
 .palette-item:hover,
 .palette-item.is-selected {
   border-color: var(--color-line);
@@ -1653,8 +1677,16 @@ button {
 }
 
 .palette-shortcut {
+  flex: 0 0 auto;
   color: var(--color-faint);
   font: 11px/1 var(--font-mono);
+}
+
+.palette-empty {
+  padding: var(--space-3);
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 .toast-region {
