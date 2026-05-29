@@ -77,6 +77,7 @@ export type AgentSessionCopy = {
   mentionMenuTitle: string;
   mentionCurrentWorkspace: string;
   skillMenuTitle: string;
+  composerNoResults: string;
   planMode: string;
   planSuggestionAction: string;
   planSuggestionDismiss: string;

@@ -66,6 +66,7 @@ const context: AppContext = {
     mentionMenuTitle: "Mention",
     mentionCurrentWorkspace: "Current workspace",
     skillMenuTitle: "Skills",
+    composerNoResults: "No results",
     planMode: "Plan mode",
     planSuggestionAction: "Use plan mode",
     planSuggestionDismiss: "Dismiss suggestion",

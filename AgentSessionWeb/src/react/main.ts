@@ -770,6 +770,7 @@ function SessionSurface({
               : null,
             menuKind
               ? h(ComposerTopTray, {
+                  emptyLabel: state.context?.copy?.composerNoResults ?? "No results",
                   highlightedIndex: highlightedMenuIndex,
                   items: menuItems,
                   onChoose: insertComposerMenuItem,
@@ -1168,11 +1169,13 @@ function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: Se
 }
 
 function ComposerTopTray({
+  emptyLabel,
   highlightedIndex,
   items,
   onChoose,
   onHighlight,
 }: {
+  emptyLabel: string;
   highlightedIndex: number;
   items: ComposerMenuItem[];
   onChoose: (item: ComposerMenuItem) => void;
@@ -1187,30 +1190,32 @@ function ComposerTopTray({
       h(
         "div",
         { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
-        items.map((item, index) =>
-          h(
-            "button",
-            {
-              key: item.id,
-              className: "codex-top-tray-item",
-              type: "button",
-              "aria-selected": index === highlightedIndex ? "true" : undefined,
-              "cmdk-item": "",
-              "data-selected": index === highlightedIndex ? "true" : undefined,
-              "data-list-navigation-item": true,
-              onMouseEnter: () => onHighlight(index),
-              onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
-              onClick: () => onChoose(item),
-            },
-            h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
+        items.length === 0
+          ? h("div", { className: "codex-top-tray-empty", "data-cmdk-empty": true }, emptyLabel)
+          : items.map((item, index) =>
             h(
-              "span",
-              { className: "codex-top-tray-copy flex w-full min-w-0 items-center gap-2" },
-              h("span", { className: "codex-top-tray-label truncate" }, item.label),
-              h("span", { className: "codex-top-tray-detail flex-1 truncate text-sm text-token-description-foreground" }, item.detail),
+              "button",
+              {
+                key: item.id,
+                className: "codex-top-tray-item",
+                type: "button",
+                "aria-selected": index === highlightedIndex ? "true" : undefined,
+                "cmdk-item": "",
+                "data-selected": index === highlightedIndex ? "true" : undefined,
+                "data-list-navigation-item": true,
+                onMouseEnter: () => onHighlight(index),
+                onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
+                onClick: () => onChoose(item),
+              },
+              h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
+              h(
+                "span",
+                { className: "codex-top-tray-copy flex w-full min-w-0 items-center gap-2" },
+                h("span", { className: "codex-top-tray-label truncate" }, item.label),
+                h("span", { className: "codex-top-tray-detail flex-1 truncate text-sm text-token-description-foreground" }, item.detail),
+              ),
             ),
           ),
-        ),
       ),
     ),
   );

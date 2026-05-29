@@ -1661,6 +1661,18 @@ img.ProseMirror-separator {
   display: none;
 }
 
+.codex-top-tray-empty,
+.codex-top-tray-panel [data-cmdk-empty] {
+  display: flex;
+  min-height: calc(var(--spacing) * 8);
+  align-items: center;
+  padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2.5);
+  color: var(--color-token-description-foreground);
+  line-height: 1.4;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
 .codex-top-tray-item,
 .codex-top-tray-item[cmdk-item],
 .codex-top-tray-item[data-list-navigation-item] {

@@ -465,6 +465,10 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.skillMenuTitle",
                             defaultValue: "Skills"
                         ),
+                        "composerNoResults": String(
+                            localized: "agentSession.web.composerNoResults",
+                            defaultValue: "No results"
+                        ),
                         "planMode": String(localized: "agentSession.web.planMode", defaultValue: "Plan mode"),
                         "planSuggestionAction": String(
                             localized: "agentSession.web.planSuggestion.action",
