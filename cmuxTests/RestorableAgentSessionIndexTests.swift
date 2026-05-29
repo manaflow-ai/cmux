@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -357,8 +358,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     // code replaces BOTH `/` and `.` with `-`. Empirically verified by
     // inspecting real folder names: `/Users/me/.claude` becomes
     // `-Users-me--claude` (double dash for `/.`), not `-Users-me-.claude`.
-    // Currently the encoder only replaces `/`, so this test fails until the
-    // accompanying fix lands.
+    // The first regression commit intentionally added this before the fix, so
+    // the red/green PR history proves the dot substitution is required.
     func testEncodeClaudeProjectDirMatchesClaudeCodeEncoding() {
         XCTAssertEqual(
             RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/cmux"),
@@ -379,6 +380,54 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             RestorableAgentSessionIndex.encodeClaudeProjectDir("/Users/me/git/repo/.worktrees/ADAGENT-358"),
             "-Users-me-git-repo--worktrees-ADAGENT-358",
             "Worktree under .worktrees alternative convention"
+        )
+    }
+
+    func testSessionIndexStoreCwdFilterUsesClaudeCodeDotEncoding() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-dot-encoding-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root
+            .appendingPathComponent("repo", isDirectory: true)
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("feat-X", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let projectDir = projectsDir.appendingPathComponent(
+            RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let sessionId = "11111111-2222-3333-4444-555555555555"
+        try writeClaudeTranscript(sessionId: sessionId, cwd: cwd, projectsDir: projectsDir)
+
+        let originalClaudeConfigDir = getenv("CLAUDE_CONFIG_DIR").map { String(cString: $0) }
+        setenv("CLAUDE_CONFIG_DIR", configDir.path, 1)
+        defer {
+            if let originalClaudeConfigDir {
+                setenv("CLAUDE_CONFIG_DIR", originalClaudeConfigDir, 1)
+            } else {
+                unsetenv("CLAUDE_CONFIG_DIR")
+            }
+        }
+
+        let store = SessionIndexStore()
+        let outcome = await store.searchSessions(
+            query: "",
+            scope: .directory(cwd.path),
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertTrue(
+            outcome.entries.contains { $0.agent == .claude && $0.sessionId == sessionId },
+            "SessionIndexStore should find the dot-containing cwd through Claude's encoded project dir"
         )
     }
 
