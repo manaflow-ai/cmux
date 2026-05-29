@@ -557,14 +557,14 @@ button {
 
 .workspace-title-block {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 380px;
   display: grid;
   gap: 1px;
 }
 
 .workspace-heading {
   min-width: 0;
-  max-width: 420px;
+  max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -574,7 +574,7 @@ button {
 
 .workspace-subheading {
   min-width: 0;
-  max-width: 520px;
+  max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -589,14 +589,15 @@ button {
 .command-strip {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-1);
   min-width: 0;
-  width: auto;
-  max-width: min(560px, 48vw);
+  max-width: none;
   overflow-x: auto;
   scrollbar-width: none;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   margin-left: auto;
+  padding: 0 1px;
 }
 
 .advanced-tool {
@@ -613,6 +614,10 @@ button {
 
 .tool-button {
   height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0 10px;
   border-color: var(--color-line);
   background: var(--color-pane);
@@ -670,19 +675,26 @@ button {
   gap: 0;
   min-width: 0;
   overflow-x: auto;
+  scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-canvas);
+}
+
+.surface-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .surface-tab {
   position: relative;
   height: 34px;
-  min-width: 130px;
-  max-width: 240px;
+  flex: 1 1 160px;
+  min-width: 104px;
+  max-width: 220px;
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-columns: 10px minmax(0, 1fr) 22px;
   align-items: center;
-  gap: var(--space-2);
+  gap: 7px;
+  border-top: 2px solid transparent;
   border-right: 1px solid var(--color-line);
   border-radius: 0;
   padding: 0 var(--space-2);
@@ -695,7 +707,7 @@ button {
 }
 
 .surface-tab.is-active {
-  border-top: 2px solid var(--tab-color, var(--color-accent));
+  border-top-color: var(--tab-color, var(--color-accent));
   background: var(--color-pane-warm);
   color: var(--color-text);
 }
@@ -723,6 +735,7 @@ button {
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 12px;
+  line-height: 1.1;
 }
 
 .surface-close {
@@ -767,8 +780,9 @@ button {
 }
 
 .surface-new-tab {
-  min-width: 42px;
-  max-width: 42px;
+  flex: 0 0 40px;
+  min-width: 40px;
+  max-width: 40px;
   grid-template-columns: 1fr;
   justify-items: center;
   color: var(--color-text);
@@ -802,6 +816,7 @@ button {
   overflow: hidden;
   border: 1px solid var(--color-line);
   background: var(--color-pane);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 4%, transparent);
 }
 
 .pane-grid:not(.direction-down) .pane {
@@ -813,7 +828,7 @@ button {
 }
 
 .pane-splitter {
-  flex: 0 0 7px;
+  flex: 0 0 8px;
   position: relative;
   z-index: 4;
   background: oklch(8% 0.008 105);
@@ -828,7 +843,7 @@ button {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 0 -3px;
+  inset: 0 -4px;
   background: transparent;
   transition: background var(--dur-fast) var(--ease-out);
 }
@@ -840,6 +855,9 @@ button {
 
 .pane.is-active {
   border-color: var(--panel-color, var(--color-line-strong));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--panel-color, var(--color-accent)) 68%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .pane.is-zoomed {
@@ -863,6 +881,10 @@ button {
   background: var(--color-pane-warm);
   cursor: grab;
   user-select: none;
+}
+
+.pane.is-active .pane-header {
+  background: color-mix(in oklch, var(--panel-color, var(--color-accent)) 14%, var(--color-pane-warm) 86%);
 }
 
 .pane-header:active {
@@ -938,7 +960,7 @@ button {
 
 .pane-title {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -950,6 +972,8 @@ button {
   display: flex;
   flex: 0 0 auto;
   gap: var(--space-1);
+  max-width: 54%;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease-out);
@@ -971,6 +995,12 @@ button {
 
 .pane-tool:hover {
   background: var(--color-pane-active);
+  color: var(--color-text);
+}
+
+.pane-tool.close:hover {
+  border-color: color-mix(in oklch, var(--color-danger) 72%, var(--color-line) 28%);
+  background: color-mix(in oklch, var(--color-danger) 28%, var(--color-pane-active) 72%);
   color: var(--color-text);
 }
 
@@ -1011,7 +1041,7 @@ button {
 
 .browser-bar {
   display: grid;
-  grid-template-columns: auto auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto auto auto minmax(120px, 1fr) auto auto;
   align-items: center;
   gap: var(--space-1);
   padding: 4px var(--space-2);

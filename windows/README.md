@@ -43,6 +43,7 @@ Implemented in this milestone:
 - Browser panes with address/search normalization, back/forward/reload/home controls, open-external fallback, and configurable home page.
 - Workspace right-click menus for focus, rename, color, new terminal/browser, new workspace, and close actions.
 - Pane drag/drop docking hints for left, right, top, and bottom terminal placement, active-pane focus mode, and optimistic workspace/tab updates so moves, closes, and focus changes feel immediate.
+- Renderer settings/theme/profile data is split into `renderer/config.js`, with the app loaded as an ES module so the frontend can keep moving away from one monolithic file.
 - Notification drawer, session tools, active focus rings, workspace colors, and pane attention indicators.
 - Session layout persistence under `%APPDATA%\cmux-windows\session.json`.
 
