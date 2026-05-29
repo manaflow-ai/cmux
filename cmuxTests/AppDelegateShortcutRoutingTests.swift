@@ -3538,6 +3538,57 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
     }
 
+    func testCmdFUsesTrackedAddressBarBrowserWhenTerminalResponderStoleFocusDuringNavigation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected terminal and browser panels")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+        XCTAssertEqual(appDelegate.focusedBrowserAddressBarPanelId(), browserPanelId)
+
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, terminalPanel.id)
+        XCTAssertNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+F should keep the address-bar browser as find owner during navigation handoff"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNotNil(browserPanel.searchState)
+        XCTAssertNil(terminalPanel.searchState)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanelId)
+    }
+
     func testOmnibarArrowSelectionUsesResponderResolvedPanelWhenTrackedFocusWasCleared() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

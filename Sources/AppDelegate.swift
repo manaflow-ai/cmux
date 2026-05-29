@@ -6501,15 +6501,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func startBrowserFindForShortcutEvent(_ event: NSEvent, context: MainWindowContext) -> Bool? {
-        guard let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
-              let workspace = context.tabManager.selectedWorkspace,
-              let browserPanel = workspace.browserPanel(for: panelId) else {
+        guard let workspace = context.tabManager.selectedWorkspace,
+              let browserPanel = browserAddressBarFindShortcutPanel(event, context: context, workspace: workspace) else {
             return nil
         }
 
         workspace.focusPanel(browserPanel.id)
         browserPanel.startFind()
         return browserPanel.searchState != nil
+    }
+
+    private func browserAddressBarFindShortcutPanel(
+        _ event: NSEvent,
+        context: MainWindowContext,
+        workspace: Workspace
+    ) -> BrowserPanel? {
+        if let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
+           let browserPanel = workspace.browserPanel(for: panelId) {
+            return browserPanel
+        }
+
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let target = context.keyboardFocusCoordinator.findShortcutTarget(
+            currentResponder: window?.firstResponder
+        )
+        guard target == .mainPanelFind,
+              let panelId = browserAddressBarFocusedPanelId,
+              let browserPanel = workspace.browserPanel(for: panelId) else {
+            return nil
+        }
+        return browserPanel
     }
 
     @discardableResult
@@ -12319,6 +12340,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        let isFindShortcutEvent = matchConfiguredShortcut(event: event, action: .find)
+
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
@@ -12328,6 +12351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             browserAddressBarHasActiveEditor(panelId: panelId, in: addressBarShortcutWindow)
         } ?? false
         if browserAddressBarFocusedPanelId != nil,
+           !isFindShortcutEvent,
            !isBrowserOmnibarResponder(addressBarShortcutResponder),
            !trackedAddressBarHasActiveEditor,
            cmuxOwningGhosttyView(for: addressBarShortcutResponder) != nil {
@@ -12454,7 +12478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if activateFocusedCanvasItemForShortcutIfNeeded(event: event, normalizedFlags: normalizedFlags) { return true }
-        if matchConfiguredShortcut(event: event, action: .find) {
+        if isFindShortcutEvent {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
