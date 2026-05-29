@@ -58,7 +58,7 @@ write_index() {
   out_dir="$1"
   {
     printf '<!doctype html>\n'
-    printf '<html lang="en">\n'
+    printf '<html lang="en" data-codex-window-type="electron" data-window-type="electron" data-codex-os="darwin">\n'
     printf '  <head>\n'
     printf '    <meta charset="UTF-8" />\n'
     printf '    <meta\n'
@@ -70,7 +70,7 @@ write_index() {
     cat "$out_dir/assets/styles.css"
     printf '\n    </style>\n'
     printf '  </head>\n'
-    printf '  <body>\n'
+    printf '  <body data-codex-window-type="electron">\n'
     printf '    <main id="root"></main>\n'
     printf '    <script>\n'
     /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
