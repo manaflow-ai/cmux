@@ -484,7 +484,7 @@ final class FilePreviewDragRegistry: Sendable {
 
     func discard(id: UUID) {
         state.withLock { pending in
-            pending.removeValue(forKey: id)
+            _ = pending.removeValue(forKey: id)
         }
     }
 

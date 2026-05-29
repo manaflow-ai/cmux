@@ -72,11 +72,14 @@ private func windowDragHandleEventTypeDescription(_ eventType: NSEvent.EventType
     eventType.map { String(describing: $0) } ?? "nil"
 }
 
-@MainActor
 private enum WindowDragHandleBreadcrumbLimiter {
+    private static let lock = NSLock()
     private static var lastEmissionByKey: [String: CFAbsoluteTime] = [:]
 
     static func shouldEmit(key: String, minInterval: CFTimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
         let now = CFAbsoluteTimeGetCurrent()
         if let previous = lastEmissionByKey[key], (now - previous) < minInterval {
             return false
@@ -92,7 +95,6 @@ private enum WindowDragHandleBreadcrumbLimiter {
     }
 }
 
-@MainActor
 private func windowDragHandleEmitBreadcrumb(
     _ message: String,
     window: NSWindow?,
@@ -1061,7 +1063,6 @@ private func windowDragHandleSiblingHitResolutionScope(
 /// Returns whether the titlebar drag handle should capture a hit at `point`.
 /// We only claim the hit when no sibling view already handles it, so interactive
 /// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
-@MainActor
 func windowDragHandleShouldCaptureHit(
     _ point: NSPoint,
     in dragHandleView: NSView,
