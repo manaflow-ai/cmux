@@ -541,6 +541,7 @@ const commands = [
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => createPanel("terminal", "down") },
+  { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
   { id: "terminal.clear", label: "Clear Active Terminal", shortcut: "Ctrl+K", run: () => clearActiveTerminal() },
   { id: "terminal.restart", label: "Restart Active Terminal", shortcut: "Ctrl+Shift+R", run: () => restartActiveTerminal() },
   { id: "terminal.close", label: "Close Active Pane", shortcut: "Ctrl+W", run: () => closeActivePanel() },
@@ -2391,6 +2392,7 @@ function showToolbarMenu(event) {
   actions.className = "context-actions";
   actions.append(
     contextMenuButton("Split down", () => createPanel("terminal", "down")),
+    contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
     contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
     contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
@@ -2449,10 +2451,23 @@ function renamePanel(panel) {
 
 function duplicatePanel(panel) {
   if (panel.type === "browser") {
-    createPanel("browser", "right", { url: panel.url || state.settings.browserHomeUrl });
+    createPanel("browser", "right", { workspaceId: panel.workspaceId, url: panel.url || state.settings.browserHomeUrl });
     return;
   }
-  createPanel("terminal", "right");
+  createPanel("terminal", "right", {
+    workspaceId: panel.workspaceId,
+    shellProfile: panel.shellProfile || state.settings.terminalProfile,
+    shellPath: panel.shellPath || state.settings.terminalCustomShell
+  });
+}
+
+function duplicateActivePanel() {
+  const panel = activePanel();
+  if (!panel) {
+    toast("Open a pane to duplicate it.");
+    return;
+  }
+  duplicatePanel(panel);
 }
 
 function movePanelLeft(workspace, index) {
