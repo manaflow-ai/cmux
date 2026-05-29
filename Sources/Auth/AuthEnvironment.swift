@@ -26,7 +26,20 @@ enum AuthEnvironment {
     }
 
     static var callbackURL: URL {
-        URL(string: "\(callbackScheme)://auth-callback")!
+        authCallbackURL()
+    }
+
+    static func authCallbackURL(state: String? = nil) -> URL {
+        var components = URLComponents()
+        components.scheme = callbackScheme
+        components.host = "auth-callback"
+        if let state,
+           !state.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            components.queryItems = [
+                URLQueryItem(name: "state", value: state),
+            ]
+        }
+        return components.url!
     }
 
     static var websiteOrigin: URL {
@@ -191,7 +204,7 @@ enum AuthEnvironment {
         )
     }
 
-    static func signInURL() -> URL {
+    static func signInURL(callbackURL: URL = AuthEnvironment.callbackURL) -> URL {
         // Build the after-sign-in callback URL that includes the native app return scheme.
         // The after-sign-in handler extracts tokens from the Stack Auth session
         // and redirects to the native app via the cmux:// callback scheme.

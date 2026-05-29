@@ -8363,25 +8363,33 @@ private struct AuthSettingsRow: View {
     @ObservedObject var authManager: AuthManager
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(titleText)
-                    .font(.system(size: 13, weight: .medium))
-                if let subtitle = subtitleText {
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(titleText)
+                        .font(.system(size: 13, weight: .medium))
+                    if let subtitle = subtitleText {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
                 }
+                Spacer(minLength: 12)
+                if authManager.isLoading || authManager.isRestoringSession {
+                    ProgressView().controlSize(.small)
+                }
+                Button(action: buttonAction) {
+                    Text(buttonTitle)
+                }
+                .controlSize(.small)
+                .disabled(buttonIsDisabled)
             }
-            Spacer(minLength: 12)
-            if authManager.isLoading || authManager.isRestoringSession {
-                ProgressView().controlSize(.small)
+
+            if let errorMessage = authManager.lastSignInError?.localizedDescription {
+                Text(errorMessage)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
             }
-            Button(action: buttonAction) {
-                Text(buttonTitle)
-            }
-            .controlSize(.small)
-            .disabled(authManager.isLoading || authManager.isRestoringSession)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -8424,6 +8432,10 @@ private struct AuthSettingsRow: View {
             localized: "settings.account.signIn",
             defaultValue: "Sign In…"
         )
+    }
+
+    private var buttonIsDisabled: Bool {
+        authManager.isRestoringSession || (authManager.isAuthenticated && authManager.isLoading)
     }
 
     private func buttonAction() {

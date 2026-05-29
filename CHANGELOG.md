@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Open Settings > Account sign-in in the user's default browser, complete through the cmux auth callback, and guard malformed native auth handoffs ([#3617](https://github.com/manaflow-ai/cmux/issues/3617))
+
 ## [0.64.10] - 2026-05-23
 
 ### Added

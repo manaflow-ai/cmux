@@ -40,6 +40,7 @@ struct AuthManagerExternalBrowserSignInTests {
         )
         #expect(afterAuthReturnTo.contains("native_app_return_to="))
         #expect(afterAuthReturnTo.contains("auth-callback"))
+        #expect(afterAuthReturnTo.contains("state="))
         #expect(isLoadingAfterBegin)
     }
 }
