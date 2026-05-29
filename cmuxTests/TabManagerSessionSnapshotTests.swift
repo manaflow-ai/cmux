@@ -1931,6 +1931,74 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    func testSessionSnapshotRestoresSplitPersistentSSHPTYWithoutDefaultAttachScaffold() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Persistent SSH Split")
+        let persistentDaemonSlot = "ssh-persist-split"
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64008,
+            relayID: "relay-persist-split",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-persist-split.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: persistentDaemonSlot
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let firstPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            remoteWorkspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal, focus: true)
+        )
+        let expectedSessionIDs: Set<String> = [
+            Workspace.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: firstPanelId),
+            Workspace.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: secondPanel.id),
+        ]
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Persistent SSH Split" })
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.persistentDaemonSlot, persistentDaemonSlot)
+        XCTAssertEqual(restoredWorkspace.activeRemoteTerminalSessionCount, 2)
+
+        let restoredSnapshot = restoredWorkspace.sessionSnapshot(includeScrollback: false)
+        let restoredTerminalPanels = restoredSnapshot.panels.filter { $0.terminal != nil }
+        XCTAssertEqual(restoredTerminalPanels.count, 2)
+        XCTAssertEqual(
+            Set(restoredTerminalPanels.compactMap { $0.terminal?.remotePTYSessionID }),
+            expectedSessionIDs
+        )
+
+        let workspaceDefaultCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(workspaceDefaultCommand.contains("--command-b64 "), workspaceDefaultCommand)
+        XCTAssertFalse(workspaceDefaultCommand.contains("--require-existing"), workspaceDefaultCommand)
+
+        for panelSnapshot in restoredTerminalPanels {
+            let panel = try XCTUnwrap(restoredWorkspace.terminalPanel(for: panelSnapshot.id))
+            let command = try XCTUnwrap(panel.surface.debugInitialCommand())
+            XCTAssertTrue(command.contains("ssh-pty-attach"), command)
+            XCTAssertTrue(command.contains("--require-existing"), command)
+            XCTAssertFalse(command.contains("--command-b64 "), command)
+            XCTAssertTrue(
+                expectedSessionIDs.contains { command.contains($0) },
+                command
+            )
+        }
+    }
+
     func testPersistentSSHPTYRestoreRewritesStaleRemoteRelayContextIDs() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)

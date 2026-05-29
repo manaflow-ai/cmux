@@ -295,7 +295,12 @@ extension Workspace {
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
-        let leafEntries = restoreSessionLayout(snapshot.layout)
+        let leafEntries: [SessionPaneRestoreEntry] = {
+            let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
+            suppressRemoteTerminalStartupForSessionRestoreScaffold = true
+            defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
+            return restoreSessionLayout(snapshot.layout)
+        }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
         for entry in leafEntries {
@@ -10323,6 +10328,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
+    private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -14245,6 +14251,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func remoteTerminalStartupCommand() -> String? {
+        guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
+            return nil
+        }
         guard let command = remoteConfiguration?.terminalStartupCommand?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty else {
