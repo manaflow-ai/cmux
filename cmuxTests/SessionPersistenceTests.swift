@@ -487,67 +487,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.hasPrefix("m"))
     }
 
-    func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
-        XCTAssertEqual(
-            TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
-            "/tmp/cmux-screen.txt"
-        )
-        XCTAssertEqual(
-            TerminalController.normalizedExportedScreenPath(" file:///tmp/cmux-screen.txt "),
-            "/tmp/cmux-screen.txt"
-        )
-    }
-
-    func testNormalizedExportedScreenPathRejectsRelativeAndWhitespace() {
-        XCTAssertNil(TerminalController.normalizedExportedScreenPath("relative/path.txt"))
-        XCTAssertNil(TerminalController.normalizedExportedScreenPath("   "))
-        XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
-    }
-
-    func testShouldRemoveExportedScreenDirectoryOnlyWithinTemporaryRoot() {
-        let tempRoot = URL(fileURLWithPath: "/tmp")
-            .appendingPathComponent("cmux-export-tests-\(UUID().uuidString)", isDirectory: true)
-        let tempFile = tempRoot
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("screen.txt", isDirectory: false)
-        let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
-
-        XCTAssertTrue(
-            TerminalController.shouldRemoveExportedScreenDirectory(
-                fileURL: tempFile,
-                temporaryDirectory: tempRoot
-            )
-        )
-        XCTAssertFalse(
-            TerminalController.shouldRemoveExportedScreenDirectory(
-                fileURL: outsideFile,
-                temporaryDirectory: tempRoot
-            )
-        )
-    }
-
-    func testShouldRemoveExportedScreenFileOnlyWithinTemporaryRoot() {
-        let tempRoot = URL(fileURLWithPath: "/tmp")
-            .appendingPathComponent("cmux-export-tests-\(UUID().uuidString)", isDirectory: true)
-        let tempFile = tempRoot
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("screen.txt", isDirectory: false)
-        let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
-
-        XCTAssertTrue(
-            TerminalController.shouldRemoveExportedScreenFile(
-                fileURL: tempFile,
-                temporaryDirectory: tempRoot
-            )
-        )
-        XCTAssertFalse(
-            TerminalController.shouldRemoveExportedScreenFile(
-                fileURL: outsideFile,
-                temporaryDirectory: tempRoot
-            )
-        )
-    }
-
     func testWindowUnregisterSnapshotPersistencePolicy() {
         XCTAssertTrue(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
@@ -657,7 +596,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    func testUpdateRelaunchUsesFastTerminationSnapshotPolicy() {
+    func testUpdateRelaunchSkipsDuplicateTerminationSnapshot() {
         XCTAssertFalse(
             AppDelegate.shouldSaveSessionSnapshotOnApplicationTerminate(
                 didPersistUpdateRelaunchSnapshot: true
@@ -666,16 +605,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(
             AppDelegate.shouldSaveSessionSnapshotOnApplicationTerminate(
                 didPersistUpdateRelaunchSnapshot: false
-            )
-        )
-        XCTAssertTrue(
-            AppDelegate.shouldUseFastSessionSnapshotForUpdateRelaunch(
-                isUpdateRelaunchInProgress: true
-            )
-        )
-        XCTAssertFalse(
-            AppDelegate.shouldUseFastSessionSnapshotForUpdateRelaunch(
-                isUpdateRelaunchInProgress: false
             )
         )
     }

@@ -1001,7 +1001,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     private var isTerminatingApp = false
-    private var isUpdateRelaunchInProgress = false
     private var didPersistUpdateRelaunchSnapshot = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
@@ -1794,10 +1793,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        isUpdateRelaunchInProgress = true
         stopSessionAutosaveTimer()
-        didPersistUpdateRelaunchSnapshot = saveSessionSnapshot(
-            includeScrollback: false,
+        didPersistUpdateRelaunchSnapshot = saveSessionSnapshotIncludingProcessDetectedIndexes(
+            includeScrollback: true,
             removeWhenEmpty: false,
             forceSynchronousWrite: true
         )
@@ -3989,17 +3987,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        if Self.shouldUseFastSessionSnapshotForUpdateRelaunch(
-            isUpdateRelaunchInProgress: isUpdateRelaunchInProgress
-        ) {
-            _ = saveSessionSnapshot(
-                includeScrollback: false,
-                removeWhenEmpty: false,
-                forceSynchronousWrite: true
-            )
-            return
-        }
-
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(
             includeScrollback: true,
             removeWhenEmpty: false
@@ -4052,12 +4039,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didPersistUpdateRelaunchSnapshot: Bool
     ) -> Bool {
         !didPersistUpdateRelaunchSnapshot
-    }
-
-    nonisolated static func shouldUseFastSessionSnapshotForUpdateRelaunch(
-        isUpdateRelaunchInProgress: Bool
-    ) -> Bool {
-        isUpdateRelaunchInProgress
     }
 
     nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(
