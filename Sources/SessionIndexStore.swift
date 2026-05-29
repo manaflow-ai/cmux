@@ -649,6 +649,8 @@ final class SessionIndexStore: ObservableObject {
     private static let perAgentLimit = 30
     nonisolated static let headByteCap = 64 * 1024
     nonisolated static let tailByteCap = 32 * 1024
+    /// Bounded rescue scan for oversized first Claude JSONL records.
+    nonisolated static let firstCompleteClaudeCwdByteCap = 256 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
@@ -863,19 +865,30 @@ final class SessionIndexStore: ObservableObject {
         return cwd
     }
 
-    nonisolated private static func readFirstCompleteClaudeCwd(url: URL) -> String? {
+    nonisolated private static func readFirstCompleteClaudeCwd(
+        url: URL,
+        maxBytes: Int = firstCompleteClaudeCwdByteCap
+    ) -> String? {
+        guard maxBytes > 0 else { return nil }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
 
         var buffer = Data()
-        while true {
+        var bytesRead = 0
+        var reachedEOF = false
+        while bytesRead < maxBytes {
+            let readLimit = min(16 * 1024, maxBytes - bytesRead)
             let chunk: Data
             if #available(macOS 10.15.4, *) {
-                chunk = (try? handle.read(upToCount: 16 * 1024)) ?? Data()
+                chunk = (try? handle.read(upToCount: readLimit)) ?? Data()
             } else {
-                chunk = handle.readData(ofLength: 16 * 1024)
+                chunk = handle.readData(ofLength: readLimit)
             }
-            if chunk.isEmpty { break }
+            if chunk.isEmpty {
+                reachedEOF = true
+                break
+            }
+            bytesRead += chunk.count
             buffer.append(chunk)
 
             while let newlineIndex = buffer.firstIndex(of: 0x0A) {
@@ -889,7 +902,8 @@ final class SessionIndexStore: ObservableObject {
             }
         }
 
-        guard !buffer.isEmpty,
+        guard reachedEOF,
+              !buffer.isEmpty,
               let object = parseJSONLine(buffer),
               let cwd = claudeCwd(from: object) else {
             return nil
