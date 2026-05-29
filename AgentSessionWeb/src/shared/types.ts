@@ -74,6 +74,7 @@ export type AgentSessionCopy = {
   copyShellContents: string;
   copiedShellContents: string;
   collapseShell: string;
+  shellSuccess: string;
   showMore: string;
   showLess: string;
   browseWeb: string;

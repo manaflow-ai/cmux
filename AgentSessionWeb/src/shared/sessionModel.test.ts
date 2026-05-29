@@ -63,6 +63,7 @@ const context: AppContext = {
     copyShellContents: "Copy shell contents",
     copiedShellContents: "Copied shell contents",
     collapseShell: "Collapse shell",
+    shellSuccess: "Success",
     showMore: "Show more",
     showLess: "Show less",
     browseWeb: "Browse web",

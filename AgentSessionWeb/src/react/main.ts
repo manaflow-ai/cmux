@@ -1012,6 +1012,9 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
   const copyShellContentsLabel = copy?.copyShellContents ?? copyOutputLabel;
   const copiedShellContentsLabel = copy?.copiedShellContents ?? copyShellContentsLabel;
   const collapseShellLabel = copy?.collapseShell ?? "";
+  const shellSuccessLabel = copy?.shellSuccess ?? "";
+  const shellStoppedLabel = copy?.stopped ?? "";
+  const shellFailedLabel = copy?.failedStatus ?? "";
   const isExpandable = Boolean(entry.output);
   const toggleOutput = useCallback(() => {
     setIsOutputExpanded((current) => !current);
@@ -1130,11 +1133,52 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
                   dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
                 }),
               ),
+              h(ShellFooter, {
+                failedLabel: shellFailedLabel,
+                status: entry.activityStatus ?? "completed",
+                stoppedLabel: shellStoppedLabel,
+                successLabel: shellSuccessLabel,
+              }),
               h(CopyOutputButton, { label: copyOutputLabel, output: entry.output }),
             ),
           ),
         )
       : null,
+  );
+}
+
+function ShellFooter({
+  failedLabel,
+  status,
+  stoppedLabel,
+  successLabel,
+}: {
+  failedLabel: string;
+  status: TranscriptEntry["activityStatus"];
+  stoppedLabel: string;
+  successLabel: string;
+}) {
+  if (status === "inProgress") {
+    return h("div", { className: "codex-shell-footer text-size-chat px-2.5 pt-0.5 pb-1" });
+  }
+  if (status === "stopped") {
+    return h(
+      "div",
+      { className: "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground" },
+      h("span", { className: "ml-auto" }, stoppedLabel),
+    );
+  }
+  if (status === "failed") {
+    return h(
+      "div",
+      { className: "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground" },
+      h("span", { className: "ml-auto" }, failedLabel),
+    );
+  }
+  return h(
+    "div",
+    { className: "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground" },
+    h("span", { className: "ml-auto flex items-center gap-1" }, checkIcon("icon-xxs"), successLabel),
   );
 }
 

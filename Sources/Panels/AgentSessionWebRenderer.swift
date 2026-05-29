@@ -462,6 +462,10 @@ extension AgentSessionWebRenderer {
                             localized: "agentSession.web.collapseShell",
                             defaultValue: "Collapse shell"
                         ),
+                        "shellSuccess": String(
+                            localized: "agentSession.web.shellSuccess",
+                            defaultValue: "Success"
+                        ),
                         "showMore": String(
                             localized: "agentSession.web.showMore",
                             defaultValue: "Show more"
