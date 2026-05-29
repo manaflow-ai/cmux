@@ -1613,6 +1613,8 @@ img.ProseMirror-separator {
 .codex-top-tray-panel[data-cmdk-root] {
   display: flex;
   position: relative;
+  width: 100%;
+  min-width: 0;
   flex-direction: column;
   max-height: var(--composer-top-tray-max-height, 177px);
   padding: var(--spacing);
@@ -1628,10 +1630,12 @@ img.ProseMirror-separator {
   color: var(--color-token-foreground);
   background: var(--composer-top-tray-background, color-mix(in oklab, var(--color-token-side-bar-background) 94%, transparent));
   box-shadow: none;
+  font-size: var(--text-sm);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   isolation: isolate;
   overflow: hidden;
+  user-select: none;
   --cmdk-bottom-item-radius: 0;
 }
 
@@ -1648,6 +1652,7 @@ img.ProseMirror-separator {
 .codex-top-tray-panel [data-cmdk-list] {
   display: flex;
   flex: 1;
+  width: 100%;
   flex-direction: column;
   gap: var(--spacing);
   min-height: 0;
@@ -1664,13 +1669,10 @@ img.ProseMirror-separator {
 .codex-top-tray-empty,
 .codex-top-tray-panel [data-cmdk-empty] {
   display: flex;
-  min-height: calc(var(--spacing) * 8);
   align-items: center;
-  padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2.5);
-  color: var(--color-token-description-foreground);
-  line-height: 1.4;
-  text-align: center;
-  white-space: pre-wrap;
+  padding: var(--padding-row-y) var(--padding-row-x);
+  color: var(--color-token-input-placeholder-foreground);
+  font-size: var(--text-sm);
 }
 
 .codex-top-tray-item,
@@ -1678,15 +1680,19 @@ img.ProseMirror-separator {
 .codex-top-tray-item[data-list-navigation-item] {
   display: flex;
   width: calc(100% - var(--spacing) * 2);
+  flex-shrink: 0;
   min-height: calc(var(--spacing) * 6);
   align-items: center;
-  gap: calc(var(--spacing) * 2);
+  gap: 0;
   padding: var(--padding-row-y) var(--padding-row-x);
   border: 0;
   border-radius: var(--radius-lg);
   outline: none;
   color: var(--color-token-foreground);
   background: transparent;
+  cursor: var(--cursor-interaction, default);
+  font-size: var(--text-sm);
+  overflow: hidden;
   opacity: 0.75;
   text-align: left;
 }
@@ -1728,7 +1734,6 @@ img.ProseMirror-separator {
 .codex-top-tray-label {
   color: var(--color-token-foreground);
   font-size: var(--text-sm);
-  font-weight: 500;
 }
 
 .codex-top-tray-detail {

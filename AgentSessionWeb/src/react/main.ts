@@ -1191,7 +1191,7 @@ function ComposerTopTray({
         "div",
         { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
         items.length === 0
-          ? h("div", { className: "codex-top-tray-empty", "data-cmdk-empty": true }, emptyLabel)
+          ? h("div", { className: "codex-top-tray-empty" }, emptyLabel)
           : items.map((item, index) =>
             h(
               "button",
@@ -1207,10 +1207,10 @@ function ComposerTopTray({
                 onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
                 onClick: () => onChoose(item),
               },
-              h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
               h(
-                "span",
+                "div",
                 { className: "codex-top-tray-copy flex w-full min-w-0 items-center gap-2" },
+                h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
                 h("span", { className: "codex-top-tray-label truncate" }, item.label),
                 h("span", { className: "codex-top-tray-detail flex-1 truncate text-sm text-token-description-foreground" }, item.detail),
               ),
