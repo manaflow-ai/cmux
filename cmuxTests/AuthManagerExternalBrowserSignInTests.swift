@@ -99,6 +99,31 @@ struct AuthManagerExternalBrowserSignInTests {
         #expect(await tokenStore.getStoredRefreshToken() == nil)
     }
 
+    @Test
+    func statelessCallbackWithoutActiveAttemptIsIgnored() async throws {
+        let suiteName = "AuthManagerExternalBrowserSignInTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = AuthManagerExternalBrowserSignInTestTokenStore()
+        let manager = AuthManager(
+            client: AuthManagerExternalBrowserSignInTestClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults),
+            urlOpener: { _ in }
+        )
+        await manager.awaitBootstrapped()
+
+        let callbackURL = try #require(
+            URL(string: "cmux://auth-callback?stack_refresh=refresh&stack_access=access")
+        )
+        try await manager.handleCallbackURL(callbackURL)
+
+        #expect(!manager.isAuthenticated)
+        #expect(await tokenStore.getStoredAccessToken() == nil)
+        #expect(await tokenStore.getStoredRefreshToken() == nil)
+    }
+
     private func callbackState(fromSignInURL url: URL) -> String? {
         let signInComponents = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let afterAuthReturnTo = signInComponents?.queryItems?
