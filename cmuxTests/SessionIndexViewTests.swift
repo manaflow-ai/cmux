@@ -197,6 +197,35 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandPrefersTranscriptCwdWhenDecodedProjectDirAlsoExists() async throws {
+        let fixture = try makeClaudeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let startCwd = fixture.root.appendingPathComponent("ambiguous-project", isDirectory: true)
+        let laterCwd = startCwd.appendingPathComponent("featureworktree", isDirectory: true)
+        let slashDecodedAlternative = fixture.root
+            .appendingPathComponent("ambiguous", isDirectory: true)
+            .appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: laterCwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: slashDecodedAlternative, withIntermediateDirectories: true)
+
+        let sessionId = "session-ambiguous-cwd"
+        try writeClaudeTranscript(
+            projectsRoot: fixture.projectsRoot,
+            sessionId: sessionId,
+            projectCwd: startCwd.path,
+            cwdLines: [startCwd.path, laterCwd.path]
+        )
+
+        let entry = try await loadSingleClaudeEntry(from: fixture.projectsRoot)
+
+        XCTAssertEqual(entry.cwd, laterCwd.path)
+        XCTAssertEqual(
+            entry.resumeCommandWithCwd,
+            "cd \(SessionEntry.shellQuote(startCwd.path)) && claude --resume \(sessionId)"
+        )
+    }
+
     func testGrokResumeCommandPreservesSpecifics() {
         let entry = makeEntry(
             agent: .grok,
@@ -619,7 +648,6 @@ final class SessionIndexViewTests: XCTestCase {
     private func claudeProjectDirectoryName(for cwd: String) -> String {
         cwd
             .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
     }
 
     private func loadSingleClaudeEntry(from projectsRoot: URL) async throws -> SessionEntry {
