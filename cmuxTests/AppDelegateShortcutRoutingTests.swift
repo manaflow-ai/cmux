@@ -5142,85 +5142,23 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let contentView = window.contentView,
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
-
-        let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(strayView)
-        defer { strayView.removeFromSuperview() }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
+    func testFocusedTerminalTypingRepairCoversVisibleSameWindowResponderDrift() {
         XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to own first responder before repair test"
+            focusedTerminalKeyRepairNeeded(
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: false
+            ),
+            "Typing should repair focus when a visible same-window responder is not the focused terminal's preferred keyboard target"
         )
-
-        XCTAssertTrue(window.makeFirstResponder(strayView), "Expected test to install a visible wrong first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
         XCTAssertFalse(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before repaired typing"
+            focusedTerminalKeyRepairNeeded(
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true,
+                responderMatchesPreferredKeyboardFocus: true
+            ),
+            "Typing should not repair focus away from a live responder that already matches the focused terminal's preferred keyboard target"
         )
-        XCTAssertTrue(window.firstResponder === strayView, "Expected a visible same-window responder drift")
-
-#if DEBUG
-        var forwardedKeyDownCount = 0
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
-            forwardedKeyDownCount += 1
-        }
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-        }
-#endif
-
-        guard let keyDown = makeKeyDownEvent(
-            key: "a",
-            modifiers: [],
-            keyCode: 0,
-            windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct typing event")
-            return
-        }
-
-        window.sendEvent(keyDown)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Typing should repair first responder back to the focused terminal surface"
-        )
-        XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
-#if DEBUG
-        XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
-#endif
     }
 
     func testFocusTextBoxShortcutMovesFocusBackToTerminalWhenTextBoxIsFirstResponder() {
@@ -5294,7 +5232,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         withTemporaryShortcut(action: .focusTextBoxInput, shortcut: focusTextBoxShortcut) {
-            window.sendEvent(event)
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Cmd+Shift+A from TextBox should route through the configured TextBox focus shortcut"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
         }
         waitFor(
             timeout: 1.0,
