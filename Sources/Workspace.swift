@@ -981,6 +981,7 @@ extension Workspace {
         var result = binding
         result.environment = environment.isEmpty ? nil : environment
         result.command = hermesAgentCommandByReplacingOpenAICodexProvider(result.command)
+        result.command = hermesAgentCommandByRemovingBootstrapPrefix(result.command)
         let agentCommandWords = hermesAgentWordsAfterCwdGuard(surfaceResumeShellWords(in: result.command))
         guard !hermesAgentCommandSetsModelAPIMode(agentCommandWords),
               hermesAgentCommandAllowsCodexBootstrap(agentCommandWords) else {
@@ -1026,6 +1027,57 @@ extension Workspace {
         return result
     }
 
+    nonisolated private static func hermesAgentCommandByRemovingBootstrapPrefix(_ command: String) -> String {
+        let words = surfaceResumeShellWords(in: command)
+        var scanIndex = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        guard scanIndex < words.endIndex else { return command }
+        let removeStartIndex = scanIndex
+        var removedBootstrap = false
+
+        while let endIndex = hermesAgentBootstrapCommandEndIndex(words, startIndex: scanIndex) {
+            removedBootstrap = true
+            scanIndex = endIndex
+            if scanIndex < words.endIndex, words[scanIndex].value == "&&" {
+                scanIndex = words.index(after: scanIndex)
+                continue
+            }
+            break
+        }
+
+        guard removedBootstrap,
+              scanIndex < words.endIndex else {
+            return command
+        }
+        let removeStart = words[removeStartIndex].range.lowerBound
+        let removeEnd = words[scanIndex].range.lowerBound
+        return String(command[..<removeStart]) + String(command[removeEnd...])
+    }
+
+    nonisolated private static func hermesAgentBootstrapCommandEndIndex(
+        _ words: [SurfaceResumeShellWord],
+        startIndex: Int
+    ) -> Int? {
+        guard startIndex + 4 < words.endIndex,
+              hermesAgentCommandWordIsExecutable(words[startIndex].value),
+              words[startIndex + 1].value == "config",
+              words[startIndex + 2].value == "set",
+              hermesAgentBootstrapConfigKeys.contains(words[startIndex + 3].value) else {
+            return nil
+        }
+        var endIndex = startIndex + 5
+        if endIndex < words.endIndex, words[endIndex].value == ">/dev/null" {
+            endIndex = words.index(after: endIndex)
+        }
+        return endIndex
+    }
+
+    nonisolated private static let hermesAgentBootstrapConfigKeys: Set<String> = [
+        "model.provider",
+        "model.base_url",
+        "model.api_mode",
+        "model.default",
+    ]
+
     nonisolated private static func hermesAgentCommandSetsModelAPIMode(_ words: [SurfaceResumeShellWord]) -> Bool {
         words.contains { $0.value.contains("model.api_mode") }
     }
@@ -1060,23 +1112,37 @@ extension Workspace {
                   !isSurfaceResumeShellAssignment(word.value) else {
                 continue
             }
-            let basename = (word.value as NSString).lastPathComponent
-            if basename == "hermes" || basename == "hermes-agent" {
+            if hermesAgentCommandWordIsExecutable(word.value) {
                 return word.value
             }
         }
         return "hermes"
     }
 
+    nonisolated private static func hermesAgentCommandWordIsExecutable(_ value: String) -> Bool {
+        let basename = (value as NSString).lastPathComponent
+        return basename == "hermes" || basename == "hermes-agent"
+    }
+
     nonisolated private static func hermesAgentWordsAfterCwdGuard(
         _ words: [SurfaceResumeShellWord]
     ) -> [SurfaceResumeShellWord] {
-        guard let lastAndIndex = words.lastIndex(where: { $0.value == "&&" }) else {
-            return words
-        }
-        let commandStart = words.index(after: lastAndIndex)
+        let commandStart = hermesAgentCommandStartIndexAfterCwdGuard(words)
         guard commandStart < words.endIndex else { return [] }
         return Array(words[commandStart...])
+    }
+
+    nonisolated private static func hermesAgentCommandStartIndexAfterCwdGuard(
+        _ words: [SurfaceResumeShellWord]
+    ) -> Int {
+        guard let first = words.first,
+              first.value == "{" || first.value == "cd" else {
+            return words.startIndex
+        }
+        guard let andIndex = words.firstIndex(where: { $0.value == "&&" }) else {
+            return words.startIndex
+        }
+        return words.index(after: andIndex)
     }
 
     nonisolated private static func isSurfaceResumeShellAssignment(_ value: String) -> Bool {
