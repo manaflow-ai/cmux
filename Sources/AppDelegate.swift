@@ -1676,6 +1676,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        var visitedManagers = Set<ObjectIdentifier>()
+        var summary = UpdateInstallGate.TerminalSessionSummary.empty
+
+        func appendManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard visitedManagers.insert(managerId).inserted else { return }
+            var managerSummary = manager.terminalSessionSummaryForUpdateInstall()
+            if managerSummary.hasTerminalSessions {
+                managerSummary.windowCount = 1
+            }
+            summary.merge(managerSummary)
+        }
+
+        for context in mainWindowContexts.values {
+            appendManager(context.tabManager)
+        }
+
+        appendManager(tabManager)
+
+        for route in recoverableMainWindowRoutes() {
+            appendManager(route.tabManager)
+        }
+
+        return summary
+    }
+
     @discardableResult
     private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)

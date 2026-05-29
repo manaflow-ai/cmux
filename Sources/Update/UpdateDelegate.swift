@@ -1,4 +1,4 @@
-import Sparkle
+@preconcurrency import Sparkle
 import Cocoa
 
 enum UpdateFeedResolver {
@@ -47,11 +47,18 @@ extension UpdateDriver: SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        let shouldInstall = confirmUpdateInstallAfterTerminalWarningForImmediateInstall()
+        guard shouldInstall else {
+            return false
+        }
+
         DispatchQueue.main.async { [weak viewModel] in
             viewModel?.clearDetectedUpdate()
             viewModel?.state = .installing(.init(
                 isAutoUpdate: true,
-                retryTerminatingApplication: immediateInstallHandler,
+                retryTerminatingApplication: { [weak self] in
+                    self?.runImmediateInstallAfterGate(immediateInstallHandler)
+                },
                 dismiss: { [weak viewModel] in
                     viewModel?.state = .idle
                 }
