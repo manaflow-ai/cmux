@@ -220,8 +220,10 @@ final class AuthManager: ObservableObject {
     }
 
     #if DEBUG
-    func markBrowserSignInLoadingForTesting() {
-        _ = startBrowserSignInAttempt(state: "test")
+    @discardableResult
+    func markBrowserSignInLoadingForTesting(state: String = "test") -> String {
+        _ = startBrowserSignInAttempt(state: state)
+        return state
     }
     #endif
 

@@ -307,7 +307,10 @@ final class AuthManagerSignOutTests: XCTestCase {
         await manager.awaitBootstrapped()
 
         await tokenStore.suspendNextSetTokens()
-        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=refresh-after-signout&stack_access=access-after-signout"))
+        let signInState = manager.markBrowserSignInLoadingForTesting(state: UUID().uuidString)
+        let callbackURL = try XCTUnwrap(URL(
+            string: "cmux://auth-callback?stack_refresh=refresh-after-signout&stack_access=access-after-signout&state=\(signInState)"
+        ))
         let callbackTask = Task { @MainActor in
             try await manager.handleCallbackURL(callbackURL)
         }
@@ -354,7 +357,10 @@ final class AuthManagerSignOutTests: XCTestCase {
         }
         await client.waitForSignOutStarted()
 
-        let callbackURL = try XCTUnwrap(URL(string: "cmux://auth-callback?stack_refresh=new-refresh&stack_access=new-access"))
+        let signInState = manager.markBrowserSignInLoadingForTesting(state: UUID().uuidString)
+        let callbackURL = try XCTUnwrap(URL(
+            string: "cmux://auth-callback?stack_refresh=new-refresh&stack_access=new-access&state=\(signInState)"
+        ))
         try await manager.handleCallbackURL(callbackURL)
         await client.resumeSignOut()
         await signOutTask.value
