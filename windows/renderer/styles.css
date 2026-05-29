@@ -1843,9 +1843,23 @@ button {
     grid-template-columns: 0 minmax(0, 1fr) 0;
   }
 
-  .sidebar,
+  .sidebar {
+    border: 0;
+  }
+
   .inspector {
     border: 0;
+  }
+
+  .shell.inspector-open .inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(var(--inspector-width, 360px), calc(100vw - 24px));
+    border-left: 1px solid var(--color-line);
+    box-shadow: -18px 0 70px oklch(4% 0.006 255 / 58%);
   }
 
   .command-strip {
