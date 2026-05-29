@@ -1579,7 +1579,10 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        max(
+            CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting)),
+            TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: titlebarControlsConfig)
+        )
     }
 
     private enum SidebarResizerHandle: Hashable {

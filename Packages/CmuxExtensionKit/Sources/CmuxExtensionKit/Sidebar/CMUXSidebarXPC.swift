@@ -1,11 +1,11 @@
 import Foundation
 
-@objc public protocol CMUXSidebarHostXPC {
+@objc public protocol CMUXSidebarHostXPC: NSObjectProtocol {
     func requestSidebarSnapshot(reply: @escaping (NSData?, NSString?) -> Void)
     func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void)
 }
 
-@objc public protocol CMUXSidebarExtensionXPC {
+@objc public protocol CMUXSidebarExtensionXPC: NSObjectProtocol {
     func sidebarSnapshotDidChange(_ payload: NSData)
 }
 

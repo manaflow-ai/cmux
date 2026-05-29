@@ -453,6 +453,7 @@ enum TitlebarControlsLayoutMetrics {
     static let hintRightSafetyShift: CGFloat = 10
     static let hintTrailingBaseInset: CGFloat = 8
     static let extraButtonCount = 1
+    static let trafficLightGap: CGFloat = 8
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -485,6 +486,25 @@ enum TitlebarControlsLayoutMetrics {
 
     static func containerHeight(contentHeight: CGFloat, titlebarHeight: CGFloat) -> CGFloat {
         max(contentHeight, titlebarHeight)
+    }
+
+    static func leadingOffset(
+        trafficLightFrame: NSRect?,
+        debugSnapshot: MinimalModeTitlebarDebugSnapshot
+    ) -> CGFloat {
+        let debugOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+            leadingInset: debugSnapshot.leftControlsLeadingInset
+        )
+        guard let trafficLightFrame, !trafficLightFrame.isEmpty else {
+            return debugOffset
+        }
+        return max(debugOffset, trafficLightFrame.maxX + trafficLightGap)
+    }
+
+    static func minimumSidebarWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            + contentSize(config: config).width
+            + trafficLightGap
     }
 
     static func yOffset(
@@ -2034,8 +2054,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             titlebarHeight: titlebarHeight
         )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
-            leadingInset: debugSnapshot.leftControlsLeadingInset
+        let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
+            trafficLightFrame: trafficLightFrame,
+            debugSnapshot: debugSnapshot
         )
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: contentSize.height,
