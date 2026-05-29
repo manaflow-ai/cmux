@@ -234,6 +234,7 @@ extension Workspace {
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
 
         return SessionWorkspaceSnapshot(
+            workspaceId: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
