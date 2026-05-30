@@ -21,6 +21,11 @@ private struct CMUXSidebarExtensionEffectiveGrant: Equatable {
         !readScopes.isSuperset(of: manifest.requestedScopes) ||
             !actionScopes.isSuperset(of: manifest.requestedActionScopes)
     }
+
+    var hasSensitiveAccess: Bool {
+        readScopes.contains { !CMUXSidebarExtensionGrantStore.defaultReadScopes.contains($0) } ||
+            actionScopes.contains { !CMUXSidebarExtensionGrantStore.defaultActionScopes.contains($0) }
+    }
 }
 
 private struct CMUXSidebarExtensionGrantStore {
@@ -320,25 +325,38 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
             Divider()
 
-            HStack(spacing: 8) {
-                if let activeIdentity, effectiveGrant?.needsAdditionalApproval == true {
-                    Button(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access")) {
-                        xpcHost.grantRequestedAccess(bundleIdentifier: activeIdentity.bundleIdentifier)
-                        self.effectiveGrant = xpcHost.currentEffectiveGrant
-                        xpcHost.sendSnapshotDidChange()
+            VStack(alignment: .leading, spacing: 8) {
+                if let activeIdentity, let effectiveGrant {
+                    HStack(spacing: 8) {
+                        Button(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access")) {
+                            xpcHost.grantRequestedAccess(bundleIdentifier: activeIdentity.bundleIdentifier)
+                            self.effectiveGrant = xpcHost.currentEffectiveGrant
+                            xpcHost.sendSnapshotDidChange()
+                        }
+                        .controlSize(.small)
+                        .disabled(!effectiveGrant.needsAdditionalApproval)
+
+                        Button(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited")) {
+                            xpcHost.revokeSensitiveAccess(bundleIdentifier: activeIdentity.bundleIdentifier)
+                            self.effectiveGrant = xpcHost.currentEffectiveGrant
+                            xpcHost.sendSnapshotDidChange()
+                        }
+                        .controlSize(.small)
+                        .disabled(!effectiveGrant.hasSensitiveAccess)
+                    }
+                }
+                HStack(spacing: 8) {
+                    Button(String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage")) {
+                        isShowingExtensionDetails = false
+                        presentExtensionBrowser()
+                    }
+                    .controlSize(.small)
+                    Button(String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")) {
+                        isShowingExtensionDetails = false
+                        onUseDefaultSidebar()
                     }
                     .controlSize(.small)
                 }
-                Button(String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage")) {
-                    isShowingExtensionDetails = false
-                    presentExtensionBrowser()
-                }
-                .controlSize(.small)
-                Button(String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")) {
-                    isShowingExtensionDetails = false
-                    onUseDefaultSidebar()
-                }
-                .controlSize(.small)
             }
         }
         .padding(14)
