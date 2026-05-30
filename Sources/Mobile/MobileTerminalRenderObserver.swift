@@ -182,7 +182,7 @@ final class MobileTerminalRenderObserver {
         }
 
         let previous = renderGridStatesBySurfaceID[surfaceID]
-        let nextRows = snapshot.rows
+        let nextRows = snapshot.frame.plainRows()
         let frame: MobileTerminalRenderGridFrame
         if let previous,
            previous.columns == snapshot.frame.columns,
@@ -200,22 +200,16 @@ final class MobileTerminalRenderObserver {
                     stateSeq: snapshot.frame.stateSeq,
                     columns: snapshot.frame.columns,
                     rows: snapshot.frame.rows,
+                    cursor: snapshot.frame.cursor,
                     full: false,
+                    styles: snapshot.frame.styles,
                     rowSpans: []
                 ) else {
                     return
                 }
                 frame = emptyFrame
             } else {
-                guard let deltaFrame = try? MobileTerminalRenderGridFrame.fromPlainRows(
-                    surfaceID: snapshot.frame.surfaceID,
-                    stateSeq: snapshot.frame.stateSeq,
-                    columns: snapshot.frame.columns,
-                    rows: snapshot.frame.rows,
-                    text: nextRows.joined(separator: "\n"),
-                    full: false,
-                    changedRows: changedRows
-                ) else {
+                guard let deltaFrame = try? snapshot.frame.filteredRows(changedRows, full: false) else {
                     return
                 }
                 frame = deltaFrame

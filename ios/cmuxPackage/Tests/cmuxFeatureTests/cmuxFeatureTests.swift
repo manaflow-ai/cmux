@@ -2187,8 +2187,10 @@ import UIKit
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    let liveText = try terminalRenderGridReplacementText(seq: 2, text: "live")
+    let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
     #expect(deliveredText == [liveText])
+    #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
+    #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
 }
 
 @Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
@@ -2439,6 +2441,28 @@ private func terminalRenderGridReplacementText(seq: UInt64, text: String) throws
     return try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
 }
 
+private func terminalRenderGridStyledReplacementText(seq: UInt64, text: String) throws -> String {
+    let frame = try terminalRenderGridStyledFrame(seq: seq, text: text)
+    return try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
+}
+
+private func terminalRenderGridStyledFrame(seq: UInt64, text: String) throws -> MobileTerminalRenderGridFrame {
+    try MobileTerminalRenderGridFrame(
+        surfaceID: "live-terminal",
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        cursor: .init(row: 1, column: 2, style: .bar),
+        styles: [
+            .init(id: 0, foreground: "#C0C0C0", background: "#101010"),
+            .init(id: 1, foreground: "#FF0000", background: "#0000FF", bold: true, underline: true),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: text),
+        ]
+    )
+}
+
 private func rpcHostStatusFrame(renderGrid: Bool) throws -> Data {
     let capabilities = renderGrid
         ? ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
@@ -2451,14 +2475,18 @@ private func rpcHostStatusFrame(renderGrid: Bool) throws -> Data {
     )
 }
 
-private func terminalRenderGridEventFrame(seq: UInt64, text: String) throws -> Data {
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "live-terminal",
-        stateSeq: seq,
-        columns: 16,
-        rows: 4,
-        text: text
-    )
+private func terminalRenderGridEventFrame(seq: UInt64, text: String, styled: Bool = false) throws -> Data {
+    let frame = if styled {
+        try terminalRenderGridStyledFrame(seq: seq, text: text)
+    } else {
+        try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "live-terminal",
+            stateSeq: seq,
+            columns: 16,
+            rows: 4,
+            text: text
+        )
+    }
     let envelope: [String: Any] = [
         "kind": "event",
         "topic": "terminal.render_grid",
@@ -2999,7 +3027,7 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
                     rawText: "unused-tail",
                     renderGridText: "initial"
                 ),
-                terminalRenderGridEventFrame(seq: 2, text: "live"),
+                terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
             ])
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")

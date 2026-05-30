@@ -7013,25 +7013,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
         changedRows: Set<Int>? = nil
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
-        let size = ghostty_surface_size(surface)
-        let columns = max(Int(size.columns), 1)
-        let rowCount = max(Int(size.rows), 1)
-        guard let text = Self.readText(surface: surface, pointTag: GHOSTTY_POINT_ACTIVE) else {
+        let surfaceID = id.uuidString
+        let exported = surfaceID.withCString { ptr in
+            ghostty_surface_render_grid_json(surface, ptr, UInt(surfaceID.utf8.count), stateSeq)
+        }
+        defer { ghostty_string_free(exported) }
+        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
+
+        let data = Data(bytes: ptr, count: Int(exported.len))
+        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
-        let rows = MobileTerminalRenderGridFrame.normalizedPlainRows(from: text, maxRows: rowCount)
-        guard let frame = try? MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: id.uuidString,
-            stateSeq: stateSeq,
-            columns: columns,
-            rows: rowCount,
-            text: text,
-            full: full,
-            changedRows: changedRows
-        ) else {
-            return nil
+        let frame: MobileTerminalRenderGridFrame
+        if full, changedRows == nil {
+            frame = fullFrame
+        } else {
+            let includedRows = changedRows ?? Set(0..<fullFrame.rows)
+            guard let filtered = try? fullFrame.filteredRows(includedRows, full: full) else {
+                return nil
+            }
+            frame = filtered
         }
-        return (frame, rows)
+        return (frame, frame.plainRows())
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key

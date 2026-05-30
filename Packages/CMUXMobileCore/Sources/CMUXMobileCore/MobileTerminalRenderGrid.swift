@@ -146,6 +146,40 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         )
     }
 
+    public func plainRows() -> [String] {
+        var rows = Array(repeating: "", count: self.rows)
+        for span in rowSpans.sorted(by: { lhs, rhs in
+            lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
+        }) {
+            guard rows.indices.contains(span.row) else { continue }
+            let currentWidth = rows[span.row].count
+            if currentWidth < span.column {
+                rows[span.row].append(String(repeating: " ", count: span.column - currentWidth))
+            }
+            rows[span.row].append(span.text)
+            let textWidth = span.text.count
+            let padWidth = max(0, span.gridCellWidth - textWidth)
+            if padWidth > 0 {
+                rows[span.row].append(String(repeating: " ", count: padWidth))
+            }
+        }
+        return rows
+    }
+
+    public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: surfaceID,
+            stateSeq: stateSeq,
+            columns: columns,
+            rows: rows,
+            cursor: cursor,
+            full: full,
+            clearedRows: full ? [] : Array(includedRows.sorted()),
+            styles: styles,
+            rowSpans: rowSpans.filter { includedRows.contains($0.row) }
+        )
+    }
+
     public static func normalizedPlainRows(from text: String, maxRows: Int) -> [String] {
         normalizedRows(from: text, maxRows: maxRows)
     }
@@ -169,17 +203,21 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
 
     public func vtPatchBytes() -> Data {
         var bytes = Data()
-        if full {
-            bytes.append(Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
-        } else {
-            let rowsToClear = Set(clearedRows).union(rowSpans.map(\.row)).sorted()
-            for row in rowsToClear {
-                bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
-            }
-        }
         var stylesByID: [Int: Style] = [:]
         for style in styles {
             stylesByID[style.id] = style
+        }
+        let defaultStyle = stylesByID[0] ?? .default
+        if full {
+            bytes.append(Data("\u{1B}c".utf8))
+            bytes.append(Self.sgrBytes(for: defaultStyle))
+            bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
+        } else {
+            let rowsToClear = Set(clearedRows).union(rowSpans.map(\.row)).sorted()
+            for row in rowsToClear {
+                bytes.append(Self.sgrBytes(for: defaultStyle))
+                bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
+            }
         }
         var activeStyleID: Int?
         for span in rowSpans {
@@ -191,10 +229,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             }
             bytes.append(Self.vtPrintableBytes(span.text))
         }
-        if activeStyleID != nil {
-            bytes.append(Data("\u{1B}[0m".utf8))
-        }
+        bytes.append(Self.sgrBytes(for: defaultStyle))
         if let cursor {
+            bytes.append(Self.cursorStyleBytes(for: cursor))
             if cursor.visible {
                 bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
             } else {
@@ -256,8 +293,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     private static func sgrBytes(for style: Style) -> Data {
         var codes = ["0"]
         if style.bold { codes.append("1") }
+        if style.faint { codes.append("2") }
         if style.italic { codes.append("3") }
         if style.underline { codes.append("4") }
+        if style.blink { codes.append("5") }
+        if style.inverse { codes.append("7") }
+        if style.invisible { codes.append("8") }
+        if style.strikethrough { codes.append("9") }
+        if style.overline { codes.append("53") }
         if let foreground = rgbComponents(style.foreground) {
             codes.append("38;2;\(foreground.red);\(foreground.green);\(foreground.blue)")
         }
@@ -265,6 +308,19 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             codes.append("48;2;\(background.red);\(background.green);\(background.blue)")
         }
         return Data("\u{1B}[\(codes.joined(separator: ";"))m".utf8)
+    }
+
+    private static func cursorStyleBytes(for cursor: Cursor) -> Data {
+        let parameter: Int
+        switch cursor.style {
+        case .block, .blockHollow:
+            parameter = cursor.blinking ? 1 : 2
+        case .underline:
+            parameter = cursor.blinking ? 3 : 4
+        case .bar:
+            parameter = cursor.blinking ? 5 : 6
+        }
+        return Data("\u{1B}[\(parameter) q".utf8)
     }
 
     private static func rgbComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {
@@ -293,11 +349,37 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         public var row: Int
         public var column: Int
         public var visible: Bool
+        public var style: Style
+        public var blinking: Bool
 
-        public init(row: Int, column: Int, visible: Bool = true) {
+        public init(
+            row: Int,
+            column: Int,
+            visible: Bool = true,
+            style: Style = .block,
+            blinking: Bool = false
+        ) {
             self.row = row
             self.column = column
             self.visible = visible
+            self.style = style
+            self.blinking = blinking
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.row = try container.decode(Int.self, forKey: .row)
+            self.column = try container.decode(Int.self, forKey: .column)
+            self.visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+            self.style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .block
+            self.blinking = try container.decodeIfPresent(Bool.self, forKey: .blinking) ?? false
+        }
+
+        public enum Style: String, Codable, Equatable, Sendable {
+            case block
+            case bar
+            case underline
+            case blockHollow = "block_hollow"
         }
     }
 
@@ -308,23 +390,41 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         public var foreground: String?
         public var background: String?
         public var bold: Bool
+        public var faint: Bool
         public var italic: Bool
         public var underline: Bool
+        public var blink: Bool
+        public var inverse: Bool
+        public var invisible: Bool
+        public var strikethrough: Bool
+        public var overline: Bool
 
         public init(
             id: Int,
             foreground: String? = nil,
             background: String? = nil,
             bold: Bool = false,
+            faint: Bool = false,
             italic: Bool = false,
-            underline: Bool = false
+            underline: Bool = false,
+            blink: Bool = false,
+            inverse: Bool = false,
+            invisible: Bool = false,
+            strikethrough: Bool = false,
+            overline: Bool = false
         ) {
             self.id = id
             self.foreground = foreground
             self.background = background
             self.bold = bold
+            self.faint = faint
             self.italic = italic
             self.underline = underline
+            self.blink = blink
+            self.inverse = inverse
+            self.invisible = invisible
+            self.strikethrough = strikethrough
+            self.overline = overline
         }
 
         public init(from decoder: Decoder) throws {
@@ -333,8 +433,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.foreground = try container.decodeIfPresent(String.self, forKey: .foreground)
             self.background = try container.decodeIfPresent(String.self, forKey: .background)
             self.bold = try container.decodeIfPresent(Bool.self, forKey: .bold) ?? false
+            self.faint = try container.decodeIfPresent(Bool.self, forKey: .faint) ?? false
             self.italic = try container.decodeIfPresent(Bool.self, forKey: .italic) ?? false
             self.underline = try container.decodeIfPresent(Bool.self, forKey: .underline) ?? false
+            self.blink = try container.decodeIfPresent(Bool.self, forKey: .blink) ?? false
+            self.inverse = try container.decodeIfPresent(Bool.self, forKey: .inverse) ?? false
+            self.invisible = try container.decodeIfPresent(Bool.self, forKey: .invisible) ?? false
+            self.strikethrough = try container.decodeIfPresent(Bool.self, forKey: .strikethrough) ?? false
+            self.overline = try container.decodeIfPresent(Bool.self, forKey: .overline) ?? false
         }
     }
 
@@ -343,16 +449,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         public var column: Int
         public var styleID: Int
         public var text: String
+        public var cellWidth: Int?
 
-        public init(row: Int, column: Int, styleID: Int = 0, text: String) {
+        public init(row: Int, column: Int, styleID: Int = 0, text: String, cellWidth: Int? = nil) {
             self.row = row
             self.column = column
             self.styleID = styleID
             self.text = text
+            self.cellWidth = cellWidth
         }
 
         fileprivate var gridCellWidth: Int {
-            text.count
+            cellWidth ?? text.count
         }
 
         enum CodingKeys: String, CodingKey {
@@ -360,6 +468,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             case column
             case styleID = "style_id"
             case text
+            case cellWidth = "cell_width"
         }
     }
 }
