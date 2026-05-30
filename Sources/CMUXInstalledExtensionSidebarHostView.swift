@@ -109,6 +109,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
 
     var snapshotProvider: @MainActor () -> CMUXSidebarSnapshot
+    var snapshotUpdateToken: UInt64 = 0
     var actionHandler: @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
     var onUseDefaultSidebar: @MainActor () -> Void = {}
 
@@ -211,6 +212,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             await observeExtensionAvailability()
         }
         .onChange(of: snapshotProvider().sequence) { _, _ in
+            xpcHost.sendSnapshotDidChange()
+        }
+        .onChange(of: snapshotUpdateToken) { _, _ in
             xpcHost.sendSnapshotDidChange()
         }
         .onDisappear {
