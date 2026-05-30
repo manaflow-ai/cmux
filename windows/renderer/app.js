@@ -4,6 +4,7 @@ import {
   backgroundPositionOptions,
   backgroundPresets,
   browserHomePresets,
+  browserLaunchModeOptions,
   defaultSettings,
   paneHeaderOptions,
   settingsCategories,
@@ -139,6 +140,7 @@ const layoutSettingsPreviewKeys = new Set([
 ]);
 const browserSettingsPreviewKeys = new Set([
   "browserHomeUrl",
+  "browserLaunchMode",
   "externalBrowserProfileId",
   "browserSuspendInactive"
 ]);
@@ -479,6 +481,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
   next.browserHomeUrl = normalizeUrl(next.browserHomeUrl || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  if (!browserLaunchModeOptions.some(([id]) => id === next.browserLaunchMode)) next.browserLaunchMode = defaultSettings.browserLaunchMode;
   next.externalBrowserProfileId = String(next.externalBrowserProfileId || defaultSettings.externalBrowserProfileId).trim().slice(0, 120) || "system";
   next.browserSuspendInactive = next.browserSuspendInactive !== false;
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
@@ -2038,6 +2041,8 @@ const commands = [
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "terminal.fontReset", label: "Reset Terminal Text Size", shortcut: "Ctrl+0", run: () => resetTerminalFontSize() },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
+  { id: "browser.newPane", label: "Open Browser Pane", shortcut: "", run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" }) },
+  { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
   { id: "browser.newTab", label: "New Browser Tab Beside Active", shortcut: "", run: () => newBrowserTabFromPanel() },
   { id: "browser.focusAddress", label: "Focus Browser Address", shortcut: "Ctrl+L", run: () => focusBrowserAddress() },
   { id: "browser.reload", label: "Reload Active Browser", shortcut: "Ctrl+R", run: () => reloadBrowserPanel() },
@@ -2108,10 +2113,6 @@ function zoomedPanelIdForWorkspace(workspace = activeWorkspace()) {
     return scopedPanelId;
   }
   if (scopedPanelId) state.zoomedPanelIds.delete(workspace.id);
-  if (workspaceHasPanelId(workspace, state.zoomedPanelId) && !state.minimizedPanelIds.has(state.zoomedPanelId)) {
-    state.zoomedPanelIds.set(workspace.id, state.zoomedPanelId);
-    return state.zoomedPanelId;
-  }
   if (workspace.id === state.data?.activeWorkspaceId) state.zoomedPanelId = null;
   return null;
 }
@@ -4161,7 +4162,7 @@ async function copyBrowserPanelUrl(panel = focusedPanel()) {
 
 function newBrowserTabFromPanel(panel = focusedPanel()) {
   const browserPanel = resolveBrowserPanel(panel);
-  if (!browserPanel) return openBrowserHome();
+  if (!browserPanel) return createPanel("browser", "right", { url: state.settings.browserHomeUrl });
   const found = findPanelState(browserPanel.id);
   return createPanel("browser", "right", {
     workspaceId: found?.workspace.id,
@@ -4637,6 +4638,18 @@ function renderSettingsInspector(options = {}) {
     });
     browserSection.append(settingRow("Home page", homeInput, true));
     browserSection.append(settingRow("Home presets", browserHomePresetGrid(), true, "browser home preset quick start localhost github google vite"));
+    const launchModeSelect = document.createElement("select");
+    launchModeSelect.className = "setting-select";
+    launchModeSelect.dataset.settingControl = "browserLaunchMode";
+    for (const [value, label] of browserLaunchModeOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      launchModeSelect.append(option);
+    }
+    launchModeSelect.value = state.settings.browserLaunchMode;
+    launchModeSelect.onchange = () => updateSettings({ browserLaunchMode: launchModeSelect.value });
+    browserSection.append(settingRow("Open Browser action", launchModeSelect, false, "browser open button web pane external chrome edge brave profile launch mode"));
     const profileSelect = document.createElement("select");
     profileSelect.className = "setting-select";
     profileSelect.dataset.settingControl = "externalBrowserProfileId";
@@ -4662,7 +4675,7 @@ function renderSettingsInspector(options = {}) {
     homeActions.className = "settings-actions";
     homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave");
     homeActions.append(
-      settingsActionButton("Open", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
+      settingsActionButton("Open pane", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
       settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Reset", () => {
         const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
@@ -5505,6 +5518,7 @@ function browserSettingsPreviewPanel() {
     </div>
     <div class="browser-preview-meta">
       <span><b>Home</b><em data-browser-preview-home></em></span>
+      <span><b>Launch</b><em data-browser-preview-launch></em></span>
       <span><b>Host</b><em data-browser-preview-host-meta></em></span>
       <span><b>Recent</b><em data-browser-preview-recent></em></span>
     </div>
@@ -5513,6 +5527,7 @@ function browserSettingsPreviewPanel() {
   panel.querySelector("[data-browser-preview-url]").textContent = home.url;
   panel.querySelector(".browser-preview-title").textContent = home.path;
   panel.querySelector("[data-browser-preview-home]").textContent = home.url;
+  panel.querySelector("[data-browser-preview-launch]").textContent = optionLabel(browserLaunchModeOptions, state.settings.browserLaunchMode, "cmux pane");
   panel.querySelector("[data-browser-preview-host-meta]").textContent = home.host;
   panel.querySelector("[data-browser-preview-recent]").textContent = recent
     ? `${state.recentBrowserPages.length} / ${recent.host}`
@@ -5574,6 +5589,10 @@ function refreshBrowserSettingsPreview() {
   const homeInput = elements.inspectorBody.querySelector('[data-setting-control="browserHomeUrl"]');
   if (homeInput && homeInput.value !== state.settings.browserHomeUrl) {
     homeInput.value = state.settings.browserHomeUrl;
+  }
+  const launchModeSelect = elements.inspectorBody.querySelector('[data-setting-control="browserLaunchMode"]');
+  if (launchModeSelect && launchModeSelect.value !== state.settings.browserLaunchMode) {
+    launchModeSelect.value = state.settings.browserLaunchMode;
   }
   for (const button of elements.inspectorBody.querySelectorAll("[data-browser-home-preset]")) {
     const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
@@ -9015,10 +9034,18 @@ async function openBrowserPrompt(workspaceId = null) {
     confirmLabel: "Open"
   });
   if (url === null) return;
+  if (state.settings.browserLaunchMode === "external") {
+    await openExternalBrowser(url);
+    return true;
+  }
   await createPanel("browser", "right", { url, workspaceId });
 }
 
-function openBrowserHome(workspaceId = activeWorkspace()?.id) {
+function openBrowserHome(workspaceId = activeWorkspace()?.id, options = {}) {
+  const launchMode = options.mode || state.settings.browserLaunchMode;
+  if (launchMode === "external") {
+    return openExternalBrowser(state.settings.browserHomeUrl);
+  }
   return createPanel("browser", "right", { url: state.settings.browserHomeUrl, workspaceId });
 }
 
@@ -9582,19 +9609,18 @@ function normalizedWheelZoomDelta(event) {
   return event.deltaY;
 }
 
-function handleTerminalWheelZoom(event) {
-  if (!event.ctrlKey) return;
-  const panelId = event.currentTarget?.closest?.(".pane")?.dataset?.panelId || "";
-  const panel = panelId ? findPanelState(panelId)?.panel : activePanel();
-  if (panel?.type !== "terminal") return;
-  markInteractedPanel(panel.id);
+function applyTerminalWheelZoom(event, panel) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) return false;
+  if (!event.ctrlKey) return false;
+  markInteractedPanel(terminalPanel.id);
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation?.();
   const delta = normalizedWheelZoomDelta(event);
-  if (!Number.isFinite(delta) || delta === 0) return;
+  if (!Number.isFinite(delta) || delta === 0) return true;
   const now = performance.now();
-  const zoomState = terminalWheelZoomStateFor(panel.id);
+  const zoomState = terminalWheelZoomStateFor(terminalPanel.id);
   if (now - zoomState.at > terminalWheelZoomIdleResetMs) {
     zoomState.remainder = 0;
   }
@@ -9607,10 +9633,30 @@ function handleTerminalWheelZoom(event) {
     terminalWheelZoomMaxSteps,
     Math.trunc(Math.abs(zoomState.remainder) / terminalWheelZoomThreshold)
   );
-  if (!steps) return;
+  if (!steps) return true;
   const direction = zoomState.remainder < 0 ? 1 : -1;
   zoomState.remainder -= Math.sign(zoomState.remainder) * terminalWheelZoomThreshold * steps;
-  changeTerminalFontSize(direction * steps, { panel, toast: false });
+  changeTerminalFontSize(direction * steps, { panel: terminalPanel, toast: false });
+  return true;
+}
+
+function handleTerminalWheelZoom(event) {
+  if (!event.ctrlKey) return;
+  const panel = panelFromEvent(event);
+  if (panel?.type !== "terminal") return;
+  applyTerminalWheelZoom(event, panel);
+}
+
+function handleWindowWheelZoom(event) {
+  if (!event.ctrlKey) return;
+  if (event.target?.closest?.(".terminal-host")) return;
+  const panel = actionPanelFromEvent(event);
+  if (panel?.type === "terminal") {
+    applyTerminalWheelZoom(event, panel);
+  } else if (event.target?.closest?.(".app-shell, .pane, .surface-tabs, .sidebar, .topbar, .command-strip")) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
 }
 
 function setPaneMinimized(panelId, minimized = true) {
@@ -9619,17 +9665,25 @@ function setPaneMinimized(panelId, minimized = true) {
   if (!minimized) markInteractedPanel(panelId);
   const shouldMinimize = Boolean(minimized);
   if (state.minimizedPanelIds.has(panelId) === shouldMinimize) return false;
+  const isActiveWorkspace = found.workspace.id === state.data?.activeWorkspaceId;
   if (shouldMinimize) {
     rememberPreviousPanel(found.workspace, panelId);
     state.minimizedPanelIds.add(panelId);
     if (isPanelZoomed(found.panel, found.workspace)) clearZoomedPanelForWorkspace(found.workspace);
-    if (found.workspace.activePanelId === panelId || state.focusedPanelId === panelId) {
+    if (found.workspace.activePanelId === panelId) {
       const nextPanel = firstUnminimizedPanel(found.workspace, panelId);
       found.workspace.activePanelId = nextPanel?.id || panelId;
+      if (isActiveWorkspace) {
+        state.focusedPanelId = nextPanel?.id || null;
+        state.lastInteractedPanelId = nextPanel?.id || null;
+        if (nextPanel) focusTerminalSession(nextPanel.id);
+      }
+    } else if (isActiveWorkspace && state.focusedPanelId === panelId) {
+      const nextPanel = firstUnminimizedPanel(found.workspace, panelId);
       state.focusedPanelId = nextPanel?.id || null;
       state.lastInteractedPanelId = nextPanel?.id || null;
       if (nextPanel) focusTerminalSession(nextPanel.id);
-    } else if (state.lastInteractedPanelId === panelId) {
+    } else if (isActiveWorkspace && state.lastInteractedPanelId === panelId) {
       state.lastInteractedPanelId = firstUnminimizedPanel(found.workspace, panelId)?.id || null;
     }
   } else {
@@ -9896,7 +9950,7 @@ async function flushTerminalFontSizeSync() {
 }
 
 function changeTerminalFontSize(delta, options = {}) {
-  const panel = resolveTerminalPanel(options.panel || panelFromEvent(options.event) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || (options.event ? actionPanelFromEvent(options.event) : null) || focusedPanel());
   if (!panel) return false;
   markInteractedPanel(panel.id);
   const currentSize = terminalFontSizeForPanel(panel);
@@ -9922,7 +9976,7 @@ function changePaneTerminalFontSize(panelId, delta) {
 }
 
 function resetTerminalFontSize(options = {}) {
-  const panel = resolveTerminalPanel(options.panel || panelFromEvent(options.event) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || (options.event ? actionPanelFromEvent(options.event) : null) || focusedPanel());
   if (!panel) return false;
   markInteractedPanel(panel.id);
   if (!panelHasTerminalFontSize(panel)) {
@@ -10462,6 +10516,8 @@ window.addEventListener("keydown", (event) => {
     }
   }
 }, true);
+
+window.addEventListener("wheel", handleWindowWheelZoom, { passive: false, capture: true });
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);

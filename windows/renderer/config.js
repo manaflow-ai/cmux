@@ -6,6 +6,7 @@ export const defaultSettings = {
   backgroundFit: "cover",
   backgroundPosition: "center",
   browserHomeUrl: "https://www.google.com",
+  browserLaunchMode: "pane",
   externalBrowserProfileId: "system",
   browserSuspendInactive: true,
   density: "comfortable",
@@ -198,6 +199,11 @@ export const browserHomePresets = [
     body: "Vite dev server.",
     url: "http://localhost:5173"
   }
+];
+
+export const browserLaunchModeOptions = [
+  ["pane", "cmux pane"],
+  ["external", "External profile"]
 ];
 
 export const terminalProfiles = [
