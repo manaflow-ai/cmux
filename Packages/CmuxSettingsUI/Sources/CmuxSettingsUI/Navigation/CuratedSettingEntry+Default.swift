@@ -64,7 +64,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
-            .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled terminal.agentHibernation.idleSeconds terminal.agentHibernation.maxLiveTerminals terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
+            .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
 
             // TextBox
@@ -104,7 +104,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
-            .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
+            .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
             .init(section: .browser, id: "hidden-webview-discard", title: "Browser Memory Saver", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),

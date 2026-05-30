@@ -51,8 +51,6 @@ struct SettingsRowAnchorResolutionTests {
         "automation.socketControlMode",
         "automation.socketPassword",
         "automation.suppressSubagentNotifications",
-        "browser.customSearchEngineName",
-        "browser.customSearchEngineURLTemplate",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
@@ -89,8 +87,6 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.wrapWorkspaceTitles",
         "sidebarAppearance.matchTerminalBackground",
         "terminal.agentHibernation.enabled",
-        "terminal.agentHibernation.idleSeconds",
-        "terminal.agentHibernation.maxLiveTerminals",
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.resumeCommands",
@@ -163,5 +159,26 @@ struct SettingsRowAnchorResolutionTests {
             unreachable.isEmpty,
             "these search results have no row to scroll to / highlight: \(unreachable.sorted())"
         )
+    }
+
+    /// No two distinct rows may resolve to the same anchor id. Each entry
+    /// in ``rowConfigPaths`` is one row's primary path; if two resolve to
+    /// the same id, both rows get that `.id`, making `proxy.scrollTo`
+    /// ambiguous and the highlight land on the wrong/multiple rows. This
+    /// guards the class of bug where a curated entry's synonyms carried
+    /// several sub-paths (e.g. agentHibernation.enabled/idleSeconds/...)
+    /// so every sub-row collided on one anchor.
+    @Test
+    func rowAnchorsAreUniqueAcrossRows() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        var firstPath: [String: String] = [:]
+        for path in Self.rowConfigPaths {
+            guard let anchor = index.anchorID(forSettingsPath: path) else { continue }
+            if let prior = firstPath[anchor] {
+                Issue.record("anchor \(anchor) is shared by rows '\(prior)' and '\(path)' — duplicate .id breaks scrollTo")
+            } else {
+                firstPath[anchor] = path
+            }
+        }
     }
 }
