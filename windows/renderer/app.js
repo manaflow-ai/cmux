@@ -3540,8 +3540,42 @@ function normalizeSettingsQuery(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+const searchTokenAliases = new Map([
+  ["bg", ["background", "wallpaper"]],
+  ["backgoudn", ["background", "wallpaper"]],
+  ["colour", ["color"]],
+  ["colur", ["color"]],
+  ["folder", ["directory", "cwd"]],
+  ["lag", ["performance", "speed", "smooth"]],
+  ["slow", ["performance", "speed", "smooth"]],
+  ["term", ["terminal"]],
+  ["workshop", ["workspace"]],
+  ["workshape", ["workspace"]],
+  ["workhsop", ["workspace"]]
+]);
+
+const settingsCategorySearchAliases = new Map([
+  ["appearance", "look appearance background image wallpaper file local color colour theme accent"],
+  ["workspace", "workspace workshop folder directory cwd rename color colour"],
+  ["browser", "browser web url page home"],
+  ["layout", "layout split pane tab sidebar header resize"],
+  ["performance", "performance lag slow smooth speed motion"],
+  ["terminal", "terminal term shell font cursor color colour profile"],
+  ["commands", "commands snippets shell gh github cli"],
+  ["profiles", "profiles preset saved settings"],
+  ["blueprints", "blueprints workspace layout template"],
+  ["data", "data import export reset recent history"]
+]);
+
+function uniqueSearchTokens(tokens) {
+  return [...new Set(tokens.filter(Boolean))];
+}
+
 function settingsSearchTokens(value) {
-  return normalizeSettingsQuery(value).split(/\s+/).filter(Boolean);
+  return normalizeSettingsQuery(value).split(/\s+/).filter(Boolean).map((token) => {
+    const aliases = searchTokenAliases.get(token) || [];
+    return uniqueSearchTokens([token, ...aliases]);
+  });
 }
 
 function scheduleSettingsFilter() {
@@ -3585,7 +3619,7 @@ function applySettingsFilter() {
 function settingsSearchMatches(searchText, tokens) {
   if (!tokens.length) return true;
   const haystack = normalizeSettingsQuery(searchText);
-  return tokens.every((token) => haystack.includes(token));
+  return tokens.every((group) => group.some((token) => haystack.includes(token)));
 }
 
 function formatMs(value) {
@@ -5387,9 +5421,10 @@ function renderPalette() {
   if (!state.paletteOpen) return;
 
   const query = normalizeSettingsQuery(elements.paletteInput.value);
+  const tokens = settingsSearchTokens(query);
   const matches = paletteEntries()
-    .filter((entry) => paletteEntryMatches(entry, query))
-    .sort((left, right) => paletteEntryScore(right, query) - paletteEntryScore(left, query));
+    .filter((entry) => paletteEntryMatches(entry, tokens))
+    .sort((left, right) => paletteEntryScore(right, query, tokens) - paletteEntryScore(left, query, tokens));
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
   const nodes = matches.map((entry, index) => {
     const button = document.createElement("button");
@@ -5437,17 +5472,19 @@ function movePaletteSelection(delta) {
   updatePaletteSelection();
 }
 
-function paletteEntryMatches(entry, query) {
-  if (!query) return true;
-  return query.split(/\s+/).every((token) => entry.search.includes(token));
+function paletteEntryMatches(entry, tokens) {
+  if (!tokens.length) return true;
+  return tokens.every((group) => group.some((token) => entry.search.includes(token)));
 }
 
-function paletteEntryScore(entry, query) {
+function paletteEntryScore(entry, query, tokens) {
   if (!query) return 0;
   let score = 0;
   if (entry.search.includes(query)) score += 8;
   if (entry.search.startsWith(query)) score += 4;
-  if (normalizeSettingsQuery(entry.label).includes(query)) score += 2;
+  const label = normalizeSettingsQuery(entry.label);
+  if (label.includes(query)) score += 2;
+  if (tokens.every((group) => group.some((token) => label.includes(token)))) score += 2;
   return score;
 }
 
@@ -5616,7 +5653,7 @@ function paletteEntries() {
       label: `Settings: ${label}`,
       meta: "Settings category",
       shortcut: "Settings",
-      search: normalizeSettingsQuery(`settings preferences customize ${label} ${id}`),
+      search: normalizeSettingsQuery(`settings preferences customize ${label} ${id} ${settingsCategorySearchAliases.get(id) || ""}`),
       run: () => openSettingsCategory(id)
     });
   }
