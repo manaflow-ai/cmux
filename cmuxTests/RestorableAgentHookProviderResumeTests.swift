@@ -640,4 +640,26 @@ extension SocketListenerAcceptPolicyTests {
             ]
         )
     }
+
+    func testClaudeResumeCommandChangesToLaunchDirectoryNotDriftedCwd() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "59729506-e83c-4bfe-a730-1d50d10cc396",
+            workingDirectory: "/tmp/claude repo/nested",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/example/.local/bin/claude",
+                arguments: ["/Users/example/.local/bin/claude"],
+                workingDirectory: "/tmp/claude repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/claude repo' 2>/dev/null || [ ! -d '/tmp/claude repo' ]; } && '/Users/example/.local/bin/claude' '--resume' '59729506-e83c-4bfe-a730-1d50d10cc396'"
+        )
+    }
 }
