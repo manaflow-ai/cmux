@@ -679,6 +679,121 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
     }
 
+    func testHermesAgentSessionEndPreservesRestoreRoute() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("hermes-session-end")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-session-end-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "hermes-session-restore"
+        let executable = "/Users/example/.local/bin/hermes"
+
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": workspace.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_LAUNCH_KIND": "hermes-agent",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": executable,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                executable,
+                "--model",
+                "gpt-5.5",
+                "--resume",
+                "old-session",
+                "initial prompt should not persist"
+            ]),
+            "CMUX_AGENT_LAUNCH_CWD": workspace.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push", "surface.resume.set", "surface.resume.clear":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "hermes-agent", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func storedHermesSessions() throws -> [String: Any] {
+            let storeURL = root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            return try XCTUnwrap(json["sessions"] as? [String: Any])
+        }
+
+        let start = runHermesHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(workspace.path)","hook_event_name":"on_session_start"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        XCTAssertNotNil(
+            try storedHermesSessions()[sessionId],
+            "Expected Hermes session-start to persist the route before the per-turn session-end"
+        )
+
+        let sessionEndCommandStart = state.commands.count
+        let sessionEnd = runHermesHook(
+            "session-end",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(workspace.path)","hook_event_name":"on_session_end"}"#
+        )
+        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.stdout, "{}\n")
+
+        let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
+        let sessionEndMethods = sessionEndCommands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(
+            sessionEndMethods,
+            ["feed.push"],
+            "Hermes on_session_end is a turn boundary and should only emit feed telemetry, saw \(sessionEndCommands)"
+        )
+        XCTAssertFalse(
+            sessionEndCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            "Hermes on_session_end must not clear saved routing, saw \(sessionEndCommands)"
+        )
+        XCTAssertNotNil(
+            try storedHermesSessions()[sessionId],
+            "Expected Hermes route to remain available after per-turn on_session_end"
+        )
+    }
+
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
