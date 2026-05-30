@@ -1103,6 +1103,44 @@ function replaceChildrenIfChanged(parent, nodes) {
   return true;
 }
 
+function setTextIfChanged(node, value) {
+  if (!node) return false;
+  const next = String(value ?? "");
+  if (node.textContent === next) return false;
+  node.textContent = next;
+  return true;
+}
+
+function setTitleIfChanged(node, value) {
+  if (!node) return false;
+  const next = String(value ?? "");
+  if (node.title === next) return false;
+  node.title = next;
+  return true;
+}
+
+function setClassNameIfChanged(node, value) {
+  if (!node || node.className === value) return false;
+  node.className = value;
+  return true;
+}
+
+function setDatasetIfChanged(node, key, value) {
+  if (!node) return false;
+  const next = String(value ?? "");
+  if (node.dataset[key] === next) return false;
+  node.dataset[key] = next;
+  return true;
+}
+
+function setStylePropertyIfChanged(node, name, value) {
+  if (!node) return false;
+  const next = String(value ?? "");
+  if (node.style.getPropertyValue(name) === next) return false;
+  node.style.setProperty(name, next);
+  return true;
+}
+
 function normalizePaneWeight(value) {
   const weight = Number(value);
   if (!Number.isFinite(weight) || weight <= 0) return 0;
@@ -1565,15 +1603,13 @@ function render(previousState) {
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
   const operationLabel = currentUiOperationLabel();
 
-  elements.workspaceHeading.textContent = workspace?.title || "Workspace";
-  elements.workspaceSubheading.textContent = workspace
-    ? `${workspace.cwdShort || "no directory"}`
-    : "Ready";
-  elements.statusSummary.textContent = operationLabel || defaultStatusSummary(workspace, {
+  setTextIfChanged(elements.workspaceHeading, workspace?.title || "Workspace");
+  setTextIfChanged(elements.workspaceSubheading, workspace ? `${workspace.cwdShort || "no directory"}` : "Ready");
+  setTextIfChanged(elements.statusSummary, operationLabel || defaultStatusSummary(workspace, {
     attentionCount,
     panelCount,
     zoomedPanel
-  });
+  }));
   elements.statusSummary.classList.toggle("is-busy", Boolean(operationLabel));
   updateRuntimeStatusLabels();
 
@@ -1655,12 +1691,12 @@ function defaultStatusSummary(workspace = activeWorkspace(), options = {}) {
 
 function updateRuntimeStatusLabels() {
   const pipeName = state.data?.pipeName || "";
-  elements.statusPipe.textContent = pipeName ? "pipe" : "pipe unavailable";
-  elements.statusPipe.title = pipeName || "Control pipe unavailable";
-  elements.statusPty.textContent = state.data?.ptyAvailable ? "ConPTY" : "fallback";
-  elements.statusPty.title = state.data?.ptyAvailable
+  setTextIfChanged(elements.statusPipe, pipeName ? "pipe" : "pipe unavailable");
+  setTitleIfChanged(elements.statusPipe, pipeName || "Control pipe unavailable");
+  setTextIfChanged(elements.statusPty, state.data?.ptyAvailable ? "ConPTY" : "fallback");
+  setTitleIfChanged(elements.statusPty, state.data?.ptyAvailable
     ? "ConPTY terminal backend ready"
-    : "Process pipe fallback terminal backend";
+    : "Process pipe fallback terminal backend");
 }
 
 function updateOperationChrome() {
@@ -1668,7 +1704,7 @@ function updateOperationChrome() {
   const creatingPane = hasUiOperationKind("create-panel");
   elements.shell.classList.toggle("operation-pending", Boolean(label));
   elements.statusSummary.classList.toggle("is-busy", Boolean(label));
-  elements.statusSummary.textContent = label || defaultStatusSummary();
+  setTextIfChanged(elements.statusSummary, label || defaultStatusSummary());
   for (const id of ["newTerminalButton", "splitRightButton", "splitDownButton", "newBrowserButton"]) {
     const button = document.getElementById(id);
     if (button) button.disabled = creatingPane;
@@ -1747,14 +1783,16 @@ function createWorkspaceRow() {
 function updateWorkspaceRow(button, workspace, index, activeId) {
   const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
   const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
-  button.dataset.workspaceId = workspace.id;
-  button.className = `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`;
-  button.style.setProperty("--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  button.querySelector(".workspace-name").textContent = workspace.title || `Workspace ${index + 1}`;
-  button.querySelector(".workspace-badge").textContent = String(attentionTotal);
-  button.querySelector(".workspace-meta").textContent = workspace.latestNotification
-    || `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`;
-  button.querySelector(".workspace-path").textContent = workspace.cwdShort || "~";
+  setDatasetIfChanged(button, "workspaceId", workspace.id);
+  setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
+  setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
+  setTextIfChanged(button.querySelector(".workspace-name"), workspace.title || `Workspace ${index + 1}`);
+  setTextIfChanged(button.querySelector(".workspace-badge"), String(attentionTotal));
+  setTextIfChanged(
+    button.querySelector(".workspace-meta"),
+    workspace.latestNotification || `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`
+  );
+  setTextIfChanged(button.querySelector(".workspace-path"), workspace.cwdShort || "~");
   button.querySelector(".workspace-branch").hidden = true;
 }
 
@@ -1831,11 +1869,11 @@ function createSurfaceTab() {
 function updateSurfaceTab(button, workspace, panel) {
   const label = panelDisplayTitle(panel, true);
   const fullTitle = panelDisplayTitle(panel, false);
-  button.dataset.panelId = panel.id;
-  button.className = `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.id === state.zoomedPanelId ? " is-zoomed" : ""}${panel.needsAttention ? " has-attention" : ""}`;
-  button.title = `${fullTitle} - right-click for pane options`;
-  button.style.setProperty("--tab-color", panel.color || workspace.color || "var(--color-accent)");
-  button.querySelector(".surface-label").textContent = label;
+  setDatasetIfChanged(button, "panelId", panel.id);
+  setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.id === state.zoomedPanelId ? " is-zoomed" : ""}${panel.needsAttention ? " has-attention" : ""}`);
+  setTitleIfChanged(button, `${fullTitle} - right-click for pane options`);
+  setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
+  setTextIfChanged(button.querySelector(".surface-label"), label);
 }
 
 function getNewSurfaceTab(workspace) {
@@ -1858,7 +1896,7 @@ function getNewSurfaceTab(workspace) {
       if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, state.newTabButton.dataset.workspaceId);
     });
   }
-  state.newTabButton.dataset.workspaceId = workspace.id;
+  setDatasetIfChanged(state.newTabButton, "workspaceId", workspace.id);
   state.newTabButton.disabled = hasUiOperationKind("create-panel");
   return state.newTabButton;
 }
@@ -1901,22 +1939,22 @@ function renderPanes(workspace) {
       pane = createPane(panel);
     }
     nodes.push(pane);
-    pane.dataset.panelId = panel.id;
-    pane.style.setProperty("--panel-color", panel.color || workspace.color || "var(--color-accent)");
+    setDatasetIfChanged(pane, "panelId", panel.id);
+    setStylePropertyIfChanged(pane, "--panel-color", panel.color || workspace.color || "var(--color-accent)");
     pane.classList.toggle("is-active", panel.id === workspace.activePanelId);
     pane.classList.toggle("is-zoomed", panel.id === state.zoomedPanelId);
     pane.classList.toggle("has-attention", panel.needsAttention);
     pane.classList.toggle("is-browser", panel.type === "browser");
     pane.classList.toggle("is-terminal", panel.type === "terminal");
     if (visiblePanels.length <= 1) clearPaneFlex(pane);
-    pane.querySelector(".pane-type").textContent = panel.type === "browser" ? "web" : "term";
+    setTextIfChanged(pane.querySelector(".pane-type"), panel.type === "browser" ? "web" : "term");
     const title = panelDisplayTitle(panel, false);
     const titleNode = pane.querySelector(".pane-title");
-    titleNode.textContent = title;
-    titleNode.title = title;
+    setTextIfChanged(titleNode, title);
+    setTitleIfChanged(titleNode, title);
     const zoomButton = pane.querySelector(".zoom");
-    zoomButton.textContent = panel.id === state.zoomedPanelId ? "↙" : "□";
-    zoomButton.title = panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane";
+    setTextIfChanged(zoomButton, panel.id === state.zoomedPanelId ? "↙" : "□");
+    setTitleIfChanged(zoomButton, panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane");
     if (panel.type === "terminal") {
       ensureTerminal(panel, pane.querySelector(".pane-body"));
       const terminal = state.terminals.get(panel.id);
