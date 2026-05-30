@@ -1134,11 +1134,11 @@ body.reduce-motion *::after {
 }
 
 .pane-grid:not(.direction-down) .pane {
-  min-width: 72px;
+  min-width: 32px;
 }
 
 .pane-grid.direction-down .pane {
-  min-height: 48px;
+  min-height: 28px;
 }
 
 .pane-splitter {
