@@ -226,6 +226,15 @@ function shortPath(rawPath) {
   return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
 }
 
+function normalizedTitleKey(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function workspaceTitle(value, fallback = "Workspace") {
+  const title = String(value || "").trim().replace(/\s+/g, " ");
+  return (title || fallback).slice(0, 80);
+}
+
 function cleanTerminalTitleSegment(segment) {
   const raw = String(segment || "").trim();
   if (!raw) return "";
@@ -505,13 +514,31 @@ class CmuxWindowsRuntime {
     const panel = this.newPanel("terminal", workspaceId, { cwd });
     return {
       id: workspaceId,
-      title: title || "Workspace",
+      title: workspaceTitle(title),
       color: workspaceColors[this.state?.workspaces?.length % workspaceColors.length || 0],
       cwd,
       activePanelId: panel.id,
       splitDirection: "right",
       panels: [panel]
     };
+  }
+
+  generatedWorkspaceTitle(baseTitle = "Workspace") {
+    const base = workspaceTitle(baseTitle);
+    const existing = new Set(this.state.workspaces.map((workspace) => normalizedTitleKey(workspace.title)));
+    if (base === "Workspace") {
+      for (let index = 1; index < 10000; index += 1) {
+        const candidate = `Workspace ${index}`;
+        if (!existing.has(normalizedTitleKey(candidate))) return candidate;
+      }
+    }
+    if (!existing.has(normalizedTitleKey(base))) return base;
+    const truncatedBase = base.slice(0, 74).trim() || "Workspace";
+    for (let index = 2; index < 10000; index += 1) {
+      const candidate = `${truncatedBase} ${index}`.slice(0, 80);
+      if (!existing.has(normalizedTitleKey(candidate))) return candidate;
+    }
+    return `${truncatedBase} ${Date.now().toString(36)}`.slice(0, 80);
   }
 
   newPanel(type, workspaceId, options = {}) {
@@ -633,7 +660,8 @@ class CmuxWindowsRuntime {
   }
 
   createWorkspace(title) {
-    const workspace = this.newWorkspace(title || `Workspace ${this.state.workspaces.length + 1}`);
+    const explicitTitle = workspaceTitle(title, "");
+    const workspace = this.newWorkspace(explicitTitle || this.generatedWorkspaceTitle());
     workspace.activePanelId = workspace.panels[0]?.id || null;
     this.state.workspaces.push(workspace);
     this.state.activeWorkspaceId = workspace.id;
@@ -642,8 +670,11 @@ class CmuxWindowsRuntime {
   }
 
   createWorkspaceFromOptions(options = {}) {
+    const hasRequestedCwd = Boolean(String(options.cwd || "").trim());
     const cwd = sanitizeDirectoryPath(options.cwd);
-    const title = options.title || path.basename(cwd) || `Workspace ${this.state.workspaces.length + 1}`;
+    const explicitTitle = workspaceTitle(options.title, "");
+    const generatedTitleBase = hasRequestedCwd ? path.basename(cwd) : "Workspace";
+    const title = explicitTitle || this.generatedWorkspaceTitle(generatedTitleBase || "Workspace");
     const workspace = this.newWorkspace(title, { cwd });
     workspace.activePanelId = workspace.panels[0]?.id || null;
     this.state.workspaces.push(workspace);

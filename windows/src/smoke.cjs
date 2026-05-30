@@ -42,7 +42,43 @@ function pipeRoundTrip(command) {
   const state = await stateResponse.json();
   assert(state.workspaces.length === 1, "expected one initial workspace");
 
+  const autoWorkspaceOneResponse = await fetch(`${info.url}api/workspaces`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({})
+  });
+  assert(autoWorkspaceOneResponse.ok, "first default workspace create failed");
+  const autoWorkspaceOne = await autoWorkspaceOneResponse.json();
+  assert(autoWorkspaceOne.title === "Workspace 2", "first default workspace should use the next free title");
+
+  const autoWorkspaceTwoResponse = await fetch(`${info.url}api/workspaces`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({})
+  });
+  assert(autoWorkspaceTwoResponse.ok, "second default workspace create failed");
+  const autoWorkspaceTwo = await autoWorkspaceTwoResponse.json();
+  assert(autoWorkspaceTwo.title === "Workspace 3", "second default workspace should avoid duplicate titles");
+
   const workspaceCwd = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-cwd-${process.pid}-`));
+  const folderWorkspaceOneResponse = await fetch(`${info.url}api/workspaces`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cwd: workspaceCwd })
+  });
+  assert(folderWorkspaceOneResponse.ok, "first folder workspace create failed");
+  const folderWorkspaceOne = await folderWorkspaceOneResponse.json();
+  assert(folderWorkspaceOne.title === path.basename(workspaceCwd), "folder workspace should use the folder name");
+
+  const folderWorkspaceTwoResponse = await fetch(`${info.url}api/workspaces`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cwd: workspaceCwd })
+  });
+  assert(folderWorkspaceTwoResponse.ok, "second folder workspace create failed");
+  const folderWorkspaceTwo = await folderWorkspaceTwoResponse.json();
+  assert(folderWorkspaceTwo.title === `${path.basename(workspaceCwd)} 2`, "duplicate folder workspace should get a suffix");
+
   const workspaceResponse = await fetch(`${info.url}api/workspaces`, {
     method: "POST",
     headers: { "content-type": "application/json" },

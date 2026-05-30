@@ -8601,7 +8601,7 @@ async function createWorkspace(options = {}) {
   const workspace = await api("/api/workspaces", {
     method: "POST",
     body: JSON.stringify({
-      title: options.title || `Workspace ${state.data.workspaces.length + 1}`,
+      title: options.title,
       cwd: options.cwd
     })
   });
@@ -8620,7 +8620,6 @@ async function createWorkspaceFromFolder() {
 async function createWorkspaceFromFolderPath(folder) {
   try {
     await createWorkspace({
-      title: folderName(folder),
       cwd: folder
     });
     toast("Workspace created from folder.");
