@@ -257,6 +257,7 @@ public struct BrowserSection: View {
 
             // HTTP Hosts Allowed in Embedded Browser
             httpAllowlistRow(model: httpAllowlist)
+                .settingsSearchAnchors(["setting:browser:http-allowlist"])
 
             SettingsCardDivider()
 

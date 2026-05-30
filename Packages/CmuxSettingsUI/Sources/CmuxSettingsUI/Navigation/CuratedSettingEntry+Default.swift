@@ -21,12 +21,12 @@ extension Array where Element == CuratedSettingEntry {
         [
             // Account / integrations
             .init(section: .account, id: "account", title: "Account", synonyms: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
-            .init(section: .account, id: "claude-code", title: "Claude Code Integration", synonyms: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
-            .init(section: .account, id: "claude-path", title: "Claude Binary Path", synonyms: "automation.claudeBinaryPath claude binary executable path cli command custom"),
-            .init(section: .account, id: "ripgrep-path", title: "Ripgrep Binary Path", synonyms: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
-            .init(section: .account, id: "subagent-notifications", title: "Suppress Subagent Notifications", synonyms: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
-            .init(section: .account, id: "cursor", title: "Cursor Integration", synonyms: "automation.cursorIntegration cursor ide agent hooks notifications"),
-            .init(section: .account, id: "gemini", title: "Gemini CLI Integration", synonyms: "automation.geminiIntegration gemini cli google agent hooks notifications"),
+            .init(section: .automation, id: "claude-code", title: "Claude Code Integration", synonyms: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
+            .init(section: .automation, id: "claude-path", title: "Claude Binary Path", synonyms: "automation.claudeBinaryPath claude binary executable path cli command custom"),
+            .init(section: .automation, id: "ripgrep-path", title: "Ripgrep Binary Path", synonyms: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
+            .init(section: .automation, id: "subagent-notifications", title: "Suppress Subagent Notifications", synonyms: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
+            .init(section: .automation, id: "cursor", title: "Cursor Integration", synonyms: "automation.cursorIntegration cursor ide agent hooks notifications"),
+            .init(section: .automation, id: "gemini", title: "Gemini CLI Integration", synonyms: "automation.geminiIntegration gemini cli google agent hooks notifications"),
 
             // App
             .init(section: .app, id: "language", title: "Language", synonyms: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
@@ -48,7 +48,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "telemetry", title: "Send anonymous telemetry", synonyms: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: "Warn Before Quit", synonyms: "app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(section: .app, id: "warn-before-closing-tab", title: "Warn Before Closing Tab", synonyms: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
-            .init(section: .app, id: "warn-before-closing-tab-x-button", title: "Warn Before Closing Tab via X Button", synonyms: "app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
+            .init(section: .app, id: "warn-before-closing-tab-x-button", title: "Warn Before Tab Close Button", synonyms: "app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(section: .app, id: "hide-tab-close-button", title: "Hide Tab Close Button", synonyms: "app.hideTabCloseButton hide x button close tab terminal surface"),
             .init(section: .app, id: "rename-selects-name", title: "Rename Selects Existing Name", synonyms: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
             .init(section: .app, id: "palette-search-all", title: "Command Palette Searches All Surfaces", synonyms: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
@@ -107,8 +107,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
-            .init(section: .browser, id: "hidden-webview-discard", title: "Discard Hidden Browser WebViews", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
-            .init(section: .browser, id: "hidden-webview-discard-delay", title: "Hidden WebView Discard Delay", synonyms: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
+            .init(section: .browser, id: "hidden-webview-discard", title: "Browser Memory Saver", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
+            .init(section: .browser, id: "hidden-webview-discard-delay", title: "Memory Saver Delay", synonyms: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
             .init(section: .browser, id: "intercept-open", title: "Intercept open http(s) in Terminal", synonyms: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
@@ -119,7 +119,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Browser import
             .init(section: .browserImport, id: "import-data", title: "Import Browser Data", synonyms: "chrome safari firefox brave edge arc bookmarks history cookies profiles migration"),
-            .init(section: .browserImport, id: "import-hint", title: "Show Import Hint on Blank Tabs", synonyms: "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss"),
+            .init(section: .browserImport, id: "import-hint", title: "Show import hint on blank browser tabs", synonyms: "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss"),
 
             // Global hotkey
             .init(section: .globalHotkey, id: "enable-hotkey", title: "Enable System-Wide Hotkey", synonyms: "app.systemWideHotkeyEnabled global hotkey enable system wide show hide all windows"),
@@ -133,7 +133,7 @@ extension Array where Element == CuratedSettingEntry {
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
-            .init(section: .workspaceColors, id: "badge", title: "Notification Badge Color", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json
