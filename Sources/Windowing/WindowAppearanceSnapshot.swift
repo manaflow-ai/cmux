@@ -60,6 +60,15 @@ enum GhosttyBackgroundBlur: Equatable {
             return nil
         }
     }
+
+    var compositorBlurRadius: Int {
+        switch self {
+        case .disabled, .macosGlassRegular, .macosGlassClear:
+            return 0
+        case .radius(let radius):
+            return max(0, radius)
+        }
+    }
 }
 
 struct SidebarBackdropMaterialPolicy {
