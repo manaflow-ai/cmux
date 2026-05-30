@@ -10,12 +10,19 @@ import {
   terminalCursorStyles,
   terminalFontOptions,
   terminalProfiles,
+  tabSizeOptions,
+  titleDetailOptions,
   toolbarModeOptions,
   themeOptions
 } from "./config.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
+const tabSizeMetrics = new Map([
+  ["compact", { min: 88, basis: 124, max: 174 }],
+  ["balanced", { min: 104, basis: 160, max: 220 }],
+  ["roomy", { min: 136, basis: 210, max: 292 }]
+]);
 const workspaceColorOptions = [...new Set([
   ...accentOptions,
   "oklch(62% 0.22 255)",
@@ -252,6 +259,8 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
   }
+  if (!tabSizeOptions.some(([id]) => id === next.tabSize)) next.tabSize = defaultSettings.tabSize;
+  if (!titleDetailOptions.some(([id]) => id === next.titleDetailMode)) next.titleDetailMode = defaultSettings.titleDetailMode;
   if (!terminalCursorStyles.some(([id]) => id === next.terminalCursorStyle)) next.terminalCursorStyle = defaultSettings.terminalCursorStyle;
   if (!terminalFontOptions.some(([id]) => id === next.terminalFontFamily)) next.terminalFontFamily = defaultSettings.terminalFontFamily;
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
@@ -901,6 +910,8 @@ function settingsRenderSignature(settings = state.settings) {
     settings.backgroundOpacity,
     settings.density,
     settings.toolbarMode,
+    settings.tabSize,
+    settings.titleDetailMode,
     settings.showTabs,
     settings.showStatusbar,
     settings.showAdvanced,
@@ -924,6 +935,10 @@ function applySettings() {
   elements.shell.style.setProperty("--inspector-width", `${state.settings.inspectorWidth}px`);
   elements.shell.style.setProperty("--terminal-font-family", terminalFontStack());
   elements.shell.style.setProperty("--terminal-padding", `${state.settings.terminalPadding}px`);
+  const tabMetrics = tabSizeMetrics.get(state.settings.tabSize) || tabSizeMetrics.get(defaultSettings.tabSize);
+  elements.shell.style.setProperty("--surface-tab-min", `${tabMetrics.min}px`);
+  elements.shell.style.setProperty("--surface-tab-basis", `${tabMetrics.basis}px`);
+  elements.shell.style.setProperty("--surface-tab-max", `${tabMetrics.max}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
   elements.shell.classList.toggle("toolbar-compact", state.settings.toolbarMode === "compact");
   elements.shell.classList.toggle("toolbar-standard", state.settings.toolbarMode === "standard");
@@ -951,6 +966,9 @@ function updateSettings(updates, options = {}) {
   applySettings();
   if (Object.keys(updates).some((key) => terminalAppearanceKeys.has(key) && previous[key] !== state.settings[key])) {
     scheduleTerminalAppearanceRefresh();
+  }
+  if (previous.titleDetailMode !== state.settings.titleDetailMode) {
+    render();
   }
 }
 
@@ -1578,10 +1596,11 @@ function createSurfaceTab() {
 }
 
 function updateSurfaceTab(button, workspace, panel) {
-  const label = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
+  const label = panelDisplayTitle(panel, true);
+  const fullTitle = panelDisplayTitle(panel, false);
   button.dataset.panelId = panel.id;
   button.className = `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${panel.id === state.zoomedPanelId ? " is-zoomed" : ""}${panel.needsAttention ? " has-attention" : ""}`;
-  button.title = `${label} - right-click for pane options`;
+  button.title = `${fullTitle} - right-click for pane options`;
   button.style.setProperty("--tab-color", panel.color || workspace.color || "var(--color-accent)");
   button.querySelector(".surface-label").textContent = label;
 }
@@ -1657,7 +1676,7 @@ function renderPanes(workspace) {
     pane.classList.toggle("is-terminal", panel.type === "terminal");
     if (visiblePanels.length <= 1) clearPaneFlex(pane);
     pane.querySelector(".pane-type").textContent = panel.type === "browser" ? "web" : "term";
-    const title = panel.type === "browser" ? panel.url || "Browser" : panelTitle(panel);
+    const title = panelDisplayTitle(panel, false);
     const titleNode = pane.querySelector(".pane-title");
     titleNode.textContent = title;
     titleNode.title = title;
@@ -1677,10 +1696,25 @@ function renderPanes(workspace) {
   }
 }
 
-function panelTitle(panel) {
+function terminalPanelTitle(panel) {
   const name = panel.title || "Terminal";
   const cwd = panel.cwdShort || "~";
   return name === cwd ? name : `${name} · ${cwd}`;
+}
+
+function terminalPanelFolder(panel) {
+  return panel.cwdShort || "~";
+}
+
+function panelDisplayTitle(panel, surface = false) {
+  if (panel.type === "browser") {
+    if (state.settings.titleDetailMode === "detailed" && !surface) return panel.url || "Browser";
+    return hostnameOf(panel.url);
+  }
+  if (state.settings.titleDetailMode === "compact") return panel.title || "Terminal";
+  if (state.settings.titleDetailMode === "folder") return terminalPanelFolder(panel);
+  if (state.settings.titleDetailMode === "detailed") return terminalPanelTitle(panel);
+  return surface ? panel.title || "Terminal" : terminalPanelTitle(panel);
 }
 
 function createEmptyWorkspace(workspace) {
@@ -2766,6 +2800,28 @@ function renderSettingsInspector() {
     toolbarSelect.value = state.settings.toolbarMode;
     toolbarSelect.onchange = () => updateSettings({ toolbarMode: toolbarSelect.value });
     layoutSection.append(settingRow("Toolbar", toolbarSelect, false, "top bar command strip compact standard expanded shortcuts actions"));
+    const tabSizeSelect = document.createElement("select");
+    tabSizeSelect.className = "setting-select";
+    for (const [value, label] of tabSizeOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      tabSizeSelect.append(option);
+    }
+    tabSizeSelect.value = state.settings.tabSize;
+    tabSizeSelect.onchange = () => updateSettings({ tabSize: tabSizeSelect.value });
+    layoutSection.append(settingRow("Tab width", tabSizeSelect, false, "surface tab chrome tab width compact balanced roomy"));
+    const titleDetailSelect = document.createElement("select");
+    titleDetailSelect.className = "setting-select";
+    for (const [value, label] of titleDetailOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      titleDetailSelect.append(option);
+    }
+    titleDetailSelect.value = state.settings.titleDetailMode;
+    titleDetailSelect.onchange = () => updateSettings({ titleDetailMode: titleDetailSelect.value });
+    layoutSection.append(settingRow("Title detail", titleDetailSelect, false, "pane tab title name folder directory detail label terminal browser"));
     const sidebarWidthRange = document.createElement("input");
     sidebarWidthRange.className = "setting-control";
     sidebarWidthRange.type = "range";

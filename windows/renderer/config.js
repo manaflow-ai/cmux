@@ -6,6 +6,8 @@ export const defaultSettings = {
   browserHomeUrl: "https://www.bing.com",
   density: "comfortable",
   toolbarMode: "compact",
+  tabSize: "balanced",
+  titleDetailMode: "smart",
   showTabs: true,
   showStatusbar: true,
   showAdvanced: false,
@@ -111,6 +113,19 @@ export const toolbarModeOptions = [
   ["expanded", "Expanded", "Show every toolbar shortcut on the top bar."]
 ];
 
+export const tabSizeOptions = [
+  ["compact", "Compact"],
+  ["balanced", "Balanced"],
+  ["roomy", "Roomy"]
+];
+
+export const titleDetailOptions = [
+  ["smart", "Smart"],
+  ["compact", "Name only"],
+  ["folder", "Folder only"],
+  ["detailed", "Name + folder"]
+];
+
 export const terminalColorDefaults = {
   background: "#191c22",
   foreground: "#d7dce6",
@@ -195,6 +210,8 @@ export const settingsPresets = [
       backgroundOpacity: 16,
       density: "comfortable",
       toolbarMode: "compact",
+      tabSize: "balanced",
+      titleDetailMode: "smart",
       showTabs: true,
       showStatusbar: true,
       showAdvanced: false,
@@ -223,6 +240,8 @@ export const settingsPresets = [
       backgroundOpacity: 10,
       density: "compact",
       toolbarMode: "compact",
+      tabSize: "balanced",
+      titleDetailMode: "compact",
       showTabs: true,
       showStatusbar: false,
       showAdvanced: false,
@@ -251,6 +270,8 @@ export const settingsPresets = [
       backgroundOpacity: 0,
       density: "compact",
       toolbarMode: "compact",
+      tabSize: "compact",
+      titleDetailMode: "compact",
       showTabs: true,
       showStatusbar: false,
       showAdvanced: false,
@@ -279,6 +300,8 @@ export const settingsPresets = [
       backgroundOpacity: 24,
       density: "comfortable",
       toolbarMode: "standard",
+      tabSize: "roomy",
+      titleDetailMode: "detailed",
       showTabs: true,
       showStatusbar: true,
       showAdvanced: false,

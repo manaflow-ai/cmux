@@ -196,7 +196,7 @@ button {
 
 .shell.density-compact .surface-tab {
   height: 30px;
-  min-width: 112px;
+  min-width: var(--surface-tab-min, 112px);
 }
 
 .shell.density-compact .pane {
@@ -787,9 +787,9 @@ button {
 .surface-tab {
   position: relative;
   height: 34px;
-  flex: 1 1 160px;
-  min-width: 104px;
-  max-width: 220px;
+  flex: 1 1 var(--surface-tab-basis, 160px);
+  min-width: var(--surface-tab-min, 104px);
+  max-width: var(--surface-tab-max, 220px);
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) 22px;
   align-items: center;
