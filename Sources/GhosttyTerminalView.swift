@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import CmuxAppearance
 import Metal
 import QuartzCore
 import Combine
@@ -1732,7 +1733,9 @@ class GhosttyApp {
     /// pending tick on the main queue at any time.
     private var _tickScheduled = false
     private let _tickLock = NSLock()
-    private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
+    // Seed the canvas with the active Aurean surface so the first paint (before Ghostty
+    // reports its theme colors) already matches the chrome that mirrors this value.
+    private(set) var defaultBackgroundColor: NSColor = AureanAppearanceSettings.activePalette.surfacePrimary.nsColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private(set) var defaultBackgroundBlur: GhosttyBackgroundBlur = .disabled
     private(set) var defaultForegroundColor: NSColor = GhosttyApp.fallbackAppearanceConfig.foregroundColor
@@ -4032,11 +4035,15 @@ class GhosttyApp {
         let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
         let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
         let previousColorScheme = effectiveTerminalColorSchemePreference
-        defaultBackgroundColor = color
+        // Aurean owns the canvas: the active palette's surface drives the terminal
+        // background, and the window chrome (which mirrors this color) follows. The
+        // user's Ghostty theme still supplies foreground, cursor, and selection colors.
+        let aureanBackground = AureanAppearanceSettings.activePalette.surfacePrimary.nsColor
+        defaultBackgroundColor = aureanBackground
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur
         effectiveTerminalColorSchemePreference = Self.terminalRuntimeColorSchemePreference(
-            forBackgroundColor: color
+            forBackgroundColor: aureanBackground
         )
         if let foregroundColor {
             defaultForegroundColor = foregroundColor
