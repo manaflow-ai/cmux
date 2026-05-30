@@ -294,6 +294,7 @@ const state = {
   zoomedPanelIds: new Map(),
   minimizedPanelIds: new Set(),
   pendingPanels: new Map(),
+  canceledPendingPanelIds: new Set(),
   pendingClosedPanelIds: new Set(),
   focusedPanelId: null,
   contextMenu: null,
@@ -2865,7 +2866,8 @@ function renderPaneNode(panel, workspace, visibleCount) {
   toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
   toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
   toggleClassIfChanged(pane, "is-minimized", isPanelMinimized(panel));
-  toggleClassIfChanged(pane, "is-pending", isPendingPanel(panel));
+  const pending = isPendingPanel(panel);
+  toggleClassIfChanged(pane, "is-pending", pending);
   if (visibleCount <= 1) clearPaneFlex(pane);
   setTextIfChanged(pane.querySelector(".pane-type"), panel.type === "browser" ? "web" : "term");
   const title = panelDisplayTitle(panel, false);
@@ -2880,9 +2882,11 @@ function renderPaneNode(panel, workspace, visibleCount) {
   setTextIfChanged(minimizeButton, isPanelMinimized(panel) ? "+" : "-");
   setTitleIfChanged(minimizeButton, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
   for (const button of pane.querySelectorAll(".pane-tool")) {
-    button.disabled = isPendingPanel(panel);
+    button.disabled = pending && !button.classList.contains("close");
   }
-  if (isPendingPanel(panel)) {
+  const closeButton = pane.querySelector(".close");
+  setTitleIfChanged(closeButton, pending ? "Cancel pane" : "Close");
+  if (pending) {
     renderPendingPane(panel, pane.querySelector(".pane-body"));
     return pane;
   }
@@ -8718,7 +8722,29 @@ function removePendingPanel(panelId, options = {}) {
   return true;
 }
 
-function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, options = {}) {
+function cancelPendingPanel(panelId) {
+  if (!panelId || !state.pendingPanels.has(panelId)) return false;
+  state.canceledPendingPanelIds.add(panelId);
+  const removed = removePendingPanel(panelId);
+  for (const operation of state.uiOperations.values()) {
+    if (operation.kind === "create-panel") operation.label = "Canceling pane startup...";
+  }
+  updateOperationChrome();
+  toast("Pane startup canceled.");
+  return removed;
+}
+
+async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, options = {}) {
+  if (state.canceledPendingPanelIds.delete(pendingPanelId)) {
+    if (createdPanel?.id) {
+      try {
+        await api(`/api/panels/${createdPanel.id}`, { method: "DELETE" });
+      } finally {
+        await loadState();
+      }
+    }
+    return false;
+  }
   state.pendingPanels.delete(pendingPanelId);
   if (!createdPanel?.id) {
     removePendingPanel(pendingPanelId);
@@ -8788,10 +8814,13 @@ async function createPanel(type, direction = "right", options = {}) {
         })
       });
     } catch (error) {
-      if (pendingPanel) removePendingPanel(pendingPanel.id);
+      if (pendingPanel) {
+        removePendingPanel(pendingPanel.id);
+        state.canceledPendingPanelIds.delete(pendingPanel.id);
+      }
       throw error;
     }
-    if (pendingPanel) replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, options);
+    if (pendingPanel) await replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, options);
     else {
       insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
       optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
@@ -9063,6 +9092,10 @@ async function reopenClosedPanel() {
 
 async function closePanel(panelId) {
   if (!panelId || isUiOperationActive(`close-panel:${panelId}`)) return;
+  if (state.pendingPanels.has(panelId)) {
+    cancelPendingPanel(panelId);
+    return;
+  }
   return withUiOperation(`close-panel:${panelId}`, "close-panel", "Closing pane...", async () => {
     state.pendingClosedPanelIds.add(panelId);
     rememberClosedPanel(panelId);

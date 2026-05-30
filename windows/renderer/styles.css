@@ -1295,8 +1295,12 @@ body.reduce-motion *::after {
 }
 
 .pane.is-pending .pane-toolbar {
-  opacity: .42;
-  pointer-events: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pane.is-pending .pane-tool:not(.close) {
+  display: none;
 }
 
 .pane.is-pending .pane-body {
