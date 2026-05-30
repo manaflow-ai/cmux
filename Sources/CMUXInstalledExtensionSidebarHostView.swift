@@ -25,7 +25,7 @@ private struct CMUXSidebarExtensionEffectiveGrant: Equatable {
 
 private struct CMUXSidebarExtensionGrantStore {
     static let defaultReadScopes: Set<CMUXExtensionScope> = [.workspaceMetadata]
-    static let defaultActionScopes: Set<CMUXExtensionActionScope> = [.selectWorkspace]
+    static let defaultActionScopes: Set<CMUXExtensionActionScope> = []
 
     private static let defaultsKey = "cmuxExtensionSidebar.grants.v1"
 

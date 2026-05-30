@@ -67,6 +67,18 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testManifestInitializerDefaultsActionScopesToNone() throws {
+        let manifest = CMUXExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar"
+        )
+
+        #expect(manifest.requestedScopes == [.workspaceMetadata])
+        #expect(manifest.requestedActionScopes.isEmpty)
+        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+    }
+
+    @Test
     func testSidebarSnapshotFilteringRemovesUngrantedScopeData() throws {
         let workspaceID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
         let snapshot = CMUXSidebarSnapshot(

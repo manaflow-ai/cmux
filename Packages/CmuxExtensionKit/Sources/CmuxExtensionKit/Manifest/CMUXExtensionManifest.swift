@@ -14,7 +14,7 @@ public struct CMUXExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         kind: CMUXExtensionKind = .sidebar,
         minimumAPIVersion: CMUXExtensionAPIVersion = .sidebarV1,
         requestedScopes: [CMUXExtensionScope] = [.workspaceMetadata],
-        requestedActionScopes: [CMUXExtensionActionScope] = [.selectWorkspace]
+        requestedActionScopes: [CMUXExtensionActionScope] = []
     ) {
         self.id = id
         self.displayName = displayName
@@ -37,7 +37,7 @@ public struct CMUXExtensionManifest: Codable, Equatable, Identifiable, Sendable 
             kind: kind,
             minimumAPIVersion: minimumAPIVersion,
             requestedScopes: requestedScopes,
-            requestedActionScopes: [.selectWorkspace]
+            requestedActionScopes: []
         )
     }
 
