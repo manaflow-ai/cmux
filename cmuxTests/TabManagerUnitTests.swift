@@ -2541,11 +2541,50 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
                 bypassRemoteProxy: true
             )
         )
+        guard browserPanel.setMuted(true) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
 
         let duplicate = try XCTUnwrap(workspace.duplicateBrowserToRight(panelId: browserPanel.id, focus: false))
+        let duplicateTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(duplicate.id))
+        let duplicateTab = try XCTUnwrap(workspace.bonsplitController.tab(duplicateTabId))
 
         XCTAssertFalse(duplicate.isOmnibarVisible)
         XCTAssertTrue(duplicate.bypassesRemoteWorkspaceProxyForTabDuplication)
+        XCTAssertTrue(duplicate.isMuted)
+        XCTAssertTrue(duplicateTab.isAudioMuted)
+    }
+
+    func testBrowserAudioMuteContextActionTogglesPanelAndTabState() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true))
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserPanel.id))
+        guard browserPanel.setMuted(false) else {
+            throw XCTSkip("WKWebView page-audio mute selector is unavailable")
+        }
+
+        let initialTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .toggleAudioMute,
+            for: initialTab,
+            inPane: paneId
+        )
+
+        XCTAssertTrue(browserPanel.isMuted)
+        XCTAssertTrue(try XCTUnwrap(workspace.bonsplitController.tab(tabId)).isAudioMuted)
+
+        let mutedTab = try XCTUnwrap(workspace.bonsplitController.tab(tabId))
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .toggleAudioMute,
+            for: mutedTab,
+            inPane: paneId
+        )
+
+        XCTAssertFalse(browserPanel.isMuted)
+        XCTAssertFalse(try XCTUnwrap(workspace.bonsplitController.tab(tabId)).isAudioMuted)
     }
 
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {

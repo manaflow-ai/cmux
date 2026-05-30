@@ -1900,6 +1900,7 @@ extension Workspace {
             }
 
             browserPanel.restoreSessionSnapshot(browserSnapshot)
+            syncBrowserAudioMuteStateForPanel(panelId, browserPanel: browserPanel)
 
             if browserSnapshot.developerToolsVisible && BrowserAvailabilitySettings.isEnabled() {
                 _ = browserPanel.showDeveloperTools()
@@ -11355,12 +11356,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let subscription = Publishers.CombineLatest4(
+        let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
+        let subscription = browserTabState
+        .combineLatest(browserPanel.$isMuted.removeDuplicates())
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
+        .sink { [weak self, weak browserPanel] output in
+            let ((_, _, isLoading, favicon), isMuted) = output
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
@@ -11374,18 +11378,28 @@ final class Workspace: Identifiable, ObservableObject {
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
             let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
-            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil else { return }
+            let mutedUpdate: Bool? = existing.isAudioMuted == isMuted ? nil : isMuted
+            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
                 iconImageData: faviconUpdate,
                 hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
-                isLoading: loadingUpdate
+                isLoading: loadingUpdate,
+                isAudioMuted: mutedUpdate
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
         publishBrowserOpenTabSuggestion(for: browserPanel)
         setPreferredBrowserProfileID(browserPanel.profileID)
+    }
+
+    private func syncBrowserAudioMuteStateForPanel(_ panelId: UUID, browserPanel: BrowserPanel? = nil) {
+        guard let browserPanel = browserPanel ?? self.browserPanel(for: panelId),
+              let tabId = surfaceIdFromPanelId(panelId),
+              let tab = bonsplitController.tab(tabId),
+              tab.isAudioMuted != browserPanel.isMuted else { return }
+        bonsplitController.updateTab(tabId, isAudioMuted: browserPanel.isMuted)
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -14422,6 +14436,7 @@ final class Workspace: Identifiable, ObservableObject {
             kind: SurfaceKind.browser,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
+            isAudioMuted: browserPanel.isMuted,
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = browserPanel.id
@@ -14521,6 +14536,7 @@ final class Workspace: Identifiable, ObservableObject {
             kind: SurfaceKind.browser,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
+            isAudioMuted: browserPanel.isMuted,
             isPinned: false,
             inPane: paneId
         ) else {
@@ -15608,6 +15624,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
+        let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
 
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -15617,6 +15634,7 @@ final class Workspace: Identifiable, ObservableObject {
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
+            isAudioMuted: detachedBrowserMuted,
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
@@ -17114,6 +17132,7 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)
+        syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
         return newPanel
     }
@@ -18902,6 +18921,14 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let browser = browserPanel(for: panelId) else { return }
             browser.reload()
+        case .toggleAudioMute:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let browser = browserPanel(for: panelId) else { return }
+            guard browser.toggleMute() else {
+                NSSound.beep()
+                return
+            }
+            syncBrowserAudioMuteStateForPanel(panelId, browserPanel: browser)
         case .duplicate:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = duplicateBrowserToRight(panelId: panelId)
