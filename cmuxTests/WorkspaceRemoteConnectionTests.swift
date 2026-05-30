@@ -2067,6 +2067,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(session?.displayTitle, "ssh lawrence@example.com")
     }
 
+    func testDetectsSSHForegroundCommandPreservesBackslashInsideSingleQuotes() {
+        let session = TerminalSSHSessionDetector.detectRemoteSession(
+            commandLine: "ssh 'lawrence\\host@example.com'"
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedRemoteTerminalSession(
+                transport: .ssh,
+                destination: "lawrence\\host@example.com",
+                directory: nil
+            )
+        )
+        XCTAssertEqual(session?.displayTitle, "ssh lawrence\\host@example.com")
+    }
+
     func testDetectsSSHForegroundCommandAfterCompoundPrefix() {
         let session = TerminalSSHSessionDetector.detectRemoteSession(
             commandLine: "cd project; TERM=xterm-256color command ssh -p 2200 lawrence@example.com"
