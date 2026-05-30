@@ -107,20 +107,60 @@ extension TerminalController {
 
     /// Read rendered UTF-8 text from the given surface region.
     ///
-    /// Phase 0 stub throws ``TerminalAccessError/unknownSurface``.
-    /// Task 0.24.c will replace this with the real impl extracted from
-    /// `readTerminalTextBase64` (the three-tag SCREEN+SURFACE+ACTIVE
-    /// merge for `region == .screen`). The existing helper is `private`
-    /// inside the 20k-line `TerminalController.swift`, so wiring it up
-    /// requires either widening its visibility or duplicating the
-    /// three-tag merge logic here. Per task 0.24 we are minimal-risk
-    /// and don't touch `TerminalController.swift` from this extract, so
-    /// the stub stays until the full extract can land alongside its
-    /// characterization tests.
+    /// Task 0.24.c: real impl. The original helper
+    /// `readTerminalTextBase64`/`readTerminalSelectionText` is `private`
+    /// inside the 20k-line `TerminalController.swift`; rather than
+    /// widen its visibility (high blast-radius), we duplicate the
+    /// ~25-line selection-build + `ghostty_surface_read_text` call here.
+    /// The two-tag merge (SCREEN+SURFACE+ACTIVE) the existing code does
+    /// for `region == .screen` is the full path; this extract maps the
+    /// transport-level ``ScreenRegion`` to a single point-tag (viewport
+    /// → `GHOSTTY_POINT_VIEWPORT`, screen → `GHOSTTY_POINT_SCREEN`,
+    /// scrollback → `GHOSTTY_POINT_SURFACE`) per the §7.1 region table.
+    /// The reflow-boundary multi-tag merge is a refinement tracked
+    /// separately (E10 ScreenRegionReader retirement after patch #1).
+    @MainActor
     func readSurfaceText(uuid: UUID, region: ScreenRegion) async throws -> String {
-        _ = uuid
-        _ = region
-        throw TerminalAccessError.unknownSurface
+        guard let panel = findTerminalPanel(uuid: uuid),
+              let surface = panel.surface.surface
+        else {
+            throw TerminalAccessError.unknownSurface
+        }
+        let pointTag: ghostty_point_tag_e
+        switch region {
+        case .viewport:   pointTag = GHOSTTY_POINT_VIEWPORT
+        case .screen:     pointTag = GHOSTTY_POINT_SCREEN
+        case .scrollback: pointTag = GHOSTTY_POINT_SURFACE
+        }
+        let topLeft = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            // ghostty returned false → no text available (alt-screen
+            // scrollback is the canonical example: max_scrollback=0 on
+            // alt screen, point tags read screens.active only). Return
+            // empty rather than erroring — matches the §7 contract.
+            return ""
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return "" }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return String(decoding: rawData, as: UTF8.self)
     }
 
     /// Enqueue raw UTF-8 bytes onto the surface's PTY via the existing
@@ -240,20 +280,24 @@ extension TerminalController {
     /// Remaining bytes that may be enqueued onto the per-surface
     /// input queue before ``TerminalAccessError/payloadTooLarge`` fires.
     ///
-    /// Phase 0 stub returns `0`. The byte counter
-    /// (`pendingSocketInputBytes` on ``TerminalSurface``) is
-    /// `private` and mutated on the main actor; reading it from this
-    /// `nonisolated` protocol method would require either a new
-    /// `@MainActor` accessor on ``TerminalSurface`` (touches
-    /// `GhosttyTerminalView.swift`) or widening the field's visibility
-    /// (touches `TerminalController.swift`'s sibling file). Neither
-    /// fits the Phase 0 minimal-risk extract scope; the write paths
-    /// through the service short-circuit on the unknown-surface error
-    /// before reading this counter anyway. Task 0.24.e will introduce
-    /// the accessor alongside its own characterization test.
+    /// The byte counter (`pendingSocketInputBytes` on
+    /// ``TerminalSurface``) is `private` and mutated on the main
+    /// actor; reading it from this `nonisolated` synchronous protocol
+    /// method without a new `@MainActor` accessor (touches
+    /// `GhosttyTerminalView.swift`) isn't feasible from this extension
+    /// file.
+    ///
+    /// Compromise: report the FULL 1MB cap as remaining. The service's
+    /// pre-check then always passes; the actual write attempt in
+    /// ``writeSurfaceText`` either succeeds, queues, or returns
+    /// ``InputSendResult/inputQueueFull`` — which we now map to
+    /// ``TerminalAccessError/payloadTooLarge``. So oversized payloads
+    /// still surface the right error; only the early-rejection
+    /// optimisation is lost. Task 0.24.e follow-up adds the real
+    /// accessor + early-reject test.
     nonisolated func pendingInputCapacityRemaining(uuid: UUID) -> Int {
         _ = uuid
-        return 0
+        return 1_048_576
     }
 
     // MARK: - Private helpers
