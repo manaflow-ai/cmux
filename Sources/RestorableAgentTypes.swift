@@ -26,8 +26,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .amp,
         .cursor,
         .gemini,
-        // Antigravity is registry-owned so the built-in Vault registration can be
-        // overridden by project config while direct .antigravity values still encode.
+        .antigravity,
         .opencode,
         .rovodev,
         .hermesAgent,
