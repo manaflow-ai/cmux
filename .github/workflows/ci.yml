@@ -280,16 +280,36 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
-            test
+          run_split_theme_tests() {
+            scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
+              -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
+              test 2>&1 &
+            local xcodebuild_pid=$!
+            local timeout_seconds="${CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS:-900}"
+            local deadline=$((SECONDS + timeout_seconds))
+            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "xcodebuild split-theme regression timeout after ${timeout_seconds}s; terminating"
+                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+                wait "$xcodebuild_pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 5
+            done
+            wait "$xcodebuild_pid"
+          }
+
+          run_split_theme_tests
 
       - name: Run unit tests
         run: |

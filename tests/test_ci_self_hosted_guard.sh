@@ -134,6 +134,22 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_split_theme_regression_timeout() {
+  if ! awk '
+    /^[[:space:]]*- name: Run Ghostty split-theme appearance regression$/ { in_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_wrapper=1 }
+    in_step && /CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS/ { saw_timeout=1 }
+    in_step && /xcodebuild split-theme regression timeout/ { saw_timeout_message=1 }
+    END { exit(saw_wrapper && saw_timeout && saw_timeout_message ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: split-theme XCTest regression must use noninteractive xcodebuild plus a step timeout"
+    exit 1
+  fi
+
+  echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout"
+}
+
 check_ui_regression_budget() {
   local timeout_minutes
   timeout_minutes="$(
@@ -242,6 +258,7 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_no_xctest_quarantines
+check_split_theme_regression_timeout
 check_ui_regression_budget
 check_build_and_lag_budget
 check_zig_release_build_runner "$CI_FILE" "release-build"
