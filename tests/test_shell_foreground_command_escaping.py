@@ -50,14 +50,24 @@ def _run_shell_report(
 
 def _assert_escaped_foreground_command_payload(payload: str) -> None:
     lines = payload.split("\n")
-    expected_command_line = (
+    expected_state_prefix = "report_shell_state running --tab=tab-test --panel=panel-test --seq="
+    expected_command_prefix = (
         'report_foreground_command "ssh example.com\\nprintf \\\"quoted\\\"\\rtrue" '
-        "--tab=tab-test --panel=panel-test --seq=1"
+        "--tab=tab-test --panel=panel-test --seq="
     )
-    if lines != [
-        "report_shell_state running --tab=tab-test --panel=panel-test --seq=1",
-        expected_command_line,
-    ]:
+    if len(lines) != 2 or not lines[0].startswith(expected_state_prefix):
+        raise AssertionError(
+            "foreground command report was not safely newline-framed.\n\n"
+            f"Observed payload repr:\n{payload!r}"
+        )
+    seq = lines[0][len(expected_state_prefix):]
+    if not seq or not seq.isdigit():
+        raise AssertionError(
+            "foreground command report did not include a numeric shell sequence.\n\n"
+            f"Observed payload repr:\n{payload!r}"
+        )
+    expected_command_line = expected_command_prefix + seq
+    if lines != [expected_state_prefix + seq, expected_command_line]:
         raise AssertionError(
             "foreground command report was not safely newline-framed.\n\n"
             f"Expected second line:\n{expected_command_line}\n\n"
