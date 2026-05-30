@@ -127,6 +127,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
     @State private var blockedManifestReason: String?
     @State private var isShowingExtensionDetails = false
+    @State private var hostReloadToken: UInt64 = 0
 
     var body: some View {
         Group {
@@ -165,7 +166,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             xpcHost.invalidate()
                         }
                     )
-                    .id(identity.bundleIdentifier)
+                    .id("\(identity.bundleIdentifier)-\(hostReloadToken)")
                     .opacity(blockedManifestReason == nil ? 1 : 0)
                     .frame(height: blockedManifestReason == nil ? nil : 0)
                     .accessibilityIdentifier("CMUXExtensionSidebarHostView")
@@ -466,10 +467,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             HStack(spacing: 8) {
                 Button {
                     blockedManifestReason = nil
+                    effectiveGrant = nil
                     xpcHost.invalidate()
-                    Task {
-                        await observeExtensionAvailability()
-                    }
+                    hostReloadToken &+= 1
                 } label: {
                     Label(
                         String(localized: "sidebar.extensions.retry", defaultValue: "Try Again"),

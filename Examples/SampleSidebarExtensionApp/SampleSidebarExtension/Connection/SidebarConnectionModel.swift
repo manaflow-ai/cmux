@@ -4,6 +4,7 @@ import SwiftUI
 import CmuxExtensionKit
 
 @Observable
+@MainActor
 final class SidebarConnectionModel: @unchecked Sendable {
     static let shared = SidebarConnectionModel()
     static let manifest = CMUXExtensionManifest(

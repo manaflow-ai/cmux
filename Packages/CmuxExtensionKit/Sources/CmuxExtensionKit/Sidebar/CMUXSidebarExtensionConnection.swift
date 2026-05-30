@@ -1,6 +1,7 @@
 import Foundation
 
-public final class CMUXSidebarExtensionConnection: @unchecked Sendable {
+@MainActor
+public final class CMUXSidebarExtensionConnection {
     public typealias SnapshotHandler = @MainActor (CMUXSidebarSnapshot) -> Void
     public typealias ErrorHandler = @MainActor (String?) -> Void
     public typealias ActionReplyHandler = @MainActor (CMUXExtensionActionResult) -> Void
@@ -32,20 +33,29 @@ public final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         connection.exportedObject = CMUXSidebarExtensionXPCReceiver(
             manifest: manifest,
             receiveSnapshot: { [weak self] payload, receiverGeneration in
-                self?.receive(snapshot: payload, ifCurrentGeneration: receiverGeneration)
+                let snapshotPayload = Data(referencing: payload)
+                Task { @MainActor in
+                    self?.receive(snapshot: snapshotPayload, ifCurrentGeneration: receiverGeneration)
+                }
             },
             generation: generation
         )
         connection.remoteObjectInterface = NSXPCInterface(with: CMUXSidebarHostXPC.self)
         connection.invalidationHandler = { [weak self, generation] in
-            self?.clearConnection(ifCurrentGeneration: generation)
+            Task { @MainActor in
+                self?.clearConnection(ifCurrentGeneration: generation)
+            }
         }
         connection.interruptionHandler = { [weak self, generation] in
-            self?.markInterrupted(ifCurrentGeneration: generation)
+            Task { @MainActor in
+                self?.markInterrupted(ifCurrentGeneration: generation)
+            }
         }
         self.connection = connection
         host = connection.remoteObjectProxyWithErrorHandler { [weak self, generation] error in
-            self?.report(error.localizedDescription, ifCurrentGeneration: generation)
+            Task { @MainActor in
+                self?.report(error.localizedDescription, ifCurrentGeneration: generation)
+            }
         } as? CMUXSidebarHostXPC
         connection.resume()
         refreshSnapshot()
@@ -60,15 +70,17 @@ public final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         let generation = connectionGeneration
         host.requestSidebarSnapshot { [weak self] payload, error in
             guard let self else { return }
-            if let error {
-                self.report(String(error), ifCurrentGeneration: generation)
-                return
+            Task { @MainActor in
+                if let error {
+                    self.report(String(error), ifCurrentGeneration: generation)
+                    return
+                }
+                guard let payload else {
+                    self.report("cmux did not send a workspace snapshot", ifCurrentGeneration: generation)
+                    return
+                }
+                self.receive(snapshot: Data(referencing: payload), ifCurrentGeneration: generation)
             }
-            guard let payload else {
-                self.report("cmux did not send a workspace snapshot", ifCurrentGeneration: generation)
-                return
-            }
-            self.receive(snapshot: payload, ifCurrentGeneration: generation)
         }
     }
 
@@ -85,26 +97,26 @@ public final class CMUXSidebarExtensionConnection: @unchecked Sendable {
             let payload = try CMUXSidebarXPCCodec.encodeAction(action)
             host.performSidebarAction(payload) { [weak self] resultPayload, error in
                 guard let self else { return }
-                if let error {
-                    self.report(String(error), ifCurrentGeneration: generation)
-                    return
-                }
-                guard let resultPayload else {
-                    self.report("cmux did not send an action result", ifCurrentGeneration: generation)
-                    return
-                }
-                do {
-                    let result = try CMUXSidebarXPCCodec.decodeActionResult(resultPayload)
-                    Task { @MainActor [reply] in
+                Task { @MainActor in
+                    if let error {
+                        self.report(String(error), ifCurrentGeneration: generation)
+                        return
+                    }
+                    guard let resultPayload else {
+                        self.report("cmux did not send an action result", ifCurrentGeneration: generation)
+                        return
+                    }
+                    do {
+                        let result = try CMUXSidebarXPCCodec.decodeActionResult(resultPayload)
                         reply(result)
+                        if result.accepted {
+                            self.report(nil, ifCurrentGeneration: generation)
+                        } else {
+                            self.report(result.message, ifCurrentGeneration: generation)
+                        }
+                    } catch {
+                        self.report(error.localizedDescription, ifCurrentGeneration: generation)
                     }
-                    if result.accepted {
-                        self.report(nil, ifCurrentGeneration: generation)
-                    } else {
-                        self.report(result.message, ifCurrentGeneration: generation)
-                    }
-                } catch {
-                    self.report(error.localizedDescription, ifCurrentGeneration: generation)
                 }
             }
         } catch {
@@ -118,14 +130,12 @@ public final class CMUXSidebarExtensionConnection: @unchecked Sendable {
         clearConnection(ifCurrentGeneration: connectionGeneration)
     }
 
-    private func receive(snapshot payload: NSData, ifCurrentGeneration generation: UInt64) {
+    private func receive(snapshot payload: Data, ifCurrentGeneration generation: UInt64) {
         guard connectionGeneration == generation else { return }
         do {
-            let snapshot = try CMUXSidebarXPCCodec.decodeSnapshot(payload)
-            Task { @MainActor [onSnapshot, onError] in
-                onSnapshot(snapshot)
-                onError(nil)
-            }
+            let snapshot = try CMUXSidebarXPCCodec.decodeSnapshot(payload as NSData)
+            onSnapshot(snapshot)
+            onError(nil)
         } catch {
             report(error.localizedDescription, ifCurrentGeneration: generation)
         }
@@ -133,9 +143,7 @@ public final class CMUXSidebarExtensionConnection: @unchecked Sendable {
 
     private func report(_ message: String?, ifCurrentGeneration generation: UInt64) {
         guard connectionGeneration == generation else { return }
-        Task { @MainActor [onError] in
-            onError(message)
-        }
+        onError(message)
     }
 
     private func markInterrupted(ifCurrentGeneration generation: UInt64) {
