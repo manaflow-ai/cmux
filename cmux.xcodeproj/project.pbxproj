@@ -104,6 +104,7 @@
 		E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */; };
 		C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
+		CDAEEA0100000000CDAEEA01 /* CmuxAppearance in Frameworks */ = {isa = PBXBuildFile; productRef = CDAEEA0200000000CDAEEA02 /* CmuxAppearance */; };
 		D35110010000000000000001 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
@@ -1193,6 +1194,7 @@
 			files = (
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
+				CDAEEA0100000000CDAEEA01 /* CmuxAppearance in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				C0DE46000000000000000001 /* CMUXExtensionClient in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
@@ -1905,6 +1907,7 @@
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
+				CDAEEA0200000000CDAEEA02 /* CmuxAppearance */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
@@ -2042,6 +2045,7 @@
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
+				CDAEEA0300000000CDAEEA03 /* XCLocalSwiftPackageReference "CmuxAppearance" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
@@ -3154,6 +3158,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSettings;
 		};
+		CDAEEA0300000000CDAEEA03 /* XCLocalSwiftPackageReference "CmuxAppearance" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxAppearance;
+		};
 		CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSettingsUI;
@@ -3254,6 +3262,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
 			productName = CmuxSettings;
+		};
+		CDAEEA0200000000CDAEEA02 /* CmuxAppearance */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CDAEEA0300000000CDAEEA03 /* XCLocalSwiftPackageReference "CmuxAppearance" */;
+			productName = CmuxAppearance;
 		};
 		CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */ = {
 			isa = XCSwiftPackageProductDependency;

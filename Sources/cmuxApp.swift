@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppearance
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
@@ -13,6 +14,11 @@ struct cmuxApp: App {
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
     /// through it via the `@Setting` property wrapper.
     private let settingsRuntime: SettingsRuntime
+
+    /// Owner of the active Aurean appearance. Created once at launch and injected
+    /// into the window's environment via `.aureanTheme(_:)`; descendant chrome reads
+    /// colors through `@Environment(\.aureanPalette)`. Defaults to the cool palette.
+    @State private var aureanTheme = AureanTheme()
 
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
@@ -244,6 +250,7 @@ struct cmuxApp: App {
         WindowGroup {
             MainWindowBootstrapView()
                 .settingsRuntime(settingsRuntime)
+                .aureanTheme(aureanTheme)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
