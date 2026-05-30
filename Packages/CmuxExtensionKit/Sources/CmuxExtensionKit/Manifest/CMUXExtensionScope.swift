@@ -7,3 +7,9 @@ public enum CMUXExtensionScope: String, Codable, CaseIterable, Equatable, Sendab
     case networkPorts
     case pullRequests
 }
+
+public enum CMUXExtensionActionScope: String, Codable, CaseIterable, Equatable, Sendable {
+    case selectWorkspace
+    case closeWorkspace
+    case openURL
+}

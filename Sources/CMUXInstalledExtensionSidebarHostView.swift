@@ -4,6 +4,102 @@ import ExtensionFoundation
 import Observation
 import SwiftUI
 
+private struct CMUXSidebarExtensionGrant: Codable, Equatable {
+    var manifestID: String
+    var manifestDisplayName: String
+    var apiVersion: CMUXExtensionAPIVersion
+    var readScopes: Set<CMUXExtensionScope>
+    var actionScopes: Set<CMUXExtensionActionScope>
+}
+
+private struct CMUXSidebarExtensionEffectiveGrant: Equatable {
+    var manifest: CMUXExtensionManifest
+    var readScopes: Set<CMUXExtensionScope>
+    var actionScopes: Set<CMUXExtensionActionScope>
+
+    var needsAdditionalApproval: Bool {
+        !readScopes.isSuperset(of: manifest.requestedScopes) ||
+            !actionScopes.isSuperset(of: manifest.requestedActionScopes)
+    }
+}
+
+private struct CMUXSidebarExtensionGrantStore {
+    static let defaultReadScopes: Set<CMUXExtensionScope> = [.workspaceMetadata]
+    static let defaultActionScopes: Set<CMUXExtensionActionScope> = [.selectWorkspace]
+
+    private static let defaultsKey = "cmuxExtensionSidebar.grants.v1"
+
+    var defaults: UserDefaults = .standard
+
+    func effectiveGrant(
+        bundleIdentifier: String,
+        manifest: CMUXExtensionManifest
+    ) -> CMUXSidebarExtensionEffectiveGrant {
+        let requestedReadScopes = Set(manifest.requestedScopes)
+        let requestedActionScopes = Set(manifest.requestedActionScopes)
+        guard let grant = storedGrants()[bundleIdentifier],
+              grant.manifestID == manifest.id,
+              grant.apiVersion == manifest.minimumAPIVersion else {
+            return CMUXSidebarExtensionEffectiveGrant(
+                manifest: manifest,
+                readScopes: requestedReadScopes.intersection(Self.defaultReadScopes),
+                actionScopes: requestedActionScopes.intersection(Self.defaultActionScopes)
+            )
+        }
+        return CMUXSidebarExtensionEffectiveGrant(
+            manifest: manifest,
+            readScopes: requestedReadScopes.intersection(grant.readScopes),
+            actionScopes: requestedActionScopes.intersection(grant.actionScopes)
+        )
+    }
+
+    func grantRequestedAccess(bundleIdentifier: String, manifest: CMUXExtensionManifest) {
+        updateGrant(
+            bundleIdentifier: bundleIdentifier,
+            manifest: manifest,
+            readScopes: Set(manifest.requestedScopes),
+            actionScopes: Set(manifest.requestedActionScopes)
+        )
+    }
+
+    func revokeSensitiveAccess(bundleIdentifier: String, manifest: CMUXExtensionManifest) {
+        updateGrant(
+            bundleIdentifier: bundleIdentifier,
+            manifest: manifest,
+            readScopes: Set(manifest.requestedScopes).intersection(Self.defaultReadScopes),
+            actionScopes: Set(manifest.requestedActionScopes).intersection(Self.defaultActionScopes)
+        )
+    }
+
+    private func updateGrant(
+        bundleIdentifier: String,
+        manifest: CMUXExtensionManifest,
+        readScopes: Set<CMUXExtensionScope>,
+        actionScopes: Set<CMUXExtensionActionScope>
+    ) {
+        var grants = storedGrants()
+        grants[bundleIdentifier] = CMUXSidebarExtensionGrant(
+            manifestID: manifest.id,
+            manifestDisplayName: manifest.displayName,
+            apiVersion: manifest.minimumAPIVersion,
+            readScopes: readScopes,
+            actionScopes: actionScopes
+        )
+        save(grants)
+    }
+
+    private func storedGrants() -> [String: CMUXSidebarExtensionGrant] {
+        guard let data = defaults.data(forKey: Self.defaultsKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: CMUXSidebarExtensionGrant].self, from: data)) ?? [:]
+    }
+
+    private func save(_ grants: [String: CMUXSidebarExtensionGrant]) {
+        if let data = try? JSONEncoder().encode(grants) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
+    }
+}
+
 struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
 
@@ -22,29 +118,40 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var unapprovedExtensionCount = 0
     @State private var browserAnchorView: NSView?
     @State private var xpcHost = CMUXSidebarExtensionHostXPC()
+    @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
 
     var body: some View {
         Group {
             if let identity {
-                CMUXSidebarExtensionHostView(
-                    identity: identity,
-                    onConnection: { connection in
-                        xpcHost.attach(
-                            connection: connection,
-                            snapshotProvider: snapshotProvider,
-                            actionHandler: actionHandler
-                        )
-                    },
-                    onDeactivation: { error in
-                        xpcHost.invalidate()
-                        if self.identity?.bundleIdentifier == identity.bundleIdentifier {
-                            self.identity = nil
-                        }
-                        errorText = error?.localizedDescription
+                VStack(alignment: .leading, spacing: 0) {
+                    if let effectiveGrant, effectiveGrant.needsAdditionalApproval {
+                        extensionAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
                     }
-                )
-                    .accessibilityIdentifier("CMUXExtensionSidebarHostView")
-                    .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top)
+                    CMUXSidebarExtensionHostView(
+                        identity: identity,
+                        onConnection: { connection in
+                            xpcHost.attach(
+                                connection: connection,
+                                bundleIdentifier: identity.bundleIdentifier,
+                                snapshotProvider: snapshotProvider,
+                                actionHandler: actionHandler,
+                                onGrantChanged: { grant in
+                                    effectiveGrant = grant
+                                }
+                            )
+                        },
+                        onDeactivation: { error in
+                            xpcHost.invalidate()
+                            effectiveGrant = nil
+                            if self.identity?.bundleIdentifier == identity.bundleIdentifier {
+                                self.identity = nil
+                            }
+                            errorText = error?.localizedDescription
+                        }
+                    )
+                        .accessibilityIdentifier("CMUXExtensionSidebarHostView")
+                        .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : SidebarWorkspaceScrollInsets.workspaceList.top)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     if isLoading {
@@ -179,6 +286,46 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
+    private func extensionAccessBanner(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "sidebar.extensions.access.title", defaultValue: "Limited extension access"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+            Text(String.localizedStringWithFormat(
+                String(localized: "sidebar.extensions.access.detail", defaultValue: "%@ is using metadata-only access until you grant its requested data and actions."),
+                effectiveGrant.manifest.displayName
+            ))
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button {
+                    xpcHost.grantRequestedAccess(bundleIdentifier: identity.bundleIdentifier)
+                    self.effectiveGrant = xpcHost.currentEffectiveGrant
+                    xpcHost.sendSnapshotDidChange()
+                } label: {
+                    Text(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access"))
+                }
+                .controlSize(.small)
+                Button {
+                    xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
+                    self.effectiveGrant = xpcHost.currentEffectiveGrant
+                    xpcHost.sendSnapshotDidChange()
+                } label: {
+                    Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 8)
+        .padding(.bottom, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.88))
+    }
+
     private func observeEnabledExtensionIdentities(
         extensionPointIdentifier: String,
         staticExtensionPointIdentifier: StaticString
@@ -229,6 +376,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
             xpcHost.invalidate()
+            effectiveGrant = nil
             identity = nextIdentity
         }
         isLoading = false
@@ -308,6 +456,7 @@ private final class MonitorContinuationBox: @unchecked Sendable {
 @MainActor
 private final class CMUXSidebarExtensionHostXPC {
     private static let fallbackScopes: Set<CMUXExtensionScope> = [.workspaceMetadata]
+    private static let fallbackActionScopes: Set<CMUXExtensionActionScope> = [.selectWorkspace]
 
     private var connection: NSXPCConnection?
     private var extensionProxy: CMUXSidebarExtensionXPC?
@@ -315,7 +464,17 @@ private final class CMUXSidebarExtensionHostXPC {
     private var snapshotProvider: (() -> CMUXSidebarSnapshot)?
     private var actionHandler: ((CMUXSidebarAction) -> CMUXExtensionActionResult)?
     private var allowedScopes = fallbackScopes
+    private var allowedActionScopes = fallbackActionScopes
     private var connectionGeneration: UInt64 = 0
+    private var bundleIdentifier: String?
+    private var currentManifest: CMUXExtensionManifest?
+    private var onGrantChanged: ((CMUXSidebarExtensionEffectiveGrant?) -> Void)?
+    private let grantStore = CMUXSidebarExtensionGrantStore()
+
+    var currentEffectiveGrant: CMUXSidebarExtensionEffectiveGrant? {
+        guard let bundleIdentifier, let currentManifest else { return nil }
+        return grantStore.effectiveGrant(bundleIdentifier: bundleIdentifier, manifest: currentManifest)
+    }
 
     func update(
         snapshotProvider: @escaping @MainActor () -> CMUXSidebarSnapshot,
@@ -329,15 +488,25 @@ private final class CMUXSidebarExtensionHostXPC {
 
     func attach(
         connection: NSXPCConnection,
+        bundleIdentifier: String,
         snapshotProvider: @escaping @MainActor () -> CMUXSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
+        actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult,
+        onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void
     ) {
         invalidate()
         connectionGeneration += 1
         let generation = connectionGeneration
         let exportedObject = CMUXSidebarHostXPCObject(
             snapshotProvider: { snapshotProvider().filtered(for: Self.fallbackScopes) },
-            actionHandler: actionHandler,
+            actionHandler: { [weak self] action in
+                guard let self, self.allowedActionScopes.contains(action.requiredScope) else {
+                    return CMUXExtensionActionResult(
+                        accepted: false,
+                        message: String(localized: "sidebar.extensions.action.scopeRejected", defaultValue: "Extension action is not granted")
+                    )
+                }
+                return actionHandler(action)
+            },
             isCurrentGeneration: { [weak self] in
                 self?.connectionGeneration == generation
             }
@@ -359,7 +528,11 @@ private final class CMUXSidebarExtensionHostXPC {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
         self.connection = connection
+        self.bundleIdentifier = bundleIdentifier
+        self.currentManifest = nil
+        self.onGrantChanged = onGrantChanged
         self.allowedScopes = Self.fallbackScopes
+        self.allowedActionScopes = Self.fallbackActionScopes
         self.extensionProxy = connection.remoteObjectProxy as? CMUXSidebarExtensionXPC
         connection.resume()
         requestManifestThenSendInitialSnapshot(generation: generation)
@@ -377,6 +550,7 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     func invalidate() {
+        connectionGeneration += 1
         let generation = connectionGeneration
         connection?.invalidate()
         clearConnection(ifCurrentGeneration: generation)
@@ -393,6 +567,11 @@ private final class CMUXSidebarExtensionHostXPC {
         extensionProxy = nil
         exportedObject = nil
         allowedScopes = Self.fallbackScopes
+        allowedActionScopes = Self.fallbackActionScopes
+        bundleIdentifier = nil
+        currentManifest = nil
+        onGrantChanged?(nil)
+        onGrantChanged = nil
     }
 
     private func requestManifestThenSendInitialSnapshot(generation: UInt64) {
@@ -410,15 +589,21 @@ private final class CMUXSidebarExtensionHostXPC {
                     do {
                         let manifest = try CMUXSidebarXPCCodec.decodeManifest(payload)
                         try CMUXExtensionValidator.validateSidebarManifest(manifest)
-                        self.allowedScopes = Set(manifest.requestedScopes)
+                        self.applyManifest(manifest)
                     } catch {
                         self.allowedScopes = Self.fallbackScopes
+                        self.allowedActionScopes = Self.fallbackActionScopes
+                        self.currentManifest = nil
+                        self.onGrantChanged?(nil)
 #if DEBUG
                         cmuxDebugLog("extension.sidebar.manifest.invalid error=\(error.localizedDescription)")
 #endif
                     }
                 } else {
                     self.allowedScopes = Self.fallbackScopes
+                    self.allowedActionScopes = Self.fallbackActionScopes
+                    self.currentManifest = nil
+                    self.onGrantChanged?(nil)
                     if let error {
 #if DEBUG
                         cmuxDebugLog("extension.sidebar.manifest.failed error=\(error)")
@@ -429,6 +614,32 @@ private final class CMUXSidebarExtensionHostXPC {
                 self.sendSnapshotDidChange()
             }
         }
+    }
+
+    func grantRequestedAccess(bundleIdentifier: String) {
+        guard self.bundleIdentifier == bundleIdentifier, let currentManifest else { return }
+        grantStore.grantRequestedAccess(bundleIdentifier: bundleIdentifier, manifest: currentManifest)
+        applyManifest(currentManifest)
+    }
+
+    func revokeSensitiveAccess(bundleIdentifier: String) {
+        guard self.bundleIdentifier == bundleIdentifier, let currentManifest else { return }
+        grantStore.revokeSensitiveAccess(bundleIdentifier: bundleIdentifier, manifest: currentManifest)
+        applyManifest(currentManifest)
+    }
+
+    private func applyManifest(_ manifest: CMUXExtensionManifest) {
+        currentManifest = manifest
+        guard let bundleIdentifier else {
+            allowedScopes = Self.fallbackScopes
+            allowedActionScopes = Self.fallbackActionScopes
+            onGrantChanged?(nil)
+            return
+        }
+        let effectiveGrant = grantStore.effectiveGrant(bundleIdentifier: bundleIdentifier, manifest: manifest)
+        allowedScopes = effectiveGrant.readScopes
+        allowedActionScopes = effectiveGrant.actionScopes
+        onGrantChanged?(effectiveGrant)
     }
 
     private func filteredSnapshot(from snapshotProvider: () -> CMUXSidebarSnapshot) -> CMUXSidebarSnapshot {

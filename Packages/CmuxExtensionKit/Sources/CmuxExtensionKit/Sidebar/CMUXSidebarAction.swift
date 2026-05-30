@@ -4,4 +4,15 @@ public enum CMUXSidebarAction: Codable, Equatable, Sendable {
     case selectWorkspace(UUID)
     case closeWorkspace(UUID)
     case openURL(String)
+
+    public var requiredScope: CMUXExtensionActionScope {
+        switch self {
+        case .selectWorkspace:
+            return .selectWorkspace
+        case .closeWorkspace:
+            return .closeWorkspace
+        case .openURL:
+            return .openURL
+        }
+    }
 }

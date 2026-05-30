@@ -15,6 +15,9 @@ final class SidebarConnectionModel: @unchecked Sendable {
             .notifications,
             .networkPorts,
             .pullRequests,
+        ],
+        requestedActionScopes: [
+            .selectWorkspace,
         ]
     )
 

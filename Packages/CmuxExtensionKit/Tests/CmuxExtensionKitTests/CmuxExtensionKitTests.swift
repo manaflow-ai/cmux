@@ -40,7 +40,8 @@ struct CMUXExtensionKitTests {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",
             displayName: "Example Sidebar",
-            requestedScopes: [.workspaceMetadata, .workspacePaths]
+            requestedScopes: [.workspaceMetadata, .workspacePaths],
+            requestedActionScopes: [.selectWorkspace, .openURL]
         )
 
         try CMUXExtensionValidator.validateSidebarManifest(manifest)
@@ -114,7 +115,8 @@ struct CMUXExtensionKitTests {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",
             displayName: "Example Sidebar",
-            requestedScopes: [.workspaceMetadata, .networkPorts]
+            requestedScopes: [.workspaceMetadata, .networkPorts],
+            requestedActionScopes: [.selectWorkspace, .closeWorkspace]
         )
         let decodedManifest = try CMUXSidebarXPCCodec.decodeManifest(
             try CMUXSidebarXPCCodec.encodeManifest(manifest)
@@ -122,6 +124,7 @@ struct CMUXExtensionKitTests {
         #expect(decodedManifest == manifest)
 
         let action = CMUXSidebarAction.selectWorkspace(workspaceID)
+        #expect(action.requiredScope == .selectWorkspace)
         let decodedAction = try CMUXSidebarXPCCodec.decodeAction(
             try CMUXSidebarXPCCodec.encodeAction(action)
         )
