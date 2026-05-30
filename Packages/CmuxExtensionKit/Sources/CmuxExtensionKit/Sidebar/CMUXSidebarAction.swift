@@ -13,7 +13,7 @@ public enum CMUXSidebarAction: Codable, Equatable, Sendable {
     case closeWorkspace(UUID)
     case selectNextWorkspace
     case selectPreviousWorkspace
-    case createTerminalSurface(workspaceID: UUID?, initialInput: String?)
+    case createTerminalSurface(workspaceID: UUID?)
     case createBrowserSurface(workspaceID: UUID?, url: String?)
     case selectSurface(workspaceID: UUID, surfaceID: UUID)
     case selectNextSurface

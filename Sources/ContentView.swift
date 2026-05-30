@@ -3191,6 +3191,12 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
+        view = AnyView(view.onChange(of: titlebarControlsStyleRawValue) { _ in
+            clampSidebarWidthIfNeeded()
+            updateSidebarResizerBandState()
+            syncTitlebarControlsSidebarTrailingEdge()
+        })
+
         view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
@@ -10983,10 +10989,10 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-	    private func handleCMUXSidebarExtensionAction(
-	        _ action: CMUXSidebarAction
-	    ) -> CMUXExtensionActionResult {
-	        switch action {
+    private func handleCMUXSidebarExtensionAction(
+        _ action: CMUXSidebarAction
+    ) -> CMUXExtensionActionResult {
+        switch action {
         case .createWorkspace(let title, let workingDirectory, let select):
             let workspace = tabManager.addWorkspace(
                 title: title,
@@ -10996,9 +11002,9 @@ struct VerticalTabsSidebar: View {
             )
             return CMUXExtensionActionResult(accepted: true, message: workspace.id.uuidString)
 
-	        case .selectWorkspace(let workspaceId):
-	            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-	                return CMUXExtensionActionResult(
+        case .selectWorkspace(let workspaceId):
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                return CMUXExtensionActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found")
                 )
@@ -11012,8 +11018,8 @@ struct VerticalTabsSidebar: View {
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.closeRejected", defaultValue: "Workspace could not be closed")
                 )
-	            }
-	            return .accepted
+            }
+            return .accepted
 
         case .selectNextWorkspace:
             tabManager.selectNextTab()
@@ -11023,14 +11029,14 @@ struct VerticalTabsSidebar: View {
             tabManager.selectPreviousTab()
             return .accepted
 
-        case .createTerminalSurface(let workspaceId, let initialInput):
+        case .createTerminalSurface(let workspaceId):
             guard let workspace = workspaceId.flatMap({ id in tabManager.tabs.first(where: { $0.id == id }) }) ?? tabManager.selectedWorkspace else {
                 return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
             }
             if tabManager.selectedTabId != workspace.id {
                 tabManager.selectWorkspace(workspace)
             }
-            let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+            let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: nil)
             return panel.map { CMUXExtensionActionResult(accepted: true, message: $0.id.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
@@ -11041,8 +11047,11 @@ struct VerticalTabsSidebar: View {
             if tabManager.selectedTabId != workspace.id {
                 tabManager.selectWorkspace(workspace)
             }
-            let url = urlString.flatMap(URL.init(string:))
-            let panelId = tabManager.createBrowserSplit(direction: .right, url: url)
+            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            guard validatedURL.accepted else {
+                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
+            }
+            let panelId = tabManager.createBrowserSplit(direction: .right, url: validatedURL.url)
             return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
@@ -11085,7 +11094,11 @@ struct VerticalTabsSidebar: View {
             }
             tabManager.selectWorkspace(tab)
             tab.focusPanel(surfaceId)
-            let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: urlString.flatMap(URL.init(string:)))
+            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            guard validatedURL.accepted else {
+                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
+            }
+            let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: validatedURL.url)
             return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
@@ -11096,9 +11109,7 @@ struct VerticalTabsSidebar: View {
             return .accepted
 
         case .openURL(let urlString):
-            guard let url = URL(string: urlString),
-                  let scheme = url.scheme?.lowercased(),
-                  ["https", "http"].contains(scheme),
+            guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString),
                   NSWorkspace.shared.open(url) else {
                 return CMUXExtensionActionResult(
                     accepted: false,
@@ -11106,8 +11117,27 @@ struct VerticalTabsSidebar: View {
                 )
             }
             return .accepted
-	        }
-	    }
+        }
+    }
+
+    private func cmuxSidebarExtensionOptionalHTTPURL(from urlString: String?) -> (url: URL?, accepted: Bool) {
+        guard let urlString, !urlString.isEmpty else {
+            return (nil, true)
+        }
+        guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString) else {
+            return (nil, false)
+        }
+        return (url, true)
+    }
+
+    private func cmuxSidebarExtensionRequiredHTTPURL(from urlString: String) -> URL? {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        return url
+    }
 
     private func splitDirection(from direction: CMUXSplitDirection) -> SplitDirection? {
         switch direction {

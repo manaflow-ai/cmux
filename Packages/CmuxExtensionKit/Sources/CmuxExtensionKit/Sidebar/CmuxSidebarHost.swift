@@ -49,11 +49,12 @@ public struct CmuxSidebarHost {
         await perform(.openURL(url.absoluteString))
     }
 
-    public func createTerminalSurface(
-        in workspaceID: UUID? = nil,
-        initialInput: String? = nil
-    ) async -> CMUXExtensionActionResult {
-        await perform(.createTerminalSurface(workspaceID: workspaceID, initialInput: initialInput))
+    /// Requests that CMUX create a terminal surface.
+    ///
+    /// Extensions can ask CMUX to create the surface, but cannot seed shell
+    /// input. This keeps `.createSurface` separate from command execution.
+    public func createTerminalSurface(in workspaceID: UUID? = nil) async -> CMUXExtensionActionResult {
+        await perform(.createTerminalSurface(workspaceID: workspaceID))
     }
 
     public func createBrowserSurface(

@@ -254,15 +254,21 @@ struct CMUXExtensionKitTests {
         host.refresh()
         let selectResult = await host.selectWorkspace(workspaceID)
         let closeResult = await host.closeWorkspace(workspaceID)
+        let terminalResult = await host.createTerminalSurface(in: workspaceID)
+        let browserResult = await host.createBrowserSurface(in: workspaceID, url: url)
         let openResult = await host.openURL(url)
 
         #expect(refreshCount == 1)
         #expect(selectResult.accepted)
         #expect(closeResult.accepted)
+        #expect(terminalResult.accepted)
+        #expect(browserResult.accepted)
         #expect(openResult.accepted)
         #expect(actions == [
             .selectWorkspace(workspaceID),
             .closeWorkspace(workspaceID),
+            .createTerminalSurface(workspaceID: workspaceID),
+            .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
             .openURL("https://example.com/pr/1"),
         ])
     }
