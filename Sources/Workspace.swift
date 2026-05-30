@@ -1683,10 +1683,15 @@ extension Workspace {
                 (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
-            let restoresRemoteTerminalSurface = remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
+            let restoresRemoteWorkspaceTerminalSnapshot =
+                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal != nil
+            let suppressWorkspaceRemoteStartupCommand =
+                remoteConfiguration != nil &&
+                snapshot.terminal?.isRemoteTerminal == false &&
+                restoredRemotePTYAttachCommand == nil
             let localWorkingDirectory = remoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
-                !restoresRemoteTerminalSurface &&
+                !restoresRemoteWorkspaceTerminalSnapshot &&
                 !startupHandlesWorkingDirectory
                 ? workingDirectory
                 : nil
@@ -1731,7 +1736,8 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
-                remotePTYSessionID: restoredRemotePTYSessionID
+                remotePTYSessionID: restoredRemotePTYSessionID,
+                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
             ) else {
                 return nil
             }
@@ -14248,7 +14254,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         initialInput: String? = nil,
         startupEnvironment: [String: String] = [:],
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        suppressWorkspaceRemoteStartupCommand: Bool = false
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -14257,7 +14264,7 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned

@@ -2769,7 +2769,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Ended Persistent SSH" })
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
-        XCTAssertFalse(restoredInitialCommand?.contains("ssh-pty-attach") == true, restoredInitialCommand ?? "")
+        XCTAssertNil(restoredInitialCommand)
+        XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertNil(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID
