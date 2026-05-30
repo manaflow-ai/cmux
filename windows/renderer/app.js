@@ -306,6 +306,7 @@ const state = {
   settingsQuery: "",
   settingsInspectorSignature: "",
   settingsScrollResetPending: false,
+  settingsSearchAutoScrollQuery: "",
   terminalFontSize: initialSettings.terminalFontSize
 };
 
@@ -3832,6 +3833,10 @@ function resetSettingsScroll() {
   elements.inspectorBody.scrollTop = 0;
 }
 
+function queueSettingsSearchAutoScroll() {
+  state.settingsSearchAutoScrollQuery = normalizeSettingsQuery(state.settingsQuery);
+}
+
 function settingsInspectorSignature() {
   const category = state.settingsCategory;
   const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
@@ -3951,6 +3956,7 @@ function renderSettingsChrome(host) {
       const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
       state.settingsQuery = query;
       const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+      if (isSearching) queueSettingsSearchAutoScroll();
       if (wasSearching !== isSearching) {
         renderSettingsInspector({ resetScroll: true });
         scheduleSettingsSearchFocus();
@@ -3979,6 +3985,7 @@ function settingsSearch() {
     const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
     state.settingsQuery = input.value;
     const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+    if (isSearching) queueSettingsSearchAutoScroll();
     if (wasSearching !== isSearching) {
       renderSettingsInspector({ resetScroll: true });
       restoreSettingsSearchFocus();
@@ -4004,7 +4011,7 @@ function settingsSearch() {
 function restoreSettingsSearchFocus() {
   const input = elements.inspectorBody.querySelector(".settings-search-input");
   if (!input) return;
-  input.focus();
+  input.focus({ preventScroll: true });
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
@@ -4472,26 +4479,70 @@ function scheduleSettingsFilter() {
   });
 }
 
+function settingsSectionTitle(section) {
+  return normalizeSettingsQuery(section?.querySelector(".settings-section-title")?.textContent);
+}
+
+function settingsSearchTargetScore(item, section) {
+  if (!item) return -Infinity;
+  let score = 10;
+  if (item.classList.contains("setting-row")) score += 90;
+  if (item.classList.contains("settings-command-card")) score += 85;
+  if (item.classList.contains("settings-actions")) score += 74;
+  if (item.classList.contains("settings-action")) score += 72;
+  if (item.classList.contains("browser-home-preset")) score += 68;
+  if (item.classList.contains("background-preset")) score += 68;
+  if (item.classList.contains("terminal-color-preset")) score += 68;
+  if (item.classList.contains("terminal-font-choice")) score += 68;
+  if (item.classList.contains("pane-layout-preset")) score += 68;
+  if (item.classList.contains("settings-preset")) score += 62;
+  if (item.classList.contains("settings-metric")) score += 35;
+  if (item.classList.contains("quick-settings-shortcut")) score -= 70;
+  if (item.classList.contains("quick-settings-shortcut-grid")) score -= 55;
+  if (item.classList.contains("quick-setup-overview")) score -= 60;
+  if (settingsSectionTitle(section) === "quick setup") score -= 35;
+  return score;
+}
+
+function maybeUpdateSettingsSearchTarget(current, item, section) {
+  const score = settingsSearchTargetScore(item, section);
+  if (!current || score > current.score) return { item, score };
+  return current;
+}
+
+function scrollSettingsSearchTargetIntoView(target) {
+  if (!target || !elements.inspectorBody.contains(target)) return;
+  const bodyRect = elements.inspectorBody.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const top = elements.inspectorBody.scrollTop + targetRect.top - bodyRect.top - 12;
+  const behavior = state.settings.reduceMotion || state.settings.performanceMode ? "auto" : "smooth";
+  elements.inspectorBody.scrollTo({ top: Math.max(0, Math.round(top)), behavior });
+}
+
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
   const tokens = settingsSearchTokens(query);
   let visibleSections = 0;
+  let bestTarget = null;
   for (const section of elements.inspectorBody.querySelectorAll(".settings-section")) {
     const items = [...section.querySelectorAll("[data-settings-search]")].filter((item) => item !== section);
     const sectionMatches = settingsSearchMatches(section.dataset.settingsSearch, tokens);
     let sectionVisible = sectionMatches;
+    if (query && sectionMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, section, section);
     for (const item of items) {
-      const visible = settingsSearchMatches(item.dataset.settingsSearch, tokens) || sectionMatches;
+      const itemMatches = settingsSearchMatches(item.dataset.settingsSearch, tokens);
+      const visible = itemMatches || sectionMatches;
       setHiddenIfChanged(item, !visible);
       sectionVisible ||= visible;
+      if (query && itemMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, item, section);
     }
     for (const group of section.querySelectorAll(".settings-command-group")) {
       const cardVisible = [...group.querySelectorAll(".settings-command-card")].some((card) => !card.hidden);
-      const groupVisible = cardVisible
-        || settingsSearchMatches(group.dataset.settingsSearch, tokens)
-        || sectionMatches;
+      const groupMatches = settingsSearchMatches(group.dataset.settingsSearch, tokens);
+      const groupVisible = cardVisible || groupMatches || sectionMatches;
       setHiddenIfChanged(group, !groupVisible);
       sectionVisible ||= groupVisible;
+      if (query && groupMatches) bestTarget = maybeUpdateSettingsSearchTarget(bestTarget, group, section);
     }
     setHiddenIfChanged(section, !sectionVisible);
     if (sectionVisible) visibleSections += 1;
@@ -4500,6 +4551,10 @@ function applySettingsFilter() {
   if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
   const clear = elements.inspectorBody.querySelector(".settings-search-clear");
   if (clear) clear.disabled = !query;
+  const shouldAutoScroll = query
+    && (state.settingsSearchAutoScrollQuery === query || elements.inspectorBody.scrollTop === 0);
+  if (state.settingsSearchAutoScrollQuery === query) state.settingsSearchAutoScrollQuery = "";
+  if (shouldAutoScroll && visibleSections > 0) scrollSettingsSearchTargetIntoView(bestTarget?.item);
 }
 
 function settingsSearchMatches(searchText, tokens) {
