@@ -361,29 +361,24 @@ struct cmuxApp: App {
                 }
 
                 Button("Toggle Selected Workspace Paper Layout") {
-                    activeTabManager.selectedWorkspace?.togglePaperLayoutModeForDebug()
+                    debugPaperWorkspace(action: "toggle")?.togglePaperLayoutModeForDebug()
                 }
-                .disabled(activeTabManager.selectedWorkspace == nil)
 
                 Button("Paper View Left") {
-                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: -1200, dy: 0)
+                    debugPaperWorkspace(action: "viewLeft")?.movePaperViewportForDebug(dx: -1200, dy: 0)
                 }
-                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
 
                 Button("Paper View Right") {
-                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: 1200, dy: 0)
+                    debugPaperWorkspace(action: "viewRight")?.movePaperViewportForDebug(dx: 1200, dy: 0)
                 }
-                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
 
                 Button("Paper View Up") {
-                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: 0, dy: -800)
+                    debugPaperWorkspace(action: "viewUp")?.movePaperViewportForDebug(dx: 0, dy: -800)
                 }
-                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
 
                 Button("Paper View Down") {
-                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: 0, dy: 800)
+                    debugPaperWorkspace(action: "viewDown")?.movePaperViewportForDebug(dx: 0, dy: 800)
                 }
-                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
 
                 Divider()
                 Menu("Debug Windows") {
@@ -920,6 +915,46 @@ struct cmuxApp: App {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
     }
+
+#if DEBUG
+    private func debugPaperWorkspace(action: String) -> Workspace? {
+        debugPaperWorkspace(logAction: action)
+    }
+
+    private func debugPaperWorkspace(logAction action: String?) -> Workspace? {
+        let preferredWindow = debugPaperPreferredMainWindow()
+        let manager = AppDelegate.shared?.activeTabManagerForCommands(
+            preferredWindow: preferredWindow
+        ) ?? activeTabManager
+        let workspace = manager.selectedWorkspace
+        if let action {
+            cmuxDebugLog(
+                "paper.debugMenu action=\(action) " +
+                "window=\(preferredWindow?.windowNumber ?? -1) " +
+                "workspace=\(workspace?.id.uuidString.prefix(5) ?? "nil") " +
+                "mode=\(workspace?.layoutMode.rawValue ?? "nil")"
+            )
+        } else if workspace == nil {
+            cmuxDebugLog("paper.debugMenu action=nil workspace=nil")
+        }
+        return workspace
+    }
+
+    private func debugPaperPreferredMainWindow() -> NSWindow? {
+        guard let appDelegate = AppDelegate.shared else {
+            return NSApp.keyWindow ?? NSApp.mainWindow
+        }
+
+        let directCandidates = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
+        if let directWindow = directCandidates.first(where: { appDelegate.mainWindowId(from: $0) != nil }) {
+            return directWindow
+        }
+
+        return NSApp.orderedWindows.first { window in
+            appDelegate.mainWindowId(from: window) != nil
+        } ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+#endif
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)
