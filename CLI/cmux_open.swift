@@ -208,6 +208,15 @@ extension CMUXCLI {
         var sourceOptions: [DiffViewerSourceOption]
         var repoOptions: [DiffViewerSourceOption]
         var baseOptions: [DiffViewerSourceOption]
+        var allowsSourceFallback: Bool = false
+        var sourceFallbacks: [DiffSource: DiffViewerDeferredSourceFallback] = [:]
+    }
+
+    private struct DiffViewerDeferredSourceFallback {
+        var context: DiffSourceContext
+        var sourceOptions: [DiffViewerSourceOption]
+        var repoOptions: [DiffViewerSourceOption]
+        var baseOptions: [DiffViewerSourceOption]
     }
 
     private struct DiffViewerRepoOption {
@@ -2873,6 +2882,7 @@ extension CMUXCLI {
         let repoRoot = try gitRepoRootForDiff(context)
         let explicitBranchBaseRef = normalizedDiffSourceValue(context.branchBaseRef)
         var selectedSource = requestedSource
+        let shouldDeferSelectedSource = requestedSource != .lastTurn
         func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
             var sourceContext = context
             sourceContext.repoRoot = repoRoot
@@ -2887,26 +2897,28 @@ extension CMUXCLI {
             return sourceContext
         }
         var selectedContext = try sourceContext(for: selectedSource, repoRoot: repoRoot)
-        let selectedInput: DiffInput
-        do {
-            selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
-        } catch let error as EmptyDiffSourceError {
-            guard selectedSource != .lastTurn else {
-                throw CLIError(message: error.message)
-            }
-            var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
-            for candidate in DiffSource.allCases where candidate != selectedSource {
-                guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
-                      let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
-                    continue
+        var selectedInput: DiffInput?
+        if !shouldDeferSelectedSource {
+            do {
+                selectedInput = try nonEmptyGitDiffInput(source: selectedSource, context: selectedContext)
+            } catch let error as EmptyDiffSourceError {
+                guard selectedSource != .lastTurn else {
+                    throw CLIError(message: error.message)
                 }
-                fallback = (candidate, candidateContext, candidateInput)
-                break
+                var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
+                for candidate in DiffSource.allCases where candidate != selectedSource {
+                    guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
+                          let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
+                        continue
+                    }
+                    fallback = (candidate, candidateContext, candidateInput)
+                    break
+                }
+                guard let fallback else { throw CLIError(message: error.message) }
+                selectedSource = fallback.source
+                selectedContext = fallback.context
+                selectedInput = fallback.input
             }
-            guard let fallback else { throw CLIError(message: error.message) }
-            selectedSource = fallback.source
-            selectedContext = fallback.context
-            selectedInput = fallback.input
         }
         let fileURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             (
@@ -2999,6 +3011,42 @@ extension CMUXCLI {
         )
 
         var deferredPages: [DiffViewerDeferredSourcePage] = []
+        if shouldDeferSelectedSource {
+            try writePendingDiffViewerHTML(
+                to: selectedFileURL,
+                title: titleOverride ?? selectedSource.title,
+                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(selectedSource.menuLabel)",
+                pollForReplacement: true
+            )
+            let sourceFallbacks = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { source -> (DiffSource, DiffViewerDeferredSourceFallback)? in
+                guard source != selectedSource,
+                      let fallbackContext = try? sourceContext(for: source, repoRoot: repoRoot) else {
+                    return nil
+                }
+                return (
+                    source,
+                    DiffViewerDeferredSourceFallback(
+                        context: fallbackContext,
+                        sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
+                        repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
+                        baseOptions: source == .branch ? baseOptions : []
+                    )
+                )
+            })
+            deferredPages.append(
+                DiffViewerDeferredSourcePage(
+                    source: selectedSource,
+                    url: selectedFileURL,
+                    titleOverride: titleOverride,
+                    context: selectedContext,
+                    sourceOptions: sourceOptions,
+                    repoOptions: selectedRepoOptions,
+                    baseOptions: selectedSource == .branch ? baseOptions : [],
+                    allowsSourceFallback: true,
+                    sourceFallbacks: sourceFallbacks
+                )
+            )
+        }
         for source in DiffSource.allCases where source != selectedSource {
             if let url = fileURLs[source] {
                 try writePendingDiffViewerHTML(
@@ -3082,21 +3130,23 @@ extension CMUXCLI {
             )
         }
 
-        try writeDiffViewerHTML(
-            to: selectedFileURL,
-            patch: selectedInput.patch,
-            title: titleOverride ?? selectedInput.defaultTitle,
-            sourceLabel: selectedInput.sourceLabel,
-            externalURL: selectedInput.externalURL,
-            remotePatchURL: selectedInput.remotePatchURL,
-            layout: layout,
-            appearance: appearance,
-            sourceOptions: sourceOptions,
-            repoOptions: selectedRepoOptions,
-            baseOptions: selectedSource == .branch ? baseOptions : [],
-            repoRoot: repoRoot,
-            branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
-        )
+        if let selectedInput {
+            try writeDiffViewerHTML(
+                to: selectedFileURL,
+                patch: selectedInput.patch,
+                title: titleOverride ?? selectedInput.defaultTitle,
+                sourceLabel: selectedInput.sourceLabel,
+                externalURL: selectedInput.externalURL,
+                remotePatchURL: selectedInput.remotePatchURL,
+                layout: layout,
+                appearance: appearance,
+                sourceOptions: sourceOptions,
+                repoOptions: selectedRepoOptions,
+                baseOptions: selectedSource == .branch ? baseOptions : [],
+                repoRoot: repoRoot,
+                branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil
+            )
+        }
         let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
         let pageURLs = [selectedFileURL] + deferredPages.map(\.url)
         let allowedFiles = try diffViewerAllowedFiles(
@@ -3110,11 +3160,19 @@ extension CMUXCLI {
             rootDirectory: directory
         )
 
+        let responseInput = selectedInput ?? DiffInput(
+            patch: "",
+            sourceLabel: "git \(selectedSource.slug)",
+            defaultTitle: selectedSource.title,
+            emptyMessage: selectedSource.emptyMessage,
+            externalURL: nil
+        )
+
         return DiffViewerWriteResult(
             fileURL: selectedFileURL,
             url: selectedURL,
-            title: titleOverride ?? selectedInput.defaultTitle,
-            input: selectedInput,
+            title: titleOverride ?? responseInput.defaultTitle,
+            input: responseInput,
             allowedFiles: allowedFiles,
             deferredSourceSet: DiffViewerDeferredSourceSet(
                 pages: deferredPages,
@@ -3128,33 +3186,81 @@ extension CMUXCLI {
         guard let sourceSet else { return }
         for page in sourceSet.pages {
             do {
-                var pageContext = page.context
-                if page.source == .branch {
-                    let repoRoot = try gitRepoRootForDiff(pageContext)
-                    pageContext.repoRoot = repoRoot
-                    pageContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(pageContext.branchBaseRef, in: repoRoot)
-                }
-                let input = try nonEmptyGitDiffInput(source: page.source, context: pageContext)
-                try writeDiffViewerHTML(
-                    to: page.url,
-                    patch: input.patch,
-                    title: page.titleOverride ?? input.defaultTitle,
-                    sourceLabel: input.sourceLabel,
-                    externalURL: input.externalURL,
-                    remotePatchURL: input.remotePatchURL,
-                    layout: sourceSet.layout,
-                    appearance: sourceSet.appearance,
-                    sourceOptions: page.sourceOptions,
-                    repoOptions: page.repoOptions,
-                    baseOptions: page.baseOptions,
-                    repoRoot: pageContext.repoRoot,
-                    branchBaseRef: page.source == .branch ? pageContext.branchBaseRef : nil
-                )
+                try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
             } catch {
                 let message = diffViewerErrorMessage(error)
                 try? writePendingDiffViewerHTML(to: page.url, title: page.source.title, message: message, pollForReplacement: false)
             }
         }
+    }
+
+    private func completeDeferredDiffViewerSource(
+        _ page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws {
+        do {
+            try writeDeferredDiffViewerSource(
+                page: page,
+                source: page.source,
+                context: page.context,
+                sourceOptions: page.sourceOptions,
+                repoOptions: page.repoOptions,
+                baseOptions: page.baseOptions,
+                sourceSet: sourceSet
+            )
+        } catch let error as EmptyDiffSourceError where page.allowsSourceFallback {
+            for source in DiffSource.allCases where source != page.source {
+                guard let fallback = page.sourceFallbacks[source] else { continue }
+                do {
+                    try writeDeferredDiffViewerSource(
+                        page: page,
+                        source: source,
+                        context: fallback.context,
+                        sourceOptions: fallback.sourceOptions,
+                        repoOptions: fallback.repoOptions,
+                        baseOptions: fallback.baseOptions,
+                        sourceSet: sourceSet
+                    )
+                    return
+                } catch {
+                    continue
+                }
+            }
+            throw error
+        }
+    }
+
+    private func writeDeferredDiffViewerSource(
+        page: DiffViewerDeferredSourcePage,
+        source: DiffSource,
+        context: DiffSourceContext,
+        sourceOptions: [DiffViewerSourceOption],
+        repoOptions: [DiffViewerSourceOption],
+        baseOptions: [DiffViewerSourceOption],
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws {
+        var pageContext = context
+        if source == .branch {
+            let repoRoot = try gitRepoRootForDiff(pageContext)
+            pageContext.repoRoot = repoRoot
+            pageContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(pageContext.branchBaseRef, in: repoRoot)
+        }
+        let input = try nonEmptyGitDiffInput(source: source, context: pageContext)
+        try writeDiffViewerHTML(
+            to: page.url,
+            patch: input.patch,
+            title: page.titleOverride ?? input.defaultTitle,
+            sourceLabel: input.sourceLabel,
+            externalURL: input.externalURL,
+            remotePatchURL: input.remotePatchURL,
+            layout: sourceSet.layout,
+            appearance: sourceSet.appearance,
+            sourceOptions: sourceOptions,
+            repoOptions: repoOptions,
+            baseOptions: baseOptions,
+            repoRoot: pageContext.repoRoot,
+            branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil
+        )
     }
 
     private func nonEmptyGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
@@ -3411,8 +3517,17 @@ extension CMUXCLI {
             main {
               display: grid;
               gap: 10px;
+              justify-items: start;
               padding: 24px;
               max-width: 520px;
+            }
+            .status-spinner {
+              width: 20px;
+              height: 20px;
+              border: 2px solid color-mix(in lab, CanvasText 18%, transparent);
+              border-top-color: CanvasText;
+              border-radius: 50%;
+              animation: cmuxDiffPendingSpin 800ms linear infinite;
             }
             h1 {
               margin: 0;
@@ -3424,10 +3539,19 @@ extension CMUXCLI {
               opacity: 0.72;
               line-height: 1.45;
             }
+            @keyframes cmuxDiffPendingSpin {
+              to { transform: rotate(360deg); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .status-spinner {
+                animation: none;
+              }
+            }
           </style>
         </head>
         <body>
           <main>
+            <div class="status-spinner" aria-hidden="true"></div>
             <h1>\(escapedTitle)</h1>
             <p>\(escapedMessage)</p>
           </main>
