@@ -95,12 +95,24 @@ extension View {
 }
 
 /// Renders the pulsing accent border behind a row while it is the
-/// active search-navigation target. A `TimelineView(.animation)` drives
-/// the fade curve from `startedAt` so the highlight ramps in, holds,
-/// then fades out without any timer or `Task.sleep` in app code.
+/// active search-navigation target. A `TimelineView` with a finite
+/// `.explicit` schedule drives the fade curve from `startedAt` so the
+/// highlight ramps in, holds, then fades out without any timer or
+/// `Task.sleep` in app code.
+///
+/// The schedule is deliberately finite: it covers only the highlight
+/// window (`pulseDuration`), so after the last frame the `TimelineView`
+/// stops requesting updates and its display link goes idle. A plain
+/// `.animation` schedule would keep firing at the display refresh rate
+/// forever (drawing an invisible opacity-0 shape every frame) because
+/// the highlight state isn't cleared until the next navigation.
 private struct SettingsSearchHighlightModifier: ViewModifier {
     @Environment(\.settingsSearchHighlightState) private var highlightState
     let anchorIDs: [String]
+
+    /// Total length of the ramp-in + hold + fade-out pulse, in seconds.
+    private static let pulseDuration: TimeInterval = 5.9
+    private static let frameInterval: TimeInterval = 1.0 / 60.0
 
     private func matches(_ state: SettingsSearchHighlightState) -> Bool {
         guard let anchorID = state.anchorID else { return false }
@@ -110,9 +122,9 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                if matches(highlightState) {
-                    TimelineView(.animation) { context in
-                        let opacity = highlightOpacity(at: context.date, for: highlightState)
+                if matches(highlightState), let startedAt = highlightState.startedAt {
+                    TimelineView(.explicit(frames(from: startedAt))) { context in
+                        let opacity = highlightOpacity(at: context.date, startedAt: startedAt)
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .fill(Color.accentColor.opacity(opacity * 0.24))
                             .overlay(
@@ -123,14 +135,23 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
                     }
                     // Restart the animation when the user re-navigates to
                     // the same anchor: a changing token forces a fresh
-                    // TimelineView identity so `startedAt` re-seeds.
+                    // TimelineView identity so the schedule re-seeds.
                     .id(highlightState.token)
                 }
             }
     }
 
-    private func highlightOpacity(at date: Date, for state: SettingsSearchHighlightState) -> Double {
-        guard matches(state), let startedAt = state.startedAt else { return 0 }
+    /// One frame per display tick across the pulse window, ending after
+    /// the fade so the `TimelineView` schedule terminates. A row that
+    /// scrolls into view mid-pulse still renders the correct frame for
+    /// "now"; a row whose pulse already elapsed renders the final
+    /// (invisible) frame once and never schedules another update.
+    private func frames(from start: Date) -> [Date] {
+        let count = Int(Self.pulseDuration / Self.frameInterval)
+        return (0...count).map { start.addingTimeInterval(Double($0) * Self.frameInterval) }
+    }
+
+    private func highlightOpacity(at date: Date, startedAt: Date) -> Double {
         let elapsed = date.timeIntervalSince(startedAt)
         if elapsed < 0.14 {
             return max(0, min(1, elapsed / 0.14))
@@ -138,7 +159,7 @@ private struct SettingsSearchHighlightModifier: ViewModifier {
         if elapsed < 5 {
             return 1
         }
-        if elapsed < 5.9 {
+        if elapsed < Self.pulseDuration {
             return max(0, 1 - ((elapsed - 5) / 0.9))
         }
         return 0

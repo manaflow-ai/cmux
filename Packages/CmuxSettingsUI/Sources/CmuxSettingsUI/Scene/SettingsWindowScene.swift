@@ -77,9 +77,7 @@ public struct SettingsWindowRoot: View {
     // re-navigating to the same row restarts the pulse; `startedAt`
     // seeds the row's `TimelineView` fade. Read by every
     // `SettingsCardRow` through `\.settingsSearchHighlightState`.
-    @State private var highlightedSearchAnchorID: String?
-    @State private var searchHighlightToken: Int = 0
-    @State private var searchHighlightStartedAt: Date?
+    @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
 
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
@@ -131,14 +129,7 @@ public struct SettingsWindowRoot: View {
         // its declared cmux.json paths to scroll/highlight anchor ids,
         // and publish the active highlight so the matching row pulses.
         .environment(\.settingsSearchIndex, searchIndex)
-        .environment(
-            \.settingsSearchHighlightState,
-            SettingsSearchHighlightState(
-                anchorID: highlightedSearchAnchorID,
-                token: searchHighlightToken,
-                startedAt: searchHighlightStartedAt
-            )
-        )
+        .environment(\.settingsSearchHighlightState, searchHighlight)
         // Legacy SettingsRootView pins the window minimum to
         // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
         // so the package window can shrink to the same lower bound.
@@ -404,12 +395,17 @@ public struct SettingsWindowRoot: View {
         // pulse is already live when the target row lands in view.
         // Mirrors legacy SettingsView.applySettingsNavigation.
         if shouldHighlight && anchorID != sectionID {
-            highlightedSearchAnchorID = anchorID
-            searchHighlightStartedAt = Date()
-            searchHighlightToken += 1
+            searchHighlight = SettingsSearchHighlightState(
+                anchorID: anchorID,
+                token: searchHighlight.token + 1,
+                startedAt: Date()
+            )
         } else {
-            highlightedSearchAnchorID = nil
-            searchHighlightStartedAt = nil
+            searchHighlight = SettingsSearchHighlightState(
+                anchorID: nil,
+                token: searchHighlight.token,
+                startedAt: nil
+            )
         }
         DispatchQueue.main.async {
             guard navigationGeneration == settingsNavigationGeneration else { return }
