@@ -499,12 +499,20 @@
           "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni."
         },
         "terminal": {
-          "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic."
+          "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",
+          "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
+          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",
+          "byCwd": {
+            "newWorkspacePlacement": "Override per cwd per dove Cmd-N dentro il gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro). Se omesso, usa il valore predefinito globale."
+          }
         }
       }
     },
@@ -920,7 +928,8 @@
       "changelog": "Changelog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1063,21 @@
       "daemonSession": "Gestione della sessione",
       "daemonSessionHow": "Mantiene le sessioni tra le riconnessioni, coordina il ridimensionamento PTY tra più allegati",
       "daemonPath": "Il binario del daemon è archiviato in ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sull'host remoto e verificato rispetto a un manifest SHA-256 incorporato nell'app."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Configura l'input TextBox beta di cmux per nuove schede, divisioni e workspace del terminale.",
+      "intro": "TextBox è la superficie di input avanzata di cmux per comporre prompt prima di inviarli a un terminale.",
+      "betaCallout": "TextBox è una funzionalità beta. Valori predefiniti e comportamento possono cambiare durante i test.",
+      "defaultsTitle": "Valori predefiniti",
+      "defaultsDesc": "Le impostazioni di TextBox sono in Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals apre nuovi workspace, schede e divisioni del terminale con TextBox visibile, mantenendo il focus nel terminale.",
+      "focusSetting": "Focus TextBox on New Terminals sposta il focus della tastiera in TextBox. Il focus mostra anche TextBox.",
+      "maxLinesSetting": "TextBox Max Lines limita l'altezza di TextBox prima che il contenuto inizi a scorrere.",
+      "configTitle": "cmux.json",
+      "configDesc": "Imposta gli stessi valori predefiniti in ~/.config/cmux/cmux.json sotto terminal:",
+      "focusNote": "Le sessioni ripristinate mantengono la visibilità e lo stato del focus di TextBox salvati. Questi valori si applicano solo alle nuove superfici terminale."
     }
   },
   "legal": {

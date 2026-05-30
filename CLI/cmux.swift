@@ -13273,12 +13273,13 @@ struct CMUXCLI {
               add --group <group> --workspace <ws>
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
-              new-workspace <group> [--placement top|end]
+              new-workspace <group> [--placement afterCurrent|top|end]
                                         Create a new workspace in the group.
-                                        Default placement is top (second slot,
-                                        right after the anchor); per-cwd
-                                        cmux.json `newWorkspacePlacement` and
-                                        the global default can override.
+                                        Placement resolves first from per-cwd
+                                        cmux.json `newWorkspacePlacement`, then
+                                        from the global default. The default is
+                                        afterCurrent; without an active
+                                        in-group reference it behaves like top.
               set-color <group> [--hex #RRGGBB]
               set-icon <group> [--symbol <sf-symbol>]
               move <group> --to-index <n> | --before <group> | --after <group>

@@ -58,7 +58,7 @@ public struct WorkspaceColorsSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
+            SettingsSectionHeader(String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"), section: .workspaceColors)
             mainCard
         }
     }
@@ -118,6 +118,7 @@ public struct WorkspaceColorsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:workspaceColors:palette",
                 String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"),
                 subtitle: String(localized: "settings.workspaceColors.resetPalette.subtitleV2", defaultValue: "Restore the built-in palette and remove extra named colors.")
             ) {

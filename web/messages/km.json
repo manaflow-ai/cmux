@@ -499,12 +499,20 @@
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
         "terminal": {
-          "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។"
+          "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។",
+          "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
+          "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
         },
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
           "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "តម្លៃលំនាំដើមសកលសម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ).",
+          "byCwd": {
+            "newWorkspacePlacement": "ការកំណត់ជំនួសតាម cwd សម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ). បើមិនកំណត់ វានឹងប្រើតម្លៃលំនាំដើមសកល។"
+          }
         }
       }
     },
@@ -920,7 +928,8 @@
       "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (បេតា)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1063,21 @@
       "daemonSession": "ការគ្រប់គ្រងសម័យ",
       "daemonSessionHow": "បន្តវគ្គឆ្លងកាត់ការភ្ជាប់ឡើងវិញ សម្របសម្រួល PTY ផ្លាស់ប្តូរទំហំតាមឯកសារភ្ជាប់ជាច្រើន។",
       "daemonPath": "daemon binary ត្រូវបានរក្សាទុកនៅ ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote នៅលើម៉ាស៊ីនពីចម្ងាយ និងបានផ្ទៀងផ្ទាត់ប្រឆាំងនឹងការបង្ហាញ SHA-256 ដែលបានបង្កប់នៅក្នុងកម្មវិធី។"
+    },
+    "textBox": {
+      "title": "TextBox (បេតា)",
+      "metaTitle": "TextBox (បេតា)",
+      "metaDescription": "កំណត់រចនាសម្ព័ន្ធការបញ្ចូល TextBox បេតារបស់ cmux សម្រាប់ផ្ទាំង ស្ប្លីត និង workspace ស្ថានីយថ្មី។",
+      "intro": "TextBox គឺជាផ្ទៃបញ្ចូលស្ថានីយ rich របស់ cmux សម្រាប់រៀបចំ prompt មុនពេលផ្ញើទៅស្ថានីយ។",
+      "betaCallout": "TextBox គឺជាមុខងារបេតា។ តម្លៃលំនាំដើម និងឥរិយាបថអាចផ្លាស់ប្តូរនៅពេលកំពុងសាកល្បង។",
+      "defaultsTitle": "លំនាំដើម",
+      "defaultsDesc": "ការកំណត់ TextBox ស្ថិតនៅ Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals បើក workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយថ្មីដោយបង្ហាញ TextBox ខណៈដែល focus នៅតែស្ថិតក្នុងស្ថានីយ។",
+      "focusSetting": "Focus TextBox on New Terminals ដាក់ focus ក្តារចុចក្នុង TextBox។ ការដាក់ focus ក៏បង្ហាញ TextBox ផងដែរ។",
+      "maxLinesSetting": "TextBox Max Lines កំណត់កម្ពស់ TextBox មុនពេលមាតិកាចាប់ផ្តើមរមូរ។",
+      "configTitle": "cmux.json",
+      "configDesc": "កំណត់លំនាំដើមដូចគ្នានៅក្នុង ~/.config/cmux/cmux.json ក្រោម terminal:",
+      "focusNote": "Session ដែលបានស្តារឡើងវិញរក្សាស្ថានភាពបង្ហាញ និង focus របស់ TextBox ដែលបានរក្សាទុក។ លំនាំដើមទាំងនេះអនុវត្តតែចំពោះផ្ទៃស្ថានីយដែលទើបបង្កើតថ្មីប៉ុណ្ណោះ។"
     }
   },
   "legal": {

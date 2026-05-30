@@ -59,7 +59,7 @@ public struct AutomationSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"))
+            SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
 
             socketControlCard
             claudeCodeCard
