@@ -1125,6 +1125,7 @@ body.reduce-motion *::after {
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
+  container-type: inline-size;
   display: grid;
   grid-template-rows: 31px minmax(0, 1fr);
   overflow: hidden;
@@ -1301,6 +1302,7 @@ body.reduce-motion *::after {
 
 .pane-tool {
   width: 24px;
+  flex: 0 0 24px;
   height: 22px;
   padding: 0;
   color: var(--color-muted);
@@ -1356,8 +1358,60 @@ body.reduce-motion *::after {
 
 .shell.pane-header-compact .pane-tool {
   width: 20px;
+  flex-basis: 20px;
   height: 18px;
   font-size: 10px;
+}
+
+@container (max-width: 340px) {
+  .pane-header {
+    gap: 4px;
+    padding: 0 5px;
+  }
+
+  .pane-type,
+  .pane-title,
+  .pane-tool.font-down,
+  .pane-tool.font-up,
+  .pane-tool.restart {
+    display: none;
+  }
+
+  .pane-toolbar {
+    max-width: none;
+    margin-left: auto;
+    gap: 3px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .pane-tool {
+    width: 22px;
+    flex-basis: 22px;
+  }
+}
+
+@container (max-width: 170px) {
+  .pane-tool {
+    width: 20px;
+    flex-basis: 20px;
+  }
+
+  .pane-tool.split-right,
+  .pane-tool.split-down {
+    display: none;
+  }
+}
+
+@container (max-width: 110px) {
+  .pane-grip {
+    width: 10px;
+    font-size: 9px;
+  }
+
+  .pane-tool.zoom {
+    display: none;
+  }
 }
 
 .shell.pane-header-hidden .pane {
