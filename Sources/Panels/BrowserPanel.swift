@@ -5989,15 +5989,11 @@ extension BrowserPanel {
 
     @discardableResult
     func setMuted(_ muted: Bool) -> Bool {
-        if muted {
-            guard applyMuteState(true, to: webView, reason: "setMuted") else { return false }
-        } else {
-            _ = applyMuteState(false, to: webView, reason: "setMuted")
-        }
-        if isMuted != muted {
+        let applied = applyMuteState(muted, to: webView, reason: "setMuted")
+        if applied, isMuted != muted {
             isMuted = muted
         }
-        return true
+        return applied
     }
 
     @discardableResult
