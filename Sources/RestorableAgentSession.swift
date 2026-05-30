@@ -362,7 +362,7 @@ enum AgentResumeCommandBuilder {
 
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+            : normalized(launchCommand?.workingDirectory ?? workingDirectory)
         let sanitizedCommandParts = customRegistration == nil
             ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: commandParts,
@@ -670,7 +670,7 @@ enum AgentResumeCommandBuilder {
             "sessionId": sessionId,
             "sessionPath": sessionId,
             "executable": original.executable,
-            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
+            "cwd": normalized(launchCommand?.workingDirectory ?? workingDirectory) ?? "",
             "sessionDir": sessionDirectory ?? "",
         ]
         var resolved: [String] = []
