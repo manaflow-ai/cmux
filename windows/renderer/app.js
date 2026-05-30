@@ -43,6 +43,10 @@ import {
   paneLayoutPercentFromWeights,
   paneLayoutWeightsByActivePercent
 } from "./layout-utils.js";
+import {
+  safeReleasePointerCapture,
+  safeSetPointerCapture
+} from "./pointer-utils.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
@@ -2325,7 +2329,7 @@ function startPaneResize(event, splitter) {
     pane.style.flex = `0 0 ${Math.max(1, size)}px`;
   }
   splitter.classList.add("is-dragging");
-  splitter.setPointerCapture(event.pointerId);
+  safeSetPointerCapture(splitter, event.pointerId);
   state.resizing = {
     splitter,
     previousPane,
@@ -2359,8 +2363,8 @@ function continuePaneResize(event) {
 
 function finishPaneResize(event) {
   if (!state.resizing) return;
-  const { splitter, workspaceId, direction } = state.resizing;
-  splitter.releasePointerCapture?.(event.pointerId);
+  const { splitter, direction } = state.resizing;
+  safeReleasePointerCapture(splitter, event.pointerId);
   splitter.classList.remove("is-dragging");
   persistPaneLayoutFromGrid(direction);
   renderPaneLayoutStylesForVisiblePanes(direction);
@@ -2378,7 +2382,7 @@ function startSidebarResize(event) {
   const rect = elements.sidebar.getBoundingClientRect();
   if (rect.right - event.clientX > 8) return;
   event.preventDefault();
-  elements.sidebar.setPointerCapture?.(event.pointerId);
+  safeSetPointerCapture(elements.sidebar, event.pointerId);
   elements.shell.classList.add("sidebar-resizing");
   state.sidebarResizing = {
     pointerId: event.pointerId,
@@ -2403,7 +2407,7 @@ function continueSidebarResize(event) {
 function finishSidebarResize(event) {
   if (!state.sidebarResizing) return;
   if (event.pointerId === state.sidebarResizing.pointerId) {
-    elements.sidebar.releasePointerCapture?.(event.pointerId);
+    safeReleasePointerCapture(elements.sidebar, event.pointerId);
   }
   state.sidebarResizing = null;
   elements.shell.classList.remove("sidebar-resizing");
@@ -2419,7 +2423,7 @@ function startInspectorResize(event) {
   const rect = elements.inspector.getBoundingClientRect();
   if (event.clientX - rect.left > 8) return;
   event.preventDefault();
-  elements.inspector.setPointerCapture?.(event.pointerId);
+  safeSetPointerCapture(elements.inspector, event.pointerId);
   elements.shell.classList.add("inspector-resizing");
   state.inspectorResizing = {
     pointerId: event.pointerId,
@@ -2444,7 +2448,7 @@ function continueInspectorResize(event) {
 function finishInspectorResize(event) {
   if (!state.inspectorResizing) return;
   if (event.pointerId === state.inspectorResizing.pointerId) {
-    elements.inspector.releasePointerCapture?.(event.pointerId);
+    safeReleasePointerCapture(elements.inspector, event.pointerId);
   }
   state.inspectorResizing = null;
   elements.shell.classList.remove("inspector-resizing");
