@@ -31,6 +31,10 @@ Check current values:
 gh variable list --repo manaflow-ai/cmux
 ```
 
+## Capacity events
+
+If Blacksmith queues spike, temporarily point `MACOS_RUNNER_15` and `MACOS_RUNNER_26` at another paid macOS runner label with `gh variable set`, then restore the Blacksmith values after the incident. Do not change checked-in workflow defaults for a temporary capacity event.
+
 ## Manual runs
 
 `perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that defaults to `auto`. `auto` (and the empty `pull_request` case for perf) follows `MACOS_RUNNER_15` then the checked-in Blacksmith default, so flipping the repo variable also redirects these workflows. An explicit choice wins over the variable. `test-e2e.yml` also keeps `depot-macos-*` choices and a Depot identity guard for GUI-activation runs.
