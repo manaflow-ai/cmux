@@ -3777,7 +3777,6 @@ function ensureBrowser(panel, body) {
 
   const view = document.createElement(window.cmuxNative?.electron ? "webview" : "iframe");
   view.className = "browser-view";
-  view.setAttribute("allowpopups", "true");
   if (view.tagName.toLowerCase() === "webview") {
     view.setAttribute("partition", "persist:cmux-browser");
     view.setAttribute("webpreferences", "contextIsolation=yes,nodeIntegration=no");
@@ -3813,6 +3812,14 @@ function ensureBrowser(panel, body) {
       forward.disabled = true;
       reload.disabled = true;
     }
+  };
+
+  const openPopupExternally = (event) => {
+    const popupUrl = event?.url || event?.detail?.url || "";
+    if (!/^https?:\/\//i.test(popupUrl)) return;
+    event.preventDefault?.();
+    openExternalBrowser(popupUrl);
+    setStatus("Opened externally");
   };
 
   const navigate = () => {
@@ -3860,6 +3867,8 @@ function ensureBrowser(panel, body) {
     }
     updateNavState();
   });
+  view.addEventListener("new-window", openPopupExternally);
+  view.addEventListener("did-create-window", openPopupExternally);
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
     if (typeof view.setZoomFactor === "function") view.setZoomFactor(1);
