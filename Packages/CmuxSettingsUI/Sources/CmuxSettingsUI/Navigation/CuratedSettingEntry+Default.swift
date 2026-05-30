@@ -34,26 +34,26 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: "New Workspace Placement", synonyms: "app.newWorkspacePlacement new tab insert position order top bottom end"),
             .init(section: .app, id: "workspace-inherit-working-directory", title: "Inherit Workspace Working Directory", synonyms: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),
-            .init(section: .app, id: "minimal-mode", title: "Workspace Presentation Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
-            .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open After Last Pane Closes", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
+            .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
+            .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),
-            .init(section: .app, id: "file-drops", title: "File Drops Default Behavior", synonyms: "drag drop files finder path text terminal editor split preview shift"),
-            .init(section: .app, id: "preferred-editor", title: "Preferred Editor Command", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
+            .init(section: .app, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
+            .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
-            .init(section: .app, id: "reorder-notification", title: "Reorder Workspaces on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
+            .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
             .init(section: .app, id: "menu-bar-only", title: "Menu Bar Only", synonyms: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
-            .init(section: .app, id: "telemetry", title: "Send Anonymous Telemetry", synonyms: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
-            .init(section: .app, id: "warn-before-quit", title: "Warn Before Quitting", synonyms: "app.confirmQuit quit confirmation command-q cmd-q exit close app"),
+            .init(section: .app, id: "telemetry", title: "Send anonymous telemetry", synonyms: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
+            .init(section: .app, id: "warn-before-quit", title: "Warn Before Quit", synonyms: "app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(section: .app, id: "warn-before-closing-tab", title: "Warn Before Closing Tab", synonyms: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: "Warn Before Closing Tab via X Button", synonyms: "app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(section: .app, id: "hide-tab-close-button", title: "Hide Tab Close Button", synonyms: "app.hideTabCloseButton hide x button close tab terminal surface"),
             .init(section: .app, id: "rename-selects-name", title: "Rename Selects Existing Name", synonyms: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
             .init(section: .app, id: "palette-search-all", title: "Command Palette Searches All Surfaces", synonyms: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
             .init(section: .app, id: "dock-badge", title: "Dock Badge", synonyms: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
-            .init(section: .app, id: "show-menu-bar", title: "Show Menu Bar Extra", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
+            .init(section: .app, id: "show-menu-bar", title: "Show in Menu Bar", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
@@ -90,7 +90,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
 
             // Beta
-            .init(section: .betaFeatures, id: "dock", title: "Right-Sidebar Dock (Beta)", synonyms: "dock right sidebar terminal controls tui beta unstable"),
+            .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),
@@ -99,7 +99,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
             // Browser
-            .init(section: .browser, id: "enable-browser", title: "Disable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
+            .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
@@ -119,7 +119,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Global hotkey
             .init(section: .globalHotkey, id: "enable-hotkey", title: "Enable System-Wide Hotkey", synonyms: "app.systemWideHotkeyEnabled global hotkey enable system wide show hide all windows"),
-            .init(section: .globalHotkey, id: "shortcut", title: "Global Hotkey", synonyms: "global hotkey shortcut recorder key command option control"),
+            .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
 
             // Keyboard shortcuts
             .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json"),
@@ -133,8 +133,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json
-            .init(section: .settingsJSON, id: "open-file", title: "Open Config File", synonyms: "open config file json jsonc config editor ~/.config cmux preferences"),
-            .init(section: .settingsJSON, id: "documentation", title: "Configuration Documentation", synonyms: "docs documentation schema reference cmux json keys configuration"),
+            .init(section: .settingsJSON, id: "open-file", title: "User config file", synonyms: "open config file json jsonc config editor ~/.config cmux preferences"),
+            .init(section: .settingsJSON, id: "documentation", title: "Documentation", synonyms: "docs documentation schema reference cmux json keys configuration"),
 
             // Reset
             .init(section: .reset, id: "reset-all", title: "Reset All Settings", synonyms: "factory reset restore defaults clear preferences"),
