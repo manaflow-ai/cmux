@@ -10211,7 +10211,18 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(
             from: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
+            dividerStyle: Self.resolvedPaneDividerStyle(ghosttyDividerColor: config.splitDividerColor),
             tabTitleFontSize: config.surfaceTabBarFontSize
+        )
+    }
+
+    /// Resolve the effective ``PaneDividerStyle`` from the current cmux-config
+    /// override (cached in ``PaneDividerConfigState``) and the supplied Ghostty
+    /// `split-divider-color`. cmux config wins over Ghostty, both over default.
+    static func resolvedPaneDividerStyle(ghosttyDividerColor: NSColor?) -> PaneDividerStyle {
+        PaneDividerStyle.resolved(
+            override: PaneDividerConfigState.shared.current,
+            ghosttyDividerColor: ghosttyDividerColor
         )
     }
 
@@ -10249,6 +10260,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
+        dividerStyle: PaneDividerStyle = .default,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
@@ -10257,9 +10269,7 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        let borderHex = dividerStyle.borderHex(forChromeBackground: backgroundColor)
 
         if sharesWindowBackdrop {
             return .init(
@@ -10288,15 +10298,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
+        dividerStyle: PaneDividerStyle = .default,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        let borderHex = dividerStyle.borderHex(forChromeBackground: backgroundColor)
 
         if sharesWindowBackdrop {
             return .init(
@@ -10347,6 +10356,7 @@ final class Workspace: Identifiable, ObservableObject {
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
+        dividerStyle: PaneDividerStyle = .default,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
@@ -10356,12 +10366,14 @@ final class Workspace: Identifiable, ObservableObject {
         let chromeColors = Self.bonsplitChromeColors(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
+            dividerStyle: dividerStyle,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
+            dividerThickness: dividerStyle.thickness,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -10375,9 +10387,11 @@ final class Workspace: Identifiable, ObservableObject {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
+        let dividerStyle = Self.resolvedPaneDividerStyle(ghosttyDividerColor: config.splitDividerColor)
         let nextChromeColors = Self.bonsplitChromeColors(
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
+            dividerStyle: dividerStyle,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )
@@ -10390,7 +10404,8 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
-        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+        let thicknessChanged = abs(currentAppearance.dividerThickness - dividerStyle.thickness) > 0.0001
+        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged && !thicknessChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -10417,13 +10432,17 @@ final class Workspace: Identifiable, ObservableObject {
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
         }
+        if thicknessChanged {
+            bonsplitController.configuration.appearance.dividerThickness = dividerStyle.thickness
+        }
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) " +
                 "resulting=[\(Self.bonsplitChromeColorsLogDescription(bonsplitController.configuration.appearance.chromeColors))] " +
                 "resultingUsesSharedBackdrop=\(bonsplitController.configuration.appearance.usesSharedBackdrop ? 1 : 0) " +
-                "resultingTabFont=\(String(format: "%.3f", bonsplitController.configuration.appearance.tabTitleFontSize))"
+                "resultingTabFont=\(String(format: "%.3f", bonsplitController.configuration.appearance.tabTitleFontSize)) " +
+                "resultingDivider=\(String(format: "%.2f", bonsplitController.configuration.appearance.dividerThickness))"
             )
         }
     }
@@ -10433,17 +10452,23 @@ final class Workspace: Identifiable, ObservableObject {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
+        let dividerStyle = Self.resolvedPaneDividerStyle(
+            ghosttyDividerColor: GhosttyConfig.load().splitDividerColor
+        )
         let nextChromeColors = Self.bonsplitChromeColors(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
+            dividerStyle: dividerStyle,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )
-        let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
-        let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
+        let currentAppearance = bonsplitController.configuration.appearance
+        let currentChromeColors = currentAppearance.chromeColors
+        let currentUsesSharedBackdrop = currentAppearance.usesSharedBackdrop
         let colorsChanged = !Self.bonsplitChromeColorsEqual(currentChromeColors, nextChromeColors)
         let sharedBackdropChanged = currentUsesSharedBackdrop != sharesWindowBackdrop
-        let isNoOp = !colorsChanged && !sharedBackdropChanged
+        let thicknessChanged = abs(currentAppearance.dividerThickness - dividerStyle.thickness) > 0.0001
+        let isNoOp = !colorsChanged && !sharedBackdropChanged && !thicknessChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -10466,11 +10491,15 @@ final class Workspace: Identifiable, ObservableObject {
         if sharedBackdropChanged {
             bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
         }
+        if thicknessChanged {
+            bonsplitController.configuration.appearance.dividerThickness = dividerStyle.thickness
+        }
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) " +
                 "resulting=[\(Self.bonsplitChromeColorsLogDescription(bonsplitController.configuration.appearance.chromeColors))] " +
-                "resultingUsesSharedBackdrop=\(bonsplitController.configuration.appearance.usesSharedBackdrop ? 1 : 0)"
+                "resultingUsesSharedBackdrop=\(bonsplitController.configuration.appearance.usesSharedBackdrop ? 1 : 0) " +
+                "resultingDivider=\(String(format: "%.2f", bonsplitController.configuration.appearance.dividerThickness))"
             )
         }
     }
@@ -10505,10 +10534,14 @@ final class Workspace: Identifiable, ObservableObject {
         // and keep split entry instantaneous.
         // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
         // without paying repeated parse costs on the workspace-creation hot path.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        let initialGhosttyConfig = GhosttyConfig.load()
+        let initialSurfaceTabBarFontSize = initialGhosttyConfig.surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            dividerStyle: Self.resolvedPaneDividerStyle(
+                ghosttyDividerColor: initialGhosttyConfig.splitDividerColor
+            ),
             tabTitleFontSize: initialSurfaceTabBarFontSize
         )
         let config = BonsplitConfiguration(

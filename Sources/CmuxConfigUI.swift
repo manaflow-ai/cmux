@@ -4,6 +4,7 @@ import Bonsplit
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?
     var surfaceTabBar: CmuxSurfaceTabBarUIDefinition?
+    var paneDivider: CmuxConfigPaneDivider?
 }
 
 struct CmuxSurfaceTabBarUIDefinition: Codable, Sendable, Hashable {
