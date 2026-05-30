@@ -17,6 +17,14 @@ import {
   toolbarModeOptions,
   themeOptions
 } from "./config.js";
+import {
+  replaceChildrenIfChanged,
+  setClassNameIfChanged,
+  setDatasetIfChanged,
+  setStylePropertyIfChanged,
+  setTextIfChanged,
+  setTitleIfChanged
+} from "./dom-utils.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
@@ -1093,52 +1101,6 @@ function updateSettings(updates, options = {}) {
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
   }
-}
-
-function replaceChildrenIfChanged(parent, nodes) {
-  if (parent.childNodes.length === nodes.length && nodes.every((node, index) => parent.childNodes[index] === node)) {
-    return false;
-  }
-  parent.replaceChildren(...nodes);
-  return true;
-}
-
-function setTextIfChanged(node, value) {
-  if (!node) return false;
-  const next = String(value ?? "");
-  if (node.textContent === next) return false;
-  node.textContent = next;
-  return true;
-}
-
-function setTitleIfChanged(node, value) {
-  if (!node) return false;
-  const next = String(value ?? "");
-  if (node.title === next) return false;
-  node.title = next;
-  return true;
-}
-
-function setClassNameIfChanged(node, value) {
-  if (!node || node.className === value) return false;
-  node.className = value;
-  return true;
-}
-
-function setDatasetIfChanged(node, key, value) {
-  if (!node) return false;
-  const next = String(value ?? "");
-  if (node.dataset[key] === next) return false;
-  node.dataset[key] = next;
-  return true;
-}
-
-function setStylePropertyIfChanged(node, name, value) {
-  if (!node) return false;
-  const next = String(value ?? "");
-  if (node.style.getPropertyValue(name) === next) return false;
-  node.style.setProperty(name, next);
-  return true;
 }
 
 function normalizePaneWeight(value) {
