@@ -58,6 +58,7 @@ import {
   paneTreeSplitForPanel,
   removePanelFromPaneTree,
   savePaneTreeLayouts,
+  swapPaneTreePanelIds,
   updatePaneTreeSplit
 } from "./pane-tree.js";
 import { canLoadImage } from "./image-utils.js";
@@ -129,7 +130,8 @@ const layoutSettingsPreviewKeys = new Set([
   "performanceMode"
 ]);
 const browserSettingsPreviewKeys = new Set([
-  "browserHomeUrl"
+  "browserHomeUrl",
+  "externalBrowserProfileId"
 ]);
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
@@ -162,9 +164,12 @@ const paneLayoutMaxWeight = 10000;
 const paneResizeMinWidth = 32;
 const paneResizeMinHeight = 28;
 const settingsSaveDelay = 140;
+const terminalFontSizeMin = 10;
+const terminalFontSizeMax = 22;
 const terminalWheelZoomThreshold = 120;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
+const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
@@ -285,9 +290,13 @@ const state = {
   focusSyncRevision: 0,
   pendingBrowserUrlSync: new Map(),
   browserUrlSyncTimer: 0,
+  pendingTerminalFontSizeSync: new Map(),
+  terminalFontSizeSyncTimer: 0,
   resizing: null,
   sidebarResizing: null,
   inspectorResizing: null,
+  panePointerDrag: null,
+  suppressPaneHeaderClick: false,
   renderFrame: 0,
   paneLayoutFrame: 0,
   scheduledRenderPrevious: null,
@@ -329,6 +338,9 @@ const state = {
   settingsInspectorSignature: "",
   settingsScrollResetPending: false,
   settingsSearchAutoScrollQuery: "",
+  browserProfiles: [{ id: "system", label: "System default browser", browser: "System", profileName: "Default" }],
+  browserProfilesLoaded: false,
+  browserProfilesLoading: false,
   terminalFontSize: initialSettings.terminalFontSize
 };
 
@@ -421,7 +433,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
     ...parsed
   };
   if (legacyFontSize && !parsed.terminalFontSize) next.terminalFontSize = legacyFontSize;
-  next.terminalFontSize = clamp(next.terminalFontSize, 10, 22);
+  next.terminalFontSize = clamp(next.terminalFontSize, terminalFontSizeMin, terminalFontSizeMax);
   next.terminalLineHeight = clamp(next.terminalLineHeight, 1, 1.5);
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
@@ -440,6 +452,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!terminalProfiles.some(([id]) => id === next.terminalProfile)) next.terminalProfile = defaultSettings.terminalProfile;
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
   next.browserHomeUrl = normalizeUrl(next.browserHomeUrl || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  next.externalBrowserProfileId = String(next.externalBrowserProfileId || defaultSettings.externalBrowserProfileId).trim().slice(0, 120) || "system";
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
@@ -456,6 +469,25 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalScrollback = clamp(next.terminalScrollback, 2000, 50000);
   next.terminalPadding = clamp(next.terminalPadding, 0, 16);
   return next;
+}
+
+function normalizeTerminalFontSize(value, fallback = state?.settings?.terminalFontSize || defaultSettings.terminalFontSize) {
+  const size = Number(value);
+  const fallbackSize = Number(fallback);
+  if ((!Number.isFinite(size) || size <= 0) && (!Number.isFinite(fallbackSize) || fallbackSize <= 0)) return 0;
+  const next = Number.isFinite(size) && size > 0 ? size : fallbackSize;
+  return clamp(next, terminalFontSizeMin, terminalFontSizeMax);
+}
+
+function panelHasTerminalFontSize(panel) {
+  return panel?.type === "terminal" && Number(panel.terminalFontSize) > 0;
+}
+
+function terminalFontSizeForPanel(panel) {
+  return normalizeTerminalFontSize(
+    panelHasTerminalFontSize(panel) ? panel.terminalFontSize : state.settings.terminalFontSize,
+    state.settings.terminalFontSize
+  );
 }
 
 function loadSettings() {
@@ -781,6 +813,67 @@ function clearRecentBrowserPages() {
   toast("Recent browser pages cleared.");
 }
 
+function normalizeBrowserProfiles(profiles = []) {
+  const result = [];
+  const seen = new Set();
+  const add = (profile) => {
+    const id = String(profile?.id || "").trim() || "system";
+    if (seen.has(id)) return;
+    seen.add(id);
+    result.push({
+      id,
+      label: String(profile?.label || "System default browser").trim() || "System default browser",
+      browser: String(profile?.browser || "").trim(),
+      profileName: String(profile?.profileName || "").trim()
+    });
+  };
+  add({ id: "system", label: "System default browser", browser: "System", profileName: "Default" });
+  for (const profile of profiles) add(profile);
+  return result;
+}
+
+async function loadBrowserProfiles(options = {}) {
+  if (state.browserProfilesLoading || (state.browserProfilesLoaded && !options.force)) return state.browserProfiles;
+  state.browserProfilesLoading = true;
+  try {
+    const profiles = window.cmuxNative?.listBrowserProfiles
+      ? await window.cmuxNative.listBrowserProfiles()
+      : [];
+    state.browserProfiles = normalizeBrowserProfiles(profiles);
+    state.browserProfilesLoaded = true;
+    if (!state.browserProfiles.some((profile) => profile.id === state.settings.externalBrowserProfileId)) {
+      updateSettings({ externalBrowserProfileId: "system" });
+    }
+  } catch {
+    state.browserProfiles = normalizeBrowserProfiles();
+    state.browserProfilesLoaded = true;
+  } finally {
+    state.browserProfilesLoading = false;
+  }
+  if (options.render && state.inspectorMode === "settings" && state.settingsCategory === "browser") {
+    renderSettingsInspector();
+  }
+  return state.browserProfiles;
+}
+
+function browserProfileOptions() {
+  if (!state.browserProfilesLoaded && !state.browserProfilesLoading) {
+    loadBrowserProfiles({ render: true });
+  }
+  return normalizeBrowserProfiles(state.browserProfiles);
+}
+
+async function openExternalBrowser(url) {
+  const target = normalizeUrl(url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  if (window.cmuxNative?.openExternal) {
+    const result = await window.cmuxNative.openExternal(target, state.settings.externalBrowserProfileId);
+    if (result?.ok === false) toast("Opened in the system browser.");
+    return result;
+  }
+  window.open(target, "_blank", "noopener");
+  return { ok: true };
+}
+
 function hasRecentActivity() {
   return Boolean(state.recentFolders.length || state.recentCommands.length || state.recentBrowserPages.length);
 }
@@ -1037,6 +1130,7 @@ function normalizeBlueprintPanel(panel = {}) {
     cwd: String(panel.cwd || "").trim().slice(0, 512),
     shellProfile,
     shellPath: String(panel.shellPath || "").trim().slice(0, 512),
+    terminalFontSize: type === "terminal" ? normalizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
     url: type === "browser" ? normalizeUrl(panel.url || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl) : "",
     weight: normalizePaneWeight(panel.weight) || paneLayoutScale
   };
@@ -1748,8 +1842,10 @@ function terminalTheme() {
 
 function refreshTerminalAppearance() {
   for (const session of state.terminals.values()) {
+    const panel = findPanelState(session.panelId)?.panel;
+    session.fontSize = terminalFontSizeForPanel(panel);
     session.term.options.fontFamily = terminalFontStack();
-    session.term.options.fontSize = state.terminalFontSize;
+    session.term.options.fontSize = session.fontSize;
     session.term.options.lineHeight = state.settings.terminalLineHeight;
     session.term.options.scrollback = state.settings.terminalScrollback;
     session.term.options.cursorStyle = state.settings.terminalCursorStyle;
@@ -2809,19 +2905,15 @@ function createPane(panel) {
     <div class="pane-body"></div>
   `;
   const header = pane.querySelector(".pane-header");
-  header.draggable = true;
-  header.addEventListener("click", () => focusPanel(pane.dataset.panelId));
-  header.addEventListener("dragstart", (event) => {
-    state.dragPanelId = pane.dataset.panelId;
-    pane.classList.add("is-dragging");
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", state.dragPanelId);
+  header.draggable = false;
+  header.addEventListener("click", () => {
+    if (state.suppressPaneHeaderClick) {
+      state.suppressPaneHeaderClick = false;
+      return;
+    }
+    focusPanel(pane.dataset.panelId);
   });
-  header.addEventListener("dragend", () => {
-    pane.classList.remove("is-dragging");
-    state.dragPanelId = null;
-    clearAllDropTargets();
-  });
+  header.addEventListener("pointerdown", (event) => startPanePointerDrag(event, pane));
   pane.querySelector(".split-right").onclick = (event) => {
     event.stopPropagation();
     splitPanelFromPaneId(pane.dataset.panelId, "right");
@@ -2883,10 +2975,84 @@ function paneDropPosition(event, pane) {
   if (x > 1 - horizontalEdge) return "right";
   if (y < verticalEdge) return "top";
   if (y > 1 - verticalEdge) return "bottom";
-  const horizontalBias = Math.abs(x - 0.5);
-  const verticalBias = Math.abs(y - 0.5);
-  if (verticalBias > horizontalBias) return y < 0.5 ? "top" : "bottom";
-  return x < 0.5 ? "left" : "right";
+  return "center";
+}
+
+function startPanePointerDrag(event, pane) {
+  if (event.button !== 0 || event.target.closest(".pane-tool")) return;
+  state.panePointerDrag = {
+    panelId: pane.dataset.panelId,
+    pointerId: event.pointerId,
+    captureElement: event.currentTarget,
+    sourcePane: pane,
+    targetPane: null,
+    startX: event.clientX,
+    startY: event.clientY,
+    active: false
+  };
+  safeSetPointerCapture(event.currentTarget, event.pointerId);
+}
+
+function continuePanePointerDrag(event) {
+  const drag = state.panePointerDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+  if (!drag.active && moved < panePointerDragThreshold) return;
+  if (!drag.active) {
+    drag.active = true;
+    state.dragPanelId = drag.panelId;
+    drag.sourcePane.classList.add("is-dragging");
+    document.body.classList.add("pane-drag-active");
+  }
+  event.preventDefault();
+  const target = panePointerDropTarget(event, drag.panelId);
+  if (drag.targetPane && drag.targetPane !== target) clearPaneDropTarget(drag.targetPane);
+  drag.targetPane = target;
+  if (!target) return;
+  target.dataset.dropPosition = paneDropPosition(event, target);
+  target.classList.add("is-drop-target");
+}
+
+function finishPanePointerDrag(event) {
+  const drag = state.panePointerDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (drag.captureElement) safeReleasePointerCapture(drag.captureElement, event.pointerId);
+  if (drag.active) {
+    event.preventDefault();
+    const target = drag.targetPane;
+    const targetPanelId = target?.dataset.panelId || "";
+    const placement = target?.dataset.dropPosition || (target ? paneDropPosition(event, target) : "");
+    state.suppressPaneHeaderClick = true;
+    if (targetPanelId && targetPanelId !== drag.panelId && placement) {
+      movePanelRelative(drag.panelId, targetPanelId, placement);
+    }
+    setTimeout(() => {
+      state.suppressPaneHeaderClick = false;
+    }, 0);
+  }
+  drag.sourcePane.classList.remove("is-dragging");
+  if (drag.targetPane) clearPaneDropTarget(drag.targetPane);
+  document.body.classList.remove("pane-drag-active");
+  state.dragPanelId = null;
+  state.panePointerDrag = null;
+}
+
+function cancelPanePointerDrag(event) {
+  const drag = state.panePointerDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  if (drag.captureElement) safeReleasePointerCapture(drag.captureElement, event.pointerId);
+  drag.sourcePane.classList.remove("is-dragging");
+  if (drag.targetPane) clearPaneDropTarget(drag.targetPane);
+  document.body.classList.remove("pane-drag-active");
+  state.dragPanelId = null;
+  state.panePointerDrag = null;
+}
+
+function panePointerDropTarget(event, sourcePanelId) {
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  const pane = element?.closest?.(".pane[data-panel-id]");
+  if (!pane || pane.dataset.panelId === sourcePanelId) return null;
+  return pane;
 }
 
 function clearPaneDropTarget(pane) {
@@ -2899,6 +3065,9 @@ function clearAllDropTargets() {
   for (const node of document.querySelectorAll(".is-drop-before, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
     node.classList.remove("is-drop-before", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
   }
+  for (const pane of document.querySelectorAll(".pane.is-dragging")) pane.classList.remove("is-dragging");
+  document.body.classList.remove("pane-drag-active");
+  state.panePointerDrag = null;
   state.dragPanelId = null;
   state.dragWorkspaceId = null;
 }
@@ -2944,16 +3113,17 @@ function ensureTerminal(panel, body) {
   }
   const host = document.createElement("div");
   host.className = "terminal-host";
-  host.addEventListener("wheel", handleTerminalWheelZoom, { passive: false });
+  host.addEventListener("wheel", handleTerminalWheelZoom, { passive: false, capture: true });
   body.appendChild(host);
 
+  const fontSize = terminalFontSizeForPanel(panel);
   const term = new TerminalConstructor({
     cursorBlink: state.settings.terminalCursorBlink,
     cursorStyle: state.settings.terminalCursorStyle,
     allowProposedApi: true,
     convertEol: true,
     fontFamily: terminalFontStack(),
-    fontSize: state.terminalFontSize,
+    fontSize,
     lineHeight: state.settings.terminalLineHeight,
     scrollback: state.settings.terminalScrollback,
     theme: terminalTheme()
@@ -2968,6 +3138,7 @@ function ensureTerminal(panel, body) {
 
   const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}/terminal/${panel.id}`);
   const session = {
+    panelId: panel.id,
     term,
     fitAddon,
     searchAddon,
@@ -2983,6 +3154,7 @@ function ensureTerminal(panel, body) {
     lastHostWidth: 0,
     lastHostHeight: 0,
     forceFit: false,
+    fontSize,
     searchOverlay: null,
     searchTerm: "",
     searchCaseSensitive: false,
@@ -3306,23 +3478,30 @@ function ensureBrowser(panel, body) {
   go.className = "browser-go browser-go-submit";
   go.type = "button";
   go.textContent = "Go";
+  const newTab = document.createElement("button");
+  newTab.className = "browser-go browser-go-new";
+  newTab.type = "button";
+  newTab.title = "New browser tab";
+  newTab.textContent = "+";
   const external = document.createElement("button");
   external.className = "browser-go browser-go-external";
   external.type = "button";
+  external.title = "Open in system browser";
   external.textContent = "↗";
   const status = document.createElement("div");
   status.className = "browser-status";
   status.textContent = "Loading";
-  bar.append(back, forward, reload, home, address, go, external);
+  bar.append(back, forward, reload, home, address, go, newTab, external);
 
   const view = document.createElement(window.cmuxNative?.electron ? "webview" : "iframe");
   view.className = "browser-view";
-  view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
   view.setAttribute("allowpopups", "true");
   if (view.tagName.toLowerCase() === "webview") {
     view.setAttribute("partition", "persist:cmux-browser");
     view.setAttribute("webpreferences", "contextIsolation=yes,nodeIntegration=no");
+    view.setAttribute("useragent", navigator.userAgent.replace(/\sElectron\/\S+/i, ""));
   }
+  view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
 
@@ -3352,12 +3531,13 @@ function ensureBrowser(panel, body) {
     queueBrowserUrlSync(panel.id, next);
   };
   go.onclick = navigate;
-  external.onclick = () => {
-    if (window.cmuxNative?.openExternal) {
-      window.cmuxNative.openExternal(normalizeUrl(address.value, state.settings.browserHomeUrl));
-    } else {
-      window.open(normalizeUrl(address.value, state.settings.browserHomeUrl), "_blank", "noopener");
-    }
+  external.onclick = () => openExternalBrowser(address.value);
+  newTab.onclick = () => {
+    createPanel("browser", "right", {
+      workspaceId: panel.workspaceId,
+      anchorPanelId: panel.id,
+      url: state.settings.browserHomeUrl
+    });
   };
   address.addEventListener("keydown", (event) => {
     if (event.key === "Enter") navigate();
@@ -3389,6 +3569,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
+    if (typeof view.setZoomFactor === "function") view.setZoomFactor(1);
     updateNavState();
   });
   view.addEventListener("did-navigate-in-page", (event) => {
@@ -3636,11 +3817,27 @@ function renderSettingsInspector(options = {}) {
     });
     browserSection.append(settingRow("Home page", homeInput, true));
     browserSection.append(settingRow("Home presets", browserHomePresetGrid(), true, "browser home preset quick start localhost github google vite"));
+    const profileSelect = document.createElement("select");
+    profileSelect.className = "setting-select";
+    profileSelect.dataset.settingControl = "externalBrowserProfileId";
+    const profiles = browserProfileOptions();
+    for (const profile of profiles) {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.label;
+      profileSelect.append(option);
+    }
+    profileSelect.value = profiles.some((profile) => profile.id === state.settings.externalBrowserProfileId)
+      ? state.settings.externalBrowserProfileId
+      : "system";
+    profileSelect.onchange = () => updateSettings({ externalBrowserProfileId: profileSelect.value });
+    browserSection.append(settingRow("Open external in", profileSelect, false, "browser chrome edge brave profile system external open"));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
-    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web");
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave");
     homeActions.append(
       settingsActionButton("Open", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
+      settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl), "", "browser system chrome edge brave profile external"),
       settingsActionButton("Reset", () => {
         const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
         if (!changed) toast("Browser home already uses the default.");
@@ -3863,13 +4060,13 @@ function renderSettingsInspector(options = {}) {
     const fontRange = document.createElement("input");
     fontRange.className = "setting-control";
     fontRange.type = "range";
-    fontRange.min = "10";
-    fontRange.max = "22";
-    fontRange.value = String(state.terminalFontSize);
-    const fontRow = settingRow(`Text size ${state.terminalFontSize}px`, fontRange);
+    fontRange.min = String(terminalFontSizeMin);
+    fontRange.max = String(terminalFontSizeMax);
+    fontRange.value = String(state.settings.terminalFontSize);
+    const fontRow = settingRow(`Default text size ${state.settings.terminalFontSize}px`, fontRange);
     fontRange.oninput = () => {
       updateSettings({ terminalFontSize: Number(fontRange.value) });
-      fontRow.querySelector(".setting-label").textContent = `Text size ${state.terminalFontSize}px`;
+      fontRow.querySelector(".setting-label").textContent = `Default text size ${state.settings.terminalFontSize}px`;
     };
     terminalSection.append(fontRow);
     const lineHeightRange = document.createElement("input");
@@ -4082,6 +4279,7 @@ function activeWorkspaceSettingsSignature() {
       cwdShort: panel.cwdShort,
       shellProfile: panel.shellProfile,
       shellPath: panel.shellPath,
+      terminalFontSize: panel.terminalFontSize || 0,
       url: panel.url
     }))
   });
@@ -4635,7 +4833,7 @@ const searchTokenAliases = new Map([
 const settingsCategorySearchAliases = new Map([
   ["appearance", "look appearance background image wallpaper file local color colour theme accent"],
   ["workspace", "workspace workshop folder directory cwd rename color colour"],
-  ["browser", "browser web url page home"],
+  ["browser", "browser web url page home profile chrome edge brave external system"],
   ["layout", "layout split pane tab sidebar footer reset header resize"],
   ["performance", "performance lag slow smooth speed motion"],
   ["terminal", "terminal term shell font cursor color colour profile"],
@@ -6433,6 +6631,7 @@ function currentWorkspaceBlueprintSnapshot(label) {
       cwd: panel.cwd || workspace.cwd || "",
       shellProfile: panel.shellProfile || state.settings.terminalProfile,
       shellPath: panel.shellPath || "",
+      terminalFontSize: panel.terminalFontSize || 0,
       url: panel.url || state.settings.browserHomeUrl,
       weight: storedPaneWeight(panel.id, direction) || equalWeight
     }))
@@ -6508,6 +6707,7 @@ async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspac
         cwd: panel.cwd || blueprint.cwd || workspace.cwd,
         shellProfile: panel.shellProfile,
         shellPath: panel.shellPath,
+        terminalFontSize: panel.terminalFontSize,
         url: panel.url
       });
       if (created?.id) createdPanels.push({ id: created.id, weight: panel.weight });
@@ -7103,7 +7303,8 @@ function duplicatePanel(panel) {
   }
   splitPanel(panel, "right", "terminal", {
     shellProfile: panel.shellProfile || state.settings.terminalProfile,
-    shellPath: panel.shellPath || state.settings.terminalCustomShell
+    shellPath: panel.shellPath || state.settings.terminalCustomShell,
+    terminalFontSize: panel.terminalFontSize || 0
   });
 }
 
@@ -7649,6 +7850,7 @@ async function createPanel(type, direction = "right", options = {}) {
         color: options.color,
         shellProfile: type === "terminal" ? shellProfile : undefined,
         shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
+        terminalFontSize: type === "terminal" ? options.terminalFontSize : undefined,
         cwd: options.cwd || workspace.cwd,
         url
       })
@@ -7821,6 +8023,9 @@ function optimisticUpdatePanel(panelId, updates = {}) {
   if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
     found.panel.url = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   }
+  if (Object.hasOwn(updates, "terminalFontSize") && found.panel.type === "terminal") {
+    found.panel.terminalFontSize = normalizeTerminalFontSize(updates.terminalFontSize, 0);
+  }
   if (updates.direction === "down" || updates.direction === "right") {
     panelWorkspace.splitDirection = updates.direction;
   }
@@ -7840,6 +8045,7 @@ function closedPanelSnapshot(panelId) {
     cwd: found.panel.cwd || found.workspace.cwd || "",
     shellProfile: found.panel.shellProfile || state.settings.terminalProfile,
     shellPath: found.panel.shellPath || "",
+    terminalFontSize: found.panel.terminalFontSize || 0,
     url: found.panel.url || state.settings.browserHomeUrl
   };
 }
@@ -7871,6 +8077,7 @@ async function reopenClosedPanel() {
       cwd: snapshot.cwd || workspace.cwd,
       shellProfile: snapshot.shellProfile,
       shellPath: snapshot.shellPath,
+      terminalFontSize: snapshot.terminalFontSize,
       url: snapshot.url
     });
     toast(`Reopened ${created?.type === "browser" ? "browser" : "terminal"} pane.`);
@@ -7954,6 +8161,10 @@ async function movePanelBefore(panelId, beforePanelId) {
 async function movePanelRelative(panelId, targetPanelId, placement) {
   const found = findPanelState(targetPanelId);
   if (!found || !panelId || !targetPanelId || panelId === targetPanelId) return;
+  if (placement === "center") {
+    swapPanePositions(panelId, targetPanelId);
+    return;
+  }
   const direction = placement === "top" || placement === "bottom" ? "down" : "right";
   const targetIndex = found.workspace.panels.findIndex((candidate) => candidate.id === targetPanelId);
   const beforeTarget = placement === "left" || placement === "top";
@@ -7969,6 +8180,23 @@ async function movePanelRelative(panelId, targetPanelId, placement) {
   } else {
     await updatePanel(panelId, { workspaceId: found.workspace.id, moveToEnd: true, direction });
   }
+}
+
+function swapPanePositions(panelId, targetPanelId) {
+  const source = findPanelState(panelId);
+  const target = findPanelState(targetPanelId);
+  if (!source || !target || source.workspace.id !== target.workspace.id || panelId === targetPanelId) return false;
+  const tree = paneTreeForWorkspace(target.workspace);
+  const swapped = swapPaneTreePanelIds(tree, panelId, targetPanelId);
+  if (!swapped) return false;
+  state.paneTrees.set(target.workspace.id, swapped);
+  savePaneTreeLayouts(state.paneTrees);
+  target.workspace.activePanelId = panelId;
+  state.data.activeWorkspaceId = target.workspace.id;
+  render();
+  queueFocusSync({ type: "panel", panelId });
+  focusTerminalSession(panelId);
+  return true;
 }
 
 async function movePanelToWorkspace(panelId, workspaceId) {
@@ -8086,6 +8314,7 @@ function handleTerminalWheelZoom(event) {
   if (!event.ctrlKey) return;
   event.preventDefault();
   event.stopPropagation();
+  event.stopImmediatePropagation?.();
   const delta = normalizedWheelZoomDelta(event);
   if (!Number.isFinite(delta) || delta === 0) return;
   const now = performance.now();
@@ -8104,7 +8333,9 @@ function handleTerminalWheelZoom(event) {
   if (!steps) return;
   const direction = state.terminalWheelZoomRemainder < 0 ? 1 : -1;
   state.terminalWheelZoomRemainder -= Math.sign(state.terminalWheelZoomRemainder) * terminalWheelZoomThreshold * steps;
-  changeTerminalFontSize(direction * steps, { toast: false });
+  const panelId = event.currentTarget?.closest?.(".pane")?.dataset?.panelId || "";
+  const panel = panelId ? findPanelState(panelId)?.panel : activePanel();
+  changeTerminalFontSize(direction * steps, { panel, toast: false });
 }
 
 function togglePaneZoom(panelId = activePanel()?.id) {
@@ -8286,9 +8517,49 @@ async function promptActivePaneLayoutPercent() {
   return true;
 }
 
+function queueTerminalFontSizeSync(panelId, fontSize) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "terminal") return false;
+  state.pendingTerminalFontSizeSync.set(panelId, normalizeTerminalFontSize(fontSize, state.settings.terminalFontSize));
+  if (state.terminalFontSizeSyncTimer) clearTimeout(state.terminalFontSizeSyncTimer);
+  state.terminalFontSizeSyncTimer = setTimeout(flushTerminalFontSizeSync, 220);
+  return true;
+}
+
+async function flushTerminalFontSizeSync() {
+  state.terminalFontSizeSyncTimer = 0;
+  const entries = [...state.pendingTerminalFontSizeSync.entries()];
+  state.pendingTerminalFontSizeSync.clear();
+  await Promise.all(entries.map(async ([panelId, terminalFontSize]) => {
+    const found = findPanelState(panelId);
+    if (!found || found.panel.type !== "terminal" || normalizeTerminalFontSize(found.panel.terminalFontSize, 0) !== terminalFontSize) return;
+    try {
+      await api(`/api/panels/${panelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ terminalFontSize })
+      });
+    } catch {
+      // The pane may have been closed before the debounce fired.
+    }
+  }));
+}
+
 function changeTerminalFontSize(delta, options = {}) {
-  updateSettings({ terminalFontSize: state.terminalFontSize + delta });
-  if (options.toast !== false) toast(`Terminal text ${state.terminalFontSize}px`);
+  const panel = options.panel || activePanel();
+  if (panel?.type !== "terminal") return false;
+  const currentSize = terminalFontSizeForPanel(panel);
+  const nextSize = normalizeTerminalFontSize(currentSize + delta, currentSize);
+  if (nextSize === currentSize) return false;
+  panel.terminalFontSize = nextSize;
+  const session = state.terminals.get(panel.id);
+  if (session) {
+    session.fontSize = nextSize;
+    session.term.options.fontSize = nextSize;
+    scheduleFitTerminal(session, true);
+  }
+  queueTerminalFontSizeSync(panel.id, nextSize);
+  if (options.toast !== false) toast(`Pane text ${nextSize}px`);
+  return true;
 }
 
 async function writeClipboardText(text) {
@@ -8781,16 +9052,19 @@ new MutationObserver(scheduleVisiblePaneLayoutApply).observe(elements.paneGrid, 
 });
 window.addEventListener("pointermove", (event) => {
   continuePaneResize(event);
+  continuePanePointerDrag(event);
   continueSidebarResize(event);
   continueInspectorResize(event);
 });
 window.addEventListener("pointerup", (event) => {
   finishPaneResize(event);
+  finishPanePointerDrag(event);
   finishSidebarResize(event);
   finishInspectorResize(event);
 });
 window.addEventListener("pointercancel", (event) => {
   finishPaneResize(event);
+  cancelPanePointerDrag(event);
   finishSidebarResize(event);
   finishInspectorResize(event);
 });
@@ -8830,4 +9104,5 @@ if (window.cmuxNative?.onCommand) {
 
 applySettings();
 loadState();
+loadBrowserProfiles();
 connectEvents();

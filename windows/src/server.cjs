@@ -103,6 +103,8 @@ function localImagePathFromUrl(value) {
 }
 
 const shellProfileIds = new Set(["auto", "pwsh", "powershell", "cmd", "wsl", "git-bash", "custom"]);
+const executableExistsCache = new Map();
+const resolvedShellCache = new Map();
 
 function sanitizeShellProfile(value) {
   const profile = String(value || "auto").trim();
@@ -111,6 +113,12 @@ function sanitizeShellProfile(value) {
 
 function sanitizeShellPath(value) {
   return String(value || "").trim().slice(0, 512);
+}
+
+function sanitizeTerminalFontSize(value, fallback = 0) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) return fallback;
+  return Math.min(22, Math.max(10, Math.round(size)));
 }
 
 function sanitizeDirectoryPath(value, fallback = process.cwd()) {
@@ -128,13 +136,19 @@ function sanitizeDirectoryPath(value, fallback = process.cwd()) {
 
 function executableExists(candidate) {
   if (!candidate) return false;
+  const cacheKey = process.platform === "win32" ? candidate.toLowerCase() : candidate;
+  if (executableExistsCache.has(cacheKey)) return executableExistsCache.get(cacheKey);
+  let exists = false;
   if (candidate.includes("\\") || candidate.includes("/") || path.isAbsolute(candidate)) {
-    return fs.existsSync(candidate);
+    exists = fs.existsSync(candidate);
+  } else {
+    const probe = process.platform === "win32"
+      ? spawnSync("where.exe", [candidate], { stdio: "ignore", windowsHide: true })
+      : spawnSync("command", ["-v", candidate], { shell: true, stdio: "ignore" });
+    exists = probe.status === 0;
   }
-  const probe = process.platform === "win32"
-    ? spawnSync("where.exe", [candidate], { stdio: "ignore", windowsHide: true })
-    : spawnSync("command", ["-v", candidate], { shell: true, stdio: "ignore" });
-  return probe.status === 0;
+  executableExistsCache.set(cacheKey, exists);
+  return exists;
 }
 
 function shellCandidates(profile, customShell) {
@@ -159,11 +173,20 @@ function shellCandidates(profile, customShell) {
 }
 
 function resolveShell(profile = "auto", customShell = "") {
-  const candidates = shellCandidates(sanitizeShellProfile(profile), sanitizeShellPath(customShell));
+  const sanitizedProfile = sanitizeShellProfile(profile);
+  const sanitizedCustomShell = sanitizeShellPath(customShell);
+  const cacheKey = `${sanitizedProfile}\0${sanitizedCustomShell}`;
+  if (resolvedShellCache.has(cacheKey)) return resolvedShellCache.get(cacheKey);
+  const candidates = shellCandidates(sanitizedProfile, sanitizedCustomShell);
   for (const candidate of candidates) {
-    if (executableExists(candidate)) return candidate;
+    if (executableExists(candidate)) {
+      resolvedShellCache.set(cacheKey, candidate);
+      return candidate;
+    }
   }
-  return process.platform === "win32" ? "cmd.exe" : "/bin/sh";
+  const fallback = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
+  resolvedShellCache.set(cacheKey, fallback);
+  return fallback;
 }
 
 function shortPath(rawPath) {
@@ -389,6 +412,7 @@ class CmuxWindowsRuntime {
                 cwd: sanitizeDirectoryPath(panel.cwd || workspace.cwd),
                 shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
                 shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
+                terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
                 runtime: this,
                 needsAttention: false,
                 notificationText: ""
@@ -433,6 +457,7 @@ class CmuxWindowsRuntime {
           cwd: panel.cwd,
           shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
           shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
+          terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
           url: panel.url
         }))
       }))
@@ -467,6 +492,7 @@ class CmuxWindowsRuntime {
       cwd: options.cwd || process.cwd(),
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
       shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",
+      terminalFontSize: type === "terminal" ? sanitizeTerminalFontSize(options.terminalFontSize, 0) : 0,
       url: options.url || defaultBrowserHomeUrl,
       needsAttention: false,
       notificationText: "",
@@ -518,6 +544,7 @@ class CmuxWindowsRuntime {
       branch: "",
       shellProfile: panel.shellProfile || "",
       shellPath: panel.shellPath || "",
+      terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
       url: panel.url,
       needsAttention: panel.needsAttention,
       notificationText: panel.notificationText
@@ -640,6 +667,9 @@ class CmuxWindowsRuntime {
     if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
       const url = String(updates.url || "").trim();
       if (/^https?:\/\//i.test(url)) found.panel.url = url.slice(0, 2048);
+    }
+    if (Object.hasOwn(updates, "terminalFontSize") && found.panel.type === "terminal") {
+      found.panel.terminalFontSize = sanitizeTerminalFontSize(updates.terminalFontSize, 0);
     }
     this.persistAndBroadcast();
     return true;

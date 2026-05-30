@@ -4,6 +4,7 @@ export const defaultSettings = {
   backgroundImage: "",
   backgroundOpacity: 16,
   browserHomeUrl: "https://www.google.com",
+  externalBrowserProfileId: "system",
   density: "comfortable",
   paneHeaderMode: "compact",
   sidebarDetailMode: "compact",

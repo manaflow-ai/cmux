@@ -21,8 +21,11 @@ contextBridge.exposeInMainWorld("cmuxNative", {
   onWindowState(callback) {
     ipcRenderer.on("window-state", (_event, state) => callback(state));
   },
-  openExternal(url) {
-    return ipcRenderer.invoke("open-external", url);
+  openExternal(url, profileId = "system") {
+    return ipcRenderer.invoke("open-external", url, profileId);
+  },
+  listBrowserProfiles() {
+    return ipcRenderer.invoke("browser:profiles");
   },
   openPath(filePath) {
     return ipcRenderer.invoke("open-path", filePath);

@@ -1250,6 +1250,10 @@ body.reduce-motion *::after {
   opacity: .65;
 }
 
+.pane-drag-active .pane-header {
+  cursor: grabbing;
+}
+
 .pane.is-drop-before {
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
@@ -1285,6 +1289,12 @@ body.reduce-motion *::after {
 .pane.is-drop-target[data-drop-position="bottom"]::after {
   inset: 50% 0 0 0;
   border-bottom-width: 3px;
+}
+
+.pane.is-drop-target[data-drop-position="center"]::after {
+  inset: calc(var(--pane-drop-top, 31px) + 8px) 8px 8px 8px;
+  border-style: dashed;
+  background: color-mix(in oklch, var(--color-text) 6%, transparent);
 }
 
 .pane-type {
@@ -1591,7 +1601,7 @@ body.reduce-motion *::after {
 .browser-bar {
   min-width: 0;
   display: grid;
-  grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px;
+  grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px 26px;
   align-items: center;
   gap: var(--space-1);
   padding: 4px var(--space-2);
@@ -1649,6 +1659,7 @@ body.reduce-motion *::after {
   background: var(--color-pane);
 }
 
+.browser-go-new,
 .browser-go-external {
   width: 26px;
   padding: 0;
@@ -1656,7 +1667,7 @@ body.reduce-motion *::after {
 
 @container (max-width: 320px) {
   .browser-bar {
-    grid-template-columns: 24px 24px minmax(0, 1fr) 26px;
+    grid-template-columns: 24px 24px minmax(0, 1fr) 26px 26px;
   }
 
   .browser-forward,
@@ -1668,7 +1679,7 @@ body.reduce-motion *::after {
 
 @container (max-width: 220px) {
   .browser-bar {
-    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-columns: 24px minmax(0, 1fr) 26px;
   }
 
   .browser-back,

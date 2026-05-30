@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, ipcMain, shell, clipboard, dialog } = require(
 const { pathToFileURL } = require("node:url");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 
@@ -18,6 +19,133 @@ function log(message) {
     fs.appendFileSync(logPath, `${new Date().toISOString()} ${message}\n`);
   } catch {
     // Best-effort debug logging.
+  }
+}
+
+function firstExistingPath(paths) {
+  return paths.find((candidate) => candidate && fs.existsSync(candidate)) || "";
+}
+
+function browserInstallSources() {
+  const programFiles = process.env.ProgramFiles || "C:\\Program Files";
+  const programFilesX86 = process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)";
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  return [
+    {
+      id: "chrome",
+      label: "Chrome",
+      executablePaths: [
+        path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+        path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+        path.join(localAppData, "Google", "Chrome", "Application", "chrome.exe")
+      ],
+      userDataDir: path.join(localAppData, "Google", "Chrome", "User Data")
+    },
+    {
+      id: "edge",
+      label: "Edge",
+      executablePaths: [
+        path.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+        path.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+        path.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe")
+      ],
+      userDataDir: path.join(localAppData, "Microsoft", "Edge", "User Data")
+    },
+    {
+      id: "brave",
+      label: "Brave",
+      executablePaths: [
+        path.join(programFiles, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+        path.join(programFilesX86, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+        path.join(localAppData, "BraveSoftware", "Brave-Browser", "Application", "brave.exe")
+      ],
+      userDataDir: path.join(localAppData, "BraveSoftware", "Brave-Browser", "User Data")
+    }
+  ];
+}
+
+function browserProfileName(userDataDir, profileDirectory) {
+  const fallback = profileDirectory === "Default" ? "Default" : profileDirectory.replace(/^Profile\s+/i, "Profile ");
+  try {
+    const preferencesPath = path.join(userDataDir, profileDirectory, "Preferences");
+    const preferences = JSON.parse(fs.readFileSync(preferencesPath, "utf8"));
+    const name = String(preferences?.profile?.name || "").trim();
+    return name || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function browserProfileDirectories(userDataDir) {
+  try {
+    const entries = fs.readdirSync(userDataDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((name) => name === "Default" || /^Profile \d+$/i.test(name));
+    return entries.sort((left, right) => {
+      if (left === "Default") return -1;
+      if (right === "Default") return 1;
+      return left.localeCompare(right, undefined, { numeric: true });
+    });
+  } catch {
+    return [];
+  }
+}
+
+function detectedBrowserProfiles() {
+  const profiles = [{
+    id: "system",
+    label: "System default browser",
+    browser: "System",
+    profileName: "Default",
+    profileDirectory: "",
+    executable: ""
+  }];
+  for (const source of browserInstallSources()) {
+    const executable = firstExistingPath(source.executablePaths);
+    if (!executable) continue;
+    const directories = browserProfileDirectories(source.userDataDir);
+    const profileDirectories = directories.length ? directories : ["Default"];
+    for (const profileDirectory of profileDirectories) {
+      const profileName = browserProfileName(source.userDataDir, profileDirectory);
+      profiles.push({
+        id: `${source.id}:${profileDirectory}`,
+        label: `${source.label} / ${profileName}`,
+        browser: source.label,
+        profileName,
+        profileDirectory,
+        executable
+      });
+    }
+  }
+  return profiles;
+}
+
+function publicBrowserProfiles() {
+  return detectedBrowserProfiles().map(({ executable, ...profile }) => profile);
+}
+
+async function openUrlInBrowserProfile(url, profileId = "system") {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+    return { ok: false, error: "unsupported url" };
+  }
+  const profiles = detectedBrowserProfiles();
+  const profile = profiles.find((candidate) => candidate.id === profileId) || profiles[0];
+  if (!profile || profile.id === "system" || !profile.executable) {
+    await shell.openExternal(url);
+    return { ok: true, profileId: "system" };
+  }
+  try {
+    const child = spawn(profile.executable, [`--profile-directory=${profile.profileDirectory}`, url], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false
+    });
+    child.unref();
+    return { ok: true, profileId: profile.id };
+  } catch (error) {
+    await shell.openExternal(url);
+    return { ok: false, profileId: "system", error: error.message };
   }
 }
 
@@ -216,12 +344,8 @@ if (!hasLock) {
   });
   ipcMain.handle("window:close", () => mainWindow?.close());
   ipcMain.handle("window:is-maximized", () => Boolean(mainWindow?.isMaximized()));
-  ipcMain.handle("open-external", (_event, url) => {
-    if (typeof url === "string" && /^https?:\/\//i.test(url)) {
-      return shell.openExternal(url);
-    }
-    return false;
-  });
+  ipcMain.handle("open-external", (_event, url, profileId = "system") => openUrlInBrowserProfile(url, profileId));
+  ipcMain.handle("browser:profiles", () => publicBrowserProfiles());
   ipcMain.handle("open-path", async (_event, filePath) => {
     if (typeof filePath !== "string" || !filePath.trim()) return { ok: false, error: "missing path" };
     const targetPath = path.resolve(filePath);

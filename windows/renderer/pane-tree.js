@@ -161,6 +161,35 @@ export function paneTreeContainsPanel(node, panelId) {
   return paneTreeContainsPanel(node.first, panelId) || paneTreeContainsPanel(node.second, panelId);
 }
 
+export function swapPaneTreePanelIds(node, firstPanelId, secondPanelId) {
+  const firstId = String(firstPanelId || "");
+  const secondId = String(secondPanelId || "");
+  if (!node || !firstId || !secondId || firstId === secondId) return clonePaneTree(node);
+  if (!paneTreeContainsPanel(node, firstId) || !paneTreeContainsPanel(node, secondId)) {
+    return clonePaneTree(node);
+  }
+  return swapPaneTreePanelIdsUnchecked(node, firstId, secondId);
+}
+
+function swapPaneTreePanelIdsUnchecked(node, firstId, secondId) {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "pane") {
+    if (node.panelId === firstId) return paneTreeLeaf(secondId);
+    if (node.panelId === secondId) return paneTreeLeaf(firstId);
+    return paneTreeLeaf(node.panelId);
+  }
+  if (node.type === "split") {
+    return paneTreeSplit(
+      node.direction,
+      swapPaneTreePanelIdsUnchecked(node.first, firstId, secondId),
+      swapPaneTreePanelIdsUnchecked(node.second, firstId, secondId),
+      node.ratio,
+      node.id
+    );
+  }
+  return clonePaneTree(node);
+}
+
 export function paneTreeSplitForPanel(node, panelId) {
   if (!node || node.type !== "split") return null;
   const firstResult = paneTreeSplitForPanel(node.first, panelId);
