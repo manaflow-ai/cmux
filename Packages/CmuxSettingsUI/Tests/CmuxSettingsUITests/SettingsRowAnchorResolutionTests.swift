@@ -18,9 +18,15 @@ import Testing
 /// single key). Together they must cover every curated setting entry.
 @Suite("SettingsRowAnchorResolution")
 struct SettingsRowAnchorResolutionTests {
-    /// Every singular cmux.json path declared by a settings row.
-    /// Excludes `workspaceColors.colors`, which is a repeated per-palette
-    /// color row with no single search result.
+    /// Every singular cmux.json path declared by an *unconditionally
+    /// rendered* settings row. Excludes rows that aren't standalone search
+    /// results: `workspaceColors.colors` (repeated per-palette rows) and
+    /// the conditional sub-fields that are hidden in the default state —
+    /// `automation.socketPassword` (only in password mode),
+    /// `browser.customSearchEngineName` / `customSearchEngineURLTemplate`
+    /// (only when the engine is Custom). Those would be dead search hits
+    /// when hidden, so their search terms fold into the always-visible
+    /// parent (Socket Control Mode / Default Search Engine) instead.
     ///
     /// This is a deliberately hand-maintained contract list: the rows live
     /// in SwiftUI view bodies (`Sections/*.swift`) that can't be reflected
@@ -57,10 +63,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.portRange",
         "automation.ripgrepBinaryPath",
         "automation.socketControlMode",
-        "automation.socketPassword",
         "automation.suppressSubagentNotifications",
-        "browser.customSearchEngineName",
-        "browser.customSearchEngineURLTemplate",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
