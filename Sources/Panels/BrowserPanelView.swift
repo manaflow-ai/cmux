@@ -456,6 +456,10 @@ struct BrowserPanelView: View {
     @State private var suppressNextFocusGainedSelectAll: Bool = false
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    @State private var isBrowserExtensionsPopoverPresented = false
+    @State private var pendingBrowserExtensionActionID: UUID?
+    @State private var browserExtensionActions: [BrowserWebExtensionActionSnapshot] = []
+    @State private var activeBrowserExtensionAction: BrowserWebExtensionActionSnapshot?
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -757,6 +761,8 @@ struct BrowserPanelView: View {
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
         refreshEmptyStateImportBrowsers()
         panel.historyStore.loadIfNeeded()
+        refreshBrowserExtensionActions()
+        noteBrowserExtensionPanelActivation(isFocused: isFocused)
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
@@ -777,6 +783,7 @@ struct BrowserPanelView: View {
         screenshotPageCopiedTimer?.invalidate()
         screenshotPageCopiedTimer = nil
         screenshotPageCopied = false
+        noteBrowserExtensionPanelActivation(isFocused: false)
     }
 
     private func handleBrowserWebViewClickIntent(_ notification: Notification) {
@@ -832,6 +839,13 @@ struct BrowserPanelView: View {
             preserveRoundTrip: true,
             reason: "panel.currentURL.changed"
         )
+        refreshBrowserExtensionActions()
+    }
+
+    private func handleBrowserExtensionsPopoverPresentationChange(_ isPresented: Bool) {
+        guard !isPresented, let actionID = pendingBrowserExtensionActionID else { return }
+        pendingBrowserExtensionActionID = nil
+        BrowserWebExtensionSupport.performAction(actionID, for: panel)
     }
 
     private func handleBrowserThemeModeRawChange() {
@@ -865,6 +879,7 @@ struct BrowserPanelView: View {
             effectiveVisibility,
             reason: effectiveVisibility ? "view.visible" : "view.hidden"
         )
+        noteBrowserExtensionPanelActivation(isFocused: isFocused)
         if visibleInUI {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
@@ -890,6 +905,7 @@ struct BrowserPanelView: View {
         )
 #endif
         // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
+        noteBrowserExtensionPanelActivation(isFocused: focused)
         if focused {
             applyPendingAddressBarFocusRequestIfNeeded()
             autoFocusOmnibarIfBlank()
@@ -1047,9 +1063,19 @@ struct BrowserPanelView: View {
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
+        .overlay(browserExtensionsOutsideDismissLayer)
+        .overlay(alignment: .topTrailing) {
+            if isBrowserExtensionsPopoverPresented {
+                browserExtensionsInlinePopover
+                    .padding(.top, addressBarHeight + 4)
+                    .padding(.trailing, 8 + addressBarButtonSize + browserToolbarAccessorySpacing)
+                    .zIndex(1100)
+                    .environment(\.colorScheme, browserChromeColorScheme)
+            }
+        }
     }
 
-    var body: some View {
+    private var browserPanelBaseViewWithPreferences: some View {
         browserPanelBaseView
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
@@ -1058,9 +1084,23 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
+        .onChange(of: isBrowserExtensionsPopoverPresented) { _, isPresented in
+            handleBrowserExtensionsPopoverPresentationChange(isPresented)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: BrowserWebExtensionSupport.didChangeNotification)
+                .receive(on: RunLoop.main)
+        ) { _ in
+            refreshBrowserExtensionActions()
+        }
+    }
+
+    var body: some View {
+        browserPanelBaseViewWithPreferences
         .onAppear {
             handleBrowserPanelAppear()
         }
@@ -1130,6 +1170,7 @@ struct BrowserPanelView: View {
                 reactGrabButton
                 browserProfileButton
                 browserThemeModeButton
+                browserExtensionsButton
                 developerToolsButton
             }
         }
@@ -1343,6 +1384,145 @@ struct BrowserPanelView: View {
             )
         )
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserExtensionsButton: some View {
+        Button(action: {
+            refreshBrowserExtensionActions()
+            isBrowserExtensionsPopoverPresented.toggle()
+        }) {
+            browserExtensionActionIcon(
+                activeBrowserExtensionAction,
+                iconSize: 16,
+                fallbackSystemSize: devToolsButtonIconSize
+            )
+            .foregroundStyle(browserExtensionActions.isEmpty ? Color.secondary : devToolsColorOption.color)
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .background(BrowserWebExtensionActionPopupAnchor(panelID: panel.id))
+        .safeHelp(String(localized: "browser.extensions.buttonHelp", defaultValue: "Browser Extensions"))
+        .accessibilityLabel(String(localized: "browser.extensions.buttonHelp", defaultValue: "Browser Extensions"))
+        .accessibilityValue(activeBrowserExtensionAction?.label ?? "")
+        .accessibilityIdentifier("BrowserExtensionsButton")
+    }
+
+    private func noteBrowserExtensionPanelActivation(isFocused focused: Bool) {
+        let shouldReportFocused = focused && isVisibleInUI && isCurrentPaneOwner
+        BrowserWebExtensionSupport.notePanelFocusChanged(panel: panel, isFocused: shouldReportFocused)
+    }
+
+    @ViewBuilder
+    private var browserExtensionsOutsideDismissLayer: some View {
+        if isBrowserExtensionsPopoverPresented {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isBrowserExtensionsPopoverPresented = false
+                }
+                .zIndex(1090)
+        }
+    }
+
+    private var browserExtensionsInlinePopover: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            BrowserExtensionsPopoverArrow()
+                .fill(.regularMaterial)
+                .frame(width: 18, height: 9)
+                .overlay(
+                    BrowserExtensionsPopoverArrow()
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.75)
+                )
+                .padding(.trailing, 14)
+                .offset(y: 1)
+
+            browserExtensionsPopover
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.75)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 8)
+        }
+    }
+
+    private var browserExtensionsPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "browser.extensions.menu.title", defaultValue: "Extensions"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            if browserExtensionActions.isEmpty {
+                Text(String(localized: "browser.extensions.menu.empty", defaultValue: "No loaded extensions."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(browserExtensionActions) { action in
+                        Button {
+                            pendingBrowserExtensionActionID = action.id
+                            isBrowserExtensionsPopoverPresented = false
+                        } label: {
+                            HStack(spacing: 8) {
+                                browserExtensionActionIcon(
+                                    action,
+                                    iconSize: 14,
+                                    fallbackSystemSize: 11
+                                )
+                                .frame(width: 14, alignment: .center)
+                                Text(action.label)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                                if !action.badgeText.isEmpty {
+                                    Text(action.badgeText)
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5)
+                                        .frame(minHeight: 14)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color.accentColor)
+                                        )
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(height: 26)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!action.isEnabled)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 240, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func browserExtensionActionIcon(
+        _ action: BrowserWebExtensionActionSnapshot?,
+        iconSize: CGFloat,
+        fallbackSystemSize: CGFloat
+    ) -> some View {
+        if let iconPNGData = action?.iconPNGData,
+           let icon = NSImage(data: iconPNGData) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: iconSize, height: iconSize, alignment: .center)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "puzzlepiece.extension")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: fallbackSystemSize, weight: .medium))
+                .accessibilityHidden(true)
+        }
     }
 
     private var browserImportHintToolbarChip: some View {
@@ -1678,6 +1858,11 @@ struct BrowserPanelView: View {
             for: colorScheme,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
         )
+    }
+
+    private func refreshBrowserExtensionActions() {
+        browserExtensionActions = BrowserWebExtensionSupport.actionSnapshots(for: panel)
+        activeBrowserExtensionAction = BrowserWebExtensionSupport.activeActionPopupSnapshot(for: panel)
     }
 
     private func syncWebViewResponderPolicyWithViewState(
@@ -3849,6 +4034,84 @@ final class OmnibarNativeTextField: NSTextField {
         handled = result
 #endif
         return result
+    }
+}
+
+private final class BrowserWebExtensionActionPopupAnchorView: NSView {
+    var panelID: UUID? {
+        didSet {
+            publishGeometry()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        publishGeometry()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        publishGeometry()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        publishGeometry()
+    }
+
+    override func layout() {
+        super.layout()
+        publishGeometry()
+    }
+
+    private func publishGeometry() {
+        guard let panelID else { return }
+        BrowserWebExtensionSupport.noteActionPopupAnchorGeometryChanged(self, forPanelID: panelID)
+    }
+}
+
+private struct BrowserWebExtensionActionPopupAnchor: NSViewRepresentable {
+    let panelID: UUID
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(panelID: panelID)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = BrowserWebExtensionActionPopupAnchorView()
+        view.panelID = panelID
+        context.coordinator.panelID = panelID
+        BrowserWebExtensionSupport.setActionPopupAnchorView(view, forPanelID: panelID)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.panelID = panelID
+        (nsView as? BrowserWebExtensionActionPopupAnchorView)?.panelID = panelID
+        BrowserWebExtensionSupport.setActionPopupAnchorView(nsView, forPanelID: panelID)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        BrowserWebExtensionSupport.setActionPopupAnchorView(nil, forPanelID: coordinator.panelID)
+    }
+
+    final class Coordinator {
+        var panelID: UUID
+
+        init(panelID: UUID) {
+            self.panelID = panelID
+        }
+    }
+}
+
+private struct BrowserExtensionsPopoverArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 

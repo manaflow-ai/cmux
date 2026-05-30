@@ -155,6 +155,8 @@ extension CmuxSettingsFileStore {
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.showImportHintOnBlankTabs",
+        "browser.extensionsDeveloperMode",
+        "browser.extensionsAllowFileURLAccess",
         "browser.reactGrabVersion",
         "shortcuts.bindings",
     ]

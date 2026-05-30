@@ -9,7 +9,7 @@ nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
 }
 
 private nonisolated struct CmuxTopProcessScopeCacheValue {
-    let scope: CmuxTopProcessScope
+    let scope: CmuxTopProcessScope?
 }
 
 // CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
@@ -46,10 +46,7 @@ nonisolated extension CmuxTopProcessSnapshot {
             return cached.scope
         }
 
-        guard let scope = cmuxScope(for: pid, expectedCacheKey: cacheKey) else {
-            return nil
-        }
-
+        let scope = cmuxScope(for: pid, expectedCacheKey: cacheKey)
         cmuxTopScopeCache.withLock { cache in
             cache[cacheKey] = CmuxTopProcessScopeCacheValue(scope: scope)
         }

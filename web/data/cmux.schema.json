@@ -989,6 +989,16 @@
           "default": true,
           "description": "Show the browser import hint on blank tabs."
         },
+        "extensionsDeveloperMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow direct local .appex loading for Safari Web Extension development. Normal extension installs should use Safari extension app bundles."
+        },
+        "extensionsAllowFileURLAccess": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow browser extension host permissions to include file:// URLs after install or runtime consent."
+        },
         "reactGrabVersion": {
           "type": "string",
           "default": "0.1.29",

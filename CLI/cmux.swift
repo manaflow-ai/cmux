@@ -10748,7 +10748,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "extension", "extensions", "profile", "profiles"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -10927,6 +10927,49 @@ struct CMUXCLI {
             }
         }
 
+        func browserExtensionLine(_ raw: Any) -> String? {
+            guard let item = raw as? [String: Any],
+                  let name = stringPayloadValue(item["name"]),
+                  let id = stringPayloadValue(item["id"]) else {
+                return nil
+            }
+            let enabled = (item["enabled"] as? Bool) == true
+                ? "enabled"
+                : "disabled"
+            let loaded = (item["loaded"] as? Bool) == true
+                ? "loaded"
+                : "not-loaded"
+            let kind = stringPayloadValue(item["source_kind"]) ?? "unknown"
+            let path = stringPayloadValue(item["source_path"]) ?? ""
+            let error = stringPayloadValue(item["last_error"]).map { " error=\($0)" } ?? ""
+            return "\(id)\t\(name)\t\(enabled)\t\(loaded)\t\(kind)\t\(path)\(error)"
+        }
+
+        func printBrowserExtensions(_ payload: [String: Any]) {
+            guard let extensions = payload["extensions"] as? [Any], !extensions.isEmpty else {
+                print("No browser extensions")
+                return
+            }
+            for item in extensions {
+                if let line = browserExtensionLine(item) {
+                    print(line)
+                }
+            }
+        }
+
+        func printBrowserExtensionOperation(_ payload: [String: Any], fallback: String) {
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                return
+            }
+            if let extensionDict = payload["extension"] as? [String: Any],
+               let line = browserExtensionLine(extensionDict) {
+                print(line)
+            } else {
+                print(fallback)
+            }
+        }
+
         if subcommand == "identify" {
             let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true)
             var payload = try client.sendV2(method: "system.identify")
@@ -10940,6 +10983,133 @@ struct CMUXCLI {
                 payload["browser"] = browser
             }
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "extension" || subcommand == "extensions" {
+            let extensionVerb = subArgs.first?.lowercased() ?? "list"
+            let extensionArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let normalizedVerb: String
+            switch extensionVerb {
+            case "ls":
+                normalizedVerb = "list"
+            case "load", "add":
+                normalizedVerb = "install"
+            case "rm", "delete":
+                normalizedVerb = "remove"
+            default:
+                normalizedVerb = extensionVerb
+            }
+
+            let (profileOpt, extensionArgsWithoutProfile) = parseOption(extensionArgs, name: "--profile")
+            func extensionParams(extra: [String: Any] = [:]) -> [String: Any] {
+                var params = extra
+                if let profileOpt {
+                    params["profile"] = profileOpt
+                }
+                return params
+            }
+
+            switch normalizedVerb {
+            case "list":
+                let payload = try client.sendV2(
+                    method: "browser.extensions.list",
+                    params: extensionParams()
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    printBrowserExtensions(payload)
+                }
+            case "discover":
+                guard let path = nonFlagArgs(extensionArgsWithoutProfile).first else {
+                    throw CLIError(message: "browser extensions discover requires a path")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.extensions.discover",
+                    params: extensionParams(extra: ["path": resolvePath(path)])
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if let source = payload["source"] as? [String: Any],
+                          let kind = stringPayloadValue(source["kind"]),
+                          let sourcePath = stringPayloadValue(source["path"]) {
+                    print("\(kind)\t\(sourcePath)")
+                } else {
+                    print("OK")
+                }
+            case "install":
+                guard let path = nonFlagArgs(extensionArgsWithoutProfile).first else {
+                    throw CLIError(message: "browser extensions \(extensionVerb) requires a path")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.extensions.install",
+                    params: extensionParams(extra: ["path": resolvePath(path)]),
+                    responseTimeout: 305
+                )
+                printBrowserExtensionOperation(payload, fallback: "Installed browser extension.")
+            case "reload":
+                var params = extensionParams()
+                if let query = nonFlagArgs(extensionArgsWithoutProfile).first {
+                    params["extension"] = query
+                }
+                let payload = try client.sendV2(
+                    method: "browser.extensions.reload",
+                    params: params,
+                    responseTimeout: 125
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else if payload["extensions"] != nil {
+                    printBrowserExtensions(payload)
+                } else {
+                    printBrowserExtensionOperation(payload, fallback: "Reloaded browser extensions.")
+                }
+            case "activate", "popup", "show":
+                guard let query = nonFlagArgs(extensionArgsWithoutProfile).first else {
+                    throw CLIError(message: "browser extensions \(extensionVerb) requires an extension id or name")
+                }
+                var params = extensionParams(extra: ["extension": query])
+                if let surfaceRaw,
+                   let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true) {
+                    params["surface_id"] = surface
+                }
+                let payload = try client.sendV2(
+                    method: "browser.extensions.activate",
+                    params: params,
+                    responseTimeout: 30
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    printBrowserExtensionOperation(payload, fallback: "Activated browser extension.")
+                }
+            case "enable", "disable", "remove":
+                guard let query = nonFlagArgs(extensionArgsWithoutProfile).first else {
+                    throw CLIError(message: "browser extensions \(extensionVerb) requires an extension id or name")
+                }
+                let method: String
+                switch normalizedVerb {
+                case "enable":
+                    method = "browser.extensions.enable"
+                case "disable":
+                    method = "browser.extensions.disable"
+                default:
+                    method = "browser.extensions.remove"
+                }
+                let payload = try client.sendV2(
+                    method: method,
+                    params: extensionParams(extra: ["extension": query]),
+                    responseTimeout: 125
+                )
+                if normalizedVerb == "remove" && !effectiveJSONOutput {
+                    print("Removed browser extension.")
+                } else {
+                    printBrowserExtensionOperation(payload, fallback: "OK")
+                }
+            default:
+                throw CLIError(message: "Unsupported browser extensions subcommand: \(extensionVerb)")
+            }
             return
         }
 
@@ -14332,7 +14502,7 @@ struct CMUXCLI {
 
             Browser automation commands. Most subcommands require a surface handle.
             A surface can be passed as `--surface <handle>` or as the first positional token.
-            `open`/`open-split`/`new`/`identify` can run without an explicit surface.
+            `open`/`open-split`/`new`/`identify`/`extensions` can run without an explicit surface.
 
             Subcommands:
               open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -14365,6 +14535,7 @@ struct CMUXCLI {
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              extensions <list|discover|install|load|reload|enable|disable|remove> [...]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
@@ -31295,6 +31466,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser extensions <list|discover|install|load|reload|activate|enable|disable|remove> [...]
           browser profiles <list|add|rename|clear|delete> [...]
           browser profiles clear <profile|--all> [--force]
           browser import [...]

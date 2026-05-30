@@ -2261,6 +2261,13 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.extensions.list",
+        "browser.extensions.discover",
+        "browser.extensions.install",
+        "browser.extensions.reload",
+        "browser.extensions.enable",
+        "browser.extensions.disable",
+        "browser.extensions.remove",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -2366,6 +2373,34 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.extensions.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserExtensionAutomation.list(params: request.params)
+            }
+        case "browser.extensions.discover":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserExtensionAutomation.discover(params: request.params)
+            }
+        case "browser.extensions.install":
+            return v2VmCall(id: request.id, timeoutSeconds: 300) {
+                try await BrowserExtensionAutomation.install(params: request.params)
+            }
+        case "browser.extensions.reload":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.reload(params: request.params)
+            }
+        case "browser.extensions.enable":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.setEnabled(params: request.params, enabled: true)
+            }
+        case "browser.extensions.disable":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.setEnabled(params: request.params, enabled: false)
+            }
+        case "browser.extensions.remove":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.remove(params: request.params)
+            }
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
@@ -3688,6 +3723,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: true))
         case "browser.dialog.dismiss":
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
+        case "browser.extensions.activate":
+            return self.v2BrowserExtensionActivate(id: id, params: params)
         case "browser.import.dialog":
             return v2Result(id: id, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
@@ -4048,6 +4085,14 @@ class TerminalController {
             "browser.dialog.accept",
             "browser.dialog.dismiss",
             "browser.download.wait",
+            "browser.extensions.list",
+            "browser.extensions.discover",
+            "browser.extensions.install",
+            "browser.extensions.reload",
+            "browser.extensions.activate",
+            "browser.extensions.enable",
+            "browser.extensions.disable",
+            "browser.extensions.remove",
             "browser.cookies.get",
             "browser.cookies.set",
             "browser.cookies.clear",
@@ -11635,6 +11680,107 @@ class TerminalController {
             result = body(tabManager, ws, surfaceId, browserPanel)
         }
         return result
+    }
+
+    private func v2BrowserExtensionActivate(id: Any?, params: [String: Any]) -> String {
+        let query = [
+            params["extension"] as? String,
+            params["id"] as? String,
+            params["name"] as? String,
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
+
+        guard let query else {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: "Missing browser extension id or name",
+                data: nil
+            )
+        }
+
+        let result = v2BrowserWithPanel(params: params) { _, _, surfaceId, browserPanel in
+            let actions = BrowserWebExtensionSupport.actionSnapshots(for: browserPanel)
+            let installedExtensions = BrowserWebExtensionSupport.installedExtensionSummaries(profileID: browserPanel.profileID)
+            let exactInstalledMatches = installedExtensions.filter { summary in
+                summary.id.uuidString.caseInsensitiveCompare(query) == .orderedSame ||
+                    summary.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }
+            guard exactInstalledMatches.count <= 1 else {
+                return .err(
+                    code: "ambiguous",
+                    message: "Multiple browser extensions match '\(query)'",
+                    data: [
+                        "extension": query,
+                        "matches": exactInstalledMatches.map(\.displayName),
+                    ]
+                )
+            }
+            let resolvedInstalledID = exactInstalledMatches.first?.id
+            let exactMatches = actions.filter { action in
+                action.id == resolvedInstalledID ||
+                    action.id.uuidString.caseInsensitiveCompare(query) == .orderedSame ||
+                    action.label.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }
+            let matches = exactMatches.isEmpty
+                ? actions.filter { action in
+                    action.label.localizedCaseInsensitiveContains(query) ||
+                        installedExtensions.first(where: { $0.id == action.id })?.displayName.localizedCaseInsensitiveContains(query) == true
+                }
+                : exactMatches
+
+            guard !matches.isEmpty else {
+                return .err(
+                    code: "not_found",
+                    message: "No loaded browser extension action matches '\(query)'",
+                    data: ["extension": query]
+                )
+            }
+            guard matches.count == 1, let action = matches.first else {
+                return .err(
+                    code: "ambiguous",
+                    message: "Multiple browser extension actions match '\(query)'",
+                    data: [
+                        "extension": query,
+                        "matches": matches.map { $0.label },
+                    ]
+                )
+            }
+
+            BrowserWebExtensionSupport.performAction(action.id, for: browserPanel)
+            let extensionPayload: [String: Any]
+            if let summary = installedExtensions.first(where: { $0.id == action.id }) {
+                extensionPayload = BrowserExtensionAutomation.extensionPayload(summary, profileID: browserPanel.profileID)
+            } else {
+                extensionPayload = [
+                    "id": action.id.uuidString,
+                    "profile_id": browserPanel.profileID.uuidString,
+                    "name": action.label,
+                    "detail": "",
+                    "source_kind": "unknown",
+                    "source_path": "",
+                    "enabled": action.isEnabled,
+                    "loaded": true,
+                    "permissions": [],
+                    "host_permissions": [],
+                    "last_error": NSNull(),
+                ]
+            }
+            return .ok([
+                "activated": true,
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "extension": extensionPayload,
+                "action": [
+                    "id": action.id.uuidString,
+                    "name": action.label,
+                    "badge_text": action.badgeText,
+                    "enabled": action.isEnabled,
+                ],
+            ])
+        }
+        return v2Result(id: id, result)
     }
 
     private func v2ResolveBrowserSurfaceId(
