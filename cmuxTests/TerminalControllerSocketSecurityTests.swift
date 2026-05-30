@@ -140,6 +140,68 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testSocketFastPathKeepsSequencedShellActivityOrdered() {
+        let fastPath = TerminalController.SocketFastPathState()
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: .promptIdle,
+                shellActivitySequence: 2
+            )
+        )
+        XCTAssertFalse(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: .commandRunning,
+                shellActivitySequence: 1
+            )
+        )
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: .commandRunning,
+                shellActivitySequence: 3
+            )
+        )
+    }
+
+    func testSocketFastPathPublishesNewerSequencedDuplicateState() {
+        let fastPath = TerminalController.SocketFastPathState()
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: .commandRunning,
+                shellActivitySequence: 1
+            )
+        )
+        XCTAssertTrue(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: .commandRunning,
+                shellActivitySequence: 2
+            )
+        )
+        XCTAssertFalse(
+            fastPath.shouldPublishShellActivity(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                state: .commandRunning,
+                shellActivitySequence: 2
+            )
+        )
+    }
+
     func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {
 #if DEBUG
         TerminalController.shared.setActiveTabManager(TabManager())

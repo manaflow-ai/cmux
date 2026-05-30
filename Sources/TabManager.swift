@@ -6555,9 +6555,41 @@ class TabManager: ObservableObject {
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
+    func updateSurfaceRemoteSession(
+        tabId: UUID,
+        surfaceId: UUID,
+        session: DetectedRemoteTerminalSession?,
+        shellActivitySequence: UInt64? = nil
+    ) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.updatePanelRemoteSession(
+            panelId: surfaceId,
+            session: session,
+            shellActivitySequence: shellActivitySequence
+        ) else {
+            return
+        }
+        if session != nil {
+            clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+        }
+        if tab.focusedPanelId == surfaceId,
+           let title = tab.panelTitle(panelId: surfaceId) {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
+        }
+    }
+
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
+        if !tab.isRemoteWorkspace,
+           let remoteSession = DetectedRemoteTerminalSession.fromReportedDirectory(directory) {
+            guard tab.panelShellActivityStates[surfaceId] != .promptIdle else { return }
+            updateSurfaceRemoteSession(tabId: tabId, surfaceId: surfaceId, session: remoteSession)
+            return
+        }
         let normalized = normalizeDirectory(directory)
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
         let nextDirectory = normalizedWorkingDirectory(normalized)
@@ -6637,10 +6669,25 @@ class TabManager: ObservableObject {
     func updateSurfaceShellActivity(
         tabId: UUID,
         surfaceId: UUID,
-        state: Workspace.PanelShellActivityState
+        state: Workspace.PanelShellActivityState,
+        shellActivitySequence: UInt64? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+        guard tab.updatePanelShellActivityState(
+            panelId: surfaceId,
+            state: state,
+            shellActivitySequence: shellActivitySequence
+        ) else {
+            return
+        }
+        if state == .promptIdle,
+           tab.focusedPanelId == surfaceId,
+           let title = tab.panelTitle(panelId: surfaceId) {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
+        }
         if state == .promptIdle {
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: tabId,
@@ -8067,7 +8114,7 @@ class TabManager: ObservableObject {
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
         if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
+            tab.applyProcessTitle(tab.panelTitle(panelId: panelId) ?? title)
             if selectedTabId == tabId {
                 updateWindowTitle(for: tab)
             }
@@ -8077,7 +8124,7 @@ class TabManager: ObservableObject {
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               let focusedPanelId = tab.focusedPanelId,
-              let title = tab.panelTitles[focusedPanelId] else { return }
+              let title = tab.panelTitle(panelId: focusedPanelId) else { return }
         tab.applyProcessTitle(title)
         if selectedTabId == tabId {
             updateWindowTitle(for: tab)

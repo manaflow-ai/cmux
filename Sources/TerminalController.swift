@@ -688,10 +688,15 @@ class TerminalController {
         let panelId: UUID
     }
 
-    private final class SocketFastPathState: @unchecked Sendable {
+    final class SocketFastPathState: @unchecked Sendable {
+        private struct ReportedShellActivity {
+            var state: Workspace.PanelShellActivityState
+            var sequence: UInt64?
+        }
+
         private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
         private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
-        private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
+        private var lastReportedShellActivities: [SocketSurfaceKey: ReportedShellActivity] = [:]
         private let maxTrackedDirectories = 4096
         private let maxTrackedShellStates = 4096
 
@@ -712,20 +717,34 @@ class TerminalController {
         func shouldPublishShellActivity(
             workspaceId: UUID,
             panelId: UUID,
-            state: Workspace.PanelShellActivityState
+            state: Workspace.PanelShellActivityState,
+            shellActivitySequence: UInt64? = nil
         ) -> Bool {
             let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
             return queue.sync {
-                if lastReportedShellStates[key] == state {
-                    return false
+                if let current = lastReportedShellActivities[key] {
+                    if let shellActivitySequence {
+                        if let currentSequence = current.sequence {
+                            guard shellActivitySequence > currentSequence else {
+                                return false
+                            }
+                        }
+                    } else if current.state == state {
+                        return false
+                    }
                 }
-                if lastReportedShellStates.count >= maxTrackedShellStates {
-                    lastReportedShellStates.removeAll(keepingCapacity: true)
+
+                if lastReportedShellActivities.count >= maxTrackedShellStates {
+                    lastReportedShellActivities.removeAll(keepingCapacity: true)
                 }
-                lastReportedShellStates[key] = state
+                lastReportedShellActivities[key] = ReportedShellActivity(
+                    state: state,
+                    sequence: shellActivitySequence ?? lastReportedShellActivities[key]?.sequence
+                )
                 return true
             }
         }
+
     }
 
     private static let socketFastPathState = SocketFastPathState()
@@ -795,6 +814,13 @@ class TerminalController {
         default:
             return nil
         }
+    }
+
+    nonisolated static func parseReportedShellActivitySequence(
+        _ rawSequence: String?
+    ) -> UInt64? {
+        guard let rawSequence else { return nil }
+        return UInt64(rawSequence.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     nonisolated static func parseRemotePortScanKickReason(
@@ -3120,6 +3146,9 @@ class TerminalController {
 
         case "report_shell_state":
             return reportShellState(args)
+
+        case "report_foreground_command":
+            return reportForegroundCommand(args)
 
         case "report_pr_action":
             return reportPullRequestAction(args)
@@ -7869,12 +7898,16 @@ class TerminalController {
               let state = Self.parseReportedShellActivityState(rawState) else {
             return .err(code: "invalid_params", message: "state must be prompt, running, or unknown", data: nil)
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            v2RawString(params, "seq") ?? v2RawString(params, "sequence")
+        )
 
         if let requestedSurfaceId {
             let shouldPublish = Self.socketFastPathState.shouldPublishShellActivity(
                 workspaceId: workspaceId,
                 panelId: requestedSurfaceId,
-                state: state
+                state: state,
+                shellActivitySequence: shellActivitySequence
             )
             if shouldPublish {
                 DispatchQueue.main.async {
@@ -7882,7 +7915,8 @@ class TerminalController {
                     tabManager.updateSurfaceShellActivity(
                         tabId: workspaceId,
                         surfaceId: requestedSurfaceId,
-                        state: state
+                        state: state,
+                        shellActivitySequence: shellActivitySequence
                     )
                 }
             }
@@ -7916,7 +7950,12 @@ class TerminalController {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
                 return
             }
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            tabManager.updateSurfaceShellActivity(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                state: state,
+                shellActivitySequence: shellActivitySequence
+            )
         }
 
         return .ok([
@@ -21069,18 +21108,27 @@ class TerminalController {
         guard let state = Self.parseReportedShellActivityState(rawState) else {
             return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
         }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            parsed.options["seq"] ?? parsed.options["sequence"]
+        )
 
         if let scope = Self.explicitSocketScope(options: parsed.options) {
             guard Self.socketFastPathState.shouldPublishShellActivity(
                 workspaceId: scope.workspaceId,
                 panelId: scope.panelId,
-                state: state
+                state: state,
+                shellActivitySequence: shellActivitySequence
             ) else {
                 return "OK"
             }
             TerminalMutationBus.shared.enqueueMainActorMutation {
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
-                tabManager.updateSurfaceShellActivity(tabId: scope.workspaceId, surfaceId: scope.panelId, state: state)
+                tabManager.updateSurfaceShellActivity(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    state: state,
+                    shellActivitySequence: shellActivitySequence
+                )
             }
             return "OK"
         }
@@ -21122,9 +21170,44 @@ class TerminalController {
                 return
             }
 
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            tabManager.updateSurfaceShellActivity(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                state: state,
+                shellActivitySequence: shellActivitySequence
+            )
         }
         return result
+    }
+
+    private func reportForegroundCommand(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let commandLine = parsed.positional.first, !commandLine.isEmpty else {
+            return "ERROR: Missing command — usage: report_foreground_command <command> [--tab=X] [--panel=Y]"
+        }
+        guard let session = TerminalSSHSessionDetector.detectRemoteSession(commandLine: commandLine) else {
+            return "OK"
+        }
+        let shellActivitySequence = Self.parseReportedShellActivitySequence(
+            parsed.options["seq"] ?? parsed.options["sequence"]
+        )
+
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_foreground_command <command> [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
+            guard !tab.isRemoteWorkspace,
+                  let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else {
+                return
+            }
+            tabManager.updateSurfaceRemoteSession(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                session: session,
+                shellActivitySequence: shellActivitySequence
+            )
+        }
     }
 
     private func reportPullRequestAction(_ args: String) -> String {
