@@ -186,13 +186,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         Image(systemName: "puzzlepiece.extension")
                             .font(.system(size: 22, weight: .regular))
                             .foregroundStyle(.secondary)
-                        Text(String(localized: "sidebar.extensions.empty.title", defaultValue: "No sidebar extension enabled"))
+                        Text(emptyStateTitle)
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.primary)
-                        Text(errorText ?? String(
-                            localized: "sidebar.extensions.empty.detail",
-                            defaultValue: "Install and enable a CMUX sidebar extension to show it here."
-                        ))
+                        Text(errorText ?? emptyStateDetail)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -202,6 +199,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        extensionEmptyActions()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -240,6 +238,26 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
+    private var emptyStateTitle: String {
+        if enabledIdentities.count > 1 {
+            return String(localized: "sidebar.extensions.choose.title", defaultValue: "Choose a sidebar extension")
+        }
+        return String(localized: "sidebar.extensions.empty.title", defaultValue: "No sidebar extension enabled")
+    }
+
+    private var emptyStateDetail: String {
+        if enabledIdentities.count > 1 {
+            return String(
+                localized: "sidebar.extensions.choose.detail",
+                defaultValue: "Choose which enabled extension should replace the sidebar."
+            )
+        }
+        return String(
+            localized: "sidebar.extensions.empty.detail",
+            defaultValue: "Install and enable a CMUX sidebar extension to show it here."
+        )
+    }
+
     private var extensionAvailabilityDetail: String {
         if unapprovedExtensionCount > 0 {
             return String(
@@ -251,6 +269,50 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             localized: "sidebar.extensions.disabled.detail",
             defaultValue: "A sidebar extension is installed but disabled."
         )
+    }
+
+    @ViewBuilder
+    private func extensionEmptyActions() -> some View {
+        HStack(spacing: 8) {
+            if enabledIdentities.count > 1 {
+                Menu {
+                    ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
+                        Button {
+                            selectExtension(enabledIdentity)
+                        } label: {
+                            Label(enabledIdentity.localizedName, systemImage: "puzzlepiece.extension")
+                        }
+                    }
+                } label: {
+                    Label(
+                        String(localized: "sidebar.extensions.choose.action", defaultValue: "Choose Extension"),
+                        systemImage: "puzzlepiece.extension"
+                    )
+                }
+                .menuStyle(.button)
+                .controlSize(.small)
+            }
+
+            Button {
+                presentExtensionBrowser()
+            } label: {
+                Label(
+                    String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
+                    systemImage: "puzzlepiece.extension"
+                )
+            }
+            .controlSize(.small)
+
+            Button {
+                onUseDefaultSidebar()
+            } label: {
+                Label(
+                    String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                    systemImage: "sidebar.left"
+                )
+            }
+            .controlSize(.small)
+        }
     }
 
     private func extensionControlStrip(activeIdentity: AppExtensionIdentity?) -> some View {
