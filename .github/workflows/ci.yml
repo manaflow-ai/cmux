@@ -702,7 +702,9 @@ jobs:
 
   ui-regressions:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 25
+    # Cold UI builds can spend more than 25 minutes in build-for-testing before
+    # the regression steps run, especially after Swift or package cache misses.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
