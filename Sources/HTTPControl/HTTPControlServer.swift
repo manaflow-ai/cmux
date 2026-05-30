@@ -27,6 +27,17 @@ public final class HTTPControlServer: @unchecked Sendable {
     let auth: HTTPAuth
     let hostAllowlistFor: HostAllowlistFactory
     let isEnabled: EnabledProbe
+    /// Optional streaming-route adapter. When set, GET requests whose
+    /// path matches ``StreamRoute/matches(_:)`` bypass the one-shot
+    /// ``RouteTable`` and run through the streaming pipeline (long-
+    /// lived SSE connection) instead. ``HTTPControlLifecycle`` wires
+    /// this in Phase 2; pre-Phase-2 callers (Phase 0/1 tests) leave it
+    /// nil and the server behaves as a one-shot HTTP responder.
+    let streamRoute: StreamRoute?
+    /// Tracks every live SSE connection. Always non-nil so token
+    /// rotation can call ``invalidateAllStreams()`` even when no
+    /// streams are open.
+    public let streamRegistry: StreamConnectionRegistry
 
     private let lock = NSLock()
     private var tcpListener: NWListener?
@@ -58,12 +69,24 @@ public final class HTTPControlServer: @unchecked Sendable {
         routeTable: RouteTable,
         auth: HTTPAuth,
         hostAllowlistFor: @escaping HostAllowlistFactory,
-        isEnabled: @escaping EnabledProbe = { true }
+        isEnabled: @escaping EnabledProbe = { true },
+        streamRoute: StreamRoute? = nil,
+        streamRegistry: StreamConnectionRegistry = StreamConnectionRegistry()
     ) {
         self.routeTable = routeTable
         self.auth = auth
         self.hostAllowlistFor = hostAllowlistFor
         self.isEnabled = isEnabled
+        self.streamRoute = streamRoute
+        self.streamRegistry = streamRegistry
+    }
+
+    /// Tears down every active SSE stream. Phase 1 lifecycle wiring
+    /// (Task 1.22) calls this on token rotation so streams that were
+    /// authenticated against the previous token receive an
+    /// ``event: end`` frame and have their connections cancelled.
+    public func invalidateAllStreams() async {
+        await streamRegistry.invalidateAll()
     }
 
     /// Binds a loopback-only TCP listener. Pass `0` for an ephemeral
@@ -225,6 +248,22 @@ public final class HTTPControlServer: @unchecked Sendable {
                 JSONResponses.error(.unauthorized),
                 to: connection,
                 close: true
+            )
+            return
+        }
+        // Streaming route dispatch is checked BEFORE the one-shot
+        // route table because the SSE handler retains the connection
+        // for the lifetime of the subscription. If the path matches a
+        // stream pattern but the method does not, the streaming route
+        // returns a 405 response we forward to the one-shot writer.
+        if let streamRoute, streamRoute.matches(req) {
+            await streamRoute.handle(
+                req,
+                connection: connection,
+                registry: streamRegistry,
+                fallbackResponse: { resp in
+                    self.write(resp, to: connection, close: true)
+                }
             )
             return
         }

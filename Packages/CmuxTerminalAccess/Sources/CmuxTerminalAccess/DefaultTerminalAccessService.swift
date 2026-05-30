@@ -411,6 +411,11 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
             [weak sub] in sub?.signalEnd()
         }
         sub.attachLifetime(closeToken)
+        // D6 — let the HTTP/SSE layer interrogate "is this resume id
+        // below my ring's oldest seq?" so it can emit the synthetic
+        // gap comment. Weak ring so the subscription doesn't keep the
+        // ring alive past cancel.
+        sub.attachRingOldestSeq { [weak ring] in ring?.oldestSeq ?? 0 }
         return sub
     }
 

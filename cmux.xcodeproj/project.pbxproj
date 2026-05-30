@@ -448,9 +448,14 @@
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		E3309A0D /* SplitEqualizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A0E /* SplitEqualizer.swift */; };
+		8E7745000000000000000002 /* SSEResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7745000000000000000001 /* SSEResponder.swift */; };
+		8E774500000000000000000A /* SSEResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7745000000000000000009 /* SSEResponderTests.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
+		8E7745000000000000000008 /* StreamConnectionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7745000000000000000007 /* StreamConnectionRegistry.swift */; };
+		8E7745000000000000000006 /* StreamPayloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7745000000000000000005 /* StreamPayloads.swift */; };
+		8E7745000000000000000004 /* StreamRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7745000000000000000003 /* StreamRoute.swift */; };
 		8E7743000000000000000013 /* StubTerminalAccessService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000012 /* StubTerminalAccessService.swift */; };
 		8E774300000000000000000B /* SurfaceListJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000000A /* SurfaceListJSON.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
@@ -1066,8 +1071,13 @@
 		A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		E3309A0E /* SplitEqualizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEqualizer.swift; sourceTree = "<group>"; };
+		8E7745000000000000000001 /* SSEResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEResponder.swift; sourceTree = "<group>"; };
+		8E7745000000000000000009 /* SSEResponderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEResponderTests.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
+		8E7745000000000000000007 /* StreamConnectionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamConnectionRegistry.swift; sourceTree = "<group>"; };
+		8E7745000000000000000005 /* StreamPayloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPayloads.swift; sourceTree = "<group>"; };
+		8E7745000000000000000003 /* StreamRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamRoute.swift; sourceTree = "<group>"; };
 		8E7743000000000000000012 /* StubTerminalAccessService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubTerminalAccessService.swift; sourceTree = "<group>"; };
 		8E774300000000000000000A /* SurfaceListJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceListJSON.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
@@ -1295,6 +1305,10 @@
 				8E7744000000000000000008 /* HTTPControlSettingsViewModel.swift */,
 				8E774400000000000000000A /* HTTPControlSettingsView.swift */,
 				8E774400000000000000000E /* HTTPControlLifecycle.swift */,
+				8E7745000000000000000001 /* SSEResponder.swift */,
+				8E7745000000000000000003 /* StreamRoute.swift */,
+				8E7745000000000000000005 /* StreamPayloads.swift */,
+				8E7745000000000000000007 /* StreamConnectionRegistry.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -1318,6 +1332,7 @@
 				8E7744000000000000000006 /* HTTPControlUDSListenerTests.swift */,
 				8E774400000000000000000C /* HTTPControlSettingsViewModelTests.swift */,
 				8E7744000000000000000010 /* HTTPControlLifecycleTests.swift */,
+				8E7745000000000000000009 /* SSEResponderTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -2448,7 +2463,11 @@
 				A5354301A5354301A5354301 /* SocketControlSettings+SocketPathMarkers.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
 					E3309A0D /* SplitEqualizer.swift in Sources */,
+				8E7745000000000000000002 /* SSEResponder.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
+				8E7745000000000000000008 /* StreamConnectionRegistry.swift in Sources */,
+				8E7745000000000000000006 /* StreamPayloads.swift in Sources */,
+				8E7745000000000000000004 /* StreamRoute.swift in Sources */,
 				8E774300000000000000000B /* SurfaceListJSON.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 					C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */,
@@ -2726,6 +2745,7 @@
 				D7AB34300000000000000005 /* SidebarWorkspaceDropPlannerTests.swift in Sources */,
 				62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */,
 				F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
+				8E774500000000000000000A /* SSEResponderTests.swift in Sources */,
 				F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */,
 				8E7743000000000000000013 /* StubTerminalAccessService.swift in Sources */,
 				2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
