@@ -184,6 +184,7 @@ const state = {
   paletteIndex: 0,
   paletteRenderFrame: 0,
   paletteRenderTimer: 0,
+  paletteListSignature: "",
   dragPanelId: null,
   zoomedPanelId: null,
   contextMenu: null,
@@ -5426,6 +5427,12 @@ function renderPalette() {
     .filter((entry) => paletteEntryMatches(entry, tokens))
     .sort((left, right) => paletteEntryScore(right, query, tokens) - paletteEntryScore(left, query, tokens));
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
+  const signature = paletteListSignature(query, matches);
+  if (signature === state.paletteListSignature) {
+    updatePaletteSelection();
+    return;
+  }
+  state.paletteListSignature = signature;
   const nodes = matches.map((entry, index) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -5453,13 +5460,27 @@ function renderPalette() {
   elements.paletteList.replaceChildren(...nodes);
 }
 
+function paletteListSignature(query, entries) {
+  return stableJson({
+    query,
+    entries: entries.map((entry) => [
+      entry.id,
+      entry.label,
+      entry.meta,
+      entry.shortcut
+    ])
+  });
+}
+
 function updatePaletteSelection() {
   const items = [...elements.paletteList.querySelectorAll(".palette-item")];
   for (const [index, item] of items.entries()) {
     const selected = index === state.paletteIndex;
-    toggleClassIfChanged(item, "is-selected", selected);
-    item.setAttribute("aria-selected", String(selected));
-    if (selected) item.scrollIntoView({ block: "nearest" });
+    const classChanged = toggleClassIfChanged(item, "is-selected", selected);
+    const ariaSelected = String(selected);
+    const ariaChanged = item.getAttribute("aria-selected") !== ariaSelected;
+    if (ariaChanged) item.setAttribute("aria-selected", ariaSelected);
+    if (selected && (classChanged || ariaChanged)) item.scrollIntoView({ block: "nearest" });
   }
 }
 
