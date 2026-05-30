@@ -1589,6 +1589,17 @@ body.reduce-motion *::after {
   white-space: nowrap;
 }
 
+@container (max-width: 160px) {
+  .pending-pane {
+    justify-content: center;
+    max-width: 100%;
+  }
+
+  .pending-pane-text {
+    display: none;
+  }
+}
+
 @keyframes cmux-pulse {
   0%,
   100% {

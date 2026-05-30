@@ -8440,7 +8440,7 @@ async function createPanel(type, direction = "right", options = {}) {
     const url = type === "browser"
       ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl)
       : undefined;
-    const anchorPanelId = options.anchorPanelId || workspace.activePanelId || workspace.panels.at(-1)?.id || "";
+    const anchorPanelId = options.anchorPanelId || "";
     const pendingPanel = options.pending === false
       ? null
       : createPendingPanel(type, workspace, {
