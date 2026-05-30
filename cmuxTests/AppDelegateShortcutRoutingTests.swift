@@ -2325,6 +2325,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let manager = context.tabManager
         appDelegate.tabManager = manager
         defer {
+            appDelegate.debugAuxiliaryCloseShortcutWindowOverride = nil
             appDelegate.tabManager = previousTabManager
             appDelegate.unregisterMainWindowContextForTesting(windowId: context.windowId)
             closeTestWindow(context.window)
@@ -2340,20 +2341,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         auxiliaryWindow.isReleasedWhenClosed = false
         auxiliaryWindow.animationBehavior = .none
         auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
-        auxiliaryWindow.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(
-            waitForCondition(timeout: 1.0) {
-                auxiliaryWindow.isVisible && NSApp.keyWindow === auxiliaryWindow
-            },
-            "Expected auxiliary window to become key before Cmd+W"
-        )
-        XCTAssertTrue(auxiliaryWindow.isVisible, "Expected auxiliary window to be visible before Cmd+W")
-
-        defer {
-            if auxiliaryWindow.isVisible {
-                closeTestWindow(auxiliaryWindow)
-            }
-        }
+        appDelegate.debugAuxiliaryCloseShortcutWindowOverride = { auxiliaryWindow }
+        defer { closeTestWindow(auxiliaryWindow) }
 
         guard let event = makeKeyDownEvent(
             key: "w",

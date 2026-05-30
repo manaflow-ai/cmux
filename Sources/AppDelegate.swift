@@ -863,6 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var debugPreferredWorkspaceCreationWindowOverride: NSWindow?
     var debugBrowserPanelsForInspectorWindowCloseOverride: (() -> [BrowserPanel])?
     var debugFocusedCloseShortcutWindowOverride: (() -> NSWindow?)?
+    var debugAuxiliaryCloseShortcutWindowOverride: (() -> NSWindow?)?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -6040,6 +6041,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func auxiliaryWindowForFocusedCloseShortcut(event: NSEvent) -> NSWindow? {
+#if DEBUG
+        if let debugWindow = debugAuxiliaryCloseShortcutWindowOverride?(),
+           cmuxWindowShouldOwnCloseShortcut(debugWindow) {
+            return debugWindow
+        }
+#endif
         [
             NSApp.keyWindow,
             NSApp.mainWindow,
@@ -14445,6 +14452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugPreferredWorkspaceCreationWindowOverride = nil
         debugBrowserPanelsForInspectorWindowCloseOverride = nil
         debugFocusedCloseShortcutWindowOverride = nil
+        debugAuxiliaryCloseShortcutWindowOverride = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {

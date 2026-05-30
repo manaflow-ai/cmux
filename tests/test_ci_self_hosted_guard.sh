@@ -178,8 +178,8 @@ check_ui_regression_budget() {
     ' "$CI_FILE"
   )"
 
-  if [ -z "$timeout_minutes" ] || [ "$timeout_minutes" -lt 40 ]; then
-    echo "FAIL: ui-regressions must keep enough job time for a cold build-for-testing plus both UI regressions"
+  if [ -z "$timeout_minutes" ] || [ "$timeout_minutes" -lt 75 ]; then
+    echo "FAIL: ui-regressions must keep enough job time for a cold build-for-testing plus both UI regressions after observed 40m+ cold builds"
     exit 1
   fi
 
