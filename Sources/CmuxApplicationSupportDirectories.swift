@@ -182,14 +182,40 @@ enum CmuxGhosttyConfigSettingEditor {
     static let minSidebarFontSize = 10.0
     static let maxSidebarFontSize = 20.0
 
+    static let surfaceTabBarFontSizeKey = "surface-tab-bar-font-size"
+    static let defaultSurfaceTabBarFontSize = 11.0
+    static let minSurfaceTabBarFontSize = 8.0
+    static let maxSurfaceTabBarFontSize = 24.0
+
     static func clampedSidebarFontSize(_ value: Double) -> Double {
         guard value.isFinite else { return defaultSidebarFontSize }
         return min(max(value, minSidebarFontSize), maxSidebarFontSize)
     }
 
     static func formattedSidebarFontSize(_ value: Double) -> String {
-        let clamped = clampedSidebarFontSize(value)
-        let scaled = Int((clamped * 100).rounded())
+        formattedFontSize(clampedSidebarFontSize(value))
+    }
+
+    static func parsedSidebarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: sidebarFontSizeKey, clamp: clampedSidebarFontSize)
+    }
+
+    static func clampedSurfaceTabBarFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultSurfaceTabBarFontSize }
+        return min(max(value, minSurfaceTabBarFontSize), maxSurfaceTabBarFontSize)
+    }
+
+    static func formattedSurfaceTabBarFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedSurfaceTabBarFontSize(value))
+    }
+
+    static func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).
+    static func formattedFontSize(_ value: Double) -> String {
+        let scaled = Int((value * 100).rounded())
         let whole = scaled / 100
         let fraction = abs(scaled % 100)
         if fraction == 0 {
@@ -201,15 +227,20 @@ enum CmuxGhosttyConfigSettingEditor {
         return "\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
     }
 
-    static func parsedSidebarFontSize(in contents: String) -> Double? {
-        guard let rawValue = parsedValue(for: sidebarFontSizeKey, in: contents) else {
+    /// Reads the last occurrence of `key` from a Ghostty config body and clamps it to the setting's range.
+    private static func parsedFontSize(
+        in contents: String,
+        key: String,
+        clamp: (Double) -> Double
+    ) -> Double? {
+        guard let rawValue = parsedValue(for: key, in: contents) else {
             return nil
         }
         let unquoted = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         guard let value = Double(unquoted), value.isFinite else {
             return nil
         }
-        return clampedSidebarFontSize(value)
+        return clamp(value)
     }
 
     static func parsedValue(for key: String, in contents: String) -> String? {

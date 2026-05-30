@@ -21,32 +21,34 @@ extension CMUXCLI {
         case "help":
             print(configUsage())
         case "get":
-            guard args.count == 2, args[1].lowercased() == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey else {
-                throw CLIError(message: "Usage: cmux config get sidebar-font-size")
+            guard args.count == 2, let key = canonicalFontSizeKey(args[1]) else {
+                throw CLIError(message: "Usage: cmux config get <sidebar-font-size|surface-tab-bar-font-size>")
             }
-            try runConfigGetSidebarFontSize(jsonOutput: wantsJSON)
+            try runConfigGetFontSize(forKey: key, jsonOutput: wantsJSON)
         case "set":
-            guard args.count == 3, args[1].lowercased() == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey else {
-                throw CLIError(message: "Usage: cmux config set sidebar-font-size <points>")
+            guard args.count == 3, let key = canonicalFontSizeKey(args[1]) else {
+                throw CLIError(message: "Usage: cmux config set <sidebar-font-size|surface-tab-bar-font-size> <points>")
             }
-            try runConfigSetSidebarFontSize(
+            try runConfigSetFontSize(
+                forKey: key,
                 rawValue: args[2],
                 socketPath: socketPath,
                 explicitPassword: explicitPassword,
                 jsonOutput: wantsJSON
             )
-        case "sidebar-font-size":
+        case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey, CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
             if args.count == 1 {
-                try runConfigGetSidebarFontSize(jsonOutput: wantsJSON)
+                try runConfigGetFontSize(forKey: subcommand, jsonOutput: wantsJSON)
             } else if args.count == 2 {
-                try runConfigSetSidebarFontSize(
+                try runConfigSetFontSize(
+                    forKey: subcommand,
                     rawValue: args[1],
                     socketPath: socketPath,
                     explicitPassword: explicitPassword,
                     jsonOutput: wantsJSON
                 )
             } else {
-                throw CLIError(message: "Usage: cmux config sidebar-font-size [points]")
+                throw CLIError(message: "Usage: cmux config \(subcommand) [points]")
             }
         case "path", "paths":
             guard args.count == 1 else {
@@ -93,7 +95,8 @@ extension CMUXCLI {
         if subcommand == "get" {
             return true
         }
-        if subcommand == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey {
+        if subcommand == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey
+            || subcommand == CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey {
             return parsedArgs.arguments.count == 1
         }
         return hasHelpRequest(beforeSeparator: parsedArgs.head) ||
@@ -102,7 +105,7 @@ extension CMUXCLI {
 
     func configUsage() -> String {
         return """
-        Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size>
+        Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>
 
         Inspect cmux.json, print configuration references, update selected Ghostty config keys, or reload the running app.
 
@@ -111,9 +114,10 @@ extension CMUXCLI {
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
-          get sidebar-font-size                   Print the current sidebar font size.
-          set sidebar-font-size <points>          Set sidebar text size, clamped to 10-20 pt, then reload if cmux is running.
-          sidebar-font-size [points]              Get or set sidebar text size.
+          get <key>                               Print sidebar-font-size or surface-tab-bar-font-size.
+          set <key> <points>                      Set sidebar-font-size (10-20 pt) or surface-tab-bar-font-size (8-24 pt), then reload if cmux is running.
+          sidebar-font-size [points]              Get or set the left sidebar text size.
+          surface-tab-bar-font-size [points]      Get or set the workspace tab bar text size.
 
         Config files:
           \(Self.primarySettingsDisplayPath)
@@ -128,6 +132,8 @@ extension CMUXCLI {
           cmux config doctor --path .cmux/cmux.json
           cmux config set sidebar-font-size 14
           cmux config sidebar-font-size 12.5
+          cmux config set surface-tab-bar-font-size 13
+          cmux config surface-tab-bar-font-size 11
           cmux config reload
         """
     }
@@ -174,16 +180,54 @@ extension CMUXCLI {
         print("  cmux reload-config")
     }
 
-    private func runConfigGetSidebarFontSize(jsonOutput: Bool) throws {
+    /// Normalizes a user-supplied key to a supported editable font-size key, or nil if unsupported.
+    private func canonicalFontSizeKey(_ raw: String) -> String? {
+        switch raw.lowercased() {
+        case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey:
+            return CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey
+        case CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
+            return CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey
+        default:
+            return nil
+        }
+    }
+
+    private func fontSizeConfig(
+        forKey key: String
+    ) -> (defaultValue: Double, clamp: (Double) -> Double, format: (Double) -> String, parse: (String) -> Double?)? {
+        switch key {
+        case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey:
+            return (
+                CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize,
+                CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize,
+                CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize,
+                { CmuxGhosttyConfigSettingEditor.parsedSidebarFontSize(in: $0) }
+            )
+        case CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
+            return (
+                CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize,
+                CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize,
+                CmuxGhosttyConfigSettingEditor.formattedSurfaceTabBarFontSize,
+                { CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: $0) }
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func runConfigGetFontSize(forKey key: String, jsonOutput: Bool) throws {
+        guard let descriptor = fontSizeConfig(forKey: key) else {
+            throw CLIError(message: "Unknown font size key '\(key)'")
+        }
         let url = try cmuxGhosttyConfigURLForCLI()
         let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let configuredValue = CmuxGhosttyConfigSettingEditor.parsedSidebarFontSize(in: contents)
-        let effectiveValue = configuredValue ?? CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
-        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(effectiveValue)
+        let configuredValue = descriptor.parse(contents)
+        let effectiveValue = configuredValue ?? descriptor.defaultValue
+        let formattedValue = descriptor.format(effectiveValue)
 
         if jsonOutput {
             var payload: [String: Any] = [
-                "key": CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+                "key": key,
                 "value": effectiveValue,
                 "formatted": formattedValue,
                 "path": url.path,
@@ -196,30 +240,34 @@ extension CMUXCLI {
             return
         }
 
-        print("\(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue)")
+        print("\(key) = \(formattedValue)")
         print("path: \(Self.tildePath(url.path))")
     }
 
-    private func runConfigSetSidebarFontSize(
+    private func runConfigSetFontSize(
+        forKey key: String,
         rawValue: String,
         socketPath: String?,
         explicitPassword: String?,
         jsonOutput: Bool
     ) throws {
+        guard let descriptor = fontSizeConfig(forKey: key) else {
+            throw CLIError(message: "Unknown font size key '\(key)'")
+        }
         guard let requestedValue = Double(rawValue), requestedValue.isFinite else {
-            throw CLIError(message: "sidebar-font-size requires a numeric point size")
+            throw CLIError(message: "\(key) requires a numeric point size")
         }
 
-        let value = CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(requestedValue)
-        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(value)
+        let value = descriptor.clamp(requestedValue)
+        let formattedValue = descriptor.format(value)
         let url = try cmuxGhosttyConfigURLForCLI()
         try CmuxGhosttyConfigSettingEditor.writeSetting(
-            key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+            key: key,
             value: formattedValue,
             to: url
         )
 
-        let reloadResult = reloadConfigAfterSidebarFontSizeSet(
+        let reloadResult = reloadConfigAfterFontSizeSet(
             socketPath: socketPath,
             explicitPassword: explicitPassword
         )
@@ -227,7 +275,7 @@ extension CMUXCLI {
         if jsonOutput {
             var payload: [String: Any] = [
                 "ok": true,
-                "key": CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+                "key": key,
                 "value": value,
                 "formatted": formattedValue,
                 "path": url.path,
@@ -243,15 +291,15 @@ extension CMUXCLI {
 
         switch reloadResult.status {
         case "reloaded":
-            print("OK \(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue) (reloaded)")
+            print("OK \(key) = \(formattedValue) (reloaded)")
         case "failed":
-            print("OK \(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue) (saved; reload failed)")
+            print("OK \(key) = \(formattedValue) (saved; reload failed)")
             if let message = reloadResult.message {
                 print("reload: \(message)")
             }
             print("Run `cmux config reload` after cmux is running to apply it.")
         default:
-            print("OK \(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue) (saved)")
+            print("OK \(key) = \(formattedValue) (saved)")
             print("Run `cmux config reload` to apply it.")
         }
         print("path: \(Self.tildePath(url.path))")
@@ -274,7 +322,7 @@ extension CMUXCLI {
         )
     }
 
-    private func reloadConfigAfterSidebarFontSizeSet(
+    private func reloadConfigAfterFontSizeSet(
         socketPath: String?,
         explicitPassword: String?
     ) -> (status: String, message: String?) {

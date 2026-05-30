@@ -274,6 +274,7 @@ touch ~/.config/ghostty/config`}</CodeBlock>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
 sidebar-font-size = 14
+surface-tab-bar-font-size = 11
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451

@@ -5259,6 +5259,7 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
     private let sidebarFontSizeControlWidth: CGFloat = 292
+    private let surfaceTabBarFontSizeControlWidth: CGFloat = 292
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
     @Environment(\.openWindow) private var openWindow
@@ -5414,6 +5415,9 @@ struct SettingsView: View {
     @State private var sidebarFontSize = CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
     @State private var sidebarFontSizeErrorMessage: String?
     @State private var sidebarFontSizeRefreshTask: Task<Void, Never>?
+    @State private var surfaceTabBarFontSize = CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
+    @State private var surfaceTabBarFontSizeErrorMessage: String?
+    @State private var surfaceTabBarFontSizeRefreshTask: Task<Void, Never>?
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -6328,6 +6332,76 @@ struct SettingsView: View {
         }
     }
 
+    private var surfaceTabBarFontSizeBinding: Binding<Double> {
+        Binding(
+            get: { surfaceTabBarFontSize },
+            set: { newValue in
+                surfaceTabBarFontSize = CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(newValue)
+                surfaceTabBarFontSizeErrorMessage = nil
+            }
+        )
+    }
+
+    private var surfaceTabBarFontSizeSubtitle: String {
+        surfaceTabBarFontSizeErrorMessage
+            ?? String(
+                localized: "settings.terminal.tabBarFontSize.subtitle",
+                defaultValue: "Controls the font size of the terminal and browser tab titles at the top of each pane."
+            )
+    }
+
+    private var surfaceTabBarFontSizeDisplayText: String {
+        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSurfaceTabBarFontSize(surfaceTabBarFontSize)
+        let format = String(
+            localized: "settings.terminal.tabBarFontSize.points",
+            defaultValue: "%@ pt"
+        )
+        return String(format: format, formattedValue)
+    }
+
+    private func refreshSurfaceTabBarFontSizeFromConfig() {
+        surfaceTabBarFontSizeRefreshTask?.cancel()
+        surfaceTabBarFontSizeRefreshTask = Task { @MainActor in
+            let loadedFontSize = await Task.detached(priority: .utility) {
+                Double(GhosttyConfig.load(useCache: false).surfaceTabBarFontSize)
+            }.value
+            guard !Task.isCancelled else { return }
+            surfaceTabBarFontSize = loadedFontSize
+            surfaceTabBarFontSizeErrorMessage = nil
+        }
+    }
+
+    private func cancelSurfaceTabBarFontSizeRefresh() {
+        surfaceTabBarFontSizeRefreshTask?.cancel()
+        surfaceTabBarFontSizeRefreshTask = nil
+    }
+
+    private func saveSurfaceTabBarFontSizeFromSettings() {
+        let clampedValue = CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(surfaceTabBarFontSize)
+        surfaceTabBarFontSize = clampedValue
+        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSurfaceTabBarFontSize(clampedValue)
+        do {
+            let environment = ConfigSourceEnvironment.live()
+            try environment.writeCmuxConfigSetting(
+                key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
+                value: formattedValue
+            )
+            surfaceTabBarFontSizeErrorMessage = nil
+            GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.tabBarFontSize")
+        } catch {
+            cmuxSettingsLogger.warning(
+                "failed to save surface tab bar font size: \(String(describing: error), privacy: .private(mask: .hash))"
+            )
+#if DEBUG
+            cmuxDebugLog("settings.terminal.tabBarFontSize.saveFailed \(String(describing: error))")
+#endif
+            surfaceTabBarFontSizeErrorMessage = String(
+                localized: "settings.terminal.tabBarFontSize.saveFailed",
+                defaultValue: "Couldn't save tab bar font size. Please try again."
+            )
+        }
+    }
+
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
@@ -6901,6 +6975,43 @@ struct SettingsView: View {
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .terminal))
                     SettingsCard {
                         SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"),
+                            subtitle: surfaceTabBarFontSizeSubtitle,
+                            controlWidth: surfaceTabBarFontSizeControlWidth,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "tab-bar-font-size")
+                        ) {
+                            HStack(spacing: 8) {
+                                Slider(
+                                    value: surfaceTabBarFontSizeBinding,
+                                    in: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize...CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
+                                    step: 0.5
+                                ) { editing in
+                                    if !editing {
+                                        saveSurfaceTabBarFontSizeFromSettings()
+                                    }
+                                }
+                                .frame(width: 150)
+                                .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
+
+                                Text(surfaceTabBarFontSizeDisplayText)
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .monospacedDigit()
+                                    .frame(width: 46, alignment: .trailing)
+
+                                Button(String(localized: "settings.terminal.tabBarFontSize.reset", defaultValue: "Reset")) {
+                                    surfaceTabBarFontSize = CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
+                                    saveSurfaceTabBarFontSizeFromSettings()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(surfaceTabBarFontSize == CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("terminal.showScrollBar"),
                             String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
                             subtitle: showTerminalScrollBar
@@ -7063,6 +7174,7 @@ struct SettingsView: View {
                                         saveSidebarFontSizeFromSettings()
                                     }
                                 }
+                                .frame(width: 150)
                                 .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
 
                                 Text(sidebarFontSizeDisplayText)
@@ -8176,6 +8288,7 @@ struct SettingsView: View {
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
             refreshSidebarFontSizeFromConfig()
+            refreshSurfaceTabBarFontSizeFromConfig()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
@@ -8209,9 +8322,11 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshSidebarFontSizeFromConfig()
+            refreshSurfaceTabBarFontSizeFromConfig()
         }
         .onDisappear {
             cancelSidebarFontSizeRefresh()
+            cancelSurfaceTabBarFontSizeRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
@@ -8414,6 +8529,8 @@ struct SettingsView: View {
         sidebarMatchTerminalBackground = false
         sidebarFontSize = CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
         saveSidebarFontSizeFromSettings()
+        surfaceTabBarFontSize = CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
+        saveSurfaceTabBarFontSizeFromSettings()
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         draftState.socketPasswordDraft = ""
