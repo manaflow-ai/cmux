@@ -251,6 +251,8 @@ const state = {
   surfaceTabScrollFrame: 0,
   surfaceTabOverflowFrame: 0,
   surfaceTabResizeObserver: null,
+  commandStripOverflowFrame: 0,
+  commandStripResizeObserver: null,
   dragPanelId: null,
   dragWorkspaceId: null,
   zoomedPanelId: null,
@@ -320,6 +322,7 @@ const elements = {
   workspaceList: document.getElementById("workspaceList"),
   workspaceHeading: document.getElementById("workspaceHeading"),
   workspaceSubheading: document.getElementById("workspaceSubheading"),
+  commandStrip: document.querySelector(".command-strip"),
   surfaceTabs: document.getElementById("surfaceTabs"),
   paneGrid: document.getElementById("paneGrid"),
   inspector: document.getElementById("inspector"),
@@ -1294,6 +1297,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "has-background", css !== "none");
   elements.shell.style.setProperty("--background-image", css);
   elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
+  scheduleCommandStripOverflowRefresh();
   return true;
 }
 
@@ -2154,6 +2158,49 @@ function scheduleSurfaceTabsOverflowRefresh() {
 function updateSurfaceTabsOverflow() {
   if (!elements.surfaceTabs) return;
   toggleClassIfChanged(elements.surfaceTabs, "has-overflow", elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1);
+}
+
+function commandStripContentWidth() {
+  if (!elements.commandStrip) return 0;
+  const style = getComputedStyle(elements.commandStrip);
+  const gap = parseFloat(style.columnGap || style.gap) || 0;
+  const padding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+  const visibleChildren = Array.from(elements.commandStrip.children).filter((child) => {
+    const childStyle = getComputedStyle(child);
+    return childStyle.display !== "none" && childStyle.visibility !== "hidden";
+  });
+  const childWidth = visibleChildren.reduce((total, child) => total + child.getBoundingClientRect().width, 0);
+  return childWidth + Math.max(0, visibleChildren.length - 1) * gap + padding;
+}
+
+function scheduleCommandStripOverflowRefresh() {
+  if (state.commandStripOverflowFrame) return;
+  state.commandStripOverflowFrame = requestAnimationFrame(() => {
+    state.commandStripOverflowFrame = 0;
+    updateCommandStripOverflow();
+  });
+}
+
+function updateCommandStripOverflow() {
+  if (!elements.commandStrip) return;
+  const overflowing = commandStripContentWidth() > elements.commandStrip.clientWidth + 1
+    || elements.commandStrip.scrollWidth > elements.commandStrip.clientWidth + 1;
+  toggleClassIfChanged(elements.commandStrip, "has-overflow", overflowing);
+  if (!overflowing && elements.commandStrip.scrollLeft) {
+    elements.commandStrip.scrollLeft = 0;
+  }
+}
+
+function observeCommandStripOverflow() {
+  if (!elements.commandStrip) return;
+  if (typeof ResizeObserver === "function") {
+    state.commandStripResizeObserver = new ResizeObserver(scheduleCommandStripOverflowRefresh);
+    state.commandStripResizeObserver.observe(elements.commandStrip);
+  }
+  window.addEventListener("resize", scheduleCommandStripOverflowRefresh, { passive: true });
+  requestAnimationFrame(() => {
+    updateCommandStripOverflow();
+  });
 }
 
 function observeSurfaceTabOverflow() {
@@ -8269,6 +8316,8 @@ document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWor
 document.getElementById("colorWorkspaceButton").onclick = () => cycleWorkspaceColor();
 document.getElementById("notifyButton").onclick = () => simulateNotification();
 document.getElementById("toggleSidebarButton").onclick = () => toggleSidebar();
+attachHorizontalWheelScroll(elements.commandStrip);
+observeCommandStripOverflow();
 attachHorizontalWheelScroll(elements.surfaceTabs);
 observeSurfaceTabOverflow();
 document.getElementById("paletteButton").onclick = () => {

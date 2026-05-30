@@ -822,10 +822,17 @@ body.reduce-motion *::after {
   min-width: 0;
   max-width: none;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   flex: 1 1 auto;
   margin-left: auto;
   padding: 0 1px;
+}
+
+.command-strip.has-overflow {
+  justify-content: flex-start;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
 
 .command-strip::-webkit-scrollbar {
