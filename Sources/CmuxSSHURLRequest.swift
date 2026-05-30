@@ -233,13 +233,13 @@ struct CmuxSSHURLRequest: Equatable {
         guard let hostValue = components.host, !hostValue.isEmpty else {
             return .failure(.missingDestination)
         }
-        guard !hostValue.hasPrefix("-") else {
+        let destinationHost = unbracketedStandardSSHHost(hostValue)
+        guard !destinationHost.hasPrefix("-") else {
             return .failure(.destinationStartsWithDash)
         }
-        guard isAllowedSSHHost(hostValue) else {
+        guard isAllowedStandardSSHHost(hostValue) else {
             return .failure(.destinationContainsUnsafeCharacters)
         }
-        let destinationHost = unbracketedStandardSSHHost(hostValue)
 
         let userValue = components.user?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let userValue, !userValue.isEmpty {
@@ -344,6 +344,20 @@ struct CmuxSSHURLRequest: Equatable {
             return String(host.dropFirst().dropLast())
         }
         return host
+    }
+
+    private static func isAllowedStandardSSHHost(_ value: String) -> Bool {
+        if isAllowedSSHHost(value) {
+            return true
+        }
+        guard !containsUnsafeHiddenCharacter(value),
+              value.contains(":"),
+              !value.hasPrefix("["),
+              !value.hasSuffix("]") else {
+            return false
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:.%")
+        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func isSupportedScheme(_ scheme: String?, supportedSchemes: Set<String>) -> Bool {
