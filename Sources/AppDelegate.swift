@@ -15931,6 +15931,7 @@ private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxTextBoxInputArrowForwardingDepth = 0
+private var cmuxFindTextFieldArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -16605,6 +16606,7 @@ private extension NSWindow {
         )
         let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         let firstResponderIsTextBoxInput = self.firstResponder is TextBoxInputTextView
+        let firstResponderIsFindTextField = cmuxFindTextFieldOwner(for: self.firstResponder) != nil
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -16712,6 +16714,21 @@ private extension NSWindow {
             }
             cmuxCommandPaletteArrowForwardingDepth += 1
             defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        if shouldDispatchFindTextFieldArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsFindTextField: firstResponderIsFindTextField,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxFindTextFieldArrowForwardingDepth > 0 {
+                return false
+            }
+            cmuxFindTextFieldArrowForwardingDepth += 1
+            defer { cmuxFindTextFieldArrowForwardingDepth = max(0, cmuxFindTextFieldArrowForwardingDepth - 1) }
             self.firstResponder?.keyDown(with: event)
             return true
         }

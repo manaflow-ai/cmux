@@ -251,9 +251,9 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         }
 
         func focusField(_ field: SearchNativeTextField, in window: NSWindow, selectAll: Bool) {
+            let rememberedRange = cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? field.cmuxLastSelectedRange ?? self.lastSelectedRange
             let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
             guard alreadyFocused || window.makeFirstResponder(field) else { return }
-            let rememberedRange = field.cmuxLastSelectedRange ?? cmuxStoredFindSelection(for: self.parent.selectionOwner) ?? self.lastSelectedRange
             if let selection = cmuxApplyFindFocusSelection(field: field, selectAll: selectAll, alreadyFocused: alreadyFocused, rememberedRange: rememberedRange) { self.lastSelectedRange = selection; return }
             DispatchQueue.main.async { [weak field, weak self] in
                 guard let field, let self,
@@ -304,6 +304,16 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 rememberSelection(from: textView)
                 let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
                 parent.onReturn(isShift)
+                return true
+            case #selector(NSResponder.moveDown(_:)):
+                if textView.hasMarkedText() { return false }
+                rememberSelection(from: textView)
+                parent.onReturn(false)
+                return true
+            case #selector(NSResponder.moveUp(_:)):
+                if textView.hasMarkedText() { return false }
+                rememberSelection(from: textView)
+                parent.onReturn(true)
                 return true
             default:
                 if cmuxFindCommandMayChangeSelection(commandSelector) {

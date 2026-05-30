@@ -119,7 +119,13 @@ func cmuxApplyFindFocusSelection(
         editor.setSelectedRange(selection)
         return selection
     }
-    guard !alreadyFocused, let rememberedRange else { return nil }
+    guard let rememberedRange else { return nil }
+    if alreadyFocused {
+        let currentSelection = editor.selectedRange()
+        guard currentSelection.location == 0,
+              currentSelection.length == 0,
+              rememberedRange.location != 0 || rememberedRange.length != 0 else { return nil }
+    }
     let selection = field.cmuxRememberSelection(rememberedRange, in: editor.string)
     editor.setSelectedRange(selection)
     return selection
@@ -164,6 +170,7 @@ class FindSelectionTrackingTextField: NSTextField {
     private var cmuxKeyMonitor: Any?
     private weak var cmuxObservedEditor: NSTextView?
     private weak var cmuxPreviousEditorNextResponder: NSResponder?
+    private var cmuxFocusTransitionRememberedSelection: NSRange?
 
     deinit {
         cmuxDetachSelectionObserver()
@@ -179,11 +186,16 @@ class FindSelectionTrackingTextField: NSTextField {
 
     override func textDidBeginEditing(_ notification: Notification) {
         super.textDidBeginEditing(notification)
+        let rememberedSelection = cmuxStoredFindSelection(for: cmuxSelectionOwner) ?? cmuxLastSelectedRange
+        cmuxFocusTransitionRememberedSelection = rememberedSelection
         cmuxAttachSelectionObserverIfNeeded()
         cmuxInstallKeyMonitorIfNeeded()
-        if cmuxLastSelectedRange == nil, cmuxStoredFindSelection(for: cmuxSelectionOwner) == nil {
+        if let rememberedSelection {
+            cmuxRestoreRememberedSelection(rememberedSelection)
+        } else if cmuxLastSelectedRange == nil {
             _ = cmuxRememberSelectionFromCurrentEditor()
         }
+        cmuxFocusTransitionRememberedSelection = nil
     }
 
     override func textDidChange(_ notification: Notification) {
@@ -192,7 +204,7 @@ class FindSelectionTrackingTextField: NSTextField {
     }
 
     override func textDidEndEditing(_ notification: Notification) {
-        _ = cmuxRememberSelectionFromCurrentEditor()
+        _ = cmuxRememberSelectionFromCurrentEditor(preservingStoredFocusTransitionSelection: true)
         cmuxRemoveKeyMonitor()
         cmuxDetachSelectionObserver()
         super.textDidEndEditing(notification)
@@ -216,8 +228,19 @@ class FindSelectionTrackingTextField: NSTextField {
         cmuxRememberSelection(textView.selectedRange(), in: textView.string)
     }
 
-    func cmuxRememberSelectionFromCurrentEditor() -> NSRange? {
+    func cmuxRememberSelectionFromCurrentEditor(preservingStoredFocusTransitionSelection: Bool = false) -> NSRange? {
         guard let editor = currentEditor() as? NSTextView else { return nil }
+        if preservingStoredFocusTransitionSelection {
+            let selection = cmuxClampedFindSelection(editor.selectedRange(), in: editor.string)
+            if selection.location == 0,
+               selection.length == 0,
+               let storedSelection = cmuxStoredFindSelection(for: cmuxSelectionOwner),
+               storedSelection.location != 0 || storedSelection.length != 0,
+               editor.string == stringValue {
+                cmuxLastSelectedRange = storedSelection
+                return storedSelection
+            }
+        }
         return cmuxRememberSelection(from: editor)
     }
 
@@ -235,6 +258,14 @@ class FindSelectionTrackingTextField: NSTextField {
         ) { [weak self] notification in
             guard let self,
                   let textView = notification.object as? NSTextView else { return }
+            let selection = cmuxClampedFindSelection(textView.selectedRange(), in: textView.string)
+            if selection.location == 0,
+               selection.length == 0,
+               let rememberedSelection = self.cmuxFocusTransitionRememberedSelection,
+               rememberedSelection.location != 0 || rememberedSelection.length != 0,
+               textView.string == self.stringValue {
+                return
+            }
             _ = self.cmuxRememberSelection(from: textView)
         }
     }
@@ -290,8 +321,9 @@ class FindSelectionTrackingTextField: NSTextField {
         }
     }
 
-    private func cmuxRestoreRememberedSelection() {
-        guard let rememberedSelection = cmuxStoredFindSelection(for: cmuxSelectionOwner) ?? cmuxLastSelectedRange else { return }
+    private func cmuxRestoreRememberedSelection(_ selection: NSRange? = nil) {
+        guard let rememberedSelection = selection ?? cmuxStoredFindSelection(for: cmuxSelectionOwner) ?? cmuxLastSelectedRange else { return }
+        guard rememberedSelection.location != 0 || rememberedSelection.length != 0 else { return }
         if let editor = currentEditor() as? NSTextView, !editor.hasMarkedText() {
             let selection = cmuxRememberSelection(rememberedSelection, in: editor.string)
             editor.setSelectedRange(selection)
