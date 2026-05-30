@@ -117,6 +117,57 @@ export const terminalColorDefaults = {
   cursor: "#7aa7ff"
 };
 
+export const terminalColorPresets = [
+  {
+    id: "cmux",
+    label: "cmux",
+    body: "Default dark surface with app accent cursor.",
+    background: "",
+    foreground: "",
+    cursor: ""
+  },
+  {
+    id: "powershell",
+    label: "PowerShell",
+    body: "Classic Windows console blue.",
+    background: "#012456",
+    foreground: "#f5f5f5",
+    cursor: "#f5f5f5"
+  },
+  {
+    id: "graphite",
+    label: "Graphite",
+    body: "Low-glare dark neutral.",
+    background: "#111318",
+    foreground: "#d8dee9",
+    cursor: "#88c0d0"
+  },
+  {
+    id: "contrast",
+    label: "High contrast",
+    body: "Sharper text and cursor visibility.",
+    background: "#050505",
+    foreground: "#f4f4f4",
+    cursor: "#ffd166"
+  },
+  {
+    id: "warm",
+    label: "Warm",
+    body: "Softer amber-tinted terminal.",
+    background: "#1c1714",
+    foreground: "#eadfce",
+    cursor: "#f6bd60"
+  },
+  {
+    id: "light",
+    label: "Light",
+    body: "Bright terminal for daytime use.",
+    background: "#f7f3ea",
+    foreground: "#24211d",
+    cursor: "#2557d6"
+  }
+];
+
 export const terminalAppearanceKeys = new Set([
   "theme",
   "accent",

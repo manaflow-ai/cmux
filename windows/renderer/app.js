@@ -6,6 +6,7 @@ import {
   settingsPresets,
   terminalAppearanceKeys,
   terminalColorDefaults,
+  terminalColorPresets,
   terminalCursorStyles,
   terminalFontOptions,
   terminalProfiles,
@@ -1060,6 +1061,8 @@ const commands = [
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
+  { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
+  { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -2695,6 +2698,7 @@ function renderSettingsInspector() {
     cursorSelect.onchange = () => updateSettings({ terminalCursorStyle: cursorSelect.value });
     terminalSection.append(settingRow("Cursor", cursorSelect));
     terminalSection.append(settingRow("Cursor blink", toggleInput(state.settings.terminalCursorBlink, (checked) => updateSettings({ terminalCursorBlink: checked }))));
+    terminalSection.append(settingRow("Color preset", terminalColorPresetGrid(), true, "terminal color theme preset powershell high contrast light warm graphite default"));
     terminalSection.append(settingRow(
       "Background color",
       colorPicker(state.settings.terminalBackground, (terminalBackground) => updateSettings({ terminalBackground }), terminalColorDefaults.background),
@@ -2717,14 +2721,7 @@ function renderSettingsInspector() {
     colorActions.className = "settings-actions";
     colorActions.dataset.settingsSearch = normalizeSettingsQuery("terminal color reset default background foreground cursor");
     colorActions.append(
-      settingsActionButton("Reset terminal colors", () => {
-        updateSettings({
-          terminalBackground: "",
-          terminalForeground: "",
-          terminalCursorColor: ""
-        });
-        renderSettingsInspector();
-      }, "", "terminal color reset default background foreground cursor")
+      settingsActionButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"), "", "terminal color reset default background foreground cursor")
     );
     terminalSection.append(colorActions);
     const profileSelect = document.createElement("select");
@@ -3217,6 +3214,62 @@ function backgroundPresetGrid() {
       updateSettings({ backgroundImage: preset.value });
       renderSettingsInspector();
     };
+    grid.append(button);
+  }
+  return grid;
+}
+
+function isActiveTerminalColorPreset(preset) {
+  return state.settings.terminalBackground === preset.background
+    && state.settings.terminalForeground === preset.foreground
+    && state.settings.terminalCursorColor === preset.cursor;
+}
+
+function applyTerminalColorPreset(preset) {
+  if (!preset) return;
+  updateSettings({
+    terminalBackground: preset.background,
+    terminalForeground: preset.foreground,
+    terminalCursorColor: preset.cursor
+  });
+  renderSettingsInspector();
+  toast(`${preset.label} terminal colors applied.`);
+}
+
+function applyTerminalColorPresetById(presetId) {
+  applyTerminalColorPreset(terminalColorPresets.find((preset) => preset.id === presetId));
+}
+
+function terminalColorPresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "terminal-color-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal color theme preset powershell high contrast light warm graphite default");
+  for (const preset of terminalColorPresets) {
+    const button = document.createElement("button");
+    const active = isActiveTerminalColorPreset(preset);
+    button.className = `terminal-color-preset${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = preset.body;
+    button.setAttribute("aria-pressed", String(active));
+    button.dataset.settingsSearch = normalizeSettingsQuery(`terminal color preset theme ${preset.label} ${preset.body}`);
+    button.style.setProperty("--terminal-preset-background", preset.background || terminalColorDefaults.background);
+    button.style.setProperty("--terminal-preset-foreground", preset.foreground || terminalColorDefaults.foreground);
+    button.style.setProperty("--terminal-preset-cursor", preset.cursor || state.settings.accent || terminalColorDefaults.cursor);
+    button.innerHTML = `
+      <span class="terminal-color-preset-preview">
+        <span class="terminal-color-preset-line"></span>
+        <span class="terminal-color-preset-prompt"></span>
+      </span>
+      <span class="terminal-color-preset-text">
+        <span class="terminal-color-preset-title"></span>
+        <span class="terminal-color-preset-body"></span>
+      </span>
+    `;
+    button.querySelector(".terminal-color-preset-line").textContent = "> cmux";
+    button.querySelector(".terminal-color-preset-prompt").textContent = "_";
+    button.querySelector(".terminal-color-preset-title").textContent = preset.label;
+    button.querySelector(".terminal-color-preset-body").textContent = preset.body;
+    button.onclick = () => applyTerminalColorPreset(preset);
     grid.append(button);
   }
   return grid;
@@ -3943,6 +3996,7 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), !isTerminal),
     contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), !isTerminal),
     contextMenuButton("Restart terminal", () => restartPanel(panel.id), !isTerminal),
+    contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), !isTerminal),
     contextMenuButton(panel.id === state.zoomedPanelId ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
@@ -3950,6 +4004,9 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Close panes to right", () => closePanelsById(panesToRight.map((candidate) => candidate.id)), panesToRight.length === 0, "danger"),
     contextMenuButton("Close", () => closePanel(panel.id), false, "danger")
   );
+  const colorTitle = document.createElement("div");
+  colorTitle.className = "context-section-title";
+  colorTitle.textContent = "Pane color";
   const colors = document.createElement("div");
   colors.className = "context-colors";
   for (const color of state.data?.palette || accentOptions) {
@@ -3966,10 +4023,10 @@ function showPanelContextMenu(event, panel) {
   }
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
   const customColor = contextColorPicker(panel.color, (color) => updatePanel(panel.id, { color }));
-  menu.replaceChildren(title, actions, colors, customColor, clear);
+  menu.replaceChildren(title, actions, colorTitle, colors, customColor, clear);
   menu.hidden = false;
   const x = Math.min(event.clientX, window.innerWidth - 238);
-  const y = Math.min(event.clientY, window.innerHeight - 260);
+  const y = Math.min(event.clientY, window.innerHeight - 306);
   menu.style.left = `${Math.max(8, x)}px`;
   menu.style.top = `${Math.max(8, y)}px`;
 }
@@ -4057,6 +4114,8 @@ function showToolbarMenu(event) {
     contextMenuButton("Paste to terminal", pasteClipboardToTerminal, panel?.type !== "terminal"),
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
+    contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
+    contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux")),
     contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
     contextMenuButton("Tune performance now", () => tunePerformanceNow()),
     contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
@@ -4525,6 +4584,16 @@ function paletteEntries() {
       shortcut: "Snippet",
       search: normalizeSettingsQuery(`terminal command snippet shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
       run: () => runTerminalCommandSnippet(snippet.id)
+    });
+  }
+  for (const preset of terminalColorPresets) {
+    entries.push({
+      id: `terminalColor.${preset.id}`,
+      label: `Terminal colors: ${preset.label}`,
+      meta: preset.body,
+      shortcut: "Theme",
+      search: normalizeSettingsQuery(`terminal colors theme preset ${preset.label} ${preset.body}`),
+      run: () => applyTerminalColorPreset(preset)
     });
   }
   for (const profile of state.savedSettingsProfiles) {

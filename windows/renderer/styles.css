@@ -320,6 +320,7 @@ button {
 .settings-action,
 .settings-nav-button,
 .settings-preset,
+.terminal-color-preset,
 .workspace-starter,
 .empty-workspace-starter,
 .background-preset,
@@ -406,6 +407,7 @@ button {
 .settings-action:focus-visible,
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
+.terminal-color-preset:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
@@ -430,6 +432,7 @@ button {
 .settings-action:active,
 .settings-nav-button:active,
 .settings-preset:active,
+.terminal-color-preset:active,
 .workspace-starter:active,
 .empty-workspace-starter:active,
 .settings-command-run:active,
@@ -2135,6 +2138,84 @@ button {
   font-size: 12px;
 }
 
+.terminal-color-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.terminal-color-preset {
+  min-width: 0;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.terminal-color-preset:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.terminal-color-preset.is-active {
+  border-color: var(--terminal-preset-cursor);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--terminal-preset-cursor) 74%, transparent);
+}
+
+.terminal-color-preset-preview {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--terminal-preset-background);
+  color: var(--terminal-preset-foreground);
+  font: 11px/1 var(--font-mono);
+}
+
+.terminal-color-preset-line,
+.terminal-color-preset-prompt,
+.terminal-color-preset-title,
+.terminal-color-preset-body {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.terminal-color-preset-prompt {
+  width: 8px;
+  color: var(--terminal-preset-cursor);
+  background: var(--terminal-preset-cursor);
+}
+
+.terminal-color-preset-text {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+
+.terminal-color-preset-title {
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.terminal-color-preset-body {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
 .context-menu {
   position: fixed;
   z-index: 120;
@@ -2173,6 +2254,15 @@ button {
   text-overflow: ellipsis;
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.context-section-title {
+  margin-top: var(--space-1);
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .context-actions {
