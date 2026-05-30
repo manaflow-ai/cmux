@@ -58,6 +58,199 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by chord")
     }
 
+    func testHighlightedBridgeUpdatesPanelTextSynchronouslyAndSavesShortcut() async throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+
+        let bridge = HighlightedEditorBridge()
+        bridge.panel = panel
+        bridge.applyUserEditedText("saved by highlighted bridge")
+
+        XCTAssertEqual(panel.textContent, "saved by highlighted bridge")
+        XCTAssertTrue(panel.isDirty)
+
+        let event = try XCTUnwrap(keyEvent(
+            key: "u",
+            keyCode: UInt16(kVK_ANSI_U),
+            modifierFlags: [.command, .option]
+        ))
+        XCTAssertTrue(bridge.handleSaveShortcut(event: event))
+        await waitForPanelSave(panel)
+
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "saved by highlighted bridge")
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    func testHighlightedBridgeDoesNotInstallEventMonitorAfterDestroy() {
+        let bridge = HighlightedEditorBridge()
+        bridge.destroy()
+
+        bridge.installLocalEventMonitor(scrollView: NSScrollView())
+
+        XCTAssertFalse(bridge.isLocalEventMonitorInstalledForTesting)
+    }
+
+    func testHighlightedBridgeDoesNotInstallEventMonitorWhileHidden() {
+        let bridge = HighlightedEditorBridge()
+        bridge.setVisibleInUI(false)
+
+        bridge.installLocalEventMonitor(scrollView: NSScrollView())
+
+        XCTAssertFalse(bridge.isLocalEventMonitorInstalledForTesting)
+    }
+
+    func testHighlightedBridgeDoesNotSaveWhileHidden() throws {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "u", command: true, shift: false, option: true, control: false),
+            for: .saveFilePreview
+        )
+
+        let bridge = HighlightedEditorBridge()
+        bridge.setVisibleInUI(false)
+
+        let event = try XCTUnwrap(keyEvent(
+            key: "u",
+            keyCode: UInt16(kVK_ANSI_U),
+            modifierFlags: [.command, .option]
+        ))
+
+        XCTAssertFalse(bridge.handleSaveShortcut(event: event))
+    }
+
+    func testFilePreviewPanelDetachTextInsertionTargetOnlyClearsMatchingTarget() throws {
+        let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let activeTarget = FilePreviewReviewFocusTestView()
+        let staleTarget = FilePreviewReviewFocusTestView()
+
+        panel.attachTextInsertionTarget(activeTarget)
+        panel.detachTextInsertionTarget(staleTarget)
+
+        XCTAssertTrue(panel.handleDroppedFileURLsAsText([url]))
+        XCTAssertFalse(activeTarget.filePreviewCurrentText.isEmpty)
+
+        panel.detachTextInsertionTarget(activeTarget)
+        XCTAssertFalse(panel.handleDroppedFileURLsAsText([url]))
+    }
+
+    func testFocusCoordinatorUnregisterRemovesOnlyMatchingEndpoint() {
+        let coordinator = FilePreviewFocusCoordinator(preferredIntent: .textEditor)
+        let activeTarget = FilePreviewReviewFocusTestView()
+        let staleTarget = FilePreviewReviewFocusTestView()
+
+        coordinator.register(root: activeTarget, primaryResponder: activeTarget, intent: .textEditor)
+        coordinator.unregister(root: staleTarget, primaryResponder: staleTarget, intent: .textEditor)
+
+        XCTAssertTrue(coordinator.endpoint(for: .textEditor) === activeTarget)
+
+        coordinator.unregister(root: activeTarget, primaryResponder: activeTarget, intent: .textEditor)
+        XCTAssertNil(coordinator.endpoint(for: .textEditor))
+    }
+
+    func testHighlightedBridgeIgnoresEditsAfterDestroy() throws {
+        let url = try temporaryTextFile(contents: "original", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        panel.updateTextContent("active")
+
+        let bridge = HighlightedEditorBridge()
+        bridge.panel = panel
+        bridge.destroy()
+        bridge.applyUserEditedText("stale")
+
+        XCTAssertEqual(panel.textContent, "active")
+    }
+
+    func testHighlightedContainerRetriesPendingFocusWhenAttachedToWindow() throws {
+        let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        let focusTarget = FilePreviewReviewFocusTestView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        panel.attachPreviewFocus(root: focusTarget, primaryResponder: focusTarget, intent: .textEditor)
+        XCTAssertFalse(panel.restoreFocusIntent(.filePreview(.textEditor)))
+
+        let bridge = HighlightedEditorBridge()
+        bridge.panel = panel
+        let container = HighlightedEditorContainerView(bridge: bridge)
+        focusTarget.addSubview(container)
+
+        let window = NSWindow(contentRect: focusTarget.bounds, styleMask: [], backing: .buffered, defer: false)
+        defer { window.close() }
+        window.contentView = focusTarget
+
+        XCTAssertTrue(window.firstResponder === focusTarget)
+    }
+
+    func testSyntaxLanguageDetectorReevaluatesWhenFileGrowsPastHighlightLimit() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try "let value = 1\n".write(to: url, atomically: true, encoding: .utf8)
+        XCTAssertNotNil(SyntaxLanguageDetector.language(for: url))
+
+        try Data(repeating: 65, count: 501_000).write(to: url, options: .atomic)
+        XCTAssertNil(SyntaxLanguageDetector.language(for: url))
+    }
+
+    func testSyntaxLanguageDetectorUsesCurrentPanelTextSizeForUnsavedContent() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try "let value = 1\n".write(to: url, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        await panel.loadTextContent().value
+        XCTAssertNotNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
+        ))
+
+        panel.updateTextContent(String(repeating: "a", count: 501_000))
+
+        XCTAssertEqual(panel.textContentUTF8ByteCount, .some(501_000))
+        XCTAssertNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: panel.textContentUTF8ByteCount
+        ))
+    }
+
+    func testSyntaxLanguageDetectorUsesCurrentPanelTextSizeWhenDiskFileIsLarge() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("swift")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try Data(repeating: 65, count: 501_000).write(to: url, options: .atomic)
+        XCTAssertNil(SyntaxLanguageDetector.language(for: url))
+
+        XCTAssertNotNil(SyntaxLanguageDetector.language(
+            for: url,
+            currentContentUTF8ByteCount: "let value = 1\n".utf8.count
+        ))
+    }
+
     func testExtensionlessUTF16TextWithBOMResolvesAsTextAfterSniffing() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -381,11 +574,15 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         return url
     }
 
-    private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
+    private func keyEvent(
+        key: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [.command]
+    ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.command],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: 0,
             context: nil,
@@ -458,7 +655,17 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
     }
 }
 
-private final class FilePreviewReviewFocusTestView: NSView {
+private final class FilePreviewReviewFocusTestView: NSView, FilePreviewTextInsertionTarget {
+    private(set) var filePreviewCurrentText = ""
+
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
+
+    func focusFilePreviewTextTarget() {
+        window?.makeFirstResponder(self)
+    }
+
+    func insertFilePreviewText(_ text: String) {
+        filePreviewCurrentText += text
+    }
 }
