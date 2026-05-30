@@ -1841,13 +1841,26 @@ body.reduce-motion *::after {
   top: 38px;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-1);
-  padding-bottom: var(--space-2);
+  min-width: 0;
+  margin: 0 calc(var(--space-1) * -1);
+  padding: 0 var(--space-1) var(--space-2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
   background: var(--color-rail);
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
+}
+
+.settings-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .settings-nav-button {
+  flex: 0 0 auto;
   min-width: 0;
   height: 28px;
   padding: 0 var(--space-2);
@@ -1856,6 +1869,7 @@ body.reduce-motion *::after {
   background: var(--color-pane);
   color: var(--color-muted);
   font-size: 12px;
+  scroll-snap-align: start;
 }
 
 .settings-nav-button:hover,
