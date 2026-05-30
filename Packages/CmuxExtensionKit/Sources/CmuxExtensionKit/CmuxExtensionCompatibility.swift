@@ -1,48 +1,8 @@
 import Foundation
 
-public enum CmuxExtensionSidebarProviderID {
-    public static let defaultWorkspaces = "cmux.sidebar.default"
-}
-
 public enum CmuxExtensionSidebarPresentation: String, Codable, Equatable, Sendable {
     case tree
     case browserStack = "browser-stack"
-}
-
-public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equatable, Sendable {
-    public var id: String
-    public var title: CmuxExtensionLocalizedText
-    public var subtitle: CmuxExtensionLocalizedText?
-    public var systemImageName: String
-    public var isHostProvided: Bool
-
-    public init(
-        id: String,
-        title: CmuxExtensionLocalizedText,
-        subtitle: CmuxExtensionLocalizedText?,
-        systemImageName: String,
-        isHostProvided: Bool
-    ) {
-        self.id = id
-        self.title = title
-        self.subtitle = subtitle
-        self.systemImageName = systemImageName
-        self.isHostProvided = isHostProvided
-    }
-
-    public static let defaultWorkspaces = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.defaultWorkspaces,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.default.title",
-            defaultValue: "Default Workspaces"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.default.subtitle",
-            defaultValue: "cmux"
-        ),
-        systemImageName: "list.bullet",
-        isHostProvided: true
-    )
 }
 
 public struct CmuxExtensionWorkspaceTreeSection: Identifiable, Codable, Equatable, Sendable {
@@ -79,38 +39,7 @@ public struct CmuxExtensionWorkspaceTreeSection: Identifiable, Codable, Equatabl
 public enum CmuxExtensionWorkspacePopoverTab: String, Codable, CaseIterable, Equatable, Sendable {
     case notes
     case browser
-    @available(*, deprecated, message: "Use browser. pullRequest decodes as browser for legacy payloads.")
     case pullRequest
-
-    public static let allCases: [CmuxExtensionWorkspacePopoverTab] = [.notes, .browser]
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let value = try container.decode(String.self)
-        switch value {
-        case Self.notes.rawValue:
-            self = .notes
-        case Self.browser.rawValue, "pullRequest":
-            self = .browser
-        default:
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Unknown workspace popover tab: \(value)"
-            )
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .notes:
-            try container.encode(Self.notes.rawValue)
-        case .browser:
-            try container.encode(Self.browser.rawValue)
-        default:
-            try container.encode(Self.browser.rawValue)
-        }
-    }
 }
 
 public enum CmuxExtensionWorkspaceRowAccessoryKind: String, Codable, Equatable, Sendable {
@@ -246,42 +175,6 @@ public struct CmuxExtensionSidebarRenderModel: Codable, Equatable, Sendable {
         self.sections = sections
         self.presentation = presentation
     }
-
-    private enum CodingKeys: String, CodingKey {
-        case providerId
-        case snapshotSequence
-        case sections
-        case presentation
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        providerId = try container.decode(String.self, forKey: .providerId)
-        snapshotSequence = try container.decode(UInt64.self, forKey: .snapshotSequence)
-        sections = try container.decode([CmuxExtensionSidebarRenderSection].self, forKey: .sections)
-        presentation = try container.decodeIfPresent(
-            CmuxExtensionSidebarPresentation.self,
-            forKey: .presentation
-        ) ?? .tree
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(providerId, forKey: .providerId)
-        try container.encode(snapshotSequence, forKey: .snapshotSequence)
-        try container.encode(sections, forKey: .sections)
-        try container.encode(presentation, forKey: .presentation)
-    }
-}
-
-public extension CmuxExtensionSidebarRenderModel {
-    var relativeTextDates: [Date] {
-        sections.flatMap { section in
-            section.rows.flatMap { row in
-                [row.subtitle?.relativeDate, row.trailingText?.relativeDate].compactMap { $0 }
-            }
-        }
-    }
 }
 
 public enum CmuxExtensionSidebarPresentationRequest: Codable, Equatable, Sendable {
@@ -317,22 +210,20 @@ public enum CmuxExtensionSidebarMutation: Codable, Equatable, Sendable {
     case present(CmuxExtensionSidebarPresentationRequest)
 }
 
+public struct CmuxExtensionCommandResult: Codable, Equatable, Sendable {
+    public var ok: Bool
+
+    public init(ok: Bool) {
+        self.ok = ok
+    }
+}
+
 public struct CmuxExtensionSidebarRenderContext: Codable, Equatable, Sendable {
     public var now: Date
 
     public init(now: Date) {
         self.now = now
     }
-
-    public static var current: CmuxExtensionSidebarRenderContext {
-        CmuxExtensionSidebarRenderContext(now: Date())
-    }
-}
-
-public protocol CmuxExtensionSidebarProvider: Sendable {
-    var descriptor: CmuxExtensionSidebarProviderDescriptor { get }
-
-    func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel
 }
 
 public protocol CmuxExtensionSidebarContextualProvider: CmuxExtensionSidebarProvider {
@@ -347,7 +238,109 @@ public protocol CmuxExtensionSidebarMutableProvider: CmuxExtensionSidebarContext
 }
 
 public extension CmuxExtensionSidebarProvider {
-    func render(snapshot: CmuxExtensionSidebarSnapshot, context: CmuxExtensionSidebarRenderContext) -> CmuxExtensionSidebarRenderModel {
+    func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
+        CmuxExtensionSidebarRenderModel(
+            providerId: descriptor.id,
+            snapshotSequence: snapshot.sequence,
+            sections: []
+        )
+    }
+
+    func render(
+        snapshot: CmuxExtensionSidebarSnapshot,
+        context: CmuxExtensionSidebarRenderContext
+    ) -> CmuxExtensionSidebarRenderModel {
         render(snapshot: snapshot)
+    }
+}
+
+public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
+    public var sequence: UInt64
+    public var selectedWorkspaceId: UUID?
+    public var workspaces: [CmuxExtensionWorkspaceSnapshot]
+    public var windowId: UUID?
+
+    public init(
+        sequence: UInt64,
+        selectedWorkspaceId: UUID?,
+        workspaces: [CmuxExtensionWorkspaceSnapshot],
+        windowId: UUID? = nil
+    ) {
+        self.sequence = sequence
+        self.selectedWorkspaceId = selectedWorkspaceId
+        self.workspaces = workspaces
+        self.windowId = windowId
+    }
+
+    public var workspaceIds: [UUID] {
+        workspaces.map(\.id)
+    }
+}
+
+public struct CmuxExtensionGitBranchSnapshot: Codable, Equatable, Sendable {
+    public var branch: String
+    public var isDirty: Bool
+
+    public init(branch: String, isDirty: Bool) {
+        self.branch = branch
+        self.isDirty = isDirty
+    }
+}
+
+public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, Sendable {
+    public var id: UUID
+    public var title: String
+    public var customDescription: String?
+    public var isPinned: Bool
+    public var rootPath: String?
+    public var projectRootPath: String?
+    public var branchSummary: String?
+    public var remoteDisplayTarget: String?
+    public var remoteConnectionState: String?
+    public var unreadCount: Int
+    public var latestNotificationText: String?
+    public var latestSubmittedMessage: String?
+    public var latestSubmittedAt: Date?
+    public var listeningPorts: [Int]
+    public var pullRequestURLs: [String]
+    public var panelDirectories: [String]
+    public var gitBranches: [CmuxExtensionGitBranchSnapshot]
+
+    public init(
+        id: UUID,
+        title: String,
+        customDescription: String?,
+        isPinned: Bool,
+        rootPath: String?,
+        projectRootPath: String?,
+        branchSummary: String?,
+        remoteDisplayTarget: String?,
+        remoteConnectionState: String?,
+        unreadCount: Int,
+        latestNotificationText: String?,
+        latestSubmittedMessage: String? = nil,
+        latestSubmittedAt: Date? = nil,
+        listeningPorts: [Int],
+        pullRequestURLs: [String] = [],
+        panelDirectories: [String] = [],
+        gitBranches: [CmuxExtensionGitBranchSnapshot] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.customDescription = customDescription
+        self.isPinned = isPinned
+        self.rootPath = rootPath
+        self.projectRootPath = projectRootPath
+        self.branchSummary = branchSummary
+        self.remoteDisplayTarget = remoteDisplayTarget
+        self.remoteConnectionState = remoteConnectionState
+        self.unreadCount = unreadCount
+        self.latestNotificationText = latestNotificationText
+        self.latestSubmittedMessage = latestSubmittedMessage
+        self.latestSubmittedAt = latestSubmittedAt
+        self.listeningPorts = listeningPorts
+        self.pullRequestURLs = pullRequestURLs
+        self.panelDirectories = panelDirectories
+        self.gitBranches = gitBranches
     }
 }

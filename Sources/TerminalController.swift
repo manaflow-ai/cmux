@@ -16646,8 +16646,7 @@ class TerminalController {
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
             dragState.isSimulated = true
-            dragState.draggedTabId = fromTabId
-            dragState.dropIndicator = nil
+            dragState.beginDragging(tabId: fromTabId)
             return true
         }
         guard startedOK else {
@@ -16669,7 +16668,7 @@ class TerminalController {
             }
             let tickOK: Bool = v2MainSync {
                 guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-                dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
+                dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
             if !tickOK {
@@ -16683,8 +16682,7 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
+            dragState.clearDrag()
             dragState.isSimulated = false
         }
 
