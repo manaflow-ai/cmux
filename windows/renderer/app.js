@@ -126,8 +126,12 @@ const customColorPaletteLimit = 18;
 const savedBackgroundImagesLimit = 12;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
+const paneResizeMinWidth = 72;
+const paneResizeMinHeight = 48;
 const settingsSaveDelay = 140;
 const closedPanelLimit = 12;
+const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
+const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
 
 const workspaceStarters = [
   {
@@ -229,6 +233,7 @@ const state = {
   paletteRenderTimer: 0,
   paletteListSignature: "",
   dragPanelId: null,
+  dragWorkspaceId: null,
   zoomedPanelId: null,
   contextMenu: null,
   activeDialog: null,
@@ -273,6 +278,7 @@ const state = {
   },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
+  terminalWheelZoomAt: 0,
   appliedSettingsSignature: "",
   settings: initialSettings,
   settingsCategory: "quick",
@@ -413,8 +419,33 @@ function loadSettings() {
   } catch {
     parsed = {};
   }
+  let migrated = false;
+  if (
+    localStorage.getItem(terminalCursorMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && (!Object.hasOwn(parsed, "terminalCursorStyle") || parsed.terminalCursorStyle === "block")
+  ) {
+    parsed.terminalCursorStyle = defaultSettings.terminalCursorStyle;
+    localStorage.setItem(terminalCursorMigrationStorageKey, "1");
+    migrated = true;
+  }
+  if (
+    localStorage.getItem(browserHomeMigrationStorageKey) !== "1"
+    && parsed
+    && typeof parsed === "object"
+    && !Array.isArray(parsed)
+    && (!Object.hasOwn(parsed, "browserHomeUrl") || /^https?:\/\/(?:www\.)?bing\.com/i.test(parsed.browserHomeUrl))
+  ) {
+    parsed.browserHomeUrl = defaultSettings.browserHomeUrl;
+    localStorage.setItem(browserHomeMigrationStorageKey, "1");
+    migrated = true;
+  }
   const legacyFontSize = Number(localStorage.getItem("cmux.terminalFontSize") || 0);
-  return normalizeSettings(parsed, legacyFontSize);
+  const settings = normalizeSettings(parsed, legacyFontSize);
+  if (migrated) localStorage.setItem("cmux.settings", JSON.stringify(settings));
+  return settings;
 }
 
 function saveSettings() {
@@ -446,9 +477,25 @@ function isBackgroundPreset(value) {
   return backgroundPresetMap.has(String(value || "").trim());
 }
 
+function localPathToFileUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\\\\/.test(raw)) {
+    const parts = raw.replace(/^\\\\/, "").split(/[\\/]+/).filter(Boolean);
+    return parts.length ? `file://${parts.map(encodeURIComponent).join("/")}` : "";
+  }
+  const match = raw.match(/^([a-z]):[\\/](.*)$/i);
+  if (!match) return "";
+  const drive = match[1].toUpperCase();
+  const rest = match[2].split(/[\\/]+/).filter(Boolean).map(encodeURIComponent).join("/");
+  return `file:///${drive}:/${rest}`;
+}
+
 function normalizeBackgroundValue(value) {
   let url = String(value || "").trim();
   if (!url) return "";
+  const fileUrl = localPathToFileUrl(url);
+  if (fileUrl) return fileUrl;
   if (url.startsWith("preset:")) return backgroundPresetMap.has(url) ? url : "";
   if (!/^(https?:|data:image\/|file:|\/)/i.test(url)) url = `https://${url}`;
   return url;
@@ -1531,7 +1578,7 @@ const commands = [
   { id: "layout.activeTall", label: "Make Active Pane Tall", shortcut: "", run: () => applyPaneLayoutPreset("activeTall") },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
-  { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserPrompt() },
+  { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
@@ -1831,6 +1878,7 @@ function renderWorkspaces() {
 function createWorkspaceRow() {
   const button = document.createElement("button");
   button.className = "workspace-row";
+  button.draggable = true;
   button.innerHTML = `
     <span class="workspace-attention"></span>
     <span class="workspace-card">
@@ -1845,22 +1893,54 @@ function createWorkspaceRow() {
     </span>
   `;
   button.addEventListener("click", () => focusWorkspace(button.dataset.workspaceId));
+  button.addEventListener("dragstart", (event) => {
+    state.dragWorkspaceId = button.dataset.workspaceId;
+    state.dragPanelId = null;
+    button.classList.add("is-workspace-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", state.dragWorkspaceId);
+  });
+  button.addEventListener("dragend", () => {
+    button.classList.remove("is-workspace-dragging");
+    state.dragWorkspaceId = null;
+    clearAllDropTargets();
+  });
   button.addEventListener("contextmenu", (event) => {
     const workspace = state.data?.workspaces.find((candidate) => candidate.id === button.dataset.workspaceId);
     if (workspace) showWorkspaceContextMenu(event, workspace);
   });
   button.addEventListener("dragover", (event) => {
-    if (!state.dragPanelId) return;
+    if (!state.dragPanelId && !state.dragWorkspaceId) return;
     event.preventDefault();
-    button.classList.add("is-drop-target");
+    if (state.dragPanelId) {
+      button.classList.add("is-drop-target");
+      return;
+    }
+    if (state.dragWorkspaceId === button.dataset.workspaceId) return;
+    const placement = workspaceDropPlacement(event, button);
+    button.classList.toggle("is-workspace-drop-before", placement === "before");
+    button.classList.toggle("is-workspace-drop-after", placement === "after");
   });
-  button.addEventListener("dragleave", () => button.classList.remove("is-drop-target"));
+  button.addEventListener("dragleave", () => {
+    button.classList.remove("is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
+  });
   button.addEventListener("drop", (event) => {
     event.preventDefault();
-    button.classList.remove("is-drop-target");
-    if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, button.dataset.workspaceId);
+    const targetWorkspaceId = button.dataset.workspaceId;
+    const workspacePlacement = workspaceDropPlacement(event, button);
+    button.classList.remove("is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
+    if (state.dragPanelId) movePanelToWorkspace(state.dragPanelId, targetWorkspaceId);
+    else if (state.dragWorkspaceId && state.dragWorkspaceId !== targetWorkspaceId) {
+      moveWorkspaceRelative(state.dragWorkspaceId, targetWorkspaceId, workspacePlacement);
+    }
   });
   return button;
+}
+
+function workspaceDropPlacement(event, row) {
+  const rect = row.getBoundingClientRect();
+  const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
+  return y < 0.5 ? "before" : "after";
 }
 
 function updateWorkspaceRow(button, workspace, index, activeId) {
@@ -2093,9 +2173,9 @@ function createEmptyWorkspace(workspace) {
       <div class="empty-workspace-starters"></div>
     </div>
   `;
-  node.querySelector(".empty-workspace-title").textContent = workspace?.title || "cmux Windows";
+  node.querySelector(".empty-workspace-title").textContent = "cmux";
   node.querySelector(".new-terminal").onclick = () => createPanel("terminal", "right");
-  node.querySelector(".new-browser").onclick = () => openBrowserPrompt();
+  node.querySelector(".new-browser").onclick = () => openBrowserHome(workspace?.id);
   renderEmptyWorkspaceStarters(node, workspace);
   return node;
 }
@@ -2105,7 +2185,7 @@ function renderEmptyWorkspace(workspace) {
   if (!node) {
     node = createEmptyWorkspace(workspace);
   } else {
-    node.querySelector(".empty-workspace-title").textContent = workspace?.title || "cmux Windows";
+    node.querySelector(".empty-workspace-title").textContent = "cmux";
     renderEmptyWorkspaceStarters(node, workspace);
   }
   replaceChildrenIfChanged(elements.paneGrid, [node]);
@@ -2163,7 +2243,7 @@ function startPaneResize(event, splitter) {
   for (const pane of panes) {
     const rect = pane.getBoundingClientRect();
     const size = vertical ? rect.height : rect.width;
-    pane.style.flex = `0 0 ${Math.max(120, size)}px`;
+    pane.style.flex = `0 0 ${Math.max(1, size)}px`;
   }
   splitter.classList.add("is-dragging");
   splitter.setPointerCapture(event.pointerId);
@@ -2185,9 +2265,11 @@ function continuePaneResize(event) {
   const { previousPane, nextPane, vertical, start, previousSize, nextSize } = state.resizing;
   const current = vertical ? event.clientY : event.clientX;
   const delta = current - start;
-  const minSize = vertical ? 140 : 180;
-  const nextPrevious = Math.max(minSize, previousSize + delta);
-  const nextNext = Math.max(minSize, nextSize - delta);
+  const pairTotal = Math.max(2, previousSize + nextSize);
+  const baseMinSize = vertical ? paneResizeMinHeight : paneResizeMinWidth;
+  const minSize = Math.min(baseMinSize, Math.max(1, Math.floor(pairTotal / 2) - 1));
+  const nextPrevious = Math.min(pairTotal - minSize, Math.max(minSize, previousSize + delta));
+  const nextNext = pairTotal - nextPrevious;
   previousPane.style.flex = `0 0 ${nextPrevious}px`;
   nextPane.style.flex = `0 0 ${nextNext}px`;
   for (const panelId of [previousPane.dataset.panelId, nextPane.dataset.panelId]) {
@@ -2384,8 +2466,9 @@ function paneDropPosition(event, pane) {
   const rect = pane.getBoundingClientRect();
   const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
   const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
-  if (y < 0.28) return "top";
-  if (y > 0.72) return "bottom";
+  const horizontalBias = Math.abs(x - 0.5);
+  const verticalBias = Math.abs(y - 0.5);
+  if (verticalBias > horizontalBias) return y < 0.5 ? "top" : "bottom";
   return x < 0.5 ? "left" : "right";
 }
 
@@ -2396,9 +2479,11 @@ function clearPaneDropTarget(pane) {
 
 function clearAllDropTargets() {
   for (const pane of document.querySelectorAll(".pane.is-drop-target")) clearPaneDropTarget(pane);
-  for (const node of document.querySelectorAll(".is-drop-before, .workspace-row.is-drop-target")) {
-    node.classList.remove("is-drop-before", "is-drop-target");
+  for (const node of document.querySelectorAll(".is-drop-before, .workspace-row.is-drop-target, .workspace-row.is-workspace-drop-before, .workspace-row.is-workspace-drop-after")) {
+    node.classList.remove("is-drop-before", "is-drop-target", "is-workspace-drop-before", "is-workspace-drop-after");
   }
+  state.dragPanelId = null;
+  state.dragWorkspaceId = null;
 }
 
 function cleanupPanel(panelId) {
@@ -2442,6 +2527,7 @@ function ensureTerminal(panel, body) {
   }
   const host = document.createElement("div");
   host.className = "terminal-host";
+  host.addEventListener("wheel", handleTerminalWheelZoom, { passive: false });
   body.appendChild(host);
 
   const term = new TerminalConstructor({
@@ -2798,7 +2884,7 @@ function ensureBrowser(panel, body) {
   home.textContent = "⌂";
   const address = document.createElement("input");
   address.className = "browser-address";
-  address.value = panel.url || "https://example.com";
+  address.value = panel.url || state.settings.browserHomeUrl;
   const go = document.createElement("button");
   go.className = "browser-go";
   go.type = "button";
@@ -3115,7 +3201,7 @@ function renderSettingsInspector(options = {}) {
     homeInput.className = "setting-control";
     homeInput.dataset.settingControl = "browserHomeUrl";
     homeInput.value = state.settings.browserHomeUrl;
-    homeInput.placeholder = "https://www.bing.com";
+    homeInput.placeholder = "https://www.google.com";
     homeInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") homeInput.blur();
     });
@@ -3124,7 +3210,7 @@ function renderSettingsInspector(options = {}) {
       homeInput.value = state.settings.browserHomeUrl;
     });
     browserSection.append(settingRow("Home page", homeInput, true));
-    browserSection.append(settingRow("Home presets", browserHomePresetGrid(), true, "browser home preset quick start localhost github bing vite"));
+    browserSection.append(settingRow("Home presets", browserHomePresetGrid(), true, "browser home preset quick start localhost github google vite"));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
     homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web");
@@ -3911,7 +3997,7 @@ function isActiveBrowserHomePreset(preset) {
 function browserHomePresetGrid() {
   const grid = document.createElement("div");
   grid.className = "browser-home-preset-grid";
-  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start bing github localhost vite web url");
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start google github localhost vite web url");
   for (const preset of browserHomePresets) {
     const active = isActiveBrowserHomePreset(preset);
     const button = document.createElement("button");
@@ -7031,6 +7117,10 @@ async function openBrowserPrompt(workspaceId = null) {
   await createPanel("browser", "right", { url, workspaceId });
 }
 
+function openBrowserHome(workspaceId = activeWorkspace()?.id) {
+  return createPanel("browser", "right", { url: state.settings.browserHomeUrl, workspaceId });
+}
+
 function refreshWorkspaceCounts(workspace) {
   if (!workspace) return;
   workspace.terminalCount = workspace.panels.filter((panel) => panel.type === "terminal").length;
@@ -7319,6 +7409,52 @@ async function movePanelToWorkspace(panelId, workspaceId) {
   await updatePanel(panelId, { workspaceId, moveToEnd: true });
 }
 
+function optimisticMoveWorkspace(workspaceId, beforeWorkspaceId = null) {
+  const workspaces = state.data?.workspaces;
+  if (!Array.isArray(workspaces) || !workspaceId || beforeWorkspaceId === workspaceId) return false;
+  const currentIndex = workspaces.findIndex((workspace) => workspace.id === workspaceId);
+  if (currentIndex < 0) return false;
+  const [workspace] = workspaces.splice(currentIndex, 1);
+  const insertIndex = beforeWorkspaceId
+    ? workspaces.findIndex((candidate) => candidate.id === beforeWorkspaceId)
+    : -1;
+  workspaces.splice(insertIndex >= 0 ? insertIndex : workspaces.length, 0, workspace);
+  state.data.activeWorkspaceId = workspace.id;
+  render();
+  return true;
+}
+
+async function updateWorkspaceOrder(workspaceId, updates) {
+  if (!optimisticMoveWorkspace(workspaceId, updates.moveToEnd ? null : updates.beforeWorkspaceId)) return;
+  try {
+    await api(`/api/workspaces/${workspaceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates)
+    });
+    await loadState();
+  } catch {
+    await loadState();
+  }
+}
+
+function moveWorkspaceRelative(workspaceId, targetWorkspaceId, placement) {
+  if (!workspaceId || !targetWorkspaceId || workspaceId === targetWorkspaceId) return;
+  const workspaces = state.data?.workspaces || [];
+  const targetIndex = workspaces.findIndex((workspace) => workspace.id === targetWorkspaceId);
+  if (targetIndex < 0) return;
+  if (placement === "before") {
+    updateWorkspaceOrder(workspaceId, { beforeWorkspaceId: targetWorkspaceId });
+    return;
+  }
+  const nextWorkspace = workspaces[targetIndex + 1];
+  if (nextWorkspace?.id === workspaceId) return;
+  if (nextWorkspace) {
+    updateWorkspaceOrder(workspaceId, { beforeWorkspaceId: nextWorkspace.id });
+  } else {
+    updateWorkspaceOrder(workspaceId, { moveToEnd: true });
+  }
+}
+
 async function focusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
@@ -7368,6 +7504,16 @@ function cycleWorkspace(delta = 1) {
 function focusTerminalSession(panelId) {
   const terminal = state.terminals.get(panelId);
   if (terminal) setTimeout(() => terminal.term.focus(), 20);
+}
+
+function handleTerminalWheelZoom(event) {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const now = performance.now();
+  if (now - state.terminalWheelZoomAt < 35) return;
+  state.terminalWheelZoomAt = now;
+  changeTerminalFontSize(event.deltaY < 0 ? 1 : -1, { toast: false });
 }
 
 function togglePaneZoom(panelId = activePanel()?.id) {
@@ -7539,9 +7685,9 @@ async function applyPaneLayoutPreset(presetId) {
   return true;
 }
 
-function changeTerminalFontSize(delta) {
+function changeTerminalFontSize(delta, options = {}) {
   updateSettings({ terminalFontSize: state.terminalFontSize + delta });
-  toast(`Terminal text ${state.terminalFontSize}px`);
+  if (options.toast !== false) toast(`Terminal text ${state.terminalFontSize}px`);
 }
 
 async function writeClipboardText(text) {
@@ -7884,7 +8030,7 @@ document.getElementById("resetSessionButton").onclick = () => resetSession();
 document.getElementById("newTerminalButton").onclick = () => createPanel("terminal", "right");
 document.getElementById("splitRightButton").onclick = () => createPanel("terminal", "right");
 document.getElementById("splitDownButton").onclick = () => createPanel("terminal", "down");
-document.getElementById("newBrowserButton").onclick = () => openBrowserPrompt();
+document.getElementById("newBrowserButton").onclick = () => openBrowserHome();
 document.getElementById("toolsMenuButton").onclick = showToolbarMenu;
 document.getElementById("settingsButton").onclick = () => openInspector("settings");
 document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWorkspace();
@@ -7993,7 +8139,7 @@ window.addEventListener("keydown", (event) => {
     createPanel("terminal", "right");
   } else if (event.ctrlKey && event.shiftKey && key === "l") {
     consumeGlobalShortcut(event);
-    openBrowserPrompt();
+    openBrowserHome();
   } else if (event.ctrlKey && key === "i") {
     consumeGlobalShortcut(event);
     openInspector("notifications");
@@ -8030,8 +8176,7 @@ window.addEventListener("keydown", (event) => {
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
 new MutationObserver(scheduleVisiblePaneLayoutApply).observe(elements.paneGrid, {
-  childList: true,
-  subtree: true
+  childList: true
 });
 window.addEventListener("pointermove", (event) => {
   continuePaneResize(event);

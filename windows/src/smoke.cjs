@@ -62,6 +62,15 @@ function pipeRoundTrip(command) {
   const terminal = await terminalResponse.json();
   assert(terminal.cwd === workspaceCwd, "new terminal should inherit workspace folder");
 
+  const defaultBrowserResponse = await fetch(`${info.url}api/panels`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ workspaceId: workspace.id, type: "browser" })
+  });
+  assert(defaultBrowserResponse.ok, "default browser create failed");
+  const defaultBrowser = await defaultBrowserResponse.json();
+  assert(defaultBrowser.url === "https://www.google.com", "default browser should open Google");
+
   const restartResponse = await fetch(`${info.url}api/panels/${terminal.id}/restart`, {
     method: "POST"
   });
@@ -83,6 +92,25 @@ function pipeRoundTrip(command) {
     body: JSON.stringify({ url: "https://example.org" })
   });
   assert(browserUpdateResponse.ok, "browser update failed");
+
+  const reorderWorkspaceResponse = await fetch(`${info.url}api/workspaces`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Reorder Target" })
+  });
+  assert(reorderWorkspaceResponse.ok, "workspace reorder target create failed");
+  const reorderWorkspace = await reorderWorkspaceResponse.json();
+  const reorderResponse = await fetch(`${info.url}api/workspaces/${reorderWorkspace.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ beforeWorkspaceId: workspace.id })
+  });
+  assert(reorderResponse.ok, "workspace reorder failed");
+  const reorderedStateResponse = await fetch(`${info.url}api/state`);
+  const reorderedState = await reorderedStateResponse.json();
+  const smokeIndex = reorderedState.workspaces.findIndex((candidate) => candidate.id === workspace.id);
+  const movedIndex = reorderedState.workspaces.findIndex((candidate) => candidate.id === reorderWorkspace.id);
+  assert(movedIndex >= 0 && smokeIndex >= 0 && movedIndex < smokeIndex, "workspace reorder should move before target");
 
   const pngPath = path.join(dataDir, "background.png");
   fs.writeFileSync(pngPath, Buffer.from(

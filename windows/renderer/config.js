@@ -3,7 +3,7 @@ export const defaultSettings = {
   accent: "oklch(61% 0.22 255)",
   backgroundImage: "",
   backgroundOpacity: 16,
-  browserHomeUrl: "https://www.bing.com",
+  browserHomeUrl: "https://www.google.com",
   density: "comfortable",
   paneHeaderMode: "compact",
   sidebarDetailMode: "compact",
@@ -24,7 +24,7 @@ export const defaultSettings = {
   terminalLineHeight: 1.22,
   terminalPadding: 8,
   terminalScrollback: 12000,
-  terminalCursorStyle: "block",
+  terminalCursorStyle: "bar",
   terminalCursorBlink: true,
   terminalBackground: "",
   terminalForeground: "",
@@ -155,10 +155,10 @@ export const backgroundPresets = [
 
 export const browserHomePresets = [
   {
-    id: "bing",
-    label: "Bing",
+    id: "google",
+    label: "Google",
     body: "Default search home.",
-    url: "https://www.bing.com"
+    url: "https://www.google.com"
   },
   {
     id: "github",

@@ -510,6 +510,34 @@ body.reduce-motion *::after {
   background: var(--color-pane-warm);
 }
 
+.workspace-row.is-workspace-dragging {
+  opacity: .58;
+}
+
+.workspace-row.is-workspace-drop-before,
+.workspace-row.is-workspace-drop-after {
+  position: relative;
+}
+
+.workspace-row.is-workspace-drop-before::before,
+.workspace-row.is-workspace-drop-after::after {
+  content: "";
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
+.workspace-row.is-workspace-drop-before::before {
+  top: -3px;
+}
+
+.workspace-row.is-workspace-drop-after::after {
+  bottom: -3px;
+}
+
 .workspace-row.is-active .workspace-attention {
   background: var(--workspace-color, var(--color-accent));
 }
@@ -879,13 +907,14 @@ body.reduce-motion *::after {
 
 .surface-tabs {
   display: flex;
-  align-items: end;
-  gap: 0;
+  align-items: center;
+  gap: 3px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-canvas);
+  padding: 3px 5px 0;
 }
 
 .surface-tabs::-webkit-scrollbar {
@@ -894,17 +923,17 @@ body.reduce-motion *::after {
 
 .surface-tab {
   position: relative;
-  height: 34px;
+  height: 31px;
   flex: 1 1 var(--surface-tab-basis, 160px);
   min-width: var(--surface-tab-min, 104px);
   max-width: var(--surface-tab-max, 220px);
   display: grid;
   grid-template-columns: 10px minmax(0, 1fr) 22px;
   align-items: center;
-  gap: 7px;
-  border-top: 2px solid transparent;
-  border-right: 1px solid var(--color-line);
-  border-radius: 0;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-bottom-color: transparent;
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
   padding: 0 var(--space-2);
   color: var(--color-muted);
   user-select: none;
@@ -915,14 +944,15 @@ body.reduce-motion *::after {
 }
 
 .surface-tab.is-active {
-  border-top-color: var(--tab-color, var(--color-accent));
+  border-color: var(--color-line);
+  border-bottom-color: var(--color-pane-warm);
   background: var(--color-pane-warm);
   color: var(--color-text);
 }
 
 .surface-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--tab-color, var(--color-faint));
 }
@@ -1028,11 +1058,11 @@ body.reduce-motion *::after {
 }
 
 .pane-grid:not(.direction-down) .pane {
-  min-width: 180px;
+  min-width: 72px;
 }
 
 .pane-grid.direction-down .pane {
-  min-height: 140px;
+  min-height: 48px;
 }
 
 .pane-splitter {
@@ -1058,25 +1088,25 @@ body.reduce-motion *::after {
 
 .pane-splitter:hover::before,
 .pane-splitter.is-dragging::before {
-  background: var(--color-accent);
+  background: var(--color-line-strong);
 }
 
 .pane.is-active {
-  border-color: color-mix(in oklch, var(--panel-color, var(--color-accent)) 48%, var(--color-line) 52%);
+  border-color: var(--color-line-strong);
   box-shadow:
-    inset 0 0 0 1px color-mix(in oklch, var(--panel-color, var(--color-accent)) 36%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--color-text) 5%, transparent),
     inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 .pane.is-zoomed {
   min-width: 0;
   min-height: 0;
-  border-color: var(--panel-color, var(--color-accent));
+  border-color: var(--color-line-strong);
 }
 
 .pane.has-attention {
-  border-color: var(--panel-color, var(--color-accent-hover));
-  box-shadow: inset 0 0 0 1px var(--panel-color, var(--color-accent-hover));
+  border-color: var(--color-line-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-warning) 48%, transparent);
 }
 
 .pane-header {
@@ -1092,7 +1122,7 @@ body.reduce-motion *::after {
 }
 
 .pane.is-active .pane-header {
-  background: color-mix(in oklch, var(--panel-color, var(--color-accent)) 8%, var(--color-pane-warm) 92%);
+  background: var(--color-pane-warm);
 }
 
 .pane-header:active {
@@ -1109,7 +1139,7 @@ body.reduce-motion *::after {
 
 .pane-header:hover .pane-grip,
 .pane.is-active .pane-grip {
-  color: var(--panel-color, var(--color-accent));
+  color: var(--color-muted);
 }
 
 .pane.is-dragging {
@@ -1129,8 +1159,8 @@ body.reduce-motion *::after {
   position: absolute;
   z-index: 8;
   pointer-events: none;
-  border: 1px solid var(--color-accent);
-  background: color-mix(in oklch, var(--color-accent) 14%, transparent);
+  border: 1px solid var(--color-line-strong);
+  background: color-mix(in oklch, var(--color-text) 10%, transparent);
 }
 
 .pane.is-drop-target[data-drop-position="left"]::after {
@@ -1458,6 +1488,7 @@ body.reduce-motion *::after {
   color: var(--color-text);
   font-weight: 760;
   font-size: 18px;
+  letter-spacing: 0;
 }
 
 .empty-workspace-body {

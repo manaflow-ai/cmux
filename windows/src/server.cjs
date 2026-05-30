@@ -18,6 +18,7 @@ try {
 const defaultPipeName = process.platform === "win32"
   ? "\\\\.\\pipe\\cmux-windows"
   : path.join(os.tmpdir(), "cmux-windows.sock");
+const defaultBrowserHomeUrl = "https://www.google.com";
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -466,7 +467,7 @@ class CmuxWindowsRuntime {
       cwd: options.cwd || process.cwd(),
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
       shellPath: type === "terminal" ? sanitizeShellPath(options.shellPath) : "",
-      url: options.url || "https://example.com",
+      url: options.url || defaultBrowserHomeUrl,
       needsAttention: false,
       notificationText: "",
       runtime: this
@@ -585,6 +586,19 @@ class CmuxWindowsRuntime {
     return true;
   }
 
+  moveWorkspace(workspaceId, beforeWorkspaceId = null) {
+    const currentIndex = this.state.workspaces.findIndex((workspace) => workspace.id === workspaceId);
+    if (currentIndex < 0 || beforeWorkspaceId === workspaceId) return false;
+    const [workspace] = this.state.workspaces.splice(currentIndex, 1);
+    const insertIndex = beforeWorkspaceId
+      ? this.state.workspaces.findIndex((candidate) => candidate.id === beforeWorkspaceId)
+      : -1;
+    this.state.workspaces.splice(insertIndex >= 0 ? insertIndex : this.state.workspaces.length, 0, workspace);
+    this.state.activeWorkspaceId = workspace.id;
+    this.persistAndBroadcast();
+    return true;
+  }
+
   movePanel(panelId, targetWorkspaceId, beforePanelId = null) {
     const found = this.findPanel(panelId);
     if (!found) return false;
@@ -666,6 +680,9 @@ class CmuxWindowsRuntime {
   }
 
   updateWorkspace(workspaceId, updates = {}) {
+    if (Object.hasOwn(updates, "beforeWorkspaceId") || Object.hasOwn(updates, "moveToEnd")) {
+      return this.moveWorkspace(workspaceId, updates.moveToEnd ? null : updates.beforeWorkspaceId);
+    }
     const workspace = this.state.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) return false;
     if (Object.hasOwn(updates, "title")) {
@@ -1005,7 +1022,7 @@ class CmuxWindowsRuntime {
       case "new-terminal":
         return JSON.stringify(this.serializePanel(this.createPanel(this.state.activeWorkspaceId, "terminal")));
       case "browser-open":
-        return JSON.stringify(this.serializePanel(this.createPanel(this.state.activeWorkspaceId, "browser", { url: args.join(" ") || "https://example.com" })));
+        return JSON.stringify(this.serializePanel(this.createPanel(this.state.activeWorkspaceId, "browser", { url: args.join(" ") || defaultBrowserHomeUrl })));
       case "restart-terminal":
         return this.restartPanel(this.activeWorkspace()?.activePanelId) ? "OK" : "ERROR no active terminal";
       case "notify":
@@ -1036,7 +1053,7 @@ class CmuxWindowsRuntime {
       case "panel.create":
         return this.serializePanel(this.createPanel(params.workspaceId || this.state.activeWorkspaceId, params.type || "terminal", params));
       case "browser.open":
-        return this.serializePanel(this.createPanel(params.workspaceId || this.state.activeWorkspaceId, "browser", { url: params.url || "https://example.com" }));
+        return this.serializePanel(this.createPanel(params.workspaceId || this.state.activeWorkspaceId, "browser", { url: params.url || defaultBrowserHomeUrl }));
       case "panel.update":
         return { ok: this.updatePanel(params.panelId, params) };
       case "terminal.restart":

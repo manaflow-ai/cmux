@@ -1,6 +1,6 @@
 import { defaultSettings } from "./config.js";
 
-export function normalizeUrl(value, fallback = "https://example.com") {
+export function normalizeUrl(value, fallback = "https://www.google.com") {
   let next = String(value || "").trim();
   if (!next) next = fallback;
   if (/^https?:\/\//i.test(next)) return next;
@@ -8,7 +8,7 @@ export function normalizeUrl(value, fallback = "https://example.com") {
     return `http://${next}`;
   }
   if (!/\s/.test(next) && next.includes(".")) return `https://${next}`;
-  next = `https://www.bing.com/search?q=${encodeURIComponent(next)}`;
+  next = `https://www.google.com/search?q=${encodeURIComponent(next)}`;
   return next;
 }
 
