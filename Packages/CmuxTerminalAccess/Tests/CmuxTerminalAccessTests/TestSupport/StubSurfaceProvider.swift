@@ -94,4 +94,18 @@ public actor StubSurfaceProvider: SurfaceProvider {
     public nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int {
         1 << 20
     }
+
+    /// Default no-op observation — Phase 0/1 tests that don't exercise
+    /// surface-close behavior get a fresh lifetime token. Tests that
+    /// need to fire `onClose` use a custom provider that stores the
+    /// closure (see ``StreamEndOnSurfaceCloseTests`` for the canonical
+    /// pattern).
+    public func observeClose(
+        _ handle: SurfaceHandle,
+        onClose: @escaping @Sendable () -> Void
+    ) async throws -> AnyObject {
+        _ = handle
+        _ = onClose
+        return NSObject()
+    }
 }

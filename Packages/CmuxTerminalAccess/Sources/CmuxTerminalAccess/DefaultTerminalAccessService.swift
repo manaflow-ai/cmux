@@ -377,7 +377,7 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         timer.resume()
 
         let audit = self.audit
-        return OutputSubscription(
+        let sub = OutputSubscription(
             id: UUID(),
             handle: options.handle,
             mode: .cells,
@@ -397,6 +397,18 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
                 }
             }
         )
+
+        // Phase 2 close detection (Task 2.19) — the provider fires
+        // `onClose` exactly once when the surface goes away; we forward
+        // that to ``OutputSubscription/signalEnd()`` so the SSE writer
+        // can emit a terminal `event: end` frame. The returned token
+        // is retained for the subscription lifetime via
+        // ``OutputSubscription/attachLifetime(_:)``.
+        let closeToken = try await provider.observeClose(options.handle) {
+            [weak sub] in sub?.signalEnd()
+        }
+        sub.attachLifetime(closeToken)
+        return sub
     }
 
     /// Per E14 — gate runs before any provider call that writes

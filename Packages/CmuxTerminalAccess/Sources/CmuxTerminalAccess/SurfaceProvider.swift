@@ -60,4 +60,56 @@ public protocol SurfaceProvider: Sendable {
     /// Phase 0 capacity bookkeeping is a fast in-memory counter, so
     /// callers do not need to suspend to read it.
     func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int
+
+    /// Observe the close of `handle`.
+    ///
+    /// The returned lifetime token must be retained by the caller for
+    /// the duration of the observation; releasing it (or letting it
+    /// deallocate) tears the observer down. `onClose` fires at most
+    /// once when the underlying surface goes away.
+    ///
+    /// Phase 2 uses this seam to drive ``OutputSubscription/signalEnd()``
+    /// when the surface closes underneath an active stream. The default
+    /// extension below returns a fresh `NSObject` and never fires
+    /// `onClose`; live providers must override it to wire the real
+    /// surface-lifecycle signal.
+    ///
+    /// Declared on the protocol (not just in an extension) so dynamic
+    /// dispatch routes to the conformer's override when callers hold
+    /// the provider as `any SurfaceProvider`.
+    ///
+    /// - Parameters:
+    ///   - handle: Target surface.
+    ///   - onClose: Fired exactly once when the surface closes.
+    /// - Returns: An opaque lifetime token; release stops observation.
+    func observeClose(
+        _ handle: SurfaceHandle,
+        onClose: @escaping @Sendable () -> Void
+    ) async throws -> AnyObject
+}
+
+public extension SurfaceProvider {
+    /// Observe the close of `handle`. The default implementation is a
+    /// no-op that returns a fresh `NSObject` lifetime token; live
+    /// providers (in the app target) override this to fire `onClose`
+    /// exactly once when the underlying surface goes away.
+    ///
+    /// The returned token must be retained by the caller for the
+    /// lifetime of the observation; releasing it (or letting it
+    /// deallocate) tears the observer down. Phase 2 uses this seam to
+    /// drive ``OutputSubscription/signalEnd()`` when the surface closes
+    /// underneath an active stream.
+    ///
+    /// - Parameters:
+    ///   - handle: Target surface.
+    ///   - onClose: Fired exactly once when the surface closes.
+    /// - Returns: An opaque lifetime token; release stops observation.
+    func observeClose(
+        _ handle: SurfaceHandle,
+        onClose: @escaping @Sendable () -> Void
+    ) async throws -> AnyObject {
+        _ = handle
+        _ = onClose
+        return NSObject()
+    }
 }
