@@ -1,5 +1,6 @@
 import Darwin
 import CMUXSocketPathDomain
+import CmuxTerminalAccess
 import Foundation
 #if canImport(Security)
 import Security
@@ -130,7 +131,11 @@ enum SocketControlPasswordStore {
         ), !expected.isEmpty else {
             return false
         }
-        return expected == candidate
+        // E9 — constant-time compare so the authentication check
+        // does not leak first-byte mismatch position via response
+        // timing. The helper handles length mismatch as an early
+        // false return, which is acceptable per the threat model.
+        return ctCompare(Data(expected.utf8), Data(candidate.utf8))
     }
 
     static func migrateLegacyKeychainPasswordIfNeeded(
