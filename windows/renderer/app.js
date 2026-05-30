@@ -96,6 +96,8 @@ const terminalOutputBacklogThreshold = 262144;
 const renderSlowFrameMs = 24;
 const renderVerySlowFrameMs = 72;
 const renderSlowFrameTriggerCount = 4;
+const performanceGuardStartupGraceMs = 2500;
+const performanceGuardStartupRenderCount = 3;
 const appearancePreviewKeys = new Set([
   "theme",
   "accent",
@@ -341,6 +343,8 @@ const state = {
   },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
+  performanceGuardStartedAt: performance.now(),
+  performanceGuardSlowRenderCount: 0,
   terminalWheelZoomState: new Map(),
   appliedSettingsSignature: "",
   settings: initialSettings,
@@ -2282,9 +2286,16 @@ function recordRenderDuration(durationMs) {
     : value;
   state.renderStats.maxMs = Math.max(state.renderStats.maxMs, value);
   if (value >= renderSlowFrameMs) state.renderStats.slowCount += 1;
-  if (value >= renderVerySlowFrameMs || state.renderStats.slowCount >= renderSlowFrameTriggerCount) {
+  if (!performanceGuardCanUseRenderSignal()) return;
+  if (value >= renderSlowFrameMs) state.performanceGuardSlowRenderCount += 1;
+  if (value >= renderVerySlowFrameMs || state.performanceGuardSlowRenderCount >= renderSlowFrameTriggerCount) {
     maybeTriggerPerformanceGuard("slow rendering");
   }
+}
+
+function performanceGuardCanUseRenderSignal() {
+  return state.renderStats.count > performanceGuardStartupRenderCount
+    && performance.now() - state.performanceGuardStartedAt >= performanceGuardStartupGraceMs;
 }
 
 function cleanupStalePaneCache() {
@@ -5874,6 +5885,8 @@ function resetRenderStats() {
   };
   state.performanceGuardTriggered = false;
   state.performanceGuardReason = "";
+  state.performanceGuardStartedAt = performance.now();
+  state.performanceGuardSlowRenderCount = 0;
   renderSettingsInspector();
   toast("Performance stats reset.");
 }
