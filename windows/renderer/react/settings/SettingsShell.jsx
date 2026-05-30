@@ -21,13 +21,18 @@ export function SettingsShell({
     });
   }, [activeCategory, categories]);
 
-  const onNavWheel = React.useCallback((event) => {
+  React.useEffect(() => {
     const nav = navRef.current;
-    if (!nav || event.ctrlKey || nav.scrollWidth <= nav.clientWidth) return;
-    const horizontalDelta = event.deltaX || event.deltaY;
-    if (!horizontalDelta) return;
-    event.preventDefault();
-    nav.scrollLeft += horizontalDelta;
+    if (!nav) return undefined;
+    const onWheel = (event) => {
+      if (event.ctrlKey || nav.scrollWidth <= nav.clientWidth) return;
+      const horizontalDelta = event.deltaX || event.deltaY;
+      if (!horizontalDelta) return;
+      event.preventDefault();
+      nav.scrollLeft += horizontalDelta;
+    };
+    nav.addEventListener("wheel", onWheel, { passive: false });
+    return () => nav.removeEventListener("wheel", onWheel);
   }, []);
 
   return (
@@ -51,7 +56,7 @@ export function SettingsShell({
           x
         </button>
       </div>
-      <div ref={navRef} className="settings-nav" role="tablist" aria-label={subtitle || "Settings pages"} onWheel={onNavWheel}>
+      <div ref={navRef} className="settings-nav" role="tablist" aria-label={subtitle || "Settings pages"}>
         {categories.map(([id, label]) => (
           <button
             key={id}
