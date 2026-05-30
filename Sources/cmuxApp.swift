@@ -281,7 +281,7 @@ struct cmuxApp: App {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
-                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
+                    dispatchReloadConfigurationMenuCommand()
                 }
             }
 
@@ -906,6 +906,7 @@ struct cmuxApp: App {
 
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
     }
 
@@ -1151,6 +1152,14 @@ struct cmuxApp: App {
         } else {
             Button(title, action: action)
         }
+    }
+
+    private func dispatchReloadConfigurationMenuCommand() {
+        NSApp.sendAction(
+            #selector(AppDelegate.reloadConfigurationMenuItem(_:)),
+            to: appDelegate,
+            from: nil
+        )
     }
 
     private func closePanelOrWindow() {
@@ -4220,10 +4229,17 @@ private struct StartupAppearanceDebugView: View {
         applyAppearance(selectedAppearance)
         GhosttyStartupAppearancePreviewState.profile = selectedProfile
         GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearancePreview",
-            reloadSettingsFromFile: false
-        )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "debug.startupAppearancePreview",
+                reloadSettingsFromFile: false
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "debug.startupAppearancePreview",
+                reloadSettingsFromFile: false
+            )
+        }
         lastAppliedProfile = selectedProfile
         lastAppliedAppearance = selectedAppearance
     }
@@ -4234,10 +4250,17 @@ private struct StartupAppearanceDebugView: View {
         applyAppearance(.stored)
         GhosttyStartupAppearancePreviewState.profile = .realUserConfig
         GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearanceRestore",
-            reloadSettingsFromFile: false
-        )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "debug.startupAppearanceRestore",
+                reloadSettingsFromFile: false
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "debug.startupAppearanceRestore",
+                reloadSettingsFromFile: false
+            )
+        }
         lastAppliedProfile = .realUserConfig
         lastAppliedAppearance = .stored
     }
