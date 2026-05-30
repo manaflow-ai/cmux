@@ -30043,7 +30043,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = Self.classifyFeedEvent(
+        let (hookEventName, isActionable) = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
@@ -30159,139 +30159,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         print("{}")
     }
-
-    /// Classifies a raw agent hook event into our wire `hook_event_name`
-    /// plus an `isActionable` flag that drives whether the Feed bridge
-    /// blocks waiting for a user decision. Claude Code owns decisions
-    /// through its native PermissionRequest hook. Its PreToolUse hook is
-    /// telemetry/status only.
-    private static func classifyFeedEvent(
-        source: String,
-        event: String,
-        toolName: String
-    ) -> (String, Bool) {
-        if source == "claude" {
-            switch event {
-            case "PermissionRequest":
-                switch toolName {
-                case "ExitPlanMode":
-                    return ("ExitPlanMode", true)
-                case "AskUserQuestion":
-                    return ("AskUserQuestion", true)
-                default:
-                    return ("PermissionRequest", true)
-                }
-            case "PostToolUse":
-                return ("PostToolUse", false)
-            case "UserPromptSubmit":
-                return ("UserPromptSubmit", false)
-            case "SessionStart":
-                return ("SessionStart", false)
-            case "SessionEnd":
-                return ("SessionEnd", false)
-            case "Stop":
-                return ("Stop", false)
-            case "SubagentStop":
-                return ("SubagentStop", false)
-            case "Notification":
-                return ("Notification", false)
-            default:
-                return ("PreToolUse", false)
-            }
-        }
-
-        if source == "hermes-agent" {
-            switch event {
-            case "pre_tool_call":
-                if Self.sideEffectingTools.contains(toolName) {
-                    return ("PermissionRequest", true)
-                }
-                return ("PreToolUse", false)
-            case "post_tool_call":
-                return ("PostToolUse", false)
-            case "pre_approval_request":
-                return ("Notification", false)
-            case "post_approval_response":
-                return ("Notification", false)
-            case "pre_llm_call":
-                return ("UserPromptSubmit", false)
-            case "post_llm_call":
-                return ("Stop", false)
-            case "on_session_start", "on_session_reset":
-                return ("SessionStart", false)
-            case "on_session_end", "on_session_finalize":
-                return ("SessionEnd", false)
-            default:
-                return ("PreToolUse", false)
-            }
-        }
-
-        switch event {
-        case "PreToolUse", "beforeShellExecution":
-            if source == "codex" { return ("PreToolUse", false) }
-            switch toolName {
-            case "ExitPlanMode":
-                return ("ExitPlanMode", true)
-            case "AskUserQuestion":
-                return ("AskUserQuestion", true)
-            default:
-                // Any tool that can mutate the environment surfaces as
-                // a permission request so the user can approve/deny
-                // from the Feed sidebar. Read-only tools stay as
-                // non-actionable telemetry so we don't flood the
-                // Actionable view with every file read.
-                if Self.sideEffectingTools.contains(toolName) {
-                    return ("PermissionRequest", true)
-                }
-                return ("PreToolUse", false)
-            }
-        case "PermissionRequest":
-            return ("PermissionRequest", true)
-        case "PostToolUse":
-            return ("PostToolUse", false)
-        case "UserPromptSubmit":
-            return ("UserPromptSubmit", false)
-        case "SessionStart":
-            return ("SessionStart", false)
-        case "SessionEnd":
-            return ("SessionEnd", false)
-        case "Stop":
-            return ("Stop", false)
-        case "SubagentStop":
-            return ("SubagentStop", false)
-        case "Notification":
-            return ("Notification", false)
-        default:
-            return ("PreToolUse", false)
-        }
-    }
-
-    /// Tools that mutate state and deserve a user-visible approve/
-    /// deny prompt in Feed. Keyed on the canonical tool names Claude,
-    /// Codex, and similar agents emit. Read-only tools (Read, Grep,
-    /// Glob, Task, WebFetch, WebSearch, LS, TodoWrite, …) are
-    /// intentionally excluded.
-    private static let sideEffectingTools: Set<String> = [
-        "Bash",
-        "Write",
-        "Edit",
-        "MultiEdit",
-        "NotebookEdit",
-        "apply_patch",   // Codex
-        "shell",         // Codex / other agents
-        "terminal",      // Hermes Agent
-        "run_command",   // Antigravity
-        "write_to_file",
-        "replace_file_content",
-        "multi_replace_file_content",
-        "manage_task",
-        "schedule",
-        "ask_permission",
-        "invoke_subagent",
-        "define_subagent",
-        "manage_subagents",
-        "generate_image",
-    ]
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
 
