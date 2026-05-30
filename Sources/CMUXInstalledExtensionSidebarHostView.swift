@@ -463,15 +463,41 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button {
-                presentExtensionBrowser()
-            } label: {
-                Label(
-                    String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
-                    systemImage: "puzzlepiece.extension"
-                )
+            HStack(spacing: 8) {
+                Button {
+                    blockedManifestReason = nil
+                    xpcHost.invalidate()
+                    Task {
+                        await observeExtensionAvailability()
+                    }
+                } label: {
+                    Label(
+                        String(localized: "sidebar.extensions.retry", defaultValue: "Try Again"),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .controlSize(.small)
+
+                Button {
+                    onUseDefaultSidebar()
+                } label: {
+                    Label(
+                        String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                        systemImage: "sidebar.left"
+                    )
+                }
+                .controlSize(.small)
+
+                Button {
+                    presentExtensionBrowser()
+                } label: {
+                    Label(
+                        String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
+                        systemImage: "puzzlepiece.extension"
+                    )
+                }
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)

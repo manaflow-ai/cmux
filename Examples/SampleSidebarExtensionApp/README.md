@@ -12,7 +12,8 @@ This is a standalone macOS app that embeds a CMUX sidebar ExtensionKit app exten
 6. Keep the ExtensionKit scene identifier as `sidebar`.
 7. Build and launch the containing app once.
 8. In CMUX, click the titlebar puzzle button, open Sidebar Extensions, and enable the sample.
-9. Choose `CMUX ExtKit Sample Sidebar` as the active sidebar provider.
+9. In the same puzzle menu, choose `Extension Sidebar`.
+10. If more than one sidebar extension is enabled, choose `CMUX ExtKit Sample Sidebar` inside the hosted sidebar.
 
 The sample targets macOS 26 because it exercises CMUX's current ExtensionFoundation browser and ExtensionKit host path. The `CmuxExtensionKit` data contract is plain Swift and remains separate from that host requirement.
 
