@@ -123,6 +123,15 @@ check_release_build_signal() {
   echo "PASS: release-build keeps universal artifact verification"
 }
 
+check_no_xctest_quarantines() {
+  if grep -R -n -- "-skip-testing:" "$ROOT_DIR/.github/workflows"; then
+    echo "FAIL: workflow XCTest coverage must not be hidden with -skip-testing quarantines"
+    exit 1
+  fi
+
+  echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -141,3 +150,4 @@ check_e2e_runner_fallbacks
 
 check_xcode_selection
 check_release_build_signal
+check_no_xctest_quarantines
