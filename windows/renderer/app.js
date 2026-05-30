@@ -172,6 +172,9 @@ const state = {
   contextMenu: null,
   activeDialog: null,
   uiOperations: new Map(),
+  pendingFocusSync: null,
+  focusSyncTimer: 0,
+  focusSyncRevision: 0,
   resizing: null,
   sidebarResizing: null,
   inspectorResizing: null,
@@ -1495,14 +1498,36 @@ function appStateSignature(data) {
   }
 }
 
+function applyPendingFocusToState(nextData) {
+  const pending = state.pendingFocusSync;
+  if (!pending || !Array.isArray(nextData?.workspaces)) return nextData;
+  if (pending.type === "workspace") {
+    if (nextData.workspaces.some((workspace) => workspace.id === pending.workspaceId)) {
+      nextData.activeWorkspaceId = pending.workspaceId;
+    }
+    return nextData;
+  }
+  if (pending.type === "panel") {
+    const workspace = nextData.workspaces.find((candidate) =>
+      candidate.panels.some((panel) => panel.id === pending.panelId)
+    );
+    if (workspace) {
+      nextData.activeWorkspaceId = workspace.id;
+      workspace.activePanelId = pending.panelId;
+    }
+  }
+  return nextData;
+}
+
 function setAppState(nextData, { previousState = state.data, schedule = false } = {}) {
-  const nextSignature = appStateSignature(nextData);
+  const protectedData = applyPendingFocusToState(nextData);
+  const nextSignature = appStateSignature(protectedData);
   if (nextSignature && nextSignature === state.dataSignature) {
-    state.data = nextData;
+    state.data = protectedData;
     state.renderStats.skippedRenders += 1;
     return false;
   }
-  state.data = nextData;
+  state.data = protectedData;
   state.dataSignature = nextSignature;
   if (schedule) scheduleRender(previousState);
   else render(previousState);
@@ -5708,6 +5733,35 @@ function optimisticFocusPanel(panelId) {
   return true;
 }
 
+function queueFocusSync(sync) {
+  if (!sync?.workspaceId && !sync?.panelId) return;
+  const revision = state.focusSyncRevision + 1;
+  state.focusSyncRevision = revision;
+  state.pendingFocusSync = { ...sync, revision };
+  if (state.focusSyncTimer) clearTimeout(state.focusSyncTimer);
+  state.focusSyncTimer = setTimeout(() => flushFocusSync(revision), 70);
+}
+
+async function flushFocusSync(revision = state.focusSyncRevision) {
+  const sync = state.pendingFocusSync;
+  if (!sync || sync.revision !== revision) return;
+  state.focusSyncTimer = 0;
+  try {
+    if (sync.type === "workspace") {
+      await api(`/api/workspaces/${sync.workspaceId}/focus`, { method: "POST" });
+    } else if (sync.type === "panel") {
+      await api(`/api/panels/${sync.panelId}/focus`, { method: "POST" });
+    }
+  } catch {
+    // Reconcile below; the target may have disappeared while the user kept working.
+  } finally {
+    if (state.pendingFocusSync?.revision === revision) {
+      state.pendingFocusSync = null;
+      await loadState();
+    }
+  }
+}
+
 function optimisticClosePanel(panelId, renderNow = true) {
   const found = findPanelState(panelId);
   if (!found) return false;
@@ -5908,13 +5962,15 @@ async function movePanelToWorkspace(panelId, workspaceId) {
 }
 
 async function focusWorkspace(workspaceId) {
-  if (!optimisticFocusWorkspace(workspaceId)) return;
-  try {
-    await api(`/api/workspaces/${workspaceId}/focus`, { method: "POST" });
-    await loadState();
-  } catch {
-    await loadState();
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace) return;
+  if (state.data?.activeWorkspaceId === workspaceId) {
+    focusTerminalSession(workspace.activePanelId);
+    return;
   }
+  optimisticFocusWorkspace(workspaceId);
+  queueFocusSync({ type: "workspace", workspaceId });
+  focusTerminalSession(workspace.activePanelId);
 }
 
 async function focusPanel(panelId) {
@@ -5924,13 +5980,7 @@ async function focusPanel(panelId) {
     return;
   }
   if (!optimisticFocusPanel(panelId)) return;
-  try {
-    await api(`/api/panels/${panelId}/focus`, { method: "POST" });
-    await loadState();
-  } catch {
-    await loadState();
-    return;
-  }
+  queueFocusSync({ type: "panel", panelId });
   focusTerminalSession(panelId);
 }
 
