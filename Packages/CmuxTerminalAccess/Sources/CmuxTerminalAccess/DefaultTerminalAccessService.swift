@@ -229,6 +229,83 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         }
     }
 
+    /// Subscribe to a surface's live output (Phase 2 entry point).
+    ///
+    /// Acquires a per-surface ``StreamCap`` slot, resolves the handle,
+    /// and dispatches to ``openRawSubscription(info:options:capToken:onEvent:)``
+    /// or ``openCellsSubscription(info:options:capToken:onEvent:)`` based
+    /// on ``StreamSubscriptionOptions/mode``.
+    ///
+    /// Raw mode throws ``TerminalAccessError/unsupported(reason:)``
+    /// until the ghostty patch #2 PTY tee lands; cells mode delegates
+    /// to ``SnapshotPoller`` (D8).
+    public func subscribeOutput(
+        _ options: StreamSubscriptionOptions,
+        onEvent: @escaping @Sendable (OutputEvent) -> Void
+    ) async throws -> OutputSubscription {
+        guard let capToken = streamCap.acquire(surface: options.handle) else {
+            // D7 — per-surface cap exhausted; transports map to 503.
+            throw TerminalAccessError.rateLimited
+        }
+        let info: SurfaceInfo
+        do {
+            guard let resolved = try await provider.resolve(options.handle) else {
+                capToken.release()
+                throw TerminalAccessError.unknownSurface
+            }
+            info = resolved
+        } catch {
+            capToken.release()
+            throw error
+        }
+
+        switch options.mode {
+        case .raw:
+            return try await openRawSubscription(
+                info: info, options: options,
+                capToken: capToken, onEvent: onEvent
+            )
+        case .cells:
+            return try await openCellsSubscription(
+                info: info, options: options,
+                capToken: capToken, onEvent: onEvent
+            )
+        }
+    }
+
+    /// Raw mode is gated until ghostty patch #2 wires the PTY tee +
+    /// `SurfaceProvider.attachRawOutput` seam (Task 2.15). Until then
+    /// the service throws ``TerminalAccessError/unsupported(reason:)``
+    /// (HTTP 415 per D18) and releases the cap token before bubbling
+    /// the error to the caller.
+    private func openRawSubscription(
+        info: SurfaceInfo,
+        options: StreamSubscriptionOptions,
+        capToken: StreamCap.Token,
+        onEvent: @escaping @Sendable (OutputEvent) -> Void
+    ) async throws -> OutputSubscription {
+        capToken.release()
+        throw TerminalAccessError.unsupported(
+            reason: "raw_stream_unavailable: pending ghostty patch #2"
+        )
+    }
+
+    /// Placeholder for the cells subscription. The real
+    /// ``SnapshotPoller``-backed body is wired in Task 2.18 below; this
+    /// skeleton returns a subscription that never yields so the path
+    /// compiles before the poller wiring lands.
+    private func openCellsSubscription(
+        info: SurfaceInfo,
+        options: StreamSubscriptionOptions,
+        capToken: StreamCap.Token,
+        onEvent: @escaping @Sendable (OutputEvent) -> Void
+    ) async throws -> OutputSubscription {
+        return OutputSubscription(
+            id: UUID(), handle: options.handle, mode: .cells,
+            onCancel: { capToken.release() }
+        )
+    }
+
     /// Per E14 — gate runs before any provider call that writes
     /// bytes. The capacity reader is synchronous per E1.
     private func enforceCapacity(info: SurfaceInfo, bytes: Int) async throws {

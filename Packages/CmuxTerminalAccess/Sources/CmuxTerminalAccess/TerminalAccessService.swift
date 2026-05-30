@@ -30,3 +30,31 @@ public protocol TerminalAccessService: Sendable {
     ///   pastes never interleave byte slices.
     func writeInput(_ request: InputRequest) async throws
 }
+
+public extension TerminalAccessService {
+    /// Subscribe to a surface's live output.
+    ///
+    /// The returned ``OutputSubscription`` (D22) is the unit of
+    /// cancellation and the carrier of `onEnd` / `signalEnd` semantics.
+    /// Caller pumps frames via the subscription's
+    /// ``OutputSubscription/events()`` `AsyncStream`, or via the
+    /// `onEvent` closure (used by non-Task call sites such as the SSE
+    /// writer).
+    ///
+    /// Default extension implementation traps — concrete services
+    /// (notably ``DefaultTerminalAccessService``) override it.
+    ///
+    /// - Parameters:
+    ///   - options: ``StreamSubscriptionOptions`` describing the
+    ///     surface, mode, and optional `lastEventID` resume cursor.
+    ///   - onEvent: Fired for every event delivered to the subscriber.
+    /// - Throws: ``TerminalAccessError`` on gate or policy violations.
+    /// - Returns: A live ``OutputSubscription`` whose `mode` matches
+    ///   ``StreamSubscriptionOptions/mode``.
+    func subscribeOutput(
+        _ options: StreamSubscriptionOptions,
+        onEvent: @escaping @Sendable (OutputEvent) -> Void
+    ) async throws -> OutputSubscription {
+        fatalError("subscribeOutput must be overridden by the concrete service")
+    }
+}
