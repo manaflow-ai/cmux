@@ -1340,6 +1340,33 @@ async function saveCustomBackgroundImage(background, options = {}) {
   return upsertSavedBackgroundImage({ ...input, url: validated.url }, options);
 }
 
+async function applyAndSaveCustomBackgroundImage(background, options = {}) {
+  const input = typeof background === "string" ? { url: background } : background || {};
+  const source = input.url || input.value || input.backgroundImage;
+  if (!normalizedImageUrl(source)) {
+    if (options.toast !== false) toast("Choose a custom background image first.");
+    return null;
+  }
+  const validated = await validateBackgroundImageValue(source);
+  if (!validated.ok) {
+    if (options.toast !== false) toast("Background image could not be loaded.");
+    if (options.resetInput) options.resetInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
+    return null;
+  }
+  const wasSaved = state.savedBackgroundImages.some((candidate) => candidate.url.toLowerCase() === validated.url.toLowerCase());
+  const saved = upsertSavedBackgroundImage({ ...input, url: validated.url }, { render: false, toast: false });
+  if (!saved) return null;
+  const changed = updateSettings({ backgroundImage: validated.url });
+  if (options.render !== false) renderSettingsInspector();
+  if (options.toast !== false) {
+    if (changed && !wasSaved) toast("Background image applied and saved.");
+    else if (changed) toast(`${saved.label} background applied.`);
+    else if (!wasSaved) toast("Background image saved.");
+    else toast(`${saved.label} background already active.`);
+  }
+  return saved;
+}
+
 async function applySavedBackgroundImage(backgroundId) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return;
@@ -4204,6 +4231,10 @@ function renderSettingsInspector(options = {}) {
     imageActions.className = "settings-actions background-actions";
     imageActions.append(
       settingsActionButton("Apply image", () => applyImageInput(true), "", "background image url local path apply wallpaper"),
+      settingsActionButton("Apply + save", async () => {
+        const saved = await applyAndSaveCustomBackgroundImage({ url: imageInput.value }, { resetInput: imageInput });
+        if (saved) imageInput.value = saved.url;
+      }, "", "background image url local path apply save wallpaper"),
       settingsActionButton("Choose file", chooseBackgroundImage, "", "background image local file wallpaper"),
       settingsActionButton("Clear image", () => {
         updateSettings({ backgroundImage: "" });
@@ -6408,28 +6439,32 @@ function savedBackgroundImagesPanel() {
   addRow.className = "saved-background-add";
   const input = document.createElement("input");
   input.className = "setting-control saved-background-input";
-  input.placeholder = "https://image-url";
-  input.dataset.settingsSearch = normalizeSettingsQuery("saved background image url add");
+  input.placeholder = "URL or C:\\path\\image.png";
+  input.dataset.settingsSearch = normalizeSettingsQuery("saved background image url local path file add apply save");
   input.addEventListener("keydown", async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      if (await saveCustomBackgroundImage({ url: input.value })) input.value = "";
+      if (await applyAndSaveCustomBackgroundImage({ url: input.value })) input.value = "";
     }
   });
-  const saveUrl = settingsActionButton("Save URL", async () => {
+  const saveUrl = settingsActionButton("Save image", async () => {
     if (await saveCustomBackgroundImage({ url: input.value })) input.value = "";
-  }, "", "saved background image url add");
+  }, "", "saved background image url local path file add");
   addRow.append(input, saveUrl);
   panel.append(addRow);
 
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-background-actions";
-  actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper");
+  actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper apply save");
+  const applyAndSave = settingsActionButton("Apply + save", async () => {
+    if (await applyAndSaveCustomBackgroundImage({ url: input.value })) input.value = "";
+  }, "", "saved background image apply save url local path file wallpaper");
   const saveCurrent = settingsActionButton("Save current", () => saveCustomBackgroundImage({
     url: state.settings.backgroundImage
   }), "", "saved background image current");
   saveCurrent.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
   actions.append(
+    applyAndSave,
     saveCurrent,
     settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "saved background image choose local file wallpaper")
   );
@@ -6438,7 +6473,7 @@ function savedBackgroundImagesPanel() {
   if (state.savedBackgroundImages.length === 0) {
     const empty = document.createElement("div");
     empty.className = "saved-background-empty";
-    empty.textContent = "Save custom background images here so they can be reapplied without pasting the URL again.";
+    empty.textContent = "Save URL or local image backgrounds here so they can be applied again without pasting the path.";
     panel.append(empty);
     return panel;
   }
@@ -6886,13 +6921,16 @@ async function chooseBackgroundImage(options = {}) {
   }
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return;
+  if (options.save) {
+    const saved = await applyAndSaveCustomBackgroundImage({ url }, { render: false });
+    if (!saved) return;
+    renderSettingsInspector();
+    return;
+  }
   const changed = await applyCustomBackgroundImage(url, { render: false });
   if (changed === null) return;
-  if (options.save) {
-    await saveCustomBackgroundImage({ url }, { render: false, toast: false });
-  }
   renderSettingsInspector();
-  toast(options.save ? "Background image saved." : "Background image updated.");
+  toast("Background image updated.");
 }
 
 function settingsPresetGrid() {

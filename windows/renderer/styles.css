@@ -4495,7 +4495,7 @@ body.reduce-motion *::after {
 .saved-background-add {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 82px;
+  grid-template-columns: minmax(0, 1fr) 94px;
   gap: var(--space-2);
 }
 
