@@ -28064,6 +28064,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 break
             }
+            // A non-turn-boundary session-end is a genuine teardown; share the
+            // destructive cleanup with the dedicated finalize action.
+            fallthrough
+        case .sessionFinalize:
             if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)

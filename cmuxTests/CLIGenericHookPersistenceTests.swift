@@ -679,14 +679,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
     }
 
-    func testHermesAgentSessionEndIsTurnBoundaryAndPreservesRestoreRecord() throws {
+    func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
-        // (end of every run_conversation()), not at the true session boundary. cmux
-        // maps that event to the `session-end` subcommand, so the per-turn hook must
-        // route through the non-destructive turn-boundary path (recordPromptStop) and
-        // must NOT consume the session or clear the surface resume binding. Otherwise
-        // the restore record is destroyed after the first turn and nothing survives a
-        // quit/relaunch. See https://github.com/manaflow-ai/cmux/issues/5000.
+        // (end of every run_conversation()), not at the true session boundary, and a
+        // separate `on_session_finalize` hook once at genuine teardown. cmux maps the
+        // per-turn event to the `session-end` subcommand and the teardown event to the
+        // `session-finalize` subcommand. The per-turn hook must route through the
+        // non-destructive turn-boundary path (recordPromptStop) and must NOT consume
+        // the session or clear the surface resume binding — otherwise the restore
+        // record is destroyed after the first turn and nothing survives a
+        // quit/relaunch. The finalize hook must perform the destructive cleanup.
+        // See https://github.com/manaflow-ai/cmux/issues/5000.
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hermes-session-end")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -801,6 +804,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(
             try storedHermesSessionIfPresent(),
             "Hermes on_session_end fires per turn and must not consume the restore record, saw it removed from the store"
+        )
+
+        // The genuine teardown hook (on_session_finalize) routes to the dedicated
+        // session-finalize subcommand and must perform the destructive cleanup the
+        // per-turn path suppresses: consume the record, clear the resume binding, and
+        // clear the agent PID routing.
+        let finalizeCommandStart = state.commands.count
+        let finalize = runHermesHook(
+            "session-finalize",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
+        )
+        XCTAssertFalse(finalize.timedOut, finalize.stderr)
+        XCTAssertEqual(finalize.status, 0, finalize.stderr)
+        XCTAssertEqual(finalize.stdout, "{}\n")
+
+        let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
+        XCTAssertTrue(
+            finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
+        )
+        XCTAssertTrue(
+            finalizeCommands.contains { $0.contains("surface.resume.clear") },
+            "Hermes on_session_finalize is a true teardown and must clear the surface resume binding, saw \(finalizeCommands)"
+        )
+        XCTAssertNil(
+            try storedHermesSessionIfPresent(),
+            "Hermes on_session_finalize is a true teardown and must consume the restore record"
         )
     }
 

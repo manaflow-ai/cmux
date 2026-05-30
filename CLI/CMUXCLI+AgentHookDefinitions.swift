@@ -31,6 +31,12 @@ extension CMUXCLI {
         /// otherwise the restore record is destroyed after the first turn and
         /// nothing survives a quit/relaunch. See
         /// https://github.com/manaflow-ai/cmux/issues/5000.
+        ///
+        /// Agents whose runtime distinguishes a per-turn boundary from a genuine
+        /// session teardown (hermes-agent emits both `on_session_end` per turn and
+        /// `on_session_finalize` once at the end) route the teardown event to the
+        /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
+        /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
         /// Feed-hook events. Each entry installs a second hook for
         /// `agentEvent` that invokes `cmux hooks feed --source <name>`
@@ -115,7 +121,7 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -129,6 +135,7 @@ extension CMUXCLI {
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
         "session-end": .sessionEnd,
+        "session-finalize": .sessionFinalize,
     ]
 
     // MARK: Agent definitions
@@ -256,7 +263,7 @@ extension CMUXCLI {
                 .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
                 .init(agentEvent: "post_approval_response", cmuxSubcommand: "approval-response"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
-                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-finalize"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
             sessionEndIsTurnBoundary: true,
