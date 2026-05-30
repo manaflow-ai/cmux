@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -848,8 +849,15 @@ func TestPersistentDaemonReadySignalAllowsImmediateDial(t *testing.T) {
 		t.Fatalf("create ready pipe: %v", err)
 	}
 	defer readyReader.Close()
-	t.Setenv(persistentDaemonReadyFDEnv, strconv.Itoa(int(readyWriter.Fd())))
+	readyFD, err := syscall.Dup(int(readyWriter.Fd()))
+	if err != nil {
+		_ = listener.Close()
+		_ = readyWriter.Close()
+		t.Fatalf("duplicate ready fd: %v", err)
+	}
+	t.Setenv(persistentDaemonReadyFDEnv, strconv.Itoa(readyFD))
 	signalPersistentDaemonReady()
+	_ = readyWriter.Close()
 	line, err := bufio.NewReader(readyReader).ReadString('\n')
 	if err != nil {
 		_ = listener.Close()
@@ -902,8 +910,8 @@ func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
 			persistentDaemonFixedTokenVerifier("idle-token"),
 			io.Discard,
 			persistentDaemonServerConfig{
-				emptyIdleTimeout: 80 * time.Millisecond,
-				acceptPollStep:   10 * time.Millisecond,
+				emptyIdleTimeout: 500 * time.Millisecond,
+				acceptPollStep:   25 * time.Millisecond,
 			},
 		)
 	}()
