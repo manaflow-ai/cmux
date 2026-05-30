@@ -6047,7 +6047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return debugWindow
         }
 #endif
-        [
+        return [
             NSApp.keyWindow,
             NSApp.mainWindow,
             resolvedShortcutEventWindow(event),
