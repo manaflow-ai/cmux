@@ -171,6 +171,7 @@ const state = {
   zoomedPanelId: null,
   contextMenu: null,
   activeDialog: null,
+  uiOperations: new Map(),
   resizing: null,
   sidebarResizing: null,
   inspectorResizing: null,
@@ -1533,14 +1534,16 @@ function render(previousState) {
   const panelCount = workspace?.panels.length || 0;
   const attentionCount = allAttentionPanels().length;
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
+  const operationLabel = currentUiOperationLabel();
 
   elements.workspaceHeading.textContent = workspace?.title || "Workspace";
   elements.workspaceSubheading.textContent = workspace
     ? `${workspace.cwdShort || "no directory"}`
     : "Ready";
-  elements.statusSummary.textContent = workspace
+  elements.statusSummary.textContent = operationLabel || (workspace
     ? `${workspace.title} · ${zoomedPanel ? "focus" : panelCount ? `${panelCount} panel${panelCount === 1 ? "" : "s"}` : "home"} · ${attentionCount} attention`
-    : "cmux Windows";
+    : "cmux Windows");
+  elements.statusSummary.classList.toggle("is-busy", Boolean(operationLabel));
   elements.statusPipe.textContent = state.data.pipeName || "pipe unavailable";
   elements.statusPty.textContent = state.data.ptyAvailable ? "ConPTY ready" : "process pipe fallback";
 
@@ -1593,6 +1596,51 @@ function allAttentionPanels() {
       .filter((panel) => panel.needsAttention)
       .map((panel) => ({ workspace, panel }))
   );
+}
+
+function currentUiOperationLabel() {
+  return [...state.uiOperations.values()].at(-1)?.label || "";
+}
+
+function hasUiOperationKind(kind) {
+  return [...state.uiOperations.values()].some((operation) => operation.kind === kind);
+}
+
+function isUiOperationActive(key) {
+  return state.uiOperations.has(key);
+}
+
+function defaultStatusSummary(workspace = activeWorkspace()) {
+  if (!workspace) return "cmux Windows";
+  const panelCount = workspace.panels.length;
+  const attentionCount = allAttentionPanels().length;
+  const zoomedPanel = zoomedPanelForWorkspace(workspace);
+  return `${workspace.title} · ${zoomedPanel ? "focus" : panelCount ? `${panelCount} panel${panelCount === 1 ? "" : "s"}` : "home"} · ${attentionCount} attention`;
+}
+
+function updateOperationChrome() {
+  const label = currentUiOperationLabel();
+  const creatingPane = hasUiOperationKind("create-panel");
+  elements.shell.classList.toggle("operation-pending", Boolean(label));
+  elements.statusSummary.classList.toggle("is-busy", Boolean(label));
+  elements.statusSummary.textContent = label || defaultStatusSummary();
+  for (const id of ["newTerminalButton", "splitRightButton", "splitDownButton", "newBrowserButton"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = creatingPane;
+  }
+  if (state.newTabButton) state.newTabButton.disabled = creatingPane;
+}
+
+async function withUiOperation(key, kind, label, task) {
+  if (state.uiOperations.has(key)) return null;
+  state.uiOperations.set(key, { kind, label });
+  updateOperationChrome();
+  try {
+    return await task();
+  } finally {
+    state.uiOperations.delete(key);
+    updateOperationChrome();
+  }
 }
 
 function renderWorkspaces() {
@@ -1766,6 +1814,7 @@ function getNewSurfaceTab(workspace) {
     });
   }
   state.newTabButton.dataset.workspaceId = workspace.id;
+  state.newTabButton.disabled = hasUiOperationKind("create-panel");
   return state.newTabButton;
 }
 
@@ -5536,23 +5585,26 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
     toast("No workspace available.");
     return;
   }
-  clearPaneLayoutsForWorkspace(workspace);
-  try {
-    for (const type of starter.panels) {
-      await createPanel(type, "right", {
-        workspaceId: workspace.id,
-        focus: false,
-        reconcile: false,
-        url: type === "browser" ? state.settings.browserHomeUrl : undefined
-      });
+  return withUiOperation("workspace-starter", "create-panel", `Adding ${starter.label}...`, async () => {
+    clearPaneLayoutsForWorkspace(workspace);
+    try {
+      for (const type of starter.panels) {
+        await createPanel(type, "right", {
+          workspaceId: workspace.id,
+          focus: false,
+          reconcile: false,
+          operation: false,
+          url: type === "browser" ? state.settings.browserHomeUrl : undefined
+        });
+      }
+      await loadState();
+      if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
+      toast(`${starter.label} added.`);
+    } catch {
+      await loadState();
+      toast("Workspace starter could not be added.");
     }
-    await loadState();
-    if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
-    toast(`${starter.label} added.`);
-  } catch {
-    await loadState();
-    toast("Workspace starter could not be added.");
-  }
+  });
 }
 
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
@@ -5576,38 +5628,48 @@ async function closeWorkspaceById(workspaceId) {
 }
 
 async function createPanel(type, direction = "right", options = {}) {
-  const workspace = options.workspaceId
-    ? state.data?.workspaces.find((candidate) => candidate.id === options.workspaceId)
-    : activeWorkspace();
-  if (!workspace) return;
-  const shellProfile = options.shellProfile || state.settings.terminalProfile;
-  const shellPath = options.shellPath || state.settings.terminalCustomShell;
-  const url = type === "browser"
-    ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl)
-    : undefined;
-  clearPaneLayoutsForWorkspace(workspace);
-  const createdPanel = await api("/api/panels", {
-    method: "POST",
-    body: JSON.stringify({
-      workspaceId: workspace.id,
-      type,
-      direction,
-      title: options.title,
-      color: options.color,
-      shellProfile: type === "terminal" ? shellProfile : undefined,
-      shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
-      cwd: options.cwd || workspace.cwd,
-      url
-    })
-  });
-  if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
-  if (options.reconcile !== false) {
-    await loadState();
-    if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
-      await focusWorkspace(workspace.id);
-    }
+  if (options.operation !== false && hasUiOperationKind("create-panel")) {
+    toast("Pane is still being added.");
+    return null;
   }
-  return createdPanel;
+  const addPanel = async () => {
+    const workspace = options.workspaceId
+      ? state.data?.workspaces.find((candidate) => candidate.id === options.workspaceId)
+      : activeWorkspace();
+    if (!workspace) return null;
+    const shellProfile = options.shellProfile || state.settings.terminalProfile;
+    const shellPath = options.shellPath || state.settings.terminalCustomShell;
+    const url = type === "browser"
+      ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl)
+      : undefined;
+    clearPaneLayoutsForWorkspace(workspace);
+    const createdPanel = await api("/api/panels", {
+      method: "POST",
+      body: JSON.stringify({
+        workspaceId: workspace.id,
+        type,
+        direction,
+        title: options.title,
+        color: options.color,
+        shellProfile: type === "terminal" ? shellProfile : undefined,
+        shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
+        cwd: options.cwd || workspace.cwd,
+        url
+      })
+    });
+    if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
+    if (options.reconcile !== false) {
+      await loadState();
+      if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
+        await focusWorkspace(workspace.id);
+      }
+    }
+    return createdPanel;
+  };
+  if (options.operation === false) return addPanel();
+  const label = options.operationLabel
+    || `Adding ${type === "browser" ? "browser" : "terminal"} pane...`;
+  return withUiOperation("create-panel", "create-panel", label, addPanel);
 }
 
 async function openBrowserPrompt(workspaceId = null) {
@@ -5754,30 +5816,38 @@ async function reopenClosedPanel() {
 }
 
 async function closePanel(panelId) {
-  rememberClosedPanel(panelId);
-  optimisticClosePanel(panelId);
-  try {
-    await api(`/api/panels/${panelId}`, { method: "DELETE" });
-    await loadState();
-  } catch {
-    await loadState();
-  }
+  if (!panelId || isUiOperationActive(`close-panel:${panelId}`)) return;
+  return withUiOperation(`close-panel:${panelId}`, "close-panel", "Closing pane...", async () => {
+    rememberClosedPanel(panelId);
+    optimisticClosePanel(panelId);
+    try {
+      await api(`/api/panels/${panelId}`, { method: "DELETE" });
+      await loadState();
+    } catch {
+      await loadState();
+    }
+  });
 }
 
 async function closePanelsById(panelIds) {
   const ids = [...new Set(panelIds.filter(Boolean))];
   if (ids.length === 0) return;
-  let changed = false;
-  for (const panelId of ids) {
-    rememberClosedPanel(panelId);
-    changed = optimisticClosePanel(panelId, false) || changed;
-  }
-  if (changed) render();
-  try {
-    await Promise.all(ids.map((panelId) => api(`/api/panels/${panelId}`, { method: "DELETE" })));
-  } finally {
-    await loadState();
-  }
+  const key = `close-panels:${ids.slice().sort().join(",")}`;
+  if (isUiOperationActive(key)) return;
+  const label = ids.length === 1 ? "Closing pane..." : `Closing ${ids.length} panes...`;
+  return withUiOperation(key, "close-panel", label, async () => {
+    let changed = false;
+    for (const panelId of ids) {
+      rememberClosedPanel(panelId);
+      changed = optimisticClosePanel(panelId, false) || changed;
+    }
+    if (changed) render();
+    try {
+      await Promise.all(ids.map((panelId) => api(`/api/panels/${panelId}`, { method: "DELETE" })));
+    } finally {
+      await loadState();
+    }
+  });
 }
 
 async function closeOtherPanes(panelId = activePanel()?.id) {

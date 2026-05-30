@@ -812,6 +812,18 @@ button {
   background: color-mix(in oklch, var(--color-accent) 42%, var(--color-pane-active) 58%);
 }
 
+.tool-button:disabled,
+.surface-new-tab:disabled {
+  opacity: .54;
+  cursor: progress;
+}
+
+.tool-button:disabled:hover,
+.surface-new-tab:disabled:hover {
+  border-color: var(--color-line);
+  background: var(--color-pane);
+}
+
 .surface-tabs {
   display: flex;
   align-items: end;
@@ -1483,6 +1495,36 @@ button {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+#statusSummary.is-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text);
+}
+
+#statusSummary.is-busy::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--color-accent);
+  animation: cmux-pending-pulse 900ms var(--ease-in-out) infinite;
+}
+
+@keyframes cmux-pending-pulse {
+  0%,
+  100% {
+    opacity: .4;
+    transform: scale(.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .inspector {
