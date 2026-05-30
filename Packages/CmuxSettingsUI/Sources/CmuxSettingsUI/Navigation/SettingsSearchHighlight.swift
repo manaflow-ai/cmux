@@ -15,12 +15,19 @@ import SwiftUI
 /// instant the pulse began. `token` changes on every navigation so
 /// re-navigating to the same row restarts the animation even when the
 /// anchor id is unchanged; `startedAt` seeds the `TimelineView` fade.
-public struct SettingsSearchHighlightState: Equatable, Sendable {
-    public let anchorID: String?
-    public let token: Int
-    public let startedAt: Date?
+// Intentionally `internal`, not `public`: the legacy in-app settings
+// (`Sources/SettingsNavigation.swift`) declares a same-named
+// `SettingsSearchHighlightState` plus matching `View` /
+// `EnvironmentValues` extensions. The app target imports this package, so
+// a `public` surface here collides with the legacy one and makes every
+// unqualified use ambiguous. Nothing outside this package consumes these
+// symbols, so keeping them internal removes them from the host namespace.
+struct SettingsSearchHighlightState: Equatable, Sendable {
+    let anchorID: String?
+    let token: Int
+    let startedAt: Date?
 
-    public init(anchorID: String?, token: Int, startedAt: Date?) {
+    init(anchorID: String?, token: Int, startedAt: Date?) {
         self.anchorID = anchorID
         self.token = token
         self.startedAt = startedAt
@@ -34,7 +41,7 @@ private struct SettingsSearchHighlightStateKey: EnvironmentKey {
 extension EnvironmentValues {
     /// The active search-result highlight. Defaults to "nothing
     /// highlighted" so rows render inert outside the settings window.
-    public var settingsSearchHighlightState: SettingsSearchHighlightState {
+    var settingsSearchHighlightState: SettingsSearchHighlightState {
         get { self[SettingsSearchHighlightStateKey.self] }
         set { self[SettingsSearchHighlightStateKey.self] = newValue }
     }
@@ -53,7 +60,7 @@ extension EnvironmentValues {
     /// declared config paths to scroll/highlight anchor ids. `nil` when
     /// a row is rendered outside the settings window (e.g. previews), in
     /// which case the row simply doesn't anchor.
-    public var settingsSearchIndex: SettingsSearchIndex? {
+    var settingsSearchIndex: SettingsSearchIndex? {
         get { self[SettingsSearchIndexKey.self] }
         set { self[SettingsSearchIndexKey.self] = newValue }
     }
@@ -63,7 +70,7 @@ extension View {
     /// Tags this view with a single search anchor. Convenience over
     /// ``settingsSearchAnchors(_:)`` for the common one-path row.
     @ViewBuilder
-    public func settingsSearchAnchor(_ anchorID: String?) -> some View {
+    func settingsSearchAnchor(_ anchorID: String?) -> some View {
         if let anchorID {
             settingsSearchAnchors([anchorID])
         } else {
@@ -75,7 +82,7 @@ extension View {
     /// first anchor) and eligible for the search-result highlight pulse
     /// when any of `anchorIDs` matches the active highlight state.
     @ViewBuilder
-    public func settingsSearchAnchors(_ anchorIDs: [String]) -> some View {
+    func settingsSearchAnchors(_ anchorIDs: [String]) -> some View {
         let filteredAnchorIDs = anchorIDs.filter { !$0.isEmpty }
         if let primaryAnchorID = filteredAnchorIDs.first {
             self
