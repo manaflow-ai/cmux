@@ -3765,6 +3765,7 @@ function scheduleSettingsSearchFocus() {
 function settingsCategoryNav() {
   const nav = document.createElement("div");
   nav.className = "settings-nav";
+  attachSettingsNavWheel(nav);
   for (const [id, label] of settingsCategories) {
     const button = document.createElement("button");
     button.className = `settings-nav-button${state.settingsCategory === id ? " is-active" : ""}`;
@@ -3778,6 +3779,16 @@ function settingsCategoryNav() {
   }
   requestAnimationFrame(() => scrollActiveSettingsNavIntoView(nav));
   return nav;
+}
+
+function attachSettingsNavWheel(nav) {
+  nav.addEventListener("wheel", (event) => {
+    if (event.ctrlKey || nav.scrollWidth <= nav.clientWidth) return;
+    const horizontalDelta = event.deltaX || event.deltaY;
+    if (!horizontalDelta) return;
+    event.preventDefault();
+    nav.scrollLeft += horizontalDelta;
+  }, { passive: false });
 }
 
 function scrollActiveSettingsNavIntoView(root = elements.inspectorBody) {
