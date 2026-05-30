@@ -9435,6 +9435,72 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
         panes.first { $0.tabIds.contains(tabId) }
     }
 
+    func paneNearestViewportOrigin() -> PaperPane? {
+        paneNearest(to: viewportOrigin)
+    }
+
+    func paneNearest(to point: PaperPoint) -> PaperPane? {
+        panes.min { lhs, rhs in
+            let lhsDistance = lhs.frame.originDistanceSquared(to: point)
+            let rhsDistance = rhs.frame.originDistanceSquared(to: point)
+            if lhsDistance == rhsDistance {
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+            return lhsDistance < rhsDistance
+        }
+    }
+
+    func paneInDirection(dx: CGFloat, dy: CGFloat) -> PaperPane? {
+        guard let sourcePane = paneNearestViewportOrigin() ?? focusedPane else { return nil }
+        let sourceCenterX = sourcePane.frame.midX
+        let sourceCenterY = sourcePane.frame.midY
+        let epsilon: CGFloat = 0.5
+
+        let candidates: [PaperPane]
+        if abs(dx) >= abs(dy), dx > 0 {
+            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midX > sourceCenterX + epsilon }
+            return candidates.min {
+                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true) <
+                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true)
+            }
+        } else if abs(dx) >= abs(dy), dx < 0 {
+            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midX < sourceCenterX - epsilon }
+            return candidates.min {
+                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true) <
+                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: true)
+            }
+        } else if dy > 0 {
+            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midY > sourceCenterY + epsilon }
+            return candidates.min {
+                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false) <
+                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false)
+            }
+        } else if dy < 0 {
+            candidates = panes.filter { $0.id != sourcePane.id && $0.frame.midY < sourceCenterY - epsilon }
+            return candidates.min {
+                directionalScore($0, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false) <
+                    directionalScore($1, sourceCenterX: sourceCenterX, sourceCenterY: sourceCenterY, horizontal: false)
+            }
+        }
+
+        return nil
+    }
+
+    private func directionalScore(
+        _ pane: PaperPane,
+        sourceCenterX: CGFloat,
+        sourceCenterY: CGFloat,
+        horizontal: Bool
+    ) -> CGFloat {
+        let primary = horizontal
+            ? abs(pane.frame.midX - sourceCenterX)
+            : abs(pane.frame.midY - sourceCenterY)
+        let cross = horizontal
+            ? abs(pane.frame.midY - sourceCenterY)
+            : abs(pane.frame.midX - sourceCenterX)
+        return (primary * 10_000) + cross
+    }
+
     mutating func focusPane(containingTabId tabId: UUID) {
         guard let paneIndex = panes.firstIndex(where: { $0.tabIds.contains(tabId) }) else { return }
         focusedPaneId = panes[paneIndex].id
@@ -9547,8 +9613,16 @@ struct PaperRect: Codable, Equatable, Sendable {
 
     var minX: CGFloat { x }
     var minY: CGFloat { y }
+    var midX: CGFloat { x + (width / 2) }
+    var midY: CGFloat { y + (height / 2) }
     var maxX: CGFloat { x + width }
     var maxY: CGFloat { y + height }
+
+    func originDistanceSquared(to point: PaperPoint) -> CGFloat {
+        let dx = x - point.x
+        let dy = y - point.y
+        return (dx * dx) + (dy * dy)
+    }
 }
 
 /// Workspace represents a sidebar tab.
@@ -9711,6 +9785,32 @@ final class Workspace: Identifiable, ObservableObject {
         }
         cmuxDebugLog(
             "paper.layout.toggle workspace=\(id.uuidString.prefix(5)) mode=\(layoutMode.rawValue)"
+        )
+    }
+
+    func movePaperViewportForDebug(dx: CGFloat, dy: CGFloat) {
+        guard layoutMode == .paper else { return }
+        guard var paperState = ensurePaperLayoutState() else { return }
+
+        let oldOrigin = paperState.viewportOrigin
+        let tentativeOrigin = PaperPoint(
+            x: max(0, oldOrigin.x + dx),
+            y: max(0, oldOrigin.y + dy)
+        )
+        let snappedPane = paperState.paneInDirection(dx: dx, dy: dy)
+        let newOrigin = snappedPane.map {
+            PaperPoint(x: max(0, $0.frame.minX), y: max(0, $0.frame.minY))
+        } ?? tentativeOrigin
+        paperState.viewportOrigin = newOrigin
+        objectWillChange.send()
+        paperLayoutState = paperState
+
+        cmuxDebugLog(
+            "paper.viewport.move workspace=\(id.uuidString.prefix(5)) " +
+            "old=(\(oldOrigin.x),\(oldOrigin.y)) " +
+            "new=(\(newOrigin.x),\(newOrigin.y)) " +
+            "delta=(\(dx),\(dy)) " +
+            "snappedPane=\(snappedPane?.id.uuidString.prefix(5) ?? "nil")"
         )
     }
 #endif

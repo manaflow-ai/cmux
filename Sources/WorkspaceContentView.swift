@@ -787,9 +787,7 @@ struct PaperCanvasWorkspaceView: View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 if let paperLayoutState = workspace.paperLayoutState {
-                    ForEach(paperLayoutState.panes) { pane in
-                        paperPaneView(pane, viewportOrigin: paperLayoutState.viewportOrigin)
-                    }
+                    paperCanvasView(paperLayoutState, viewportSize: proxy.size)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -804,7 +802,17 @@ struct PaperCanvasWorkspaceView: View {
     }
 
     @ViewBuilder
-    private func paperPaneView(_ pane: PaperPane, viewportOrigin: PaperPoint) -> some View {
+    private func paperCanvasView(_ paperLayoutState: PaperLayoutState, viewportSize: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            if let activePane = paperLayoutState.paneNearestViewportOrigin() {
+                paperPaneView(activePane)
+            }
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func paperPaneView(_ pane: PaperPane) -> some View {
         let paneId = PaneID(id: pane.id)
         let selectedTabId = pane.selectedTabId ?? pane.tabIds.first
         let panel = selectedTabId.flatMap { workspace.panel(for: TabID(uuid: $0)) }
@@ -827,60 +835,56 @@ struct PaperCanvasWorkspaceView: View {
                 isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
             )
 
-            PanelContentView(
-                panel: panel,
-                workspaceId: workspace.id,
-                paneId: paneId,
-                isFocused: isFocused,
-                isSelectedInPane: true,
-                isVisibleInUI: isVisibleInUI,
-                portalPriority: workspacePortalPriority,
-                isSplit: isSplit,
-                appearance: appearance,
-                hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
-                onFocus: {
-                    guard isWorkspaceInputActive else { return }
-                    guard workspace.panels[panel.id] != nil else { return }
-                    workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
-                },
-                onRequestPanelFocus: {
-                    guard isWorkspaceInputActive else { return }
-                    guard workspace.panels[panel.id] != nil else { return }
-                    AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
-                        workspaceId: workspace.id,
-                        panelId: panel.id,
-                        in: NSApp.keyWindow ?? NSApp.mainWindow
-                    )
-                    workspace.focusPanel(panel.id)
-                },
-                onResumeAgentHibernation: {
-                    guard isWorkspaceInputActive else { return }
-                    guard workspace.panels[panel.id] != nil else { return }
-                    workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
-                },
-                onAutoResumeAgentHibernation: {
-                    guard isWorkspaceInputActive else { return }
-                    guard workspace.panels[panel.id] != nil else { return }
-                    workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
-                },
-                onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-            )
-            .frame(width: pane.frame.width, height: pane.frame.height)
-            .position(
-                x: pane.frame.minX - viewportOrigin.x + (pane.frame.width / 2),
-                y: pane.frame.minY - viewportOrigin.y + (pane.frame.height / 2)
-            )
-        } else {
-            EmptyPanelView(workspace: workspace, paneId: paneId)
-                .frame(width: pane.frame.width, height: pane.frame.height)
-                .position(
-                    x: pane.frame.minX - viewportOrigin.x + (pane.frame.width / 2),
-                    y: pane.frame.minY - viewportOrigin.y + (pane.frame.height / 2)
+            ZStack {
+                PanelContentView(
+                    panel: panel,
+                    workspaceId: workspace.id,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isSelectedInPane: true,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: workspacePortalPriority,
+                    isSplit: isSplit,
+                    appearance: appearance,
+                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+                    onFocus: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                    },
+                    onRequestPanelFocus: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                            workspaceId: workspace.id,
+                            panelId: panel.id,
+                            in: NSApp.keyWindow ?? NSApp.mainWindow
+                        )
+                        workspace.focusPanel(panel.id)
+                    },
+                    onResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                    },
+                    onAutoResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+                    },
+                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
+            }
+            .frame(width: pane.frame.width, height: pane.frame.height)
+        } else {
+            ZStack {
+                EmptyPanelView(workspace: workspace, paneId: paneId)
+            }
+            .frame(width: pane.frame.width, height: pane.frame.height)
+            .onTapGesture {
+                workspace.bonsplitController.focusPane(paneId)
+            }
         }
     }
 

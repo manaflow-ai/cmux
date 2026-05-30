@@ -365,6 +365,26 @@ struct cmuxApp: App {
                 }
                 .disabled(activeTabManager.selectedWorkspace == nil)
 
+                Button("Paper View Left") {
+                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: -1200, dy: 0)
+                }
+                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
+
+                Button("Paper View Right") {
+                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: 1200, dy: 0)
+                }
+                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
+
+                Button("Paper View Up") {
+                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: 0, dy: -800)
+                }
+                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
+
+                Button("Paper View Down") {
+                    activeTabManager.selectedWorkspace?.movePaperViewportForDebug(dx: 0, dy: 800)
+                }
+                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .paper)
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Background Debug…") {
