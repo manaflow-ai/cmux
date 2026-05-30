@@ -1,0 +1,524 @@
+{
+  "captureSource": "real-cli-mitm-har",
+  "captures": [
+    {
+      "agent": "claude",
+      "captureBackend": "mitmproxy-hardump",
+      "capturedAt": "2026-05-22T09:57:11.623206Z",
+      "cliVersion": "2.1.148 (Claude Code)",
+      "command": [
+        "/Applications/cmux.app/Contents/Resources/bin/claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--max-budget-usd",
+        "0.05",
+        "--model",
+        "haiku",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "${CAPTURE_ROOT}/claude/mcp.json",
+        "--disable-slash-commands",
+        "--no-session-persistence",
+        "Reply with exactly: cmux-network-capture-ok"
+      ],
+      "durationMs": 5164,
+      "exitCode": 0,
+      "har": {
+        "log": {
+          "creator": {
+            "name": "mitmproxy hardump via capture-agent-network-sessions.py",
+            "version": "1"
+          },
+          "entries": [
+            {
+              "startedDateTime": "2026-05-22T09:57:05.943256+00:00",
+              "time": 3899.411916732788,
+              "request": {
+                "method": "POST",
+                "url": "https://api.anthropic.com/v1/messages?beta=true",
+                "httpVersion": "HTTP/1.1",
+                "headers": [
+                  {
+                    "name": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "name": "User-Agent",
+                    "value": "claude-cli/2.1.148 (external, sdk-cli)"
+                  },
+                  {
+                    "name": "X-Stainless-Arch",
+                    "value": "arm64"
+                  },
+                  {
+                    "name": "X-Stainless-Lang",
+                    "value": "js"
+                  },
+                  {
+                    "name": "X-Stainless-OS",
+                    "value": "MacOS"
+                  },
+                  {
+                    "name": "X-Stainless-Package-Version",
+                    "value": "0.94.0"
+                  },
+                  {
+                    "name": "X-Stainless-Retry-Count",
+                    "value": "0"
+                  },
+                  {
+                    "name": "X-Stainless-Runtime",
+                    "value": "node"
+                  },
+                  {
+                    "name": "X-Stainless-Runtime-Version",
+                    "value": "v24.3.0"
+                  },
+                  {
+                    "name": "X-Stainless-Timeout",
+                    "value": "600"
+                  },
+                  {
+                    "name": "anthropic-dangerous-direct-browser-access",
+                    "value": "true"
+                  },
+                  {
+                    "name": "anthropic-version",
+                    "value": "2023-06-01"
+                  },
+                  {
+                    "name": "x-app",
+                    "value": "cli"
+                  },
+                  {
+                    "name": "Connection",
+                    "value": "keep-alive"
+                  },
+                  {
+                    "name": "Host",
+                    "value": "api.anthropic.com"
+                  },
+                  {
+                    "name": "Accept-Encoding",
+                    "value": "gzip, deflate, br, zstd"
+                  },
+                  {
+                    "name": "Content-Length",
+                    "value": "372"
+                  }
+                ],
+                "postData": {
+                  "mimeType": "application/json",
+                  "text": "{\"max_tokens\":32000,\"messages\":[{\"content\":[{\"text\":\"<redacted-budget>\\n\",\"type\":\"text\"},{\"text\":\"<redacted-local-instructions>\\n\\n\",\"type\":\"text\"},{\"cache_control\":{\"ttl\":\"1h\",\"type\":\"ephemeral\"},\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"text\"}],\"role\":\"user\"}],\"model\":\"claude-haiku-4-5-20251001\",\"stream\":true,\"system\":\"<redacted-provider-metadata>\"}"
+                }
+              },
+              "response": {
+                "status": 200,
+                "statusText": "OK",
+                "httpVersion": "HTTP/1.1",
+                "headers": [
+                  {
+                    "name": "Date",
+                    "value": "Fri, 22 May 2026 09:57:08 GMT"
+                  },
+                  {
+                    "name": "Content-Type",
+                    "value": "text/event-stream; charset=utf-8"
+                  },
+                  {
+                    "name": "Connection",
+                    "value": "keep-alive"
+                  },
+                  {
+                    "name": "Cache-Control",
+                    "value": "no-cache"
+                  },
+                  {
+                    "name": "strict-transport-security",
+                    "value": "max-age=31536000; includeSubDomains; preload"
+                  },
+                  {
+                    "name": "Server",
+                    "value": "cloudflare"
+                  },
+                  {
+                    "name": "vary",
+                    "value": "Accept-Encoding"
+                  },
+                  {
+                    "name": "Content-Security-Policy",
+                    "value": "default-src 'none'; frame-ancestors 'none'"
+                  }
+                ],
+                "content": {
+                  "mimeType": "text/event-stream; charset=utf-8",
+                  "size": 847,
+                  "text": "event: message_start\ndata: {\"message\":{\"content\":[],\"id\":\"<redacted-id>\",\"model\":\"claude-haiku-4-5-20251001\",\"role\":\"assistant\",\"stop_details\":null,\"stop_reason\":null,\"stop_sequence\":null,\"type\":\"message\"},\"type\":\"message_start\"}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: content_block_stop\ndata: {\"index\":0,\"type\":\"content_block_stop\"}\n\nevent: content_block_start\ndata: {\"content_block\":{\"text\":\"\",\"type\":\"text\"},\"index\":1,\"type\":\"content_block_start\"}\n\nevent: content_block_delta\ndata: {\"delta\":{\"text\":\"cmux-network-capture-ok\",\"type\":\"text_delta\"},\"index\":1,\"type\":\"content_block_delta\"}\n\nevent: content_block_stop\ndata: {\"index\":1,\"type\":\"content_block_stop\"}\n\nevent: message_delta\ndata: {\"delta\":{\"stop_details\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"type\":\"message_delta\"}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+                }
+              }
+            }
+          ],
+          "version": "1.2"
+        }
+      },
+      "markerObserved": true,
+      "name": "claude-real-cli-network-turn",
+      "status": "captured"
+    },
+    {
+      "agent": "codex",
+      "captureBackend": "mitmproxy-hardump",
+      "capturedAt": "2026-05-22T09:42:40.703786Z",
+      "cliVersion": "codex-cli 0.133.0",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "Reply with exactly: cmux-network-capture-ok"
+      ],
+      "durationMs": 16284,
+      "exitCode": 0,
+      "har": {
+        "log": {
+          "creator": {
+            "name": "mitmproxy hardump via capture-agent-network-sessions.py",
+            "version": "1"
+          },
+          "entries": [
+            {
+              "startedDateTime": "2026-05-22T09:42:26.051365+00:00",
+              "time": 6086.097955703735,
+              "request": {
+                "method": "GET",
+                "url": "http://127.0.0.1:31415/v1/responses",
+                "httpVersion": "HTTP/1.1",
+                "headers": [
+                  {
+                    "name": "Host",
+                    "value": "127.0.0.1:31415"
+                  },
+                  {
+                    "name": "Connection",
+                    "value": "Upgrade"
+                  },
+                  {
+                    "name": "user-agent",
+                    "value": "codex_exec/0.133.0 (Mac OS 26.5.0; arm64) ghostty/1.3.2-HEAD-_ff6e126 (codex_exec; 0.133.0)"
+                  },
+                  {
+                    "name": "originator",
+                    "value": "codex_exec"
+                  }
+                ],
+                "postData": null
+              },
+              "response": {
+                "status": 101,
+                "statusText": "Switching Protocols",
+                "httpVersion": "HTTP/1.1",
+                "headers": [
+                  {
+                    "name": "Connection",
+                    "value": "Upgrade"
+                  },
+                  {
+                    "name": "Date",
+                    "value": "Fri, 22 May 2026 09:42:32 GMT"
+                  },
+                  {
+                    "name": "Strict-Transport-Security",
+                    "value": "max-age=31536000; includeSubDomains; preload"
+                  },
+                  {
+                    "name": "X-Content-Type-Options",
+                    "value": "nosniff"
+                  },
+                  {
+                    "name": "Cross-Origin-Opener-Policy",
+                    "value": "same-origin-allow-popups"
+                  },
+                  {
+                    "name": "Server",
+                    "value": "cloudflare"
+                  },
+                  {
+                    "name": "Referrer-Policy",
+                    "value": "strict-origin-when-cross-origin"
+                  }
+                ],
+                "content": {
+                  "mimeType": "",
+                  "size": 0,
+                  "text": ""
+                }
+              },
+              "_resourceType": "websocket",
+              "_webSocketMessages": [
+                {
+                  "type": "send",
+                  "time": 1779442952.138329,
+                  "opcode": 1,
+                  "data": "{\"generate\":false,\"input\":[],\"instructions\":\"<redacted-provider-metadata>\",\"model\":\"gpt-5.5\",\"parallel_tool_calls\":true,\"store\":false,\"stream\":true,\"text\":{\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"type\":\"response.create\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442952.356961,
+                  "opcode": 1,
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442952,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442952.37599,
+                  "opcode": 1,
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442952,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442952.443296,
+                  "opcode": 1,
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":1779442952,\"created_at\":1779442952,\"error\":null,\"frequency_penalty\":0.0,\"generate\":false,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":2,\"type\":\"response.completed\"}"
+                },
+                {
+                  "type": "send",
+                  "time": 1779442952.521735,
+                  "opcode": 1,
+                  "data": "{\"input\":[{\"content\":\"<redacted-runtime-instructions>\",\"role\":\"developer\",\"type\":\"message\"},{\"content\":[{\"text\":\"<redacted-local-instructions>\",\"type\":\"input_text\"},{\"text\":\"<redacted-runtime-instructions>\",\"type\":\"input_text\"}],\"role\":\"user\",\"type\":\"message\"},{\"content\":[{\"text\":\"Reply with exactly: cmux-network-capture-ok\",\"type\":\"input_text\"}],\"role\":\"user\",\"type\":\"message\"}],\"instructions\":\"<redacted-provider-metadata>\",\"model\":\"gpt-5.5\",\"parallel_tool_calls\":true,\"previous_response_id\":\"<redacted-id>\",\"store\":false,\"stream\":true,\"text\":{\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"type\":\"response.create\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442954.275779,
+                  "opcode": 1,
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442954,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442954.2932942,
+                  "opcode": 1,
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779442954,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.039566,
+                  "opcode": 1,
+                  "data": "{\"item\":{\"content\":[],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\"},\"output_index\":1,\"sequence_number\":4,\"type\":\"response.output_item.added\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.039788,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"item_id\":\"<redacted-id>\",\"output_index\":1,\"part\":{\"annotations\":[],\"logprobs\":[],\"text\":\"\",\"type\":\"output_text\"},\"sequence_number\":5,\"type\":\"response.content_part.added\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.045728,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"delta\":\"cm\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":6,\"type\":\"response.output_text.delta\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.052105,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"delta\":\"ux\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":7,\"type\":\"response.output_text.delta\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.0617,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"delta\":\"-network\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":8,\"type\":\"response.output_text.delta\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.072544,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"delta\":\"-c\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":9,\"type\":\"response.output_text.delta\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.074878,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"delta\":\"apture\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":10,\"type\":\"response.output_text.delta\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.080915,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"delta\":\"-ok\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":11,\"type\":\"response.output_text.delta\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.531515,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":12,\"text\":\"cmux-network-capture-ok\",\"type\":\"response.output_text.done\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.531737,
+                  "opcode": 1,
+                  "data": "{\"content_index\":0,\"item_id\":\"<redacted-id>\",\"output_index\":1,\"part\":{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"},\"sequence_number\":13,\"type\":\"response.content_part.done\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.531868,
+                  "opcode": 1,
+                  "data": "{\"item\":{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"},\"output_index\":1,\"sequence_number\":14,\"type\":\"response.output_item.done\"}"
+                },
+                {
+                  "type": "receive",
+                  "time": 1779442958.5740979,
+                  "opcode": 1,
+                  "data": "{\"response\":{\"background\":false,\"completed_at\":1779442958,\"created_at\":1779442954,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.5\",\"moderation\":null,\"object\":\"response\",\"output\":[{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":\"<redacted-id>\",\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":15,\"type\":\"response.completed\"}"
+                }
+              ]
+            }
+          ],
+          "version": "1.2"
+        }
+      },
+      "markerObserved": true,
+      "name": "codex-real-cli-network-turn",
+      "status": "captured"
+    },
+    {
+      "agent": "opencode",
+      "captureBackend": "mitmproxy-hardump",
+      "capturedAt": "2026-05-22T09:57:16.635540Z",
+      "cliVersion": "1.15.7",
+      "command": [
+        "opencode",
+        "run",
+        "--format",
+        "json",
+        "--model",
+        "openai/gpt-5.4-mini-fast",
+        "Reply with exactly: cmux-network-capture-ok"
+      ],
+      "durationMs": 3157,
+      "exitCode": 0,
+      "har": {
+        "log": {
+          "creator": {
+            "name": "mitmproxy hardump via capture-agent-network-sessions.py",
+            "version": "1"
+          },
+          "entries": [
+            {
+              "startedDateTime": "2026-05-22T09:57:13.499099+00:00",
+              "time": 1650.8111953735352,
+              "request": {
+                "method": "POST",
+                "url": "https://chatgpt.com/backend-api/codex/responses",
+                "httpVersion": "HTTP/1.1",
+                "headers": [
+                  {
+                    "name": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "name": "User-Agent",
+                    "value": "opencode/1.15.7 (darwin 25.5.0; arm64) ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14"
+                  },
+                  {
+                    "name": "originator",
+                    "value": "opencode"
+                  },
+                  {
+                    "name": "Connection",
+                    "value": "keep-alive"
+                  },
+                  {
+                    "name": "Accept",
+                    "value": "*/*"
+                  },
+                  {
+                    "name": "Host",
+                    "value": "chatgpt.com"
+                  },
+                  {
+                    "name": "Accept-Encoding",
+                    "value": "gzip, deflate, br, zstd"
+                  },
+                  {
+                    "name": "Content-Length",
+                    "value": "263"
+                  }
+                ],
+                "postData": {
+                  "mimeType": "application/json",
+                  "text": "{\"input\":[{\"content\":[{\"text\":\"\\\"Reply with exactly: cmux-network-capture-ok\\\"\",\"type\":\"input_text\"}],\"role\":\"user\"}],\"instructions\":\"<redacted-provider-metadata>\",\"model\":\"gpt-5.4-mini\",\"store\":false,\"stream\":true,\"text\":{\"verbosity\":\"low\"},\"tool_choice\":\"auto\"}"
+                }
+              },
+              "response": {
+                "status": 200,
+                "statusText": "OK",
+                "httpVersion": "HTTP/1.1",
+                "headers": [
+                  {
+                    "name": "Date",
+                    "value": "Fri, 22 May 2026 09:57:13 GMT"
+                  },
+                  {
+                    "name": "Connection",
+                    "value": "keep-alive"
+                  },
+                  {
+                    "name": "Server",
+                    "value": "cloudflare"
+                  },
+                  {
+                    "name": "Cross-Origin-Opener-Policy",
+                    "value": "same-origin-allow-popups"
+                  },
+                  {
+                    "name": "Strict-Transport-Security",
+                    "value": "max-age=31536000; includeSubDomains; preload"
+                  },
+                  {
+                    "name": "X-Content-Type-Options",
+                    "value": "nosniff"
+                  },
+                  {
+                    "name": "Referrer-Policy",
+                    "value": "strict-origin-when-cross-origin"
+                  }
+                ],
+                "content": {
+                  "mimeType": "",
+                  "size": 4601,
+                  "text": "event: response.created\ndata: {\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779443833,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.4-mini-2026-03-17\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":0,\"type\":\"response.created\"}\n\nevent: response.in_progress\ndata: {\"response\":{\"background\":false,\"completed_at\":null,\"created_at\":1779443833,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.4-mini-2026-03-17\",\"moderation\":null,\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"status\":\"in_progress\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":1,\"type\":\"response.in_progress\"}\n\nevent: response.output_item.added\ndata: {\"item\":{\"content\":[],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"in_progress\",\"type\":\"message\"},\"output_index\":1,\"sequence_number\":4,\"type\":\"response.output_item.added\"}\n\nevent: response.content_part.added\ndata: {\"content_index\":0,\"item_id\":\"<redacted-id>\",\"output_index\":1,\"part\":{\"annotations\":[],\"logprobs\":[],\"text\":\"\",\"type\":\"output_text\"},\"sequence_number\":5,\"type\":\"response.content_part.added\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"cm\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":6,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"ux\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":7,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"-network\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":8,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"-c\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":9,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"apture\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":10,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.delta\ndata: {\"content_index\":0,\"delta\":\"-ok\",\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":11,\"type\":\"response.output_text.delta\"}\n\nevent: response.output_text.done\ndata: {\"content_index\":0,\"item_id\":\"<redacted-id>\",\"logprobs\":[],\"output_index\":1,\"sequence_number\":12,\"text\":\"cmux-network-capture-ok\",\"type\":\"response.output_text.done\"}\n\nevent: response.content_part.done\ndata: {\"content_index\":0,\"item_id\":\"<redacted-id>\",\"output_index\":1,\"part\":{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"},\"sequence_number\":13,\"type\":\"response.content_part.done\"}\n\nevent: response.output_item.done\ndata: {\"item\":{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"},\"output_index\":1,\"sequence_number\":14,\"type\":\"response.output_item.done\"}\n\nevent: response.completed\ndata: {\"response\":{\"background\":false,\"completed_at\":1779443835,\"created_at\":1779443833,\"error\":null,\"frequency_penalty\":0.0,\"id\":\"<redacted-id>\",\"incomplete_details\":null,\"instructions\":\"<redacted-provider-metadata>\",\"max_tool_calls\":null,\"model\":\"gpt-5.4-mini-2026-03-17\",\"moderation\":null,\"object\":\"response\",\"output\":[{\"content\":[{\"annotations\":[],\"logprobs\":[],\"text\":\"cmux-network-capture-ok\",\"type\":\"output_text\"}],\"id\":\"<redacted-id>\",\"phase\":\"final_answer\",\"role\":\"assistant\",\"status\":\"completed\",\"type\":\"message\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"status\":\"completed\",\"store\":false,\"temperature\":1.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"low\"},\"tool_choice\":\"auto\",\"top_logprobs\":0,\"top_p\":0.98,\"truncation\":\"disabled\",\"user\":null},\"sequence_number\":15,\"type\":\"response.completed\"}\n\n"
+                }
+              }
+            }
+          ],
+          "version": "1.2"
+        }
+      },
+      "markerObserved": true,
+      "name": "opencode-real-cli-network-turn",
+      "status": "captured"
+    }
+  ],
+  "generatedAt": "2026-05-22T09:57:16.890728Z",
+  "prompt": "Reply with exactly: cmux-network-capture-ok",
+  "unavailable": [
+    {
+      "agent": "antigravity",
+      "reason": "No agy or antigravity executable was available on PATH."
+    },
+    {
+      "agent": "gemini",
+      "reason": "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration."
+    }
+  ],
+  "version": 1
+}
