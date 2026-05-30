@@ -157,6 +157,42 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testSidebarXPCCodecRejectsOversizedManifestPayload() {
+        let payload = Data(repeating: 0x20, count: CMUXSidebarXPCCodec.maximumManifestPayloadBytes + 1) as NSData
+
+        do {
+            _ = try CMUXSidebarXPCCodec.decodeManifest(payload)
+            Issue.record("Expected oversized manifest payload to be rejected")
+        } catch {
+            #expect(
+                error as? CMUXExtensionValidationError == .payloadTooLarge(
+                    kind: "manifest",
+                    actualBytes: payload.length,
+                    maximumBytes: CMUXSidebarXPCCodec.maximumManifestPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
+    func testSidebarXPCCodecRejectsOversizedActionPayload() {
+        let payload = Data(repeating: 0x20, count: CMUXSidebarXPCCodec.maximumActionPayloadBytes + 1) as NSData
+
+        do {
+            _ = try CMUXSidebarXPCCodec.decodeAction(payload)
+            Issue.record("Expected oversized action payload to be rejected")
+        } catch {
+            #expect(
+                error as? CMUXExtensionValidationError == .payloadTooLarge(
+                    kind: "action",
+                    actualBytes: payload.length,
+                    maximumBytes: CMUXSidebarXPCCodec.maximumActionPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
     func testManifestValidationRejectsUnsupportedAPIVersion() {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",

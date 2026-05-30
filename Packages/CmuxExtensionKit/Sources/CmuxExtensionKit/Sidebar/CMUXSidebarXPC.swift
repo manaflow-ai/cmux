@@ -11,12 +11,18 @@ import Foundation
 }
 
 public enum CMUXSidebarXPCCodec {
+    public static let maximumSnapshotPayloadBytes = 512 * 1024
+    public static let maximumManifestPayloadBytes = 64 * 1024
+    public static let maximumActionPayloadBytes = 8 * 1024
+    public static let maximumActionResultPayloadBytes = 8 * 1024
+
     public static func encodeSnapshot(_ snapshot: CMUXSidebarSnapshot) throws -> NSData {
         try JSONEncoder().encode(snapshot) as NSData
     }
 
     public static func decodeSnapshot(_ payload: NSData) throws -> CMUXSidebarSnapshot {
-        try JSONDecoder().decode(CMUXSidebarSnapshot.self, from: payload as Data)
+        try validatePayloadSize(payload, kind: "snapshot", maximumBytes: maximumSnapshotPayloadBytes)
+        return try JSONDecoder().decode(CMUXSidebarSnapshot.self, from: payload as Data)
     }
 
     public static func encodeManifest(_ manifest: CMUXExtensionManifest) throws -> NSData {
@@ -24,7 +30,8 @@ public enum CMUXSidebarXPCCodec {
     }
 
     public static func decodeManifest(_ payload: NSData) throws -> CMUXExtensionManifest {
-        try JSONDecoder().decode(CMUXExtensionManifest.self, from: payload as Data)
+        try validatePayloadSize(payload, kind: "manifest", maximumBytes: maximumManifestPayloadBytes)
+        return try JSONDecoder().decode(CMUXExtensionManifest.self, from: payload as Data)
     }
 
     public static func encodeAction(_ action: CMUXSidebarAction) throws -> NSData {
@@ -32,7 +39,8 @@ public enum CMUXSidebarXPCCodec {
     }
 
     public static func decodeAction(_ payload: NSData) throws -> CMUXSidebarAction {
-        try JSONDecoder().decode(CMUXSidebarAction.self, from: payload as Data)
+        try validatePayloadSize(payload, kind: "action", maximumBytes: maximumActionPayloadBytes)
+        return try JSONDecoder().decode(CMUXSidebarAction.self, from: payload as Data)
     }
 
     public static func encodeActionResult(_ result: CMUXExtensionActionResult) throws -> NSData {
@@ -40,6 +48,17 @@ public enum CMUXSidebarXPCCodec {
     }
 
     public static func decodeActionResult(_ payload: NSData) throws -> CMUXExtensionActionResult {
-        try JSONDecoder().decode(CMUXExtensionActionResult.self, from: payload as Data)
+        try validatePayloadSize(payload, kind: "actionResult", maximumBytes: maximumActionResultPayloadBytes)
+        return try JSONDecoder().decode(CMUXExtensionActionResult.self, from: payload as Data)
+    }
+
+    private static func validatePayloadSize(_ payload: NSData, kind: String, maximumBytes: Int) throws {
+        guard payload.length <= maximumBytes else {
+            throw CMUXExtensionValidationError.payloadTooLarge(
+                kind: kind,
+                actualBytes: payload.length,
+                maximumBytes: maximumBytes
+            )
+        }
     }
 }
