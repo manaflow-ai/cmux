@@ -5413,6 +5413,7 @@ struct SettingsView: View {
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
     @State private var sidebarFontSize = CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
     @State private var sidebarFontSizeErrorMessage: String?
+    @State private var sidebarFontSizeRefreshTask: Task<Void, Never>?
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -6285,13 +6286,20 @@ struct SettingsView: View {
     }
 
     private func refreshSidebarFontSizeFromConfig() {
-        Task { @MainActor in
+        sidebarFontSizeRefreshTask?.cancel()
+        sidebarFontSizeRefreshTask = Task { @MainActor in
             let loadedSidebarFontSize = await Task.detached(priority: .utility) {
                 Double(GhosttyConfig.load(useCache: false).sidebarFontSize)
             }.value
+            guard !Task.isCancelled else { return }
             sidebarFontSize = loadedSidebarFontSize
             sidebarFontSizeErrorMessage = nil
         }
+    }
+
+    private func cancelSidebarFontSizeRefresh() {
+        sidebarFontSizeRefreshTask?.cancel()
+        sidebarFontSizeRefreshTask = nil
     }
 
     private func saveSidebarFontSizeFromSettings() {
@@ -8201,6 +8209,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshSidebarFontSizeFromConfig()
+        }
+        .onDisappear {
+            cancelSidebarFontSizeRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
