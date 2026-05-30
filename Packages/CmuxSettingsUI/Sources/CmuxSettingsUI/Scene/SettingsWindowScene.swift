@@ -70,6 +70,16 @@ public struct SettingsWindowRoot: View {
     // `applyScrollNavigation` and re-checked inside `DispatchQueue.main.async`,
     // so only the most recent request actually scrolls.
     @State private var settingsNavigationGeneration: Int = 0
+    // Drives the "flash the navigated-to row" affordance the legacy
+    // settings window had. When the user clicks a search hit, the target
+    // row pulses an accent border for a few seconds so the eye can find
+    // it after the scroll. `token` changes on every highlight so
+    // re-navigating to the same row restarts the pulse; `startedAt`
+    // seeds the row's `TimelineView` fade. Read by every
+    // `SettingsCardRow` through `\.settingsSearchHighlightState`.
+    @State private var highlightedSearchAnchorID: String?
+    @State private var searchHighlightToken: Int = 0
+    @State private var searchHighlightStartedAt: Date?
 
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
@@ -117,6 +127,18 @@ public struct SettingsWindowRoot: View {
             detailScroll
         }
         .navigationSplitViewStyle(.balanced)
+        // Inject the built search index so each SettingsCardRow can map
+        // its declared cmux.json paths to scroll/highlight anchor ids,
+        // and publish the active highlight so the matching row pulses.
+        .environment(\.settingsSearchIndex, searchIndex)
+        .environment(
+            \.settingsSearchHighlightState,
+            SettingsSearchHighlightState(
+                anchorID: highlightedSearchAnchorID,
+                token: searchHighlightToken,
+                startedAt: searchHighlightStartedAt
+            )
+        )
         // Legacy SettingsRootView pins the window minimum to
         // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
         // so the package window can shrink to the same lower bound.
@@ -378,6 +400,17 @@ public struct SettingsWindowRoot: View {
         let sectionID = self.anchorID(for: target)
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
+        // Arm (or clear) the row highlight before the scroll so the
+        // pulse is already live when the target row lands in view.
+        // Mirrors legacy SettingsView.applySettingsNavigation.
+        if shouldHighlight && anchorID != sectionID {
+            highlightedSearchAnchorID = anchorID
+            searchHighlightStartedAt = Date()
+            searchHighlightToken += 1
+        } else {
+            highlightedSearchAnchorID = nil
+            searchHighlightStartedAt = nil
+        }
         DispatchQueue.main.async {
             guard navigationGeneration == settingsNavigationGeneration else { return }
             proxy.scrollTo(sectionID, anchor: .top)

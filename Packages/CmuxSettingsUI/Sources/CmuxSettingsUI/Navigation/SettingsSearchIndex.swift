@@ -38,6 +38,20 @@ public struct SettingsSearchIndex: Sendable {
 
     public let entries: [Entry]
 
+    /// Maps a dotted cmux.json path (e.g. `sidebar.showBranchDirectory`)
+    /// to the stable anchor id of the entry that owns it. Lets a
+    /// ``SettingsCardRow`` resolve the config path it already declares
+    /// via ``SettingsConfigurationReview`` into the scroll/highlight
+    /// target the navigation layer posts, without a second
+    /// hand-maintained id table. Built from the curated entries' dotted
+    /// synonym tokens.
+    private let pathAnchorIDs: [String: String]
+
+    /// The set of every entry id in ``entries``, used to validate the
+    /// `setting:<path>` fallback so a row never anchors to an id that no
+    /// search hit can navigate to.
+    private let entryIDs: Set<String>
+
     /// Builds an index from the section list, the supplied curated
     /// entries, and any remaining ``SettingCatalog/all`` keys not
     /// already covered by the curated table.
@@ -97,6 +111,40 @@ public struct SettingsSearchIndex: Sendable {
         }
 
         self.entries = built
+        self.entryIDs = Set(built.map(\.id))
+
+        // Curated synonym strings lead with the setting's dotted
+        // cmux.json path (e.g. "sidebar.showBranchDirectory git …"),
+        // which is exactly what a row declares via its
+        // configurationReview. Index every dotted token to the curated
+        // entry's anchor id so a row can map its path to a scroll target.
+        // First writer wins: a dotted path is owned by one setting.
+        var pathAnchors: [String: String] = [:]
+        for entry in curatedEntries {
+            let anchorID = "setting:\(entry.section.rawValue):\(entry.id)"
+            for token in entry.synonyms.split(separator: " ") where token.contains(".") {
+                let path = String(token)
+                if pathAnchors[path] == nil { pathAnchors[path] = anchorID }
+            }
+        }
+        self.pathAnchorIDs = pathAnchors
+    }
+
+    /// Resolves a dotted cmux.json path to the anchor id the
+    /// sidebar/search navigation scrolls to and highlights.
+    ///
+    /// Returns the curated entry's anchor id when the path is covered by
+    /// a curated synonym, otherwise the `setting:<path>` fallback id when
+    /// such a raw catalog entry exists, otherwise `nil` (the path has no
+    /// navigable search hit).
+    ///
+    /// - Parameter path: A dotted cmux.json path, e.g. `terminal.copyOnSelect`.
+    /// - Returns: The stable entry id to use as a `scrollTo` / highlight
+    ///   anchor, or `nil` when nothing in the index targets `path`.
+    public func anchorID(forSettingsPath path: String) -> String? {
+        if let curated = pathAnchorIDs[path] { return curated }
+        let fallback = "setting:\(path)"
+        return entryIDs.contains(fallback) ? fallback : nil
     }
 
     public func match(_ query: String) -> [Entry] {

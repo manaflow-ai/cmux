@@ -19,6 +19,23 @@ public struct SettingsCardRow<Trailing: View>: View {
     let controlWidth: CGFloat?
     @ViewBuilder let trailing: Trailing
 
+    // The settings root injects the built search index so each row can
+    // map the cmux.json path(s) it declares via `configurationReview`
+    // into the sidebar/search anchor id(s) the navigation layer scrolls
+    // to and highlights. `nil` outside the settings window (previews,
+    // host embedding without the index), in which case the row simply
+    // doesn't participate in search navigation.
+    @Environment(\.settingsSearchIndex) private var searchIndex
+
+    /// Anchor ids derived from this row's declared config paths, used to
+    /// make the row `scrollTo`-addressable and eligible for the
+    /// search-result highlight pulse. Empty for action/settings-only rows
+    /// or when no index is injected.
+    private var searchAnchorIDs: [String] {
+        guard let searchIndex else { return [] }
+        return configurationReview.paths.compactMap(searchIndex.anchorID(forSettingsPath:))
+    }
+
     public init(
         configurationReview: SettingsConfigurationReview = .action,
         _ title: String,
@@ -59,5 +76,6 @@ public struct SettingsCardRow<Trailing: View>: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsSearchAnchors(searchAnchorIDs)
     }
 }
