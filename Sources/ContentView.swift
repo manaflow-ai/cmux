@@ -2374,6 +2374,23 @@ struct ContentView: View {
         }
     }
 
+    private func workspaceTitlebarBand(appearance: WindowAppearanceSnapshot) -> some View {
+        Color.clear
+            .frame(height: WindowChromeMetrics.appTitlebarHeight)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topLeading) {
+                customTitlebar(appearance: appearance)
+            }
+            .overlay(alignment: .topLeading) {
+                if isFullScreen && sidebarState.isVisible {
+                    fullscreenControls
+                        .environment(\.colorScheme, appearance.sidebarContentColorScheme)
+                        .padding(.leading, 10)
+                        .padding(.top, 4)
+                }
+            }
+    }
+
     private func syncTrafficLightInset() {
         let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
             ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
@@ -2649,16 +2666,8 @@ struct ContentView: View {
                 contentAndSidebarLayout(appearance: appearance)
 
                 if !isMinimalMode {
-                    customTitlebar(appearance: appearance)
+                    workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
-                }
-
-                if isFullScreen && sidebarState.isVisible && !isMinimalMode {
-                    fullscreenControls
-                        .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-                        .padding(.leading, 10)
-                        .padding(.top, 4)
-                        .zIndex(101)
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
