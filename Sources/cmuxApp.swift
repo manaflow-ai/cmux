@@ -6,6 +6,10 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import OSLog
+
+nonisolated private let cmuxSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+
 @main
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
@@ -6273,15 +6277,21 @@ struct SettingsView: View {
 
     private var sidebarFontSizeDisplayText: String {
         let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(sidebarFontSize)
-        return String(
+        let format = String(
             localized: "settings.sidebarAppearance.fontSize.points",
-            defaultValue: "\(formattedValue) pt"
+            defaultValue: "%@ pt"
         )
+        return String(format: format, formattedValue)
     }
 
     private func refreshSidebarFontSizeFromConfig() {
-        sidebarFontSize = Double(GhosttyConfig.load(useCache: false).sidebarFontSize)
-        sidebarFontSizeErrorMessage = nil
+        Task { @MainActor in
+            let loadedSidebarFontSize = await Task.detached(priority: .utility) {
+                Double(GhosttyConfig.load(useCache: false).sidebarFontSize)
+            }.value
+            sidebarFontSize = loadedSidebarFontSize
+            sidebarFontSizeErrorMessage = nil
+        }
     }
 
     private func saveSidebarFontSizeFromSettings() {
@@ -6297,9 +6307,15 @@ struct SettingsView: View {
             sidebarFontSizeErrorMessage = nil
             GhosttyApp.shared.reloadConfiguration(source: "settings.sidebar.fontSize")
         } catch {
+            cmuxSettingsLogger.warning(
+                "failed to save sidebar font size: \(String(describing: error), privacy: .private(mask: .hash))"
+            )
+#if DEBUG
+            cmuxDebugLog("settings.sidebar.fontSize.saveFailed \(String(describing: error))")
+#endif
             sidebarFontSizeErrorMessage = String(
                 localized: "settings.sidebarAppearance.fontSize.saveFailed",
-                defaultValue: "Couldn't save sidebar font size (\(error.localizedDescription))."
+                defaultValue: "Couldn't save sidebar font size. Please try again."
             )
         }
     }
