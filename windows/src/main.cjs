@@ -135,6 +135,9 @@ function buildMenu() {
         { label: "Next Workspace", accelerator: "Ctrl+PageDown", click: () => mainWindow?.webContents.send("cmux-command", "workspace.next") },
         { label: "Previous Workspace", accelerator: "Ctrl+PageUp", click: () => mainWindow?.webContents.send("cmux-command", "workspace.previous") },
         { type: "separator" },
+        { label: "Tune Performance Now", click: () => mainWindow?.webContents.send("cmux-command", "settings.tunePerformance") },
+        { label: "Performance Settings", click: () => mainWindow?.webContents.send("cmux-command", "settings.performance") },
+        { type: "separator" },
         { role: "reload" },
         { role: "toggleDevTools" }
       ]

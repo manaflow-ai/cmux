@@ -26,6 +26,10 @@ const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
 const SearchAddonConstructor = window.SearchAddon?.SearchAddon;
 const terminalOutputChunkSize = 32768;
 const terminalOutputPerformanceChunkSize = 16384;
+const terminalOutputBacklogThreshold = 262144;
+const renderSlowFrameMs = 24;
+const renderVerySlowFrameMs = 72;
+const renderSlowFrameTriggerCount = 4;
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
   activeMatchBackground: "#9d6b20",
@@ -124,8 +128,19 @@ const state = {
     count: 0,
     lastMs: 0,
     avgMs: 0,
-    maxMs: 0
+    maxMs: 0,
+    slowCount: 0,
+    guardActivations: 0
   },
+  terminalOutputStats: {
+    currentQueued: 0,
+    maxQueued: 0,
+    writtenBytes: 0,
+    chunks: 0,
+    lastChunk: 0
+  },
+  performanceGuardTriggered: false,
+  performanceGuardReason: "",
   appliedSettingsSignature: "",
   settings: initialSettings,
   settingsCategory: "quick",
@@ -221,6 +236,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.showStatusbar = next.showStatusbar !== false;
   next.showAdvanced = next.toolbarMode === "expanded";
   next.performanceMode = Boolean(next.performanceMode);
+  next.adaptivePerformance = next.adaptivePerformance !== false;
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
   next.terminalBackground = normalizeTerminalColor(next.terminalBackground);
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
@@ -1039,6 +1055,7 @@ const commands = [
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
+  { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
@@ -1166,6 +1183,10 @@ function recordRenderDuration(durationMs) {
     ? (state.renderStats.avgMs * 0.86) + (value * 0.14)
     : value;
   state.renderStats.maxMs = Math.max(state.renderStats.maxMs, value);
+  if (value >= renderSlowFrameMs) state.renderStats.slowCount += 1;
+  if (value >= renderVerySlowFrameMs || state.renderStats.slowCount >= renderSlowFrameTriggerCount) {
+    maybeTriggerPerformanceGuard("slow rendering");
+  }
 }
 
 function cleanupStalePaneCache() {
@@ -2022,6 +2043,10 @@ function findPreviousInTerminal(panel = activePanel()) {
 
 function enqueueTerminalOutput(session, data) {
   session.queue += data;
+  updateTerminalOutputBacklog();
+  if (state.terminalOutputStats.currentQueued >= terminalOutputBacklogThreshold) {
+    maybeTriggerPerformanceGuard("terminal output backlog");
+  }
   scheduleTerminalOutputFlush(session);
 }
 
@@ -2034,11 +2059,39 @@ function scheduleTerminalOutputFlush(session) {
 function flushTerminalOutput(session) {
   session.scheduled = false;
   if (session.disposed || !session.queue) return;
-  const chunkSize = state.settings.performanceMode ? terminalOutputPerformanceChunkSize : terminalOutputChunkSize;
+  const chunkSize = terminalOutputChunkSizeFor(session);
   const chunk = session.queue.length > chunkSize ? session.queue.slice(0, chunkSize) : session.queue;
   session.queue = session.queue.slice(chunk.length);
+  state.terminalOutputStats.chunks += 1;
+  state.terminalOutputStats.lastChunk = chunk.length;
+  state.terminalOutputStats.writtenBytes += chunk.length;
   session.term.write(chunk);
+  updateTerminalOutputBacklog();
   if (session.queue) scheduleTerminalOutputFlush(session);
+}
+
+function terminalOutputChunkSizeFor(session) {
+  if (
+    state.settings.performanceMode
+    || (state.settings.adaptivePerformance && session.queue.length >= terminalOutputBacklogThreshold)
+  ) {
+    return terminalOutputPerformanceChunkSize;
+  }
+  return terminalOutputChunkSize;
+}
+
+function totalTerminalOutputQueue() {
+  let total = 0;
+  for (const session of state.terminals.values()) {
+    if (!session.disposed) total += session.queue.length;
+  }
+  return total;
+}
+
+function updateTerminalOutputBacklog() {
+  const queued = totalTerminalOutputQueue();
+  state.terminalOutputStats.currentQueued = queued;
+  state.terminalOutputStats.maxQueued = Math.max(state.terminalOutputStats.maxQueued, queued);
 }
 
 function scheduleFitTerminal(session, force = false) {
@@ -2528,6 +2581,7 @@ function renderSettingsInspector() {
     const performanceSection = settingsSection("Performance", "speed smooth lag render diagnostics optimize preset");
     performanceSection.append(settingsMetricGrid(performanceMetrics()));
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
+    performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     const scrollbackRange = document.createElement("input");
     scrollbackRange.className = "setting-control";
     scrollbackRange.type = "range";
@@ -2545,6 +2599,7 @@ function renderSettingsInspector() {
     performanceActions.className = "settings-actions";
     performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset balanced reset render stats clear");
     performanceActions.append(
+      settingsActionButton("Tune now", () => tunePerformanceNow(), "", "performance tune optimize lag speed"),
       settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
       settingsActionButton("Balanced preset", () => applySettingsPresetById("balanced"), "", "balanced preset restore"),
       settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
@@ -2910,15 +2965,28 @@ function formatMs(value) {
   return `${Math.max(0, Number(value) || 0).toFixed(1)} ms`;
 }
 
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${Math.round(bytes)} B`;
+}
+
 function performanceMetrics() {
   const workspaces = state.data?.workspaces || [];
   const panels = allPanels();
   const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
   const browserCount = panels.filter((panel) => panel.type === "browser").length;
+  updateTerminalOutputBacklog();
   return [
     ["Render avg", formatMs(state.renderStats.avgMs)],
     ["Last render", formatMs(state.renderStats.lastMs)],
     ["Max render", formatMs(state.renderStats.maxMs)],
+    ["Slow renders", String(state.renderStats.slowCount)],
+    ["Output backlog", formatBytes(state.terminalOutputStats.currentQueued)],
+    ["Output max", formatBytes(state.terminalOutputStats.maxQueued)],
+    ["Output chunks", String(state.terminalOutputStats.chunks)],
+    ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
     ["Panes", String(panels.length)],
     ["Terminals", String(terminalCount)],
@@ -2951,10 +3019,46 @@ function resetRenderStats() {
     count: 0,
     lastMs: 0,
     avgMs: 0,
-    maxMs: 0
+    maxMs: 0,
+    slowCount: 0,
+    guardActivations: 0
   };
+  state.terminalOutputStats = {
+    currentQueued: totalTerminalOutputQueue(),
+    maxQueued: totalTerminalOutputQueue(),
+    writtenBytes: 0,
+    chunks: 0,
+    lastChunk: 0
+  };
+  state.performanceGuardTriggered = false;
+  state.performanceGuardReason = "";
   renderSettingsInspector();
   toast("Performance stats reset.");
+}
+
+function maybeTriggerPerformanceGuard(reason) {
+  if (!state.settings.adaptivePerformance || state.settings.performanceMode || state.performanceGuardTriggered) return;
+  state.performanceGuardTriggered = true;
+  state.performanceGuardReason = reason;
+  state.renderStats.guardActivations += 1;
+  tunePerformanceNow({ automatic: true, reason });
+}
+
+function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) {
+  updateSettings({
+    performanceMode: true,
+    adaptivePerformance: true,
+    backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
+    density: "compact",
+    toolbarMode: "compact",
+    showStatusbar: false,
+    terminalPadding: Math.min(state.settings.terminalPadding, 4),
+    terminalScrollback: Math.min(state.settings.terminalScrollback, 6000)
+  });
+  if (state.inspectorMode === "settings" && state.settingsCategory === "performance") {
+    renderSettingsInspector();
+  }
+  toast(automatic ? `Performance guard enabled: ${reason}.` : "Performance tune applied.");
 }
 
 function commandGroupLabel(command) {
@@ -3954,6 +4058,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
     contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
+    contextMenuButton("Tune performance now", () => tunePerformanceNow()),
     contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
     contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
     contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
