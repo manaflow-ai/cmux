@@ -679,4 +679,15 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.customColor == "#123456")
         #expect(restoredGroup.iconSymbol == "leaf.fill")
     }
+
+    @Test func setWorkspaceGroupIconNormalizesEmptySymbols() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Icons", childWorkspaceIds: []))
+
+        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
+
+        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "   ")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
+    }
 }
