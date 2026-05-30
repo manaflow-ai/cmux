@@ -49,26 +49,18 @@ use_existing_zig_if_available() {
 
 install_homebrew_zig_if_matching() {
   command -v brew >/dev/null 2>&1 || return 1
-  if brew info --json=v2 zig | python3 - "$ZIG_REQUIRED" <<'PY'
-import json
-import sys
-
-required = sys.argv[1]
-data = json.load(sys.stdin)
-formulae = data.get("formulae") or []
-stable = ((formulae[0].get("versions") or {}).get("stable") if formulae else None)
-raise SystemExit(0 if stable == required else 1)
-PY
-  then
-    brew install zig
-    for candidate in /opt/homebrew/bin/zig /usr/local/bin/zig; do
-      if zig_has_required_version "$candidate"; then
-        echo "Using Homebrew zig ${ZIG_REQUIRED} at $candidate"
-        publish_zig_for_later_steps "$candidate"
-        exit 0
-      fi
-    done
+  if ! brew install zig; then
+    echo "Homebrew zig install failed; falling back to verified Zig tarball" >&2
+    return 1
   fi
+  for candidate in /opt/homebrew/bin/zig /usr/local/bin/zig; do
+    if zig_has_required_version "$candidate"; then
+      echo "Using Homebrew zig ${ZIG_REQUIRED} at $candidate"
+      publish_zig_for_later_steps "$candidate"
+      exit 0
+    fi
+  done
+  echo "Homebrew zig did not provide ${ZIG_REQUIRED}; falling back to verified Zig tarball" >&2
   return 1
 }
 
