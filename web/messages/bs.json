@@ -45,7 +45,7 @@
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i socket API za automatizaciju.",
+    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -495,7 +495,8 @@
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
-          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna."
+          "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
         "terminal": {
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
@@ -672,7 +673,7 @@
       "metaTitle": "Prečice na tastaturi"
     },
     "api": {
-      "title": "API Referenca",
+      "title": "CLI Referenca",
       "metaDescription": "cmux CLI i Unix socket API referenca. Upravljanje radnim prostorima, podijeljeni paneli, kontrola unosa, notifikacije, metapodaci bočne trake, varijable okruženja i metode detekcije.",
       "intro": "cmux pruža i CLI alat i Unix socket za programsku kontrolu. Svaka komanda je dostupna kroz oba interfejsa.",
       "socket": "Socket",
@@ -751,7 +752,7 @@
       "pythonClient": "Python klijent",
       "shellScript": "Shell skripta",
       "buildScriptNotification": "Build skripta sa notifikacijom",
-      "metaTitle": "API referenca"
+      "metaTitle": "CLI Referenca"
     },
     "notifications": {
       "title": "Notifikacije",
@@ -894,7 +895,7 @@
       "authoringCallout": "Kada dodajete novu vještinu, uključite <code>agents/openai.yaml</code> da instalater prikaže jasno ime, kratak opis i zadani prompt.",
       "relatedTitle": "Povezana dokumentacija",
       "relatedBrowserAutomation": "Automatizacija preglednika",
-      "relatedApi": "API referenca",
+      "relatedApi": "CLI referenca",
       "relatedCustomCommands": "Prilagođene komande"
     },
     "changelog": {
@@ -909,7 +910,7 @@
       "sessionRestore": "Obnova sesije",
       "customCommands": "Prilagođene komande",
       "keyboardShortcuts": "Prečice na tastaturi",
-      "apiReference": "API Referenca",
+      "apiReference": "CLI Referenca",
       "browserAutomation": "Automatizacija preglednika",
       "skills": "Vještine",
       "notifications": "Notifikacije",
