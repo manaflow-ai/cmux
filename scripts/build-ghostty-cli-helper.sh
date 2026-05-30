@@ -219,7 +219,10 @@ build_helper() {
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
   (
     cd "$GHOSTTY_DIR"
-    "${args[@]}"
+    # Zig 0.15.x treats SDKROOT as a sysroot override. Xcode exports SDKROOT to
+    # the macOS SDK, which makes Zig look for SDK paths under that SDK again and
+    # leaves build-runner binaries unlinked against libSystem on a cold cache.
+    env -u SDKROOT "${args[@]}"
   )
 }
 

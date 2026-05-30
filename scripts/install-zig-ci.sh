@@ -9,12 +9,52 @@ export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
 export HOMEBREW_NO_INSTALL_CLEANUP="${HOMEBREW_NO_INSTALL_CLEANUP:-1}"
 export HOMEBREW_NO_ENV_HINTS="${HOMEBREW_NO_ENV_HINTS:-1}"
 
-if command -v zig >/dev/null 2>&1; then
-  INSTALLED_ZIG_VERSION="$(zig version 2>/dev/null || true)"
-  if [ "$INSTALLED_ZIG_VERSION" = "$ZIG_REQUIRED" ]; then
-    echo "zig ${ZIG_REQUIRED} already installed"
-    exit 0
+zig_version_matches() {
+  local zig_path="$1"
+  local version=""
+  version="$("$zig_path" version 2>/dev/null || true)"
+  [ "$version" = "$ZIG_REQUIRED" ]
+}
+
+try_homebrew_zig() {
+  if ! command -v brew >/dev/null 2>&1; then
+    return 1
   fi
+
+  if ! brew list zig >/dev/null 2>&1; then
+    brew install zig
+  fi
+
+  local brew_zig=""
+  brew_zig="$(brew --prefix zig 2>/dev/null || true)"
+  if [ -n "$brew_zig" ] && [ -x "$brew_zig/bin/zig" ] && zig_version_matches "$brew_zig/bin/zig"; then
+    echo "zig ${ZIG_REQUIRED} installed with Homebrew at $brew_zig/bin/zig"
+    return 0
+  fi
+
+  if command -v zig >/dev/null 2>&1 && zig_version_matches "$(command -v zig)"; then
+    echo "zig ${ZIG_REQUIRED} installed with Homebrew at $(command -v zig)"
+    return 0
+  fi
+
+  return 1
+}
+
+if command -v zig >/dev/null 2>&1; then
+  INSTALLED_ZIG_PATH="$(command -v zig)"
+  INSTALLED_ZIG_VERSION="$("$INSTALLED_ZIG_PATH" version 2>/dev/null || true)"
+  if [ "$INSTALLED_ZIG_VERSION" = "$ZIG_REQUIRED" ]; then
+    case "$INSTALLED_ZIG_PATH" in
+      /opt/homebrew/*|*/Cellar/zig/*)
+        echo "zig ${ZIG_REQUIRED} already installed at $INSTALLED_ZIG_PATH"
+        exit 0
+        ;;
+    esac
+  fi
+fi
+
+if try_homebrew_zig; then
+  exit 0
 fi
 
 case "$(uname -m)" in
