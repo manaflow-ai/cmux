@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
+import { activityGlyph } from "../shared/activityGlyph";
 import { subscribeToAgentEvents } from "../shared/bridge";
 import {
   CODEX_BUTTON_BASE,
@@ -291,10 +292,13 @@ function SessionSurface({
   stop.type = "button";
   stop.setAttribute("aria-label", "Stop");
   stop.addEventListener("click", () => void stopProvider(state(), dispatch));
+  stop.append(stopIcon());
   controlsRight.append(stop);
   createEffect(() => {
     stop.setAttribute("aria-label", state().context?.copy.stop ?? "Stop");
-    stop.disabled = !canStop();
+    const showStop = canStop();
+    stop.hidden = !showStop;
+    stop.disabled = !showStop;
   });
 
   const mic = document.createElement("button");
@@ -577,18 +581,22 @@ function sendIcon(): SVGSVGElement {
   return icon;
 }
 
-function activityGlyph(entry: TranscriptEntry): string {
-  if (entry.activityStatus === "stopped" || entry.activityStatus === "failed") {
-    return "!";
-  }
-  switch (entry.activityKind) {
-    case "command":
-      return "$";
-    case "fileChange":
-      return "+";
-    default:
-      return "*";
-  }
+function stopIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("width", "16");
+  icon.setAttribute("height", "16");
+  icon.setAttribute("viewBox", "0 0 16 16");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("aria-hidden", "true");
+  const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  rect.setAttribute("x", "4.75");
+  rect.setAttribute("y", "4.75");
+  rect.setAttribute("width", "6.5");
+  rect.setAttribute("height", "6.5");
+  rect.setAttribute("rx", "1");
+  rect.setAttribute("fill", "currentColor");
+  icon.append(rect);
+  return icon;
 }
 
 function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {

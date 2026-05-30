@@ -6,6 +6,7 @@ import {
   canStopProvider,
   formatTemplate,
   initialState,
+  messageForError,
   reduceSession,
   sendInput,
   shouldAutoStartProvider,
@@ -845,6 +846,18 @@ test("session-scoped failures do not overwrite a requested stop", () => {
   });
 
   expect(state).toBe(stopping);
+});
+
+test("bridge request errors use copy from session state", () => {
+  const state = reduceSession(initialState("react"), {
+    type: "context",
+    context: {
+      ...context,
+      copy: { ...context.copy, requestFailed: "Localized bridge failure." },
+    },
+  });
+
+  expect(messageForError(new Error("Native bridge request failed."), state)).toBe("Localized bridge failure.");
 });
 
 test("send failures for the active running session keep stop available", () => {

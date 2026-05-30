@@ -145,6 +145,7 @@ const promptSchema = new Schema({
 const placeholderKey = new PluginKey<string>("agentPromptPlaceholder");
 export type PromptEditorHandle = {
   focus: () => void;
+  getText: () => string;
   insertMention: (mention: PromptMention) => void;
   insertMentions: (mentions: PromptMention[]) => void;
   insertText: (text: string) => void;
@@ -202,6 +203,9 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
     useImperativeHandle(ref, () => ({
       focus() {
         viewRef.current?.focus();
+      },
+      getText() {
+        return latestTextRef.current;
       },
       insertMention(mention) {
         const view = viewRef.current;
@@ -282,17 +286,14 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
           }
           if (event.shiftKey || event.altKey) {
             event.preventDefault();
+            if (singleLine) {
+              return true;
+            }
             return splitBlock(_view.state, _view.dispatch, _view);
           }
           event.preventDefault();
           latestSubmitRef.current();
           return true;
-        },
-        handleTextInput(_view, _from, _to, text) {
-          if (text === "@" || text === "$") {
-            latestTriggerTokenRef.current?.(text);
-          }
-          return false;
         },
       });
       viewRef.current = view;

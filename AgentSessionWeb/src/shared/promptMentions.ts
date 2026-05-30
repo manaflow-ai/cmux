@@ -1,3 +1,5 @@
+import { escapeMarkdownDestination, escapeMarkdownLabel } from "./markdownEscapes";
+
 export type PromptMentionText = {
   displayName?: string;
   kind: "at" | "agent" | "skill";
@@ -30,12 +32,4 @@ export function promptTextWithAutoContext(input: string, mention: PromptMentionT
 
 function markdownLink(label: string, destination: string): string {
   return `[${escapeMarkdownLabel(label)}](${escapeMarkdownDestination(destination)})`;
-}
-
-function escapeMarkdownLabel(label: string): string {
-  return label.replace(/([\\[\]])/g, "\\$1");
-}
-
-function escapeMarkdownDestination(destination: string): string {
-  return encodeURI(destination).replace(/([()\\])/g, "\\$1");
 }

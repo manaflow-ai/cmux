@@ -59,7 +59,6 @@ export type Action =
   | { type: "failedForSession"; sessionId: string; message: string }
   | { type: "sendFailed"; sessionId: string; message: string }
   | { type: "stopFailed"; sessionId: string; message: string }
-  | { type: "stopped" }
   | { type: "event"; event: AgentEvent }
   | {
       type: "sent";
@@ -161,8 +160,6 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         log: appendLog(state, "error", action.message),
         transcript: appendNoticeTranscript(state, action.message, "error"),
       };
-    case "stopped":
-      return { ...state, status: "idle", runningSessionId: undefined, log: appendLog(state, "info", copyText(state, "stopped", "Stopped")) };
     case "sent":
       if (state.runningSessionId !== action.sessionId || state.requestedStopSessionId === action.sessionId) {
         return state;
@@ -651,8 +648,8 @@ function copyForError(stateOrCopy?: SessionState | AppContext["copy"]): AppConte
   if (!stateOrCopy) {
     return undefined;
   }
-  if ("requestFailed" in stateOrCopy) {
-    return stateOrCopy;
+  if ("providers" in stateOrCopy) {
+    return stateOrCopy.context?.copy;
   }
-  return stateOrCopy.context?.copy;
+  return stateOrCopy;
 }

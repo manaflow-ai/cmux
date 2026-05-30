@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { activityGlyph } from "../shared/activityGlyph";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import {
   CODEX_BUTTON_BASE,
@@ -34,6 +35,7 @@ import {
   formatRateLimitReset,
   formatRateLimitWindow,
   normalizeRateLimitRow,
+  type NormalizedRateLimitRow,
 } from "../shared/rateLimits";
 import {
   initialState,
@@ -335,8 +337,13 @@ function SessionSurface({
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
-    if (!canSend) {
+    const currentInput = editorRef.current?.getText() ?? state.input;
+    const canSubmit = state.status === "running" && (currentInput.length > 0 || attachments.length > 0);
+    if (!canSubmit) {
       return;
+    }
+    if (currentInput !== state.input) {
+      dispatch({ type: "setInput", input: currentInput });
     }
     setMenuKind(null);
     setMenuQuery("");
@@ -344,15 +351,15 @@ function SessionSurface({
     setAddContextMenuOpen(false);
     setPermissionsMenuOpen(false);
     const providerInput = promptTextWithAutoContext(
-      promptTextWithPlanMode(state.input, isPlanMode),
+      promptTextWithPlanMode(currentInput, isPlanMode),
       workspaceContextItem?.mention ?? null,
       isAutoContextOn,
     );
     const text = promptTextWithAttachments(providerInput, attachments);
     void sendInput(state, dispatch, {
       attachments,
-      clearInput: state.input,
-      displayText: state.input,
+      clearInput: currentInput,
+      displayText: currentInput,
       permissionMode: canConfigurePermissions ? permissionMode : "default",
       text,
     }).then((didSend) => {
@@ -367,13 +374,6 @@ function SessionSurface({
     setMenuQuery("");
     setMenuIndex(0);
     setAddContextMenuOpen(false);
-  };
-  const insertSkillMenuItem = (id: string) => {
-    const item = composerMenuItems("skill", state, "").find((item) => item.id === id);
-    if (item) {
-      insertComposerMenuItem(item);
-    }
-    editorRef.current?.focus();
   };
   const togglePlanMode = () => {
     setIsPlanMode((value) => !value);
@@ -438,8 +438,9 @@ function SessionSurface({
       setAttachments((existing) => dedupeAttachments([...existing, ...nextAttachments]));
       editorRef.current?.focus();
     } catch (error) {
-      const message = messageForError(error, state);
-      dispatch(sessionId ? { type: "failedForSession", sessionId, message } : { type: "failed", message });
+      if (!sessionId) {
+        dispatch({ type: "failed", message: messageForError(error, state) });
+      }
     } finally {
       setIsPickingFiles(false);
     }
@@ -1726,8 +1727,10 @@ function RateLimitFooter({
         onClick: () => setIsOpen((open) => !open),
       },
       h("span", { className: "rate-line-heading" }, rateLimitsLabel),
-      normalizedRows.flatMap((row) => [
-        h("span", { key: `${row.role}-separator`, className: "rate-limit-inline-separator", "aria-hidden": true }, "•"),
+      normalizedRows.flatMap((row, index) => [
+        index > 0
+          ? h("span", { key: `${row.role}-separator`, className: "rate-limit-inline-separator", "aria-hidden": true }, "•")
+          : null,
         h(RateLimitInlineSegment, { key: row.role, row, state }),
       ]),
     ),
@@ -1739,14 +1742,14 @@ function RateLimitFooter({
               "rate-limit-popover absolute bottom-[calc(100%+6px)] left-0 z-50 flex min-w-56 flex-col gap-1 rounded-xl border border-token-border bg-token-dropdown-background/95 px-3 py-2 text-sm shadow-xl-spread backdrop-blur-sm",
           },
           h("div", { className: "rate-limit-popover-title" }, rateLimitsLabel),
-          rows.map((row) => h(RateLimitRow, { key: row.role, row, state })),
+          normalizedRows.map((row) => h(RateLimitRow, { key: row.role, row, state })),
         )
       : null,
   );
 }
 
-function RateLimitInlineSegment({ row, state }: { row: AgentSessionRateLimitRow; state: SessionState }) {
-  const normalized = normalizeRateLimitRow(row);
+function RateLimitInlineSegment({ row, state }: { row: NormalizedRateLimitRow; state: SessionState }) {
+  const normalized = row;
   const copy = state.context?.copy;
   const fallbackLabel = normalized.role === "primary"
     ? copy?.rateLimitPrimary ?? "Primary"
@@ -1774,8 +1777,8 @@ function RateLimitInlineSegment({ row, state }: { row: AgentSessionRateLimitRow;
   );
 }
 
-function RateLimitRow({ row, state }: { row: AgentSessionRateLimitRow; state: SessionState }) {
-  const normalized = normalizeRateLimitRow(row);
+function RateLimitRow({ row, state }: { row: NormalizedRateLimitRow; state: SessionState }) {
+  const normalized = row;
   const copy = state.context?.copy;
   const fallbackLabel = normalized.role === "primary"
     ? copy?.rateLimitPrimary ?? "Primary"
@@ -1983,7 +1986,7 @@ function PermissionsDropdown({
   const triggerLabel = copy?.changePermissions ?? "Change permissions";
   const selectedLabel = permissionModeLabel(copy, mode);
   const options: ComposerPermissionMode[] = isEnabled ? ["default", "auto-review", "full-access", "custom"] : [];
-  const triggerSizeClass = hideLabel ? CODEX_BUTTON_COMPOSER : CODEX_BUTTON_COMPOSER_SM;
+  const triggerSizeClass = hideLabel ? CODEX_BUTTON_COMPOSER_SM : CODEX_BUTTON_COMPOSER;
   const selectMode = (nextMode: ComposerPermissionMode) => {
     onModeChange(nextMode);
     onOpenChange(false);
@@ -2516,9 +2519,15 @@ function composerMenuTitleParts(title: string, query: string): Array<{ isMatch: 
   if (!trimmedQuery) {
     return characters.map((text) => ({ isMatch: true, text }));
   }
-  const lowercaseTitle = title.toLowerCase();
-  const lowercaseQuery = trimmedQuery.toLowerCase();
-  const exactIndex = lowercaseTitle.indexOf(lowercaseQuery);
+  const lowercaseCharacters = characters.map((text) => text.toLowerCase());
+  const lowercaseQuery = Array.from(trimmedQuery.toLowerCase());
+  let exactIndex = -1;
+  for (let index = 0; index <= lowercaseCharacters.length - lowercaseQuery.length; index += 1) {
+    if (lowercaseQuery.every((text, offset) => lowercaseCharacters[index + offset] === text)) {
+      exactIndex = index;
+      break;
+    }
+  }
   if (exactIndex >= 0) {
     const matchEnd = exactIndex + lowercaseQuery.length;
     return characters.map((text, index) => ({ isMatch: index >= exactIndex && index < matchEnd, text }));
@@ -2831,20 +2840,6 @@ function ideContextIcon(className = "icon-sm") {
       fill: "currentColor",
     }),
   );
-}
-
-function activityGlyph(entry: TranscriptEntry): string {
-  if (entry.activityStatus === "stopped" || entry.activityStatus === "failed") {
-    return "!";
-  }
-  switch (entry.activityKind) {
-    case "command":
-      return "$";
-    case "fileChange":
-      return "+";
-    default:
-      return "*";
-  }
 }
 
 const root = document.getElementById("root");
