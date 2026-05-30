@@ -594,7 +594,7 @@ jobs:
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -699,7 +699,9 @@ jobs:
 
   ui-regressions:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 25
+    # Cold builds after project/package changes can spend more than 25 minutes
+    # in build-for-testing before the UI regression script starts.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

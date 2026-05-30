@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CMUXExtensionClient
 import CmuxExtensionKit
 import ImageIO
 import Observation
@@ -1579,7 +1580,10 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        max(
+            CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting)),
+            TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: titlebarControlsConfig)
+        )
     }
 
     private enum SidebarResizerHandle: Hashable {
@@ -1694,6 +1698,14 @@ struct ContentView: View {
             candidate,
             maximumWidth: maxSidebarWidth(),
             minimumWidth: minimumSidebarWidth
+        )
+    }
+
+    private func syncTitlebarControlsSidebarTrailingEdge() {
+        guard let observedWindow else { return }
+        AppDelegate.shared?.updateTitlebarAccessorySidebarTrailingEdge(
+            sidebarState.isVisible ? normalizedSidebarWidth(sidebarWidth) : 0,
+            for: observedWindow
         )
     }
 
@@ -2353,18 +2365,20 @@ struct ContentView: View {
                     fullscreenControls
                 }
 
-                // Draggable folder icon + focused command name
-                if let directory = focusedDirectory {
-                    DetachedFolderDragIcon(directory: directory)
-                        .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
-                }
+                if !sidebarState.isVisible {
+                    // Draggable folder icon + focused command name
+                    if let directory = focusedDirectory {
+                        DetachedFolderDragIcon(directory: directory)
+                            .frame(width: 16, height: 16)
+                            .padding(.leading, -6)
+                    }
 
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
+                    Text(titlebarText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+                }
 
                 Spacer()
 
@@ -2683,6 +2697,7 @@ struct ContentView: View {
             if abs(sidebarWidth - restoredWidth) > 0.5 {
                 sidebarWidth = restoredWidth
             }
+            syncTitlebarControlsSidebarTrailingEdge()
             if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
                 sidebarState.persistedWidth = restoredWidth
             }
@@ -3161,6 +3176,7 @@ struct ContentView: View {
                 sidebarWidth = sanitized
                 return
             }
+            syncTitlebarControlsSidebarTrailingEdge()
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
@@ -3183,6 +3199,7 @@ struct ContentView: View {
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
+            syncTitlebarControlsSidebarTrailingEdge()
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
@@ -3273,6 +3290,7 @@ struct ContentView: View {
                     syncCommandPaletteDebugStateForObservedWindow()
                     installSidebarResizerPointerMonitorIfNeeded()
                     updateSidebarResizerBandState()
+                    syncTitlebarControlsSidebarTrailingEdge()
                 }
             }
 
@@ -6689,7 +6707,7 @@ struct ContentView: View {
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
                     title: constant(String.localizedStringWithFormat(titleFormat, title)),
-                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar")),
+                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
                     keywords: ["sidebar", "switch", "extension", title.lowercased()]
                 )
             )
@@ -9851,14 +9869,35 @@ private extension String {
 
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
-    static let defaultProviderId = CmuxExtensionSidebarProviderID.defaultWorkspaces
+    static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
+    static let defaultProviderId = CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID
+    static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
 
     static var providers: [any CmuxExtensionSidebarProvider] {
         []
     }
 
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
-        [.defaultWorkspaces] + providers.map { $0.descriptor }
+        [.defaultWorkspaces, hostedExtensionsDescriptor] + providers.map { $0.descriptor }
+    }
+
+    static var hostedExtensionsDescriptor: CmuxExtensionSidebarProviderDescriptor {
+        let selectedName = UserDefaults.standard.string(forKey: selectedExtensionNameDefaultsKey)?.nilIfEmpty
+        return CmuxExtensionSidebarProviderDescriptor(
+            id: hostedExtensionsProviderId,
+            title: CmuxExtensionLocalizedText(
+                key: "sidebar.provider.extensions.title",
+                defaultValue: selectedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar")
+            ),
+            subtitle: CmuxExtensionLocalizedText(
+                key: "sidebar.provider.extensions.subtitle",
+                defaultValue: selectedName == nil
+                    ? String(localized: "sidebar.provider.extensions.subtitle", defaultValue: "Custom sidebar")
+                    : String(localized: "sidebar.provider.extensions.selectedSubtitle", defaultValue: "Sidebar extension")
+            ),
+            systemImageName: "puzzlepiece.extension",
+            isHostProvided: true
+        )
     }
 
     static func descriptor(for providerId: String) -> CmuxExtensionSidebarProviderDescriptor {
@@ -9904,6 +9943,15 @@ enum CmuxExtensionSidebarSelection {
             item.state = selectedProviderId == descriptor.id ? .on : .off
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        let manageItem = NSMenuItem(
+            title: String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
+            action: #selector(CmuxExtensionSidebarMenuTarget.manageExtensions(_:)),
+            keyEquivalent: ""
+        )
+        manageItem.representedObject = anchorView
+        manageItem.target = CmuxExtensionSidebarMenuTarget.shared
+        menu.addItem(manageItem)
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
@@ -9919,6 +9967,14 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
     @objc func selectProvider(_ sender: NSMenuItem) {
         guard let providerId = sender.representedObject as? String else { return }
         CmuxExtensionSidebarSelection.setProviderId(providerId)
+    }
+
+    @objc func manageExtensions(_ sender: NSMenuItem) {
+        guard let anchorView = sender.representedObject as? NSView else { return }
+        CMUXSidebarExtensionBrowserPresenter.present(
+            from: anchorView,
+            title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        )
     }
 }
 
@@ -10331,7 +10387,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderID.defaultWorkspaces {
+            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10602,10 +10658,35 @@ struct VerticalTabsSidebar: View {
         }
     }
 
+    @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        TimelineView(.periodic(from: .now, by: 30)) { timeline in
-            let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
-            extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
+        if selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+            CMUXInstalledExtensionSidebarHostView(
+                snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
+                snapshotUpdateToken: extensionSidebarUpdateToken,
+                actionHandler: { handleCMUXSidebarExtensionAction($0) },
+                onUseDefaultSidebar: {
+                    CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarProviderDescriptor.defaultWorkspacesID)
+                }
+            )
+            .onReceive(
+                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
+                    .receive(on: RunLoop.main)
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+            .onReceive(
+                extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
+                    .receive(on: RunLoop.main)
+                    .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
+            ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+        } else {
+            TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
+                extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
+            }
         }
     }
 
@@ -10792,6 +10873,203 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarSnapshotForCurrentTabs() -> CmuxExtensionSidebarSnapshot {
         extensionSidebarSnapshot(workspaces: tabManager.tabs)
+    }
+
+    private func cmuxSidebarSnapshotForCurrentTabs() -> CMUXSidebarSnapshot {
+        let snapshot = extensionSidebarSnapshotForCurrentTabs()
+        return CMUXSidebarSnapshot(
+            sequence: snapshot.sequence,
+            windowID: snapshot.windowId,
+            selectedWorkspaceID: snapshot.selectedWorkspaceId,
+            workspaces: snapshot.workspaces.map { workspace in
+                CMUXSidebarWorkspace(
+                    id: workspace.id,
+                    title: workspace.title,
+                    detail: workspace.customDescription,
+                    isPinned: workspace.isPinned,
+                    rootPath: workspace.rootPath,
+                    projectRootPath: workspace.projectRootPath,
+                    gitBranch: workspace.branchSummary,
+	                    unreadCount: workspace.unreadCount,
+	                    latestNotification: workspace.latestNotificationText,
+	                    listeningPorts: workspace.listeningPorts,
+	                    pullRequestURLs: workspace.pullRequestURLs,
+	                    surfaces: cmuxSidebarSurfaces(for: workspace)
+	                )
+	            }
+	        )
+	    }
+
+    private func cmuxSidebarSurfaces(for workspace: CmuxExtensionWorkspaceSnapshot) -> [CMUXSidebarSurface] {
+        guard let liveWorkspace = tabManager.tabs.first(where: { $0.id == workspace.id }) else { return [] }
+        return liveWorkspace.sidebarOrderedPanelIds().compactMap { panelId in
+            guard let panel = liveWorkspace.panels[panelId] else { return nil }
+            return CMUXSidebarSurface(
+                id: panelId,
+                title: liveWorkspace.panelTitle(panelId: panelId) ?? panel.displayTitle,
+                kind: cmuxSidebarSurfaceKind(for: panel.panelType),
+                isFocused: liveWorkspace.focusedPanelId == panelId,
+                isPinned: liveWorkspace.isPanelPinned(panelId),
+                unreadCount: liveWorkspace.manualUnreadPanelIds.contains(panelId) ? 1 : 0,
+                workingDirectory: liveWorkspace.panelDirectories[panelId]
+            )
+        }
+    }
+
+    private func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CMUXSidebarSurfaceKind {
+        switch panelType {
+        case .terminal:
+            return .terminal
+        case .browser:
+            return .browser
+        case .markdown:
+            return .markdown
+        case .filePreview:
+            return .filePreview
+        case .rightSidebarTool:
+            return .rightSidebarTool
+        case .project:
+            return .project
+        }
+    }
+
+	    private func handleCMUXSidebarExtensionAction(
+	        _ action: CMUXSidebarAction
+	    ) -> CMUXExtensionActionResult {
+	        switch action {
+        case .createWorkspace(let title, let workingDirectory, let select):
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                workingDirectory: workingDirectory,
+                inheritWorkingDirectory: workingDirectory == nil,
+                select: select
+            )
+            return CMUXExtensionActionResult(accepted: true, message: workspace.id.uuidString)
+
+	        case .selectWorkspace(let workspaceId):
+	            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+	                return CMUXExtensionActionResult(
+                    accepted: false,
+                    message: String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found")
+                )
+            }
+            tabManager.selectWorkspace(workspace)
+            return .accepted
+
+        case .closeWorkspace(let workspaceId):
+            guard tabManager.closeWorkspaceWithConfirmation(tabId: workspaceId) else {
+                return CMUXExtensionActionResult(
+                    accepted: false,
+                    message: String(localized: "sidebar.extensions.action.closeRejected", defaultValue: "Workspace could not be closed")
+                )
+	            }
+	            return .accepted
+
+        case .selectNextWorkspace:
+            tabManager.selectNextTab()
+            return .accepted
+
+        case .selectPreviousWorkspace:
+            tabManager.selectPreviousTab()
+            return .accepted
+
+        case .createTerminalSurface(let workspaceId, let initialInput):
+            guard let workspace = workspaceId.flatMap({ id in tabManager.tabs.first(where: { $0.id == id }) }) ?? tabManager.selectedWorkspace else {
+                return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            if tabManager.selectedTabId != workspace.id {
+                tabManager.selectWorkspace(workspace)
+            }
+            let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+            return panel.map { CMUXExtensionActionResult(accepted: true, message: $0.id.uuidString) }
+                ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
+
+        case .createBrowserSurface(let workspaceId, let urlString):
+            guard let workspace = workspaceId.flatMap({ id in tabManager.tabs.first(where: { $0.id == id }) }) ?? tabManager.selectedWorkspace else {
+                return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            if tabManager.selectedTabId != workspace.id {
+                tabManager.selectWorkspace(workspace)
+            }
+            let url = urlString.flatMap(URL.init(string:))
+            let panelId = tabManager.createBrowserSplit(direction: .right, url: url)
+            return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
+                ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
+
+        case .selectSurface(let workspaceId, let surfaceId):
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+                  workspace.panels[surfaceId] != nil else {
+                return .rejected(String(localized: "sidebar.extensions.action.surfaceNotFound", defaultValue: "Surface not found"))
+            }
+            tabManager.selectWorkspace(workspace)
+            workspace.focusPanel(surfaceId)
+            return .accepted
+
+        case .selectNextSurface:
+            tabManager.selectNextSurface()
+            return .accepted
+
+        case .selectPreviousSurface:
+            tabManager.selectPreviousSurface()
+            return .accepted
+
+        case .closeSurface(let workspaceId, let surfaceId):
+            guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+                return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            tabManager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: surfaceId)
+            return .accepted
+
+        case .splitTerminal(let workspaceId, let surfaceId, let direction):
+            guard let splitDirection = splitDirection(from: direction),
+                  let panelId = tabManager.createSplit(tabId: workspaceId, surfaceId: surfaceId, direction: splitDirection) else {
+                return .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
+            }
+            return CMUXExtensionActionResult(accepted: true, message: panelId.uuidString)
+
+        case .splitBrowser(let workspaceId, let surfaceId, let direction, let urlString):
+            guard let splitDirection = splitDirection(from: direction),
+                  let tab = tabManager.tabs.first(where: { $0.id == workspaceId }),
+                  tab.panels[surfaceId] != nil else {
+                return .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
+            }
+            tabManager.selectWorkspace(tab)
+            tab.focusPanel(surfaceId)
+            let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: urlString.flatMap(URL.init(string:)))
+            return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
+                ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
+
+        case .toggleSurfaceZoom(let workspaceId, let surfaceId):
+            guard tabManager.toggleSplitZoom(tabId: workspaceId, surfaceId: surfaceId) else {
+                return .rejected(String(localized: "sidebar.extensions.action.surfaceNotFound", defaultValue: "Surface not found"))
+            }
+            return .accepted
+
+        case .openURL(let urlString):
+            guard let url = URL(string: urlString),
+                  let scheme = url.scheme?.lowercased(),
+                  ["https", "http"].contains(scheme),
+                  NSWorkspace.shared.open(url) else {
+                return CMUXExtensionActionResult(
+                    accepted: false,
+                    message: String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened")
+                )
+            }
+            return .accepted
+	        }
+	    }
+
+    private func splitDirection(from direction: CMUXSplitDirection) -> SplitDirection? {
+        switch direction {
+        case .left:
+            return .left
+        case .right:
+            return .right
+        case .up:
+            return .up
+        case .down:
+            return .down
+        }
     }
 
     private func extensionSidebarSnapshot(workspaces: [Workspace]) -> CmuxExtensionSidebarSnapshot {
@@ -12598,10 +12876,27 @@ private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
+    @State private var extensionMenuAnchorView: NSView?
 
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            Button {
+                guard let extensionMenuAnchorView else { return }
+                CmuxExtensionSidebarSelection.showMenu(anchorView: extensionMenuAnchorView, event: nil)
+            } label: {
+                Image(systemName: "puzzlepiece.extension")
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    .frame(width: 22, height: 22, alignment: .center)
+            }
+            .buttonStyle(SidebarFooterIconButtonStyle())
+            .frame(width: 22, height: 22, alignment: .center)
+            .safeHelp(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar"))
+            .accessibilityLabel(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar"))
+            .accessibilityIdentifier("SidebarExtensionMenuButton")
+            .background(TitlebarControlAnchorView { extensionMenuAnchorView = $0 })
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
