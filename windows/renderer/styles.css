@@ -169,6 +169,14 @@ button {
   transition-duration: 0ms !important;
 }
 
+body.reduce-motion *,
+body.reduce-motion *::before,
+body.reduce-motion *::after {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
 .shell > * {
   position: relative;
   z-index: 1;

@@ -341,6 +341,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.showAdvanced = next.toolbarMode === "expanded";
   next.performanceMode = Boolean(next.performanceMode);
   next.adaptivePerformance = next.adaptivePerformance !== false;
+  next.reduceMotion = Boolean(next.reduceMotion);
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
   next.terminalBackground = normalizeTerminalColor(next.terminalBackground);
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
@@ -801,7 +802,7 @@ function settingsProfileSummary(settings) {
     theme,
     normalized.density,
     toolbar,
-    normalized.performanceMode ? "performance" : "balanced",
+    normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     `${normalized.terminalFontSize}px`
   ].join(" / ");
 }
@@ -1040,6 +1041,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.showStatusbar,
     settings.showAdvanced,
     settings.performanceMode,
+    settings.reduceMotion,
     settings.paneHeaderMode,
     settings.sidebarDetailMode,
     settings.sidebarWidth,
@@ -1079,6 +1081,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
   toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
+  const reduceMotion = state.settings.reduceMotion || state.settings.performanceMode;
+  toggleClassIfChanged(document.body, "reduce-motion", reduceMotion);
+  toggleClassIfChanged(elements.shell, "reduce-motion", reduceMotion);
   const css = backgroundCss(state.settings.backgroundImage);
   toggleClassIfChanged(elements.shell, "has-background", css !== "none");
   elements.shell.style.setProperty("--background-image", css);
@@ -3121,6 +3126,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingsMetricGrid(performanceMetrics()));
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
+    performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
     const scrollbackRange = document.createElement("input");
     scrollbackRange.className = "setting-control";
     scrollbackRange.type = "range";
@@ -3676,6 +3682,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
   updateSettings({
     performanceMode: true,
     adaptivePerformance: true,
+    reduceMotion: true,
     backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
     density: "compact",
     toolbarMode: "compact",
