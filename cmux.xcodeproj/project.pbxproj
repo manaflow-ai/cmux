@@ -289,6 +289,7 @@
 		8E7740000000000000000009 /* HTTPRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000008 /* HTTPRequest.swift */; };
 		8E774000000000000000000D /* HTTPRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000C /* HTTPRequestParser.swift */; };
 		8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000E /* HTTPRequestParserTests.swift */; };
+		8E7744000000000000000003 /* HTTPTokenChildEnvIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7744000000000000000002 /* HTTPTokenChildEnvIsolationTests.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		8E774300000000000000001F /* InputRequestDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000020 /* InputRequestDecoder.swift */; };
@@ -906,6 +907,7 @@
 		8E7740000000000000000008 /* HTTPRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequest.swift; sourceTree = "<group>"; };
 		8E774000000000000000000C /* HTTPRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequestParser.swift; sourceTree = "<group>"; };
 		8E774000000000000000000E /* HTTPRequestParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequestParserTests.swift; sourceTree = "<group>"; };
+		8E7744000000000000000002 /* HTTPTokenChildEnvIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPTokenChildEnvIsolationTests.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		8E7743000000000000000020 /* InputRequestDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputRequestDecoder.swift; sourceTree = "<group>"; };
@@ -1292,6 +1294,7 @@
 				8E7740000000000000000012 /* JSONResponsesTests.swift */,
 				8E7743000000000000000004 /* RouteTableTests.swift */,
 				8E7743000000000000000014 /* Support */,
+				8E7744000000000000000002 /* HTTPTokenChildEnvIsolationTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -2647,6 +2650,7 @@
 				8E7743000000000000000009 /* HTTPControlServerListenerTests.swift in Sources */,
 				8E774300000000000000000F /* HTTPControlSurfaceListTests.swift in Sources */,
 				8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */,
+				8E7744000000000000000003 /* HTTPTokenChildEnvIsolationTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				8E7740000000000000000013 /* JSONResponsesTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
