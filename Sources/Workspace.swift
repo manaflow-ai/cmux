@@ -1617,11 +1617,12 @@ extension Workspace {
                 }
             }
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
-            let workingDirectory =
+            let savedWorkingDirectory =
                 effectiveResumeBinding?.cwd
                 ?? snapshot.terminal?.workingDirectory
                 ?? restorableAgent?.workingDirectory
                 ?? snapshot.directory
+            let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
@@ -1683,17 +1684,18 @@ extension Workspace {
                 (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
-            let restoresRemoteWorkspaceTerminalSnapshot =
-                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal != nil
             let suppressWorkspaceRemoteStartupCommand =
                 remoteConfiguration != nil &&
                 snapshot.terminal?.isRemoteTerminal == false &&
                 restoredRemotePTYAttachCommand == nil
-            let localWorkingDirectory = remoteStartupCommand == nil &&
+            let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
+            let restoresRemoteWorkspaceTerminalSnapshot =
+                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
+            let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
                 !startupHandlesWorkingDirectory
-                ? workingDirectory
+                ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
             let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
                 restoredAgentResumeLaunch?.initialCommand != nil ||

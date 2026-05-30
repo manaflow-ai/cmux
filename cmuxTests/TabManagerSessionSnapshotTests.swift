@@ -2777,6 +2777,65 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    func testPersistentSSHPTYRestorePreservesLocalTerminalWorkingDirectory() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote Workspace With Local Terminal")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64020,
+            relayID: "relay-local-terminal",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-local-terminal.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-local-terminal"
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let paneId = try XCTUnwrap(remoteWorkspace.bonsplitController.allPaneIds.first)
+        let localDirectory = "/tmp/cmux-local-terminal"
+        let localPanel = try XCTUnwrap(
+            remoteWorkspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: localDirectory,
+                suppressWorkspaceRemoteStartupCommand: true
+            )
+        )
+        remoteWorkspace.setPanelCustomTitle(panelId: localPanel.id, title: "Local Shell")
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persistedWorkspace = try XCTUnwrap(
+            snapshot.workspaces.first { $0.customTitle == "Remote Workspace With Local Terminal" }
+        )
+        let persistedLocalPanel = try XCTUnwrap(
+            persistedWorkspace.panels.first { $0.customTitle == "Local Shell" }
+        )
+        XCTAssertEqual(persistedLocalPanel.terminal?.isRemoteTerminal, false)
+        XCTAssertEqual(persistedLocalPanel.terminal?.workingDirectory, localDirectory)
+
+        let reservedSocketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(reservedSocketPath) }
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Remote Workspace With Local Terminal" })
+        let restoredLocalPanel = try XCTUnwrap(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.customTitle == "Local Shell" }
+        )
+        let restoredPanel = try XCTUnwrap(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
+        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+        XCTAssertEqual(restoredPanel.requestedWorkingDirectory, localDirectory)
+    }
+
     func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
         TerminalController.shared.stop()
         defer { TerminalController.shared.stop() }
