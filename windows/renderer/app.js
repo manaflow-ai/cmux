@@ -1937,8 +1937,8 @@ const commands = [
   { id: "workspace.closeEmpty", label: "Close Empty Workspaces", shortcut: "", run: () => closeEmptyWorkspaces() },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
-  { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
-  { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => createPanel("terminal", "down") },
+  { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => splitActivePanel("right") },
+  { id: "terminal.splitDown", label: "Split Terminal Down", shortcut: "", run: () => splitActivePanel("down") },
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
   { id: "terminal.nextPane", label: "Next Pane", shortcut: "Ctrl+Tab", run: () => cycleActivePane(1) },
   { id: "terminal.previousPane", label: "Previous Pane", shortcut: "Ctrl+Shift+Tab", run: () => cycleActivePane(-1) },
@@ -7410,8 +7410,8 @@ function showToolbarMenu(event) {
     title,
     contextMenuSectionTitle("Pane"),
     contextMenuActionGroup(
-      contextMenuButton("Split right", () => createPanel("terminal", "right")),
-      contextMenuButton("Split down", () => createPanel("terminal", "down")),
+      contextMenuButton("Split right", () => splitActivePanel("right")),
+      contextMenuButton("Split down", () => splitActivePanel("down")),
       contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
       contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
       contextMenuButton(zoomedPanelIdForWorkspace(workspace) ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
@@ -7797,6 +7797,12 @@ function splitPanel(panel, direction, type = "terminal", options = {}) {
     workspaceId: found.workspace.id,
     anchorPanelId: panel.id
   });
+}
+
+function splitActivePanel(direction, type = "terminal", options = {}) {
+  const panel = focusedPanel();
+  if (panel) return splitPanel(panel, direction, type, options);
+  return createPanel(type, direction, options);
 }
 
 function splitPanelFromPaneId(panelId, direction, type = "terminal", options = {}) {
@@ -9725,8 +9731,8 @@ function announceNewAttention(previous, next) {
 document.getElementById("newWorkspaceButton").onclick = () => createWorkspace();
 document.getElementById("resetSessionButton").onclick = () => resetSession();
 document.getElementById("newTerminalButton").onclick = () => createPanel("terminal", "right");
-document.getElementById("splitRightButton").onclick = () => createPanel("terminal", "right");
-document.getElementById("splitDownButton").onclick = () => createPanel("terminal", "down");
+document.getElementById("splitRightButton").onclick = () => splitActivePanel("right");
+document.getElementById("splitDownButton").onclick = () => splitActivePanel("down");
 document.getElementById("newBrowserButton").onclick = () => openBrowserHome();
 document.getElementById("toolsMenuButton").onclick = showToolbarMenu;
 document.getElementById("settingsButton").onclick = () => openInspector("settings");
