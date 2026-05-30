@@ -1115,7 +1115,10 @@ function updateSettings(updates, options = {}) {
   if (options.immediate) saveSettings();
   else scheduleSettingsSave();
   applySettings();
-  if (changedKeys.some((key) => terminalAppearanceKeys.has(key))) {
+  const terminalAppearanceChanged = changedKeys.filter((key) => terminalAppearanceKeys.has(key));
+  if (terminalAppearanceChanged.length === 1 && terminalAppearanceChanged[0] === "terminalScrollback") {
+    applyTerminalScrollback();
+  } else if (terminalAppearanceChanged.length > 0) {
     scheduleTerminalAppearanceRefresh();
   }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
@@ -1371,6 +1374,12 @@ function refreshTerminalAppearance() {
     session.term.options.cursorBlink = state.settings.terminalCursorBlink;
     session.term.options.theme = terminalTheme();
     scheduleFitTerminal(session, true);
+  }
+}
+
+function applyTerminalScrollback() {
+  for (const session of state.terminals.values()) {
+    session.term.options.scrollback = state.settings.terminalScrollback;
   }
 }
 
