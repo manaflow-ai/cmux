@@ -75,6 +75,27 @@ def _assert_escaped_foreground_command_payload(payload: str) -> None:
         )
 
 
+def _run_bash_now_without_epochseconds(integration_script: Path) -> tuple[int, int]:
+    script = "\n".join(
+        [
+            "unset EPOCHSECONDS",
+            "SECONDS=11",
+            f"source {shlex.quote(str(integration_script))}",
+            'printf "%s:%s\\n" "$(_cmux_now)" "$SECONDS"',
+        ]
+    )
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-c", script],
+        check=True,
+        capture_output=True,
+        env={**os.environ, "CMUX_NO_GIT_WATCH": "1"},
+        text=True,
+        timeout=10,
+    )
+    now_text, seconds_text = result.stdout.strip().split(":", maxsplit=1)
+    return int(now_text), int(seconds_text)
+
+
 def test_shell_foreground_command_reports_escape_newlines() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     shell_dir = repo_root / "Resources" / "shell-integration"
@@ -107,6 +128,19 @@ def test_shell_foreground_command_reports_escape_newlines() -> None:
             sock.close()
 
 
+def test_bash_now_uses_seconds_without_epochseconds() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    integration_script = repo_root / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
+
+    now, seconds = _run_bash_now_without_epochseconds(integration_script)
+    if not seconds - 1 <= now <= seconds + 1:
+        raise AssertionError(
+            "_cmux_now should use shell-relative SECONDS when EPOCHSECONDS is unavailable.\n\n"
+            f"Observed _cmux_now={now}, SECONDS={seconds}"
+        )
+
+
 if __name__ == "__main__":
     test_shell_foreground_command_reports_escape_newlines()
+    test_bash_now_uses_seconds_without_epochseconds()
     print("PASS: shell foreground command reports escape protocol newlines")
