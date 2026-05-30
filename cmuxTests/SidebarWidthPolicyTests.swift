@@ -28,7 +28,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testContentViewClampKeepsMinimumSidebarWidth() {
         XCTAssertEqual(
-            ContentView.clampedSidebarWidth(164, maximumWidth: 600),
+            ContentView.clampedSidebarWidth(150, maximumWidth: 600),
             CGFloat(SessionPersistencePolicy.minimumSidebarWidth),
             accuracy: 0.001
         )
