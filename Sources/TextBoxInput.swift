@@ -3633,7 +3633,7 @@ struct TextBoxInputContainer: View {
     }
 }
 
-private struct TextBoxInputView: NSViewRepresentable {
+struct TextBoxInputView: NSViewRepresentable {
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     @Binding var textViewHeight: CGFloat
@@ -3706,9 +3706,6 @@ private struct TextBoxInputView: NSViewRepresentable {
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         guard let textView = scrollView.documentView as? TextBoxInputTextView else { return }
-        coordinator.parent.text = textView.plainText()
-        coordinator.parent.attachments = textView.inlineAttachments()
-        coordinator.parent.hasPendingAttachmentUpload = false
         coordinator.parent.onTextViewDismantled(textView)
         textView.onMoveToWindow = { _ in }
         textView.onLayoutCompleted = { _ in }
