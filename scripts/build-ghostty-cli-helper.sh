@@ -153,16 +153,6 @@ build_helper() {
   if ! zig_bin="$(select_zig_for_target "$target")"; then
     exit 1
   fi
-  local zig_arch
-  zig_arch="$(zig_binary_arch "$zig_bin")"
-  local desired_arch
-  desired_arch="$(target_arch_for_triple "$target")"
-  local effective_target="$target"
-  if [[ -n "$desired_arch" && "$zig_arch" == "$desired_arch" ]]; then
-    # Native compilation avoids Zig 0.15.x cross-linker failures against newer
-    # macOS SDKs while still producing the requested helper architecture.
-    effective_target=""
-  fi
 
   local args=(
     "$zig_bin"
@@ -177,8 +167,8 @@ build_helper() {
     "$prefix"
   )
 
-  if [[ -n "$effective_target" ]]; then
-    args+=("-Dtarget=$effective_target")
+  if [[ -n "$target" ]]; then
+    args+=("-Dtarget=$target")
   fi
 
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
@@ -196,19 +186,8 @@ mkdir -p "$(dirname "$OUTPUT_PATH")"
 if [[ "$UNIVERSAL" == "true" ]]; then
   ARM64_PREFIX="$TMP_DIR/arm64"
   X86_PREFIX="$TMP_DIR/x86_64"
-  NATIVE_ZIG="$(select_zig_for_target "")"
-  ZIG_ARCH="$(zig_binary_arch "$NATIVE_ZIG")"
-  # Use native compilation for the matching arch to avoid cross-linker issues
-  if [[ "$ZIG_ARCH" == "arm64" ]]; then
-    build_helper "$ARM64_PREFIX" ""
-    build_helper "$X86_PREFIX" "x86_64-macos"
-  elif [[ "$ZIG_ARCH" == "x86_64" ]]; then
-    build_helper "$ARM64_PREFIX" "aarch64-macos"
-    build_helper "$X86_PREFIX" ""
-  else
-    build_helper "$ARM64_PREFIX" "aarch64-macos"
-    build_helper "$X86_PREFIX" "x86_64-macos"
-  fi
+  build_helper "$ARM64_PREFIX" "aarch64-macos"
+  build_helper "$X86_PREFIX" "x86_64-macos"
   /usr/bin/lipo -create \
     "$ARM64_PREFIX/bin/ghostty" \
     "$X86_PREFIX/bin/ghostty" \
