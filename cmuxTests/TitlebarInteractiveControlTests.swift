@@ -64,4 +64,40 @@ struct TitlebarInteractiveControlTests {
             "Empty titlebar chrome outside the interactive button should remain draggable."
         )
     }
+
+    @Test func interactiveControlSuppressesSyntheticTitlebarDoubleClick() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 48),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 48))
+        window.contentView = container
+
+        // Mirror how `titlebarInteractiveControl()` hosts a control: the host must
+        // register itself as a titlebar control hit region so the synthetic
+        // double-click monitors skip it instead of zooming/minimizing the window.
+        let host = TitlebarInteractiveHostingView(rootView: AnyView(Color.clear))
+        host.identifier = TitlebarInteractiveHostingView<AnyView>.viewIdentifier
+        host.frame = NSRect(x: 12, y: 14, width: 24, height: 24)
+        container.addSubview(host)
+        host.layoutSubtreeIfNeeded()
+
+        let insideControl = NSPoint(x: host.frame.midX, y: host.frame.midY)
+        #expect(
+            isMinimalModeTitlebarControlHit(window: window, locationInWindow: insideControl),
+            "A double-click on a titlebarInteractiveControl must register as a control hit so the synthetic titlebar double-click (zoom/minimize) is suppressed."
+        )
+
+        let emptyTitlebar = NSPoint(x: 220, y: 24)
+        #expect(
+            !isMinimalModeTitlebarControlHit(window: window, locationInWindow: emptyTitlebar),
+            "Empty titlebar chrome away from any interactive control must still trigger the standard titlebar double-click action."
+        )
+    }
 }
