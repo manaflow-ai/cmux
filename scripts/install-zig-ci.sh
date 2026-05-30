@@ -47,25 +47,7 @@ use_existing_zig_if_available() {
   done
 }
 
-install_homebrew_zig_if_matching() {
-  command -v brew >/dev/null 2>&1 || return 1
-  if ! brew install zig; then
-    echo "Homebrew zig install failed; falling back to verified Zig tarball" >&2
-    return 1
-  fi
-  for candidate in /opt/homebrew/bin/zig /usr/local/bin/zig; do
-    if zig_has_required_version "$candidate"; then
-      echo "Using Homebrew zig ${ZIG_REQUIRED} at $candidate"
-      publish_zig_for_later_steps "$candidate"
-      exit 0
-    fi
-  done
-  echo "Homebrew zig did not provide ${ZIG_REQUIRED}; falling back to verified Zig tarball" >&2
-  return 1
-}
-
 use_existing_zig_if_available
-install_homebrew_zig_if_matching || true
 
 case "$(uname -m)" in
   arm64 | aarch64) ZIG_ARCH="aarch64" ;;
