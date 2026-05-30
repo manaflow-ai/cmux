@@ -2153,6 +2153,7 @@ function scheduleSurfaceTabsOverflowRefresh() {
   state.surfaceTabOverflowFrame = requestAnimationFrame(() => {
     state.surfaceTabOverflowFrame = 0;
     updateSurfaceTabsOverflow();
+    scheduleActiveSurfaceTabIntoView(activeWorkspace()?.activePanelId);
   });
 }
 
