@@ -304,6 +304,11 @@ extension Workspace {
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
+        restoreUnplacedSessionPanels(
+            snapshot.panels,
+            leafEntries: leafEntries,
+            oldToNewPanelIds: &oldToNewPanelIds
+        )
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
@@ -1511,6 +1516,43 @@ extension Workspace {
            let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(selectedTabId)
+        }
+    }
+
+    private func restoreUnplacedSessionPanels(
+        _ panelSnapshots: [SessionPanelSnapshot],
+        leafEntries: [SessionPaneRestoreEntry],
+        oldToNewPanelIds: inout [UUID: UUID]
+    ) {
+        // The layout is placement metadata; the panel list is the durable set of
+        // surfaces. Preserve valid panels even when an older save omitted them
+        // from the Bonsplit layout tree.
+        let unplacedSnapshots = panelSnapshots.filter { oldToNewPanelIds[$0.id] == nil }
+        guard !unplacedSnapshots.isEmpty else { return }
+        let placedOldPanelIds = Set(oldToNewPanelIds.keys)
+        // Prefer a pane where the layout did not successfully place any panel, so
+        // recovered panels do not crowd an already-restored tab stack.
+        let fallbackPaneId = leafEntries.first { entry in
+            !entry.snapshot.panelIds.contains { placedOldPanelIds.contains($0) }
+        }?.paneId ?? leafEntries.first?.paneId ?? bonsplitController.allPaneIds.first
+        guard let fallbackPaneId else { return }
+
+        let existingPanelIds = Set(
+            bonsplitController
+                .tabs(inPane: fallbackPaneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+        )
+        var createdPanelIds: [UUID] = []
+        for panelSnapshot in unplacedSnapshots {
+            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: fallbackPaneId) else { continue }
+            oldToNewPanelIds[panelSnapshot.id] = createdPanelId
+            createdPanelIds.append(createdPanelId)
+        }
+
+        guard !createdPanelIds.isEmpty else { return }
+        let restoredPanelIds = Set(oldToNewPanelIds.values)
+        for panelId in existingPanelIds where !restoredPanelIds.contains(panelId) {
+            _ = closePanel(panelId, force: true)
         }
     }
 
