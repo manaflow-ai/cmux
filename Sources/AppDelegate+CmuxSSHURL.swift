@@ -18,7 +18,6 @@ struct DefaultTerminalRegistrationStatus: Equatable {
 
 enum DefaultTerminalRegistrationError: Error, LocalizedError {
     case launchServicesRegistrationFailed(OSStatus)
-    case missingContentType(String)
 
     var errorDescription: String? {
         switch self {
@@ -26,11 +25,6 @@ enum DefaultTerminalRegistrationError: Error, LocalizedError {
             return String(
                 localized: "error.defaultTerminal.registrationFailed",
                 defaultValue: "cmux could not register as the default terminal app."
-            )
-        case .missingContentType:
-            return String(
-                localized: "error.defaultTerminal.missingContentType",
-                defaultValue: "A required file-type handler is unavailable on this Mac."
             )
         }
     }
@@ -43,12 +37,12 @@ enum DefaultTerminalRegistration {
         "public.unix-executable"
     ]
 
-    private static var supportedContentTypes: [UTType] {
-        contentTypeIdentifiers.compactMap { UTType($0) }
+    static func contentType(forIdentifier identifier: String) -> UTType {
+        UTType(identifier) ?? UTType(importedAs: identifier)
     }
 
     static var targetCount: Int {
-        urlSchemes.count + supportedContentTypes.count
+        urlSchemes.count + contentTypeIdentifiers.count
     }
 
     static func currentStatus(
@@ -63,7 +57,8 @@ enum DefaultTerminalRegistration {
             return normalizedApplicationURL(workspace.urlForApplication(toOpen: url)) == normalizedBundleURL
         }.count
 
-        let matchedContentTypes = supportedContentTypes.filter { contentType in
+        let matchedContentTypes = contentTypeIdentifiers.filter { identifier in
+            let contentType = contentType(forIdentifier: identifier)
             return normalizedApplicationURL(workspace.urlForApplication(toOpen: contentType)) == normalizedBundleURL
         }.count
 
@@ -97,7 +92,8 @@ enum DefaultTerminalRegistration {
             )
         }
 
-        for contentType in supportedContentTypes {
+        for identifier in contentTypeIdentifiers {
+            let contentType = contentType(forIdentifier: identifier)
             try await NSWorkspace.shared.setDefaultApplication(
                 at: normalizedBundleURL,
                 toOpen: contentType
@@ -190,14 +186,19 @@ struct TerminalDefaultFileOpenRequest: Equatable {
     let workingDirectory: String
     let initialInput: String
 
-    init?(fileURL: URL, contentType: UTType? = nil) {
+    init?(fileURL: URL, contentType: UTType? = nil, isExecutable: Bool? = nil) {
         guard fileURL.isFileURL else { return nil }
         let standardizedURL = fileURL.standardizedFileURL
         let directoryCheckURL = standardizedURL.resolvingSymlinksInPath()
         let resourceValues = try? directoryCheckURL.resourceValues(forKeys: [.isDirectoryKey])
         guard resourceValues?.isDirectory != true else { return nil }
         let resolvedContentType = contentType ?? Self.contentType(for: standardizedURL)
-        guard Self.shouldRunInTerminal(fileURL: standardizedURL, contentType: resolvedContentType) else {
+        let resolvedIsExecutable = isExecutable ?? Self.isExecutableFile(directoryCheckURL)
+        guard Self.shouldRunInTerminal(
+            fileURL: standardizedURL,
+            contentType: resolvedContentType,
+            isExecutable: resolvedIsExecutable
+        ) else {
             return nil
         }
 
@@ -222,11 +223,18 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         try? fileURL.resourceValues(forKeys: [.contentTypeKey]).contentType
     }
 
-    private static func shouldRunInTerminal(fileURL: URL, contentType: UTType?) -> Bool {
+    private static func isExecutableFile(_ fileURL: URL) -> Bool {
+        if (try? fileURL.resourceValues(forKeys: [.isExecutableKey]).isExecutable) == true {
+            return true
+        }
+        return FileManager.default.isExecutableFile(atPath: fileURL.path(percentEncoded: false))
+    }
+
+    private static func shouldRunInTerminal(fileURL: URL, contentType: UTType?, isExecutable: Bool) -> Bool {
         if isTerminalShellScript(fileURL: fileURL, contentType: contentType) {
             return true
         }
-        return contentType?.conforms(to: .unixExecutable) == true
+        return contentType?.conforms(to: .unixExecutable) == true || isExecutable
     }
 
     private static func isTerminalShellScript(fileURL: URL, contentType: UTType?) -> Bool {

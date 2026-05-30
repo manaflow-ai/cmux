@@ -1100,9 +1100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let terminalFileRequests = TerminalDefaultFileOpenRequest.requests(from: urls)
+        let externalFileURLs = externalOpenFileURLs(from: urls)
+        let terminalFileRequests = TerminalDefaultFileOpenRequest.requests(from: externalFileURLs)
         let terminalFilePaths = Set(terminalFileRequests.map { $0.fileURL.path(percentEncoded: false) })
-        let fileURLs = externalOpenFileURLs(from: urls).filter { url in
+        let fileURLs = externalFileURLs.filter { url in
             !terminalFilePaths.contains(url.standardizedFileURL.path(percentEncoded: false))
         }
         let directories = externalOpenDirectories(from: urls.filter { externalOpenURLIsDirectory($0) })

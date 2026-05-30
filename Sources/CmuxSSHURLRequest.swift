@@ -213,6 +213,9 @@ struct CmuxSSHURLRequest: Equatable {
         guard path.isEmpty else {
             return .failure(.conflictingDestinationParameters)
         }
+        guard components.password == nil else {
+            return .failure(.unsupportedParameter("password"))
+        }
 
         let queryItems = components.queryItems ?? []
         let allowedQueryNames: Set<String> = ["title", "name", "no-focus"]
@@ -227,17 +230,16 @@ struct CmuxSSHURLRequest: Equatable {
             }
         }
 
-        guard let hostValue = components.host?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !hostValue.isEmpty else {
+        guard let hostValue = components.host, !hostValue.isEmpty else {
             return .failure(.missingDestination)
         }
-        let normalizedHost = normalizedStandardSSHHost(hostValue)
-        guard !normalizedHost.hasPrefix("-") else {
+        guard !hostValue.hasPrefix("-") else {
             return .failure(.destinationStartsWithDash)
         }
-        guard isAllowedSSHHost(normalizedHost) else {
+        guard isAllowedSSHHost(hostValue) else {
             return .failure(.destinationContainsUnsafeCharacters)
         }
+        let destinationHost = unbracketedStandardSSHHost(hostValue)
 
         let userValue = components.user?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let userValue, !userValue.isEmpty {
@@ -250,19 +252,20 @@ struct CmuxSSHURLRequest: Equatable {
         }
         let destination: String
         if let userValue, !userValue.isEmpty {
-            destination = "\(userValue)@\(normalizedHost)"
+            destination = "\(userValue)@\(destinationHost)"
         } else {
-            destination = normalizedHost
+            destination = destinationHost
         }
         guard destination.count <= maxDestinationLength else {
             return .failure(.destinationTooLong(maxLength: maxDestinationLength))
         }
 
-        let port = components.port
-        if let port {
-            guard port > 0, port <= 65_535 else {
-                return .failure(.invalidPort)
-            }
+        let parsedPort: Int?
+        switch standardSSHURLPort(in: components) {
+        case .success(let port):
+            parsedPort = port
+        case .failure(let error):
+            return .failure(error)
         }
 
         let titleValue = normalizedQueryValue(namedAnyOf: ["title"], in: queryItems)
@@ -292,7 +295,7 @@ struct CmuxSSHURLRequest: Equatable {
             CmuxSSHURLRequest(
                 originalURL: url,
                 destination: destination,
-                port: port,
+                port: parsedPort,
                 title: title,
                 sshOptions: [],
                 noFocus: noFocus
@@ -300,9 +303,45 @@ struct CmuxSSHURLRequest: Equatable {
         )
     }
 
-    private static func normalizedStandardSSHHost(_ host: String) -> String {
-        if host.contains(":"), !host.hasPrefix("[") {
-            return "[\(host)]"
+    private static func standardSSHURLPort(in components: URLComponents) -> Result<Int?, CmuxSSHURLParseError> {
+        if let port = components.port {
+            guard port > 0, port <= 65_535 else {
+                return .failure(.invalidPort)
+            }
+            return .success(port)
+        }
+        guard !standardSSHURLHasExplicitPort(in: components) else {
+            return .failure(.invalidPort)
+        }
+        return .success(nil)
+    }
+
+    private static func standardSSHURLHasExplicitPort(in components: URLComponents) -> Bool {
+        guard let string = components.string,
+              let authorityStart = string.range(of: "://")?.upperBound else {
+            return false
+        }
+
+        var authority = string[authorityStart...]
+        if let authorityEnd = authority.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
+            authority = authority[..<authorityEnd]
+        }
+        if let userInfoEnd = authority.lastIndex(of: "@") {
+            authority = authority[authority.index(after: userInfoEnd)...]
+        }
+
+        if authority.hasPrefix("[") {
+            guard let closingBracket = authority.firstIndex(of: "]") else { return false }
+            let afterBracket = authority.index(after: closingBracket)
+            return afterBracket < authority.endIndex && authority[afterBracket] == ":"
+        }
+
+        return authority.contains(":")
+    }
+
+    private static func unbracketedStandardSSHHost(_ host: String) -> String {
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            return String(host.dropFirst().dropLast())
         }
         return host
     }
