@@ -195,6 +195,7 @@ const state = {
     maxMs: 0,
     slowCount: 0,
     skippedRenders: 0,
+    browserUrlRenderSkips: 0,
     guardActivations: 0
   },
   terminalOutputStats: {
@@ -1950,6 +1951,12 @@ function panelDisplayTitle(panel, surface = false) {
   return surface ? panel.title || "Terminal" : terminalPanelTitle(panel);
 }
 
+function browserUrlChangeNeedsRender(panel, nextUrl) {
+  const nextPanel = { ...panel, url: nextUrl };
+  return panelDisplayTitle(panel, true) !== panelDisplayTitle(nextPanel, true)
+    || panelDisplayTitle(panel, false) !== panelDisplayTitle(nextPanel, false);
+}
+
 function createEmptyWorkspace(workspace) {
   const node = document.createElement("div");
   node.className = "empty-workspace";
@@ -3599,6 +3606,7 @@ function performanceMetrics() {
     ["Max render", formatMs(state.renderStats.maxMs)],
     ["Slow renders", String(state.renderStats.slowCount)],
     ["Skipped renders", String(state.renderStats.skippedRenders)],
+    ["Browser URL skips", String(state.renderStats.browserUrlRenderSkips)],
     ["Output backlog", formatBytes(state.terminalOutputStats.currentQueued)],
     ["Output max", formatBytes(state.terminalOutputStats.maxQueued)],
     ["Output chunks", String(state.terminalOutputStats.chunks)],
@@ -3659,6 +3667,7 @@ function resetRenderStats() {
     maxMs: 0,
     slowCount: 0,
     skippedRenders: 0,
+    browserUrlRenderSkips: 0,
     guardActivations: 0
   };
   state.terminalOutputStats = {
@@ -5864,8 +5873,10 @@ function queueBrowserUrlSync(panelId, value) {
   const url = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   rememberRecentBrowserPage(url);
   if (found.panel.url !== url) {
+    const shouldRender = browserUrlChangeNeedsRender(found.panel, url);
     found.panel.url = url;
-    render();
+    if (shouldRender) scheduleRender();
+    else state.renderStats.browserUrlRenderSkips += 1;
   }
   state.pendingBrowserUrlSync.set(panelId, url);
   if (state.browserUrlSyncTimer) clearTimeout(state.browserUrlSyncTimer);
