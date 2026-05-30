@@ -7,6 +7,7 @@ export const defaultSettings = {
   density: "comfortable",
   paneHeaderMode: "compact",
   sidebarDetailMode: "compact",
+  sidebarFooterMode: "workspace",
   toolbarMode: "compact",
   tabSize: "balanced",
   titleDetailMode: "smart",
@@ -122,6 +123,12 @@ export const sidebarDetailOptions = [
   ["detailed", "Full details"]
 ];
 
+export const sidebarFooterOptions = [
+  ["workspace", "Workspace only"],
+  ["compact", "Compact tools"],
+  ["full", "Workspace + reset"]
+];
+
 export const paneHeaderOptions = [
   ["compact", "Compact"],
   ["full", "Full"],
@@ -226,6 +233,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "compact",
       sidebarDetailMode: "compact",
+      sidebarFooterMode: "workspace",
       toolbarMode: "compact",
       tabSize: "balanced",
       titleDetailMode: "smart",
@@ -259,6 +267,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "hidden",
       sidebarDetailMode: "compact",
+      sidebarFooterMode: "workspace",
       toolbarMode: "compact",
       tabSize: "balanced",
       titleDetailMode: "compact",
@@ -292,6 +301,7 @@ export const settingsPresets = [
       density: "compact",
       paneHeaderMode: "hidden",
       sidebarDetailMode: "compact",
+      sidebarFooterMode: "workspace",
       toolbarMode: "compact",
       tabSize: "compact",
       titleDetailMode: "compact",
@@ -325,6 +335,7 @@ export const settingsPresets = [
       density: "comfortable",
       paneHeaderMode: "full",
       sidebarDetailMode: "detailed",
+      sidebarFooterMode: "compact",
       toolbarMode: "standard",
       tabSize: "roomy",
       titleDetailMode: "detailed",

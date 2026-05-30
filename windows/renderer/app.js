@@ -6,6 +6,7 @@ import {
   settingsCategories,
   settingsPresets,
   sidebarDetailOptions,
+  sidebarFooterOptions,
   terminalAppearanceKeys,
   terminalColorDefaults,
   terminalColorPresets,
@@ -330,6 +331,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
   if (!paneHeaderOptions.some(([id]) => id === next.paneHeaderMode)) next.paneHeaderMode = defaultSettings.paneHeaderMode;
   if (!sidebarDetailOptions.some(([id]) => id === next.sidebarDetailMode)) next.sidebarDetailMode = defaultSettings.sidebarDetailMode;
+  if (!sidebarFooterOptions.some(([id]) => id === next.sidebarFooterMode)) next.sidebarFooterMode = defaultSettings.sidebarFooterMode;
   if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
   }
@@ -1049,6 +1051,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.reduceMotion,
     settings.paneHeaderMode,
     settings.sidebarDetailMode,
+    settings.sidebarFooterMode,
     settings.sidebarWidth,
     settings.inspectorWidth,
     settings.terminalFontFamily,
@@ -1079,6 +1082,9 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
   toggleClassIfChanged(elements.shell, "workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
   toggleClassIfChanged(elements.shell, "workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
+  toggleClassIfChanged(elements.shell, "sidebar-footer-workspace", state.settings.sidebarFooterMode === "workspace");
+  toggleClassIfChanged(elements.shell, "sidebar-footer-compact", state.settings.sidebarFooterMode === "compact");
+  toggleClassIfChanged(elements.shell, "sidebar-footer-full", state.settings.sidebarFooterMode === "full");
   toggleClassIfChanged(elements.shell, "toolbar-compact", state.settings.toolbarMode === "compact");
   toggleClassIfChanged(elements.shell, "toolbar-standard", state.settings.toolbarMode === "standard");
   toggleClassIfChanged(elements.shell, "toolbar-expanded", state.settings.toolbarMode === "expanded");
@@ -3056,6 +3062,17 @@ function renderSettingsInspector(options = {}) {
     sidebarDetailSelect.value = state.settings.sidebarDetailMode;
     sidebarDetailSelect.onchange = () => updateSettings({ sidebarDetailMode: sidebarDetailSelect.value });
     layoutSection.append(settingRow("Workspace rows", sidebarDetailSelect, false, "sidebar workspace row detail compact folder counts metadata"));
+    const sidebarFooterSelect = document.createElement("select");
+    sidebarFooterSelect.className = "setting-select";
+    for (const [value, label] of sidebarFooterOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      sidebarFooterSelect.append(option);
+    }
+    sidebarFooterSelect.value = state.settings.sidebarFooterMode;
+    sidebarFooterSelect.onchange = () => updateSettings({ sidebarFooterMode: sidebarFooterSelect.value });
+    layoutSection.append(settingRow("Sidebar footer", sidebarFooterSelect, false, "sidebar footer new workspace reset session danger buttons compact clean"));
     const toolbarSelect = document.createElement("select");
     toolbarSelect.className = "setting-select";
     for (const [value, label] of toolbarModeOptions) {
@@ -3117,10 +3134,10 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(inspectorWidthRow);
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar inspector tabs status header title");
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar footer inspector tabs status header title");
     layoutActions.append(
       settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"),
-      settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar inspector tabs status header title reset")
+      settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar footer inspector tabs status header title reset")
     );
     layoutSection.append(layoutActions);
     layoutSection.append(settingRow("Pane presets", paneLayoutPresetGrid(), true, "split layout pane presets side by side stacked active wide tall equal"));
@@ -3563,7 +3580,7 @@ const settingsCategorySearchAliases = new Map([
   ["appearance", "look appearance background image wallpaper file local color colour theme accent"],
   ["workspace", "workspace workshop folder directory cwd rename color colour"],
   ["browser", "browser web url page home"],
-  ["layout", "layout split pane tab sidebar header resize"],
+  ["layout", "layout split pane tab sidebar footer reset header resize"],
   ["performance", "performance lag slow smooth speed motion"],
   ["terminal", "terminal term shell font cursor color colour profile"],
   ["commands", "commands snippets shell gh github cli"],
@@ -6339,6 +6356,7 @@ const workspaceChromeSettings = [
   "density",
   "paneHeaderMode",
   "sidebarDetailMode",
+  "sidebarFooterMode",
   "toolbarMode",
   "tabSize",
   "titleDetailMode",

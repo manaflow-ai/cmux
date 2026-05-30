@@ -598,12 +598,45 @@ body.reduce-motion *::after {
   border-top: 1px solid var(--color-line);
 }
 
+.shell.sidebar-footer-workspace .sidebar-footer {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.shell.sidebar-footer-workspace #resetSessionButton {
+  display: none;
+}
+
+.shell.sidebar-footer-compact .sidebar-footer {
+  grid-template-columns: 32px 32px;
+  justify-content: space-between;
+}
+
 .sidebar-action {
   height: 30px;
   padding: 0 var(--space-2);
   border-color: var(--color-line);
   background: var(--color-pane);
   color: var(--color-text);
+}
+
+.shell.sidebar-footer-compact .sidebar-action {
+  width: 32px;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+}
+
+.shell.sidebar-footer-compact .sidebar-action::before {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.shell.sidebar-footer-compact #newWorkspaceButton::before {
+  content: "+";
+}
+
+.shell.sidebar-footer-compact #resetSessionButton::before {
+  content: "!";
 }
 
 .sidebar-action:hover {
