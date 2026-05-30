@@ -31,6 +31,7 @@ public struct CMUXSidebarExtensionDiscovery {
     /// Lists enabled sidebar extensions using the modern ExtensionFoundation monitor.
     /// - Parameter appExtensionPoint: Extension point declared by the host app.
     /// - Returns: Enabled extensions sorted by localized name.
+    #if compiler(>=6.2)
     @available(macOS 26.0, *)
     public func enabledExtensions(
         appExtensionPoint: AppExtensionPoint
@@ -45,4 +46,5 @@ public struct CMUXSidebarExtensionDiscovery {
         }
         .sorted { $0.localizedName < $1.localizedName }
     }
+    #endif
 }

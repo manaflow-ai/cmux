@@ -845,12 +845,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         extensionPointIdentifier: String,
         staticExtensionPointIdentifier: StaticString
     ) async throws {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             let extensionPoint = try AppExtensionPoint(identifier: staticExtensionPointIdentifier)
             let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
             await observeModernExtensionMonitor(monitor)
             return
         }
+        #endif
 
         try await observeIdentitySequence(extensionPointIdentifier: extensionPointIdentifier)
     }
@@ -927,6 +929,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
+    #if compiler(>=6.2)
     @available(macOS 26.0, *)
     private func applyModernExtensionState(_ state: AppExtensionPoint.Monitor.State) {
         disabledExtensionCount = state.disabledCount
@@ -955,6 +958,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             }
         }
     }
+    #endif
 }
 
 private final class MonitorContinuationBox: @unchecked Sendable {
