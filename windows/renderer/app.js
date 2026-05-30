@@ -58,6 +58,7 @@ import {
   paneTreeLeafIds,
   paneTreeRatio,
   paneTreeSplitForPanel,
+  replacePaneTreePanelId,
   removePanelFromPaneTree,
   savePaneTreeLayouts,
   swapPaneTreePanelIds,
@@ -290,6 +291,7 @@ const state = {
   zoomedPanelId: null,
   zoomedPanelIds: new Map(),
   minimizedPanelIds: new Set(),
+  pendingPanels: new Map(),
   focusedPanelId: null,
   contextMenu: null,
   activeDialog: null,
@@ -2015,6 +2017,10 @@ function isPanelMinimized(panel) {
   return Boolean(panel?.id && state.minimizedPanelIds.has(panel.id));
 }
 
+function isPendingPanel(panel) {
+  return Boolean(panel?.pending || (panel?.id && state.pendingPanels.has(panel.id)));
+}
+
 function minimizedPanelCount(workspace = activeWorkspace()) {
   if (!workspace) return 0;
   return workspace.panels.filter((panel) => isPanelMinimized(panel)).length;
@@ -2155,8 +2161,27 @@ function applyPendingFocusToState(nextData) {
   return nextData;
 }
 
+function applyPendingPanelsToState(nextData) {
+  if (state.pendingPanels.size === 0 || !Array.isArray(nextData?.workspaces)) return nextData;
+  const activePendingPanelId = state.data?.workspaces
+    ?.find((workspace) => workspace.id === state.data?.activeWorkspaceId)
+    ?.activePanelId || "";
+  for (const pendingPanel of state.pendingPanels.values()) {
+    const workspace = nextData.workspaces.find((candidate) => candidate.id === pendingPanel.workspaceId);
+    if (!workspace || workspace.panels.some((panel) => panel.id === pendingPanel.id)) continue;
+    workspace.panels.push({ ...pendingPanel });
+    workspace.terminalCount = workspace.panels.filter((panel) => panel.type === "terminal").length;
+    workspace.browserCount = workspace.panels.filter((panel) => panel.type === "browser").length;
+    if (activePendingPanelId === pendingPanel.id || state.focusedPanelId === pendingPanel.id) {
+      workspace.activePanelId = pendingPanel.id;
+      nextData.activeWorkspaceId = workspace.id;
+    }
+  }
+  return nextData;
+}
+
 function setAppState(nextData, { previousState = state.data, schedule = false } = {}) {
-  const protectedData = applyPendingFocusToState(nextData);
+  const protectedData = applyPendingPanelsToState(applyPendingFocusToState(nextData));
   const nextSignature = appStateSignature(protectedData);
   if (nextSignature && nextSignature === state.dataSignature) {
     state.data = protectedData;
@@ -2268,6 +2293,10 @@ function hasUiOperationKind(kind) {
   return [...state.uiOperations.values()].some((operation) => operation.kind === kind);
 }
 
+function paneCreationButtonsDisabled() {
+  return hasUiOperationKind("create-panel") && state.pendingPanels.size === 0;
+}
+
 function isUiOperationActive(key) {
   return state.uiOperations.has(key);
 }
@@ -2297,7 +2326,7 @@ function updateRuntimeStatusLabels() {
 
 function updateOperationChrome() {
   const label = currentUiOperationLabel();
-  const creatingPane = hasUiOperationKind("create-panel");
+  const creatingPane = paneCreationButtonsDisabled();
   toggleClassIfChanged(elements.shell, "operation-pending", Boolean(label));
   toggleClassIfChanged(elements.statusSummary, "is-busy", Boolean(label));
   setTextIfChanged(elements.statusSummary, label || defaultStatusSummary());
@@ -2598,9 +2627,10 @@ function updateSurfaceTab(button, workspace, panel) {
   const label = panelDisplayTitle(panel, true);
   const fullTitle = panelDisplayTitle(panel, false);
   const minimized = isPanelMinimized(panel);
+  const pending = isPendingPanel(panel);
   setDatasetIfChanged(button, "panelId", panel.id);
-  setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${panel.needsAttention ? " has-attention" : ""}`);
-  setTitleIfChanged(button, `${fullTitle}${minimized ? " - minimized, click to restore" : ""} - right-click for pane options`);
+  setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
+  setTitleIfChanged(button, `${fullTitle}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setTextIfChanged(button.querySelector(".surface-label"), label);
 }
@@ -2626,7 +2656,7 @@ function getNewSurfaceTab(workspace) {
     });
   }
   setDatasetIfChanged(state.newTabButton, "workspaceId", workspace.id);
-  state.newTabButton.disabled = hasUiOperationKind("create-panel");
+  state.newTabButton.disabled = paneCreationButtonsDisabled();
   return state.newTabButton;
 }
 
@@ -2707,6 +2737,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
   toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
   toggleClassIfChanged(pane, "is-minimized", isPanelMinimized(panel));
+  toggleClassIfChanged(pane, "is-pending", isPendingPanel(panel));
   if (visibleCount <= 1) clearPaneFlex(pane);
   setTextIfChanged(pane.querySelector(".pane-type"), panel.type === "browser" ? "web" : "term");
   const title = panelDisplayTitle(panel, false);
@@ -2719,6 +2750,13 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const minimizeButton = pane.querySelector(".minimize");
   setTextIfChanged(minimizeButton, isPanelMinimized(panel) ? "+" : "-");
   setTitleIfChanged(minimizeButton, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
+  for (const button of pane.querySelectorAll(".pane-tool")) {
+    button.disabled = isPendingPanel(panel);
+  }
+  if (isPendingPanel(panel)) {
+    renderPendingPane(panel, pane.querySelector(".pane-body"));
+    return pane;
+  }
   if (panel.type === "terminal") {
     ensureTerminal(panel, pane.querySelector(".pane-body"));
     const terminal = state.terminals.get(panel.id);
@@ -2726,6 +2764,23 @@ function renderPaneNode(panel, workspace, visibleCount) {
   }
   if (panel.type === "browser") ensureBrowser(panel, pane.querySelector(".pane-body"));
   return pane;
+}
+
+function renderPendingPane(panel, body) {
+  let pending = body.querySelector(".pending-pane");
+  if (!pending) {
+    pending = document.createElement("div");
+    pending.className = "pending-pane";
+    pending.innerHTML = `
+      <span class="pending-pane-pulse"></span>
+      <span class="pending-pane-text"></span>
+    `;
+  }
+  setTextIfChanged(
+    pending.querySelector(".pending-pane-text"),
+    panel.type === "browser" ? "Opening browser..." : "Starting terminal..."
+  );
+  replaceChildrenIfChanged(body, [pending]);
 }
 
 function getPaneSplitNode(splitNode) {
@@ -2749,6 +2804,7 @@ function terminalPanelFolder(panel) {
 }
 
 function panelDisplayTitle(panel, surface = false) {
+  if (isPendingPanel(panel)) return panel.title || (panel.type === "browser" ? "Opening browser" : "Starting terminal");
   if (panel.type === "browser") {
     if (state.settings.titleDetailMode === "detailed" && !surface) return panel.url || "Browser";
     return hostnameOf(panel.url);
@@ -3214,6 +3270,7 @@ function cleanupPanel(panelId) {
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
   state.minimizedPanelIds.delete(panelId);
+  state.pendingPanels.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
     if (zoomedPanelId === panelId) state.zoomedPanelIds.delete(workspaceId);
   }
@@ -7139,6 +7196,14 @@ function showPanelContextMenu(event, panel) {
   const title = document.createElement("div");
   title.className = "context-title";
   title.textContent = panel.type === "browser" ? hostnameOf(panel.url) : panel.title || "Terminal";
+  if (isPendingPanel(panel)) {
+    menu.replaceChildren(
+      title,
+      contextMenuButton(panel.type === "browser" ? "Opening..." : "Starting...", () => {}, true)
+    );
+    showContextMenuAt(menu, event.clientX, event.clientY);
+    return;
+  }
   const actions = document.createElement("div");
   actions.className = "context-actions";
   const isTerminal = panel.type === "terminal";
@@ -8214,8 +8279,104 @@ async function closeEmptyWorkspaces() {
   return true;
 }
 
+function createPendingPanelId() {
+  return `pending_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createPendingPanel(type, workspace, options = {}) {
+  const isBrowser = type === "browser";
+  return {
+    id: createPendingPanelId(),
+    workspaceId: workspace.id,
+    type,
+    title: options.title || (isBrowser ? "Opening browser" : "Starting terminal"),
+    color: options.color || "",
+    cwd: options.cwd || workspace.cwd || "",
+    cwdShort: workspace.cwdShort || "~",
+    branch: "",
+    shellProfile: type === "terminal" ? options.shellProfile || state.settings.terminalProfile : "",
+    shellPath: type === "terminal" ? options.shellPath || "" : "",
+    terminalFontSize: type === "terminal" ? normalizeTerminalFontSize(options.terminalFontSize, 0) : 0,
+    url: isBrowser ? options.url || state.settings.browserHomeUrl : "",
+    needsAttention: false,
+    notificationText: "",
+    pending: true
+  };
+}
+
+function addPendingPanel(workspace, panel, anchorPanelId, direction, options = {}) {
+  if (!workspace || !panel?.id) return false;
+  state.pendingPanels.set(panel.id, panel);
+  insertPanelInPaneTree(workspace.id, anchorPanelId, panel.id, direction);
+  const added = optimisticAddPanel(panel, workspace.id, { direction, focus: options.focus });
+  updateOperationChrome();
+  return added;
+}
+
+function remapPanelStateId(previousPanelId, nextPanelId, workspaceId) {
+  if (!previousPanelId || !nextPanelId || previousPanelId === nextPanelId) return;
+  const tree = state.paneTrees.get(workspaceId);
+  if (tree) {
+    state.paneTrees.set(workspaceId, replacePaneTreePanelId(tree, previousPanelId, nextPanelId));
+    savePaneTreeLayouts(state.paneTrees);
+  }
+  const layout = state.paneLayouts.get(previousPanelId);
+  if (layout && !state.paneLayouts.has(nextPanelId)) state.paneLayouts.set(nextPanelId, layout);
+  state.paneLayouts.delete(previousPanelId);
+  if (state.zoomedPanelId === previousPanelId) state.zoomedPanelId = nextPanelId;
+  if (state.focusedPanelId === previousPanelId) state.focusedPanelId = nextPanelId;
+  if (state.dragPanelId === previousPanelId) state.dragPanelId = nextPanelId;
+  for (const [mappedWorkspaceId, panelId] of [...state.zoomedPanelIds.entries()]) {
+    if (panelId === previousPanelId) state.zoomedPanelIds.set(mappedWorkspaceId, nextPanelId);
+  }
+  if (state.minimizedPanelIds.delete(previousPanelId)) state.minimizedPanelIds.add(nextPanelId);
+}
+
+function removePendingPanel(panelId, options = {}) {
+  const found = findPanelState(panelId);
+  state.pendingPanels.delete(panelId);
+  removePanelFromAllPaneTrees(panelId);
+  cleanupPanel(panelId);
+  if (!found) return false;
+  found.workspace.panels = found.workspace.panels.filter((panel) => panel.id !== panelId);
+  if (found.workspace.activePanelId === panelId) {
+    found.workspace.activePanelId = firstUnminimizedPanel(found.workspace)?.id || found.workspace.panels[0]?.id || null;
+  }
+  if (state.focusedPanelId === panelId) state.focusedPanelId = found.workspace.activePanelId || null;
+  refreshWorkspaceCounts(found.workspace);
+  if (options.render !== false) render();
+  return true;
+}
+
+function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, options = {}) {
+  state.pendingPanels.delete(pendingPanelId);
+  if (!createdPanel?.id) {
+    removePendingPanel(pendingPanelId);
+    return false;
+  }
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === (createdPanel.workspaceId || workspaceId));
+  if (!workspace) return false;
+  const nextPanel = {
+    ...createdPanel,
+    workspaceId: workspace.id
+  };
+  const existingIndex = workspace.panels.findIndex((panel) => panel.id === createdPanel.id);
+  if (existingIndex >= 0) workspace.panels.splice(existingIndex, 1);
+  const pendingIndex = workspace.panels.findIndex((panel) => panel.id === pendingPanelId);
+  if (pendingIndex >= 0) workspace.panels.splice(pendingIndex, 1, nextPanel);
+  else workspace.panels.push(nextPanel);
+  if (workspace.activePanelId === pendingPanelId || options.focus !== false) workspace.activePanelId = nextPanel.id;
+  remapPanelStateId(pendingPanelId, nextPanel.id, workspace.id);
+  cleanupPanel(pendingPanelId);
+  workspace.cwd = nextPanel.cwd || workspace.cwd;
+  refreshWorkspaceCounts(workspace);
+  if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+  render();
+  return true;
+}
+
 async function createPanel(type, direction = "right", options = {}) {
-  if (options.operation !== false && hasUiOperationKind("create-panel")) {
+  if (options.operation !== false && paneCreationButtonsDisabled()) {
     toast("Pane is still being added.");
     return null;
   }
@@ -8230,23 +8391,41 @@ async function createPanel(type, direction = "right", options = {}) {
       ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl)
       : undefined;
     const anchorPanelId = options.anchorPanelId || workspace.activePanelId || workspace.panels.at(-1)?.id || "";
-    const createdPanel = await api("/api/panels", {
-      method: "POST",
-      body: JSON.stringify({
-        workspaceId: workspace.id,
-        type,
-        direction,
-        title: options.title,
-        color: options.color,
-        shellProfile: type === "terminal" ? shellProfile : undefined,
-        shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
-        terminalFontSize: type === "terminal" ? options.terminalFontSize : undefined,
-        cwd: options.cwd || workspace.cwd,
+    const pendingPanel = options.pending === false
+      ? null
+      : createPendingPanel(type, workspace, {
+        ...options,
+        shellProfile,
+        shellPath: shellProfile === "custom" ? shellPath : "",
         url
-      })
-    });
-    insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
-    optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
+      });
+    if (pendingPanel) addPendingPanel(workspace, pendingPanel, anchorPanelId, direction, options);
+    let createdPanel = null;
+    try {
+      createdPanel = await api("/api/panels", {
+        method: "POST",
+        body: JSON.stringify({
+          workspaceId: workspace.id,
+          type,
+          direction,
+          title: options.title,
+          color: options.color,
+          shellProfile: type === "terminal" ? shellProfile : undefined,
+          shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
+          terminalFontSize: type === "terminal" ? options.terminalFontSize : undefined,
+          cwd: options.cwd || workspace.cwd,
+          url
+        })
+      });
+    } catch (error) {
+      if (pendingPanel) removePendingPanel(pendingPanel.id);
+      throw error;
+    }
+    if (pendingPanel) replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, options);
+    else {
+      insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
+      optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
+    }
     if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
     if (options.reconcile !== false) {
       schedulePanelCreateReconcile(workspace.id, options.focus !== false && workspace.id !== state.data?.activeWorkspaceId);
@@ -8256,7 +8435,10 @@ async function createPanel(type, direction = "right", options = {}) {
   if (options.operation === false) return addPanel();
   const label = options.operationLabel
     || `Adding ${type === "browser" ? "browser" : "terminal"} pane...`;
-  return withUiOperation("create-panel", "create-panel", label, addPanel);
+  const operationKey = options.pending === false
+    ? "create-panel"
+    : `create-panel:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+  return withUiOperation(operationKey, "create-panel", label, addPanel);
 }
 
 async function openBrowserPrompt(workspaceId = null) {
@@ -8394,6 +8576,7 @@ function optimisticClosePanel(panelId, renderNow = true) {
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
   state.minimizedPanelIds.delete(panelId);
+  state.pendingPanels.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
     if (zoomedPanelId === panelId) state.zoomedPanelIds.delete(workspaceId);
   }
@@ -8897,7 +9080,7 @@ async function simulateNotification() {
 function resolveTerminalPanel(panel = focusedPanel()) {
   const found = panel?.id ? findPanelState(panel.id) : null;
   const candidate = found?.panel || panel;
-  return candidate?.type === "terminal" ? candidate : null;
+  return candidate?.type === "terminal" && !isPendingPanel(candidate) ? candidate : null;
 }
 
 function clearTerminalPanel(panel = activePanel()) {

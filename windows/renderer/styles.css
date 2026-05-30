@@ -1038,6 +1038,11 @@ body.reduce-motion *::after {
   border: 1px solid var(--color-line-strong);
 }
 
+.surface-tab.is-pending .surface-dot {
+  background: var(--color-faint);
+  animation: cmux-pulse 900ms ease-in-out infinite;
+}
+
 .surface-label {
   min-width: 0;
   overflow: hidden;
@@ -1259,6 +1264,16 @@ body.reduce-motion *::after {
   pointer-events: auto;
   margin-left: auto;
   max-width: none;
+}
+
+.pane.is-pending .pane-toolbar {
+  opacity: .42;
+  pointer-events: none;
+}
+
+.pane.is-pending .pane-body {
+  display: grid;
+  place-items: center;
 }
 
 .pane.has-attention {
@@ -1543,6 +1558,43 @@ body.reduce-motion *::after {
 
 .terminal-host .xterm-viewport {
   scrollbar-color: var(--color-line-strong) transparent;
+}
+
+.pending-pane {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: calc(100% - var(--space-4));
+  color: var(--color-muted);
+  font: 12px/1.2 var(--font-ui);
+}
+
+.pending-pane-pulse {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: cmux-pulse 900ms ease-in-out infinite;
+}
+
+.pending-pane-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes cmux-pulse {
+  0%,
+  100% {
+    opacity: .35;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 .terminal-search {

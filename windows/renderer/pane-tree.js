@@ -171,6 +171,30 @@ export function swapPaneTreePanelIds(node, firstPanelId, secondPanelId) {
   return swapPaneTreePanelIdsUnchecked(node, firstId, secondId);
 }
 
+export function replacePaneTreePanelId(node, previousPanelId, nextPanelId) {
+  const previousId = String(previousPanelId || "");
+  const nextId = String(nextPanelId || "");
+  if (!node || !previousId || !nextId || previousId === nextId) return clonePaneTree(node);
+  return replacePaneTreePanelIdUnchecked(node, previousId, nextId);
+}
+
+function replacePaneTreePanelIdUnchecked(node, previousId, nextId) {
+  if (!node || typeof node !== "object") return null;
+  if (node.type === "pane") {
+    return paneTreeLeaf(node.panelId === previousId ? nextId : node.panelId);
+  }
+  if (node.type === "split") {
+    return paneTreeSplit(
+      node.direction,
+      replacePaneTreePanelIdUnchecked(node.first, previousId, nextId),
+      replacePaneTreePanelIdUnchecked(node.second, previousId, nextId),
+      node.ratio,
+      node.id
+    );
+  }
+  return clonePaneTree(node);
+}
+
 function swapPaneTreePanelIdsUnchecked(node, firstId, secondId) {
   if (!node || typeof node !== "object") return null;
   if (node.type === "pane") {
