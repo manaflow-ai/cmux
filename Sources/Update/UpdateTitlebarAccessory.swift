@@ -453,7 +453,7 @@ enum TitlebarControlsLayoutMetrics {
     static let hintRightSafetyShift: CGFloat = 6
     static let hintTrailingBaseInset: CGFloat = 4
     static let extraButtonCount = 0
-    static let trafficLightGap: CGFloat = 8
+    static let trafficLightGap: CGFloat = 4
     static let trafficLightClusterWidth: CGFloat = 58
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
@@ -512,8 +512,7 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func minimumSidebarWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
-            + trafficLightClusterWidth
+        trafficLightClusterWidth
             + trafficLightGap
             + contentSize(config: config).width
             + sidebarTrailingPadding

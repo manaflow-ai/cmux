@@ -230,7 +230,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testTitlebarControlsMinimumSidebarWidthIncludesTrafficLightsAndTrailingPadding() {
         XCTAssertEqual(
             TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: TitlebarControlsStyle.classic.config),
-            290,
+            208,
             accuracy: 0.001
         )
     }
