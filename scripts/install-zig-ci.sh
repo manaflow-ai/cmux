@@ -29,11 +29,9 @@ try_homebrew_zig() {
   brew_zig="$(brew --prefix zig 2>/dev/null || true)"
   if [ -n "$brew_zig" ] && [ -x "$brew_zig/bin/zig" ] && zig_version_matches "$brew_zig/bin/zig"; then
     echo "zig ${ZIG_REQUIRED} installed with Homebrew at $brew_zig/bin/zig"
-    return 0
-  fi
-
-  if command -v zig >/dev/null 2>&1 && zig_version_matches "$(command -v zig)"; then
-    echo "zig ${ZIG_REQUIRED} installed with Homebrew at $(command -v zig)"
+    if [ -n "${GITHUB_PATH:-}" ]; then
+      echo "$brew_zig/bin" >> "$GITHUB_PATH"
+    fi
     return 0
   fi
 
@@ -151,4 +149,7 @@ sudo rm -rf /usr/local/lib/zig
 sudo mkdir -p /usr/local/lib/zig
 sudo cp -f "${ZIG_DIR}/zig" /usr/local/bin/zig
 sudo cp -Rf "${ZIG_DIR}/lib/." /usr/local/lib/zig/
-zig version
+if [ -n "${GITHUB_PATH:-}" ]; then
+  echo "/usr/local/bin" >> "$GITHUB_PATH"
+fi
+/usr/local/bin/zig version

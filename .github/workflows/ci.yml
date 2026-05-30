@@ -669,14 +669,6 @@ jobs:
             spm-release-
             spm-
 
-      - name: Build Ghostty CLI helper
-        run: |
-          set -euo pipefail
-          mkdir -p .ci-artifacts
-          ./scripts/build-ghostty-cli-helper.sh --universal --output "$PWD/.ci-artifacts/ghostty"
-          file "$PWD/.ci-artifacts/ghostty"
-          lipo "$PWD/.ci-artifacts/ghostty" -verify_arch arm64 x86_64
-
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
@@ -686,12 +678,6 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
-
-      - name: Install Ghostty CLI helper
-        run: |
-          set -euo pipefail
-          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
-          install -m 755 "$PWD/.ci-artifacts/ghostty" "$HELPER_BINARY"
 
       - name: Validate Release artifact slices
         run: |

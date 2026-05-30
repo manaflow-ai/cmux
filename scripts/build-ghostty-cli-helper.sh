@@ -16,6 +16,7 @@ EOF
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GHOSTTY_DIR="$REPO_ROOT/ghostty"
+ZIG_REQUIRED="${ZIG_REQUIRED:-0.15.2}"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
@@ -24,6 +25,11 @@ UNIVERSAL="false"
 zig_binary_arch() {
   local zig_path="$1"
   file "$zig_path" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1 || true
+}
+
+zig_binary_version() {
+  local zig_path="$1"
+  "$zig_path" version 2>/dev/null || true
 }
 
 target_arch_for_triple() {
@@ -78,6 +84,9 @@ select_zig_for_target() {
     canonical="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
     [[ "$seen" == *" $canonical "* ]] && continue
     seen="${seen}${canonical} "
+    if [[ "$(zig_binary_version "$canonical")" != "$ZIG_REQUIRED" ]]; then
+      continue
+    fi
     [[ -z "$fallback" ]] && fallback="$canonical"
     arch="$(zig_binary_arch "$canonical")"
     if [[ -z "$apple_silicon_match" && "$arch" == "arm64" ]]; then
@@ -149,16 +158,6 @@ if [[ -z "$OUTPUT_PATH" ]]; then
   exit 1
 fi
 
-# Allow CI to skip the zig build (e.g., macOS 26 where zig 0.15.2 can't link).
-# Creates a stub binary so the Xcode Run Script file-existence check passes.
-if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
-  echo "Skipping zig CLI helper build (CMUX_SKIP_ZIG_BUILD=1)"
-  mkdir -p "$(dirname "$OUTPUT_PATH")"
-  printf '#!/bin/sh\necho "ghostty CLI helper stub (zig build skipped)" >&2\nexit 1\n' > "$OUTPUT_PATH"
-  chmod +x "$OUTPUT_PATH"
-  exit 0
-fi
-
 if [[ "$UNIVERSAL" == "true" && -n "$TARGET_TRIPLE" ]]; then
   echo "--universal and --target are mutually exclusive" >&2
   usage >&2
@@ -174,6 +173,47 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
       exit 1
       ;;
   esac
+fi
+
+write_macho_stub() {
+  local output="$1"
+  local clang_target="$2"
+  local tmp_dir="$3"
+  local source="$tmp_dir/ghostty-stub.c"
+  cat > "$source" <<'EOF'
+#include <stdio.h>
+
+int main(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+  fputs("ghostty CLI helper stub (zig build skipped)\n", stderr);
+  return 1;
+}
+EOF
+  xcrun clang -target "$clang_target" -mmacosx-version-min=14.0 "$source" -o "$output"
+}
+
+# Allow CI to skip the Zig helper build where only a valid app bundle shape is
+# required. The stub is a Mach-O binary so architecture validation still checks
+# the bundle layout and slices instead of accepting a shell script placeholder.
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  echo "Skipping zig CLI helper build (CMUX_SKIP_ZIG_BUILD=1)"
+  mkdir -p "$(dirname "$OUTPUT_PATH")"
+  STUB_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-helper-stub.XXXXXX")"
+  trap 'rm -rf "$STUB_TMP_DIR"' EXIT
+  if [[ "$UNIVERSAL" == "true" ]]; then
+    write_macho_stub "$STUB_TMP_DIR/ghostty-arm64" "arm64-apple-macos14" "$STUB_TMP_DIR"
+    write_macho_stub "$STUB_TMP_DIR/ghostty-x86_64" "x86_64-apple-macos14" "$STUB_TMP_DIR"
+    /usr/bin/lipo -create "$STUB_TMP_DIR/ghostty-arm64" "$STUB_TMP_DIR/ghostty-x86_64" -output "$OUTPUT_PATH"
+  else
+    case "$TARGET_TRIPLE" in
+      aarch64-macos) write_macho_stub "$OUTPUT_PATH" "arm64-apple-macos14" "$STUB_TMP_DIR" ;;
+      x86_64-macos) write_macho_stub "$OUTPUT_PATH" "x86_64-apple-macos14" "$STUB_TMP_DIR" ;;
+      *) write_macho_stub "$OUTPUT_PATH" "$(uname -m)-apple-macos14" "$STUB_TMP_DIR" ;;
+    esac
+  fi
+  chmod +x "$OUTPUT_PATH"
+  exit 0
 fi
 
 if [[ ! -f "$GHOSTTY_DIR/build.zig" ]]; then
