@@ -1023,6 +1023,45 @@
           }
         }
       }
+    },
+    "httpControl": {
+      "title": "httpControl",
+      "description": "Local HTTP control transport (spec docs/http-terminal-api.md). Enabling TCP grants any local process holding the bearer token full shell access — use UDS for stronger isolation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the HTTP control listener."
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["tcp", "uds"],
+          "default": "tcp",
+          "description": "Transport selection. UDS is recommended; TCP requires that no untrusted local process can read the token file."
+        },
+        "tcpPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 49100,
+          "description": "TCP loopback port (only used when transport=tcp)."
+        },
+        "udsPath": {
+          "type": "string",
+          "description": "Filesystem path for the AF_UNIX socket (only used when transport=uds). Created mode 0600."
+        },
+        "allowRawInput": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether type=raw input payloads are accepted. Enables OSC 52 clipboard and DSR/DECRQSS reflection injection — leave off unless you trust every local process."
+        },
+        "auditLogPath": {
+          "type": "string",
+          "description": "Path for the always-on JSONL audit log. Defaults to <Application Support>/cmux/http-control-audit.jsonl."
+        }
+      }
     }
   },
   "$defs": {
