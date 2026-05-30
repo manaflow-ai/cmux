@@ -153,6 +153,33 @@ export const backgroundPresets = [
   }
 ];
 
+export const browserHomePresets = [
+  {
+    id: "bing",
+    label: "Bing",
+    body: "Default search home.",
+    url: "https://www.bing.com"
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    body: "Code, PRs, and issues.",
+    url: "https://github.com"
+  },
+  {
+    id: "localhost3000",
+    label: "Local 3000",
+    body: "Next and Node apps.",
+    url: "http://localhost:3000"
+  },
+  {
+    id: "localhost5173",
+    label: "Local 5173",
+    body: "Vite dev server.",
+    url: "http://localhost:5173"
+  }
+];
+
 export const terminalProfiles = [
   ["auto", "Auto"],
   ["pwsh", "PowerShell 7"],

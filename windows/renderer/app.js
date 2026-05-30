@@ -1,6 +1,7 @@
 import {
   accentOptions,
   backgroundPresets,
+  browserHomePresets,
   defaultSettings,
   paneHeaderOptions,
   settingsCategories,
@@ -93,6 +94,9 @@ const layoutSettingsPreviewKeys = new Set([
   "sidebarWidth",
   "inspectorWidth",
   "performanceMode"
+]);
+const browserSettingsPreviewKeys = new Set([
+  "browserHomeUrl"
 ]);
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
@@ -248,6 +252,7 @@ const state = {
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
   layoutSettingsPreviewFrame: 0,
+  browserSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
   renderStats: {
     count: 0,
@@ -1200,6 +1205,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => layoutSettingsPreviewKeys.has(key))) {
     scheduleLayoutSettingsPreviewRefresh();
+  }
+  if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
+    scheduleBrowserSettingsPreviewRefresh();
   }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
@@ -3100,8 +3108,10 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("browser")) {
     const browserSection = settingsSection("Browser");
+    browserSection.append(browserSettingsPreviewPanel());
     const homeInput = document.createElement("input");
     homeInput.className = "setting-control";
+    homeInput.dataset.settingControl = "browserHomeUrl";
     homeInput.value = state.settings.browserHomeUrl;
     homeInput.placeholder = "https://www.bing.com";
     homeInput.addEventListener("keydown", (event) => {
@@ -3112,13 +3122,15 @@ function renderSettingsInspector(options = {}) {
       homeInput.value = state.settings.browserHomeUrl;
     });
     browserSection.append(settingRow("Home page", homeInput, true));
+    browserSection.append(settingRow("Home presets", browserHomePresetGrid(), true, "browser home preset quick start localhost github bing vite"));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
+    homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web");
     homeActions.append(
       settingsActionButton("Open", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
       settingsActionButton("Reset", () => {
-        updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
-        renderSettingsInspector();
+        const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
+        if (!changed) toast("Browser home already uses the default.");
       })
     );
     browserSection.append(homeActions);
@@ -3803,6 +3815,129 @@ function scheduleLayoutSettingsPreviewRefresh() {
 function refreshLayoutSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".layout-settings-preview");
   if (preview) preview.replaceWith(layoutSettingsPreviewPanel());
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function browserHomeKey(value) {
+  return normalizeBrowserPageUrl(value).toLowerCase();
+}
+
+function browserHomeParts(value) {
+  const url = normalizeUrl(value || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  try {
+    const parsed = new URL(url);
+    const path = `${parsed.pathname}${parsed.search}` || "/";
+    return {
+      url,
+      host: parsed.hostname || "Browser",
+      path: path === "/" ? "Home page" : path
+    };
+  } catch {
+    return {
+      url: defaultSettings.browserHomeUrl,
+      host: hostnameOf(defaultSettings.browserHomeUrl),
+      path: "Home page"
+    };
+  }
+}
+
+function browserSettingsPreviewPanel() {
+  const home = browserHomeParts(state.settings.browserHomeUrl);
+  const recent = state.recentBrowserPages[0] ? browserHomeParts(state.recentBrowserPages[0]) : null;
+  const panel = document.createElement("div");
+  panel.className = "browser-settings-preview";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("browser preview home url web page hostname recent history preset localhost github");
+  panel.innerHTML = `
+    <div class="browser-preview-frame" aria-hidden="true">
+      <div class="browser-preview-address">
+        <span data-browser-preview-host></span>
+        <span data-browser-preview-url></span>
+      </div>
+      <div class="browser-preview-page">
+        <span class="browser-preview-kicker">cmux browser</span>
+        <span class="browser-preview-title"></span>
+        <span class="browser-preview-line"></span>
+        <span class="browser-preview-line short"></span>
+      </div>
+    </div>
+    <div class="browser-preview-meta">
+      <span><b>Home</b><em data-browser-preview-home></em></span>
+      <span><b>Host</b><em data-browser-preview-host-meta></em></span>
+      <span><b>Recent</b><em data-browser-preview-recent></em></span>
+    </div>
+  `;
+  panel.querySelector("[data-browser-preview-host]").textContent = home.host;
+  panel.querySelector("[data-browser-preview-url]").textContent = home.url;
+  panel.querySelector(".browser-preview-title").textContent = home.path;
+  panel.querySelector("[data-browser-preview-home]").textContent = home.url;
+  panel.querySelector("[data-browser-preview-host-meta]").textContent = home.host;
+  panel.querySelector("[data-browser-preview-recent]").textContent = recent
+    ? `${state.recentBrowserPages.length} / ${recent.host}`
+    : "None";
+  return panel;
+}
+
+function isActiveBrowserHomePreset(preset) {
+  return browserHomeKey(preset.url) === browserHomeKey(state.settings.browserHomeUrl);
+}
+
+function browserHomePresetGrid() {
+  const grid = document.createElement("div");
+  grid.className = "browser-home-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("browser home preset quick start bing github localhost vite web url");
+  for (const preset of browserHomePresets) {
+    const active = isActiveBrowserHomePreset(preset);
+    const button = document.createElement("button");
+    button.className = `browser-home-preset${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = preset.url;
+    button.dataset.browserHomePreset = preset.id;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`browser home preset ${preset.label} ${preset.body} ${preset.url}`);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.innerHTML = `
+      <span class="browser-home-preset-title"></span>
+      <span class="browser-home-preset-body"></span>
+      <span class="browser-home-preset-url"></span>
+    `;
+    button.querySelector(".browser-home-preset-title").textContent = preset.label;
+    button.querySelector(".browser-home-preset-body").textContent = preset.body;
+    button.querySelector(".browser-home-preset-url").textContent = preset.url;
+    button.onclick = () => applyBrowserHomePreset(preset);
+    grid.append(button);
+  }
+  return grid;
+}
+
+function applyBrowserHomePreset(preset) {
+  const changed = updateSettings({ browserHomeUrl: preset.url });
+  if (!changed) {
+    toast(`${preset.label} is already the browser home.`);
+    return;
+  }
+  toast(`${preset.label} browser home applied.`);
+}
+
+function scheduleBrowserSettingsPreviewRefresh() {
+  if (state.browserSettingsPreviewFrame) return;
+  state.browserSettingsPreviewFrame = requestAnimationFrame(() => {
+    state.browserSettingsPreviewFrame = 0;
+    refreshBrowserSettingsPreview();
+  });
+}
+
+function refreshBrowserSettingsPreview() {
+  const preview = elements.inspectorBody.querySelector(".browser-settings-preview");
+  if (preview) preview.replaceWith(browserSettingsPreviewPanel());
+  const homeInput = elements.inspectorBody.querySelector('[data-setting-control="browserHomeUrl"]');
+  if (homeInput && homeInput.value !== state.settings.browserHomeUrl) {
+    homeInput.value = state.settings.browserHomeUrl;
+  }
+  for (const button of elements.inspectorBody.querySelectorAll("[data-browser-home-preset]")) {
+    const preset = browserHomePresets.find((candidate) => candidate.id === button.dataset.browserHomePreset);
+    const active = Boolean(preset && isActiveBrowserHomePreset(preset));
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
@@ -4875,9 +5010,8 @@ function recentBrowserPagesSettings() {
     const open = settingsActionButton("Open", () => createPanel("browser", "right", { url }), "", `recent browser page open ${url}`);
     open.dataset.recentBrowserAction = "open";
     const home = settingsActionButton("Home", () => {
-      updateSettings({ browserHomeUrl: url });
-      renderSettingsInspector();
-      toast("Browser home updated.");
+      const changed = updateSettings({ browserHomeUrl: url });
+      toast(changed ? "Browser home updated." : "Browser home already uses this page.");
     }, "", `recent browser page home ${url}`);
     home.dataset.recentBrowserAction = "home";
     actions.append(open, home);
