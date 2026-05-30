@@ -310,6 +310,7 @@ const state = {
   sidebarResizing: null,
   inspectorResizing: null,
   panePointerDrag: null,
+  lastInteractedPanelId: null,
   suppressPaneHeaderClick: false,
   renderFrame: 0,
   paneLayoutFrame: 0,
@@ -2099,8 +2100,28 @@ function panelFromElement(target) {
   return panelId ? findPanelState(panelId)?.panel || null : null;
 }
 
+function panelFromEvent(event) {
+  for (const target of event?.composedPath?.() || []) {
+    const panel = panelFromElement(target);
+    if (panel) return panel;
+  }
+  return panelFromElement(event?.target);
+}
+
 function panelFromActiveElement() {
   return panelFromElement(document.activeElement);
+}
+
+function markInteractedPanel(panelId) {
+  const found = findPanelState(panelId);
+  if (!found || found.workspace.id !== state.data?.activeWorkspaceId || isPanelMinimized(found.panel)) return null;
+  state.lastInteractedPanelId = panelId;
+  state.focusedPanelId = panelId;
+  if (found.workspace.activePanelId !== panelId) {
+    found.workspace.activePanelId = panelId;
+    queueFocusSync({ type: "panel", panelId });
+  }
+  return found.panel;
 }
 
 function focusedPanel() {
@@ -2115,11 +2136,15 @@ function focusedPanel() {
   }
   const found = state.focusedPanelId ? findPanelState(state.focusedPanelId) : null;
   if (found && found.workspace.id === state.data?.activeWorkspaceId && !isPanelMinimized(found.panel)) return found.panel;
+  const interacted = state.lastInteractedPanelId ? findPanelState(state.lastInteractedPanelId) : null;
+  if (interacted && interacted.workspace.id === state.data?.activeWorkspaceId && !isPanelMinimized(interacted.panel)) {
+    return interacted.panel;
+  }
   return activePanel();
 }
 
 function actionPanelFromEvent(event) {
-  return panelFromElement(event?.target) || panelFromActiveElement() || focusedPanel();
+  return panelFromEvent(event) || panelFromActiveElement() || focusedPanel();
 }
 
 function api(path, options = {}) {
@@ -3179,6 +3204,7 @@ function createPane(panel) {
     </div>
     <div class="pane-body"></div>
   `;
+  pane.addEventListener("pointerdown", () => markInteractedPanel(pane.dataset.panelId), { capture: true });
   const header = pane.querySelector(".pane-header");
   header.draggable = false;
   header.addEventListener("click", () => {
@@ -3354,6 +3380,7 @@ function clearAllDropTargets() {
 function cleanupPanel(panelId) {
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
+  if (state.lastInteractedPanelId === panelId) state.lastInteractedPanelId = null;
   state.minimizedPanelIds.delete(panelId);
   state.pendingPanels.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
@@ -3457,6 +3484,7 @@ function ensureTerminal(panel, body) {
     const found = findPanelState(panel.id);
     if (!found || state.data?.activeWorkspaceId !== found.workspace.id) return;
     state.focusedPanelId = panel.id;
+    state.lastInteractedPanelId = panel.id;
     if (found.workspace.activePanelId !== panel.id) {
       found.workspace.activePanelId = panel.id;
       scheduleRender();
@@ -7315,6 +7343,8 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
     contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), !isTerminal),
     contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), !isTerminal),
+    contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1), !isTerminal),
+    contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), !isTerminal),
     contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !isTerminal || !panelHasTerminalFontSize(panel)),
     contextMenuButton("Restart terminal", () => restartPanel(panel.id), !isTerminal),
     contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), !isTerminal),
@@ -7397,7 +7427,7 @@ function showToolbarMenu(event) {
   event.stopPropagation();
   const menu = ensureContextMenu();
   menu.className = "context-menu context-menu-tools";
-  const panel = activePanel();
+  const panel = focusedPanel();
   const workspace = activeWorkspace();
   const multiPane = Boolean(panel && workspace?.panels.length > 1);
   const multiWorkspace = (state.data?.workspaces.length || 0) > 1;
@@ -8427,6 +8457,7 @@ function remapPanelStateId(previousPanelId, nextPanelId, workspaceId) {
   state.paneLayouts.delete(previousPanelId);
   if (state.zoomedPanelId === previousPanelId) state.zoomedPanelId = nextPanelId;
   if (state.focusedPanelId === previousPanelId) state.focusedPanelId = nextPanelId;
+  if (state.lastInteractedPanelId === previousPanelId) state.lastInteractedPanelId = nextPanelId;
   if (state.dragPanelId === previousPanelId) state.dragPanelId = nextPanelId;
   for (const [mappedWorkspaceId, panelId] of [...state.zoomedPanelIds.entries()]) {
     if (panelId === previousPanelId) state.zoomedPanelIds.set(mappedWorkspaceId, nextPanelId);
@@ -8445,6 +8476,7 @@ function removePendingPanel(panelId, options = {}) {
     found.workspace.activePanelId = firstUnminimizedPanel(found.workspace)?.id || found.workspace.panels[0]?.id || null;
   }
   if (state.focusedPanelId === panelId) state.focusedPanelId = found.workspace.activePanelId || null;
+  if (state.lastInteractedPanelId === panelId) state.lastInteractedPanelId = found.workspace.activePanelId || null;
   refreshWorkspaceCounts(found.workspace);
   if (options.render !== false) render();
   return true;
@@ -8576,6 +8608,7 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
   workspace.panels = workspace.panels.filter((candidate) => candidate.id !== nextPanel.id);
   workspace.panels.push(nextPanel);
   workspace.activePanelId = nextPanel.id;
+  if (options.focus !== false) state.lastInteractedPanelId = nextPanel.id;
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   if (options.direction === "down" || options.direction === "right") {
     workspace.splitDirection = options.direction;
@@ -8591,6 +8624,7 @@ function optimisticFocusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return false;
   state.focusedPanelId = workspace.activePanelId || null;
+  state.lastInteractedPanelId = workspace.activePanelId || null;
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
     render();
@@ -8602,6 +8636,7 @@ function optimisticFocusPanel(panelId) {
   const found = findPanelState(panelId);
   if (!found) return false;
   state.focusedPanelId = panelId;
+  state.lastInteractedPanelId = panelId;
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
   render();
@@ -8975,6 +9010,7 @@ async function focusWorkspace(workspaceId) {
     || workspace.panels[0];
   if (focusablePanel) workspace.activePanelId = focusablePanel.id;
   state.focusedPanelId = focusablePanel?.id || null;
+  state.lastInteractedPanelId = focusablePanel?.id || null;
   if (state.data?.activeWorkspaceId === workspaceId) {
     if (workspace.activePanelId !== previousPanelId) render();
     focusTerminalSession(focusablePanel?.id);
@@ -8991,6 +9027,7 @@ async function focusPanel(panelId) {
   if (found) {
     wasMinimized = state.minimizedPanelIds.delete(panelId);
     state.focusedPanelId = panelId;
+    state.lastInteractedPanelId = panelId;
   }
   if (found && state.data?.activeWorkspaceId === found.workspace.id && found.workspace.activePanelId === panelId) {
     if (wasMinimized) render();
@@ -9046,6 +9083,7 @@ function handleTerminalWheelZoom(event) {
   const panelId = event.currentTarget?.closest?.(".pane")?.dataset?.panelId || "";
   const panel = panelId ? findPanelState(panelId)?.panel : activePanel();
   if (panel?.type !== "terminal") return;
+  markInteractedPanel(panel.id);
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation?.();
@@ -9074,6 +9112,7 @@ function handleTerminalWheelZoom(event) {
 function setPaneMinimized(panelId, minimized = true) {
   const found = findPanelState(panelId);
   if (!found) return false;
+  if (!minimized) markInteractedPanel(panelId);
   const shouldMinimize = Boolean(minimized);
   if (state.minimizedPanelIds.has(panelId) === shouldMinimize) return false;
   if (shouldMinimize) {
@@ -9083,13 +9122,17 @@ function setPaneMinimized(panelId, minimized = true) {
       const nextPanel = firstUnminimizedPanel(found.workspace, panelId);
       found.workspace.activePanelId = nextPanel?.id || panelId;
       state.focusedPanelId = nextPanel?.id || null;
+      state.lastInteractedPanelId = nextPanel?.id || null;
       if (nextPanel) focusTerminalSession(nextPanel.id);
+    } else if (state.lastInteractedPanelId === panelId) {
+      state.lastInteractedPanelId = firstUnminimizedPanel(found.workspace, panelId)?.id || null;
     }
   } else {
     state.minimizedPanelIds.delete(panelId);
     found.workspace.activePanelId = panelId;
     state.data.activeWorkspaceId = found.workspace.id;
     state.focusedPanelId = panelId;
+    state.lastInteractedPanelId = panelId;
   }
   render();
   if (!shouldMinimize) focusTerminalSession(panelId);
@@ -9126,6 +9169,7 @@ function restoreMinimizedPanes(workspace = activeWorkspace()) {
   if (active) {
     targetWorkspace.activePanelId = active.id;
     state.focusedPanelId = active.id;
+    state.lastInteractedPanelId = active.id;
   }
   render();
   if (active) focusTerminalSession(active.id);
@@ -9136,6 +9180,7 @@ function togglePaneZoom(panelId = focusedPanel()?.id) {
   if (!panelId) return;
   const found = findPanelState(panelId);
   if (!found) return;
+  markInteractedPanel(panelId);
   state.minimizedPanelIds.delete(panelId);
   const zoomingIn = zoomedPanelIdForWorkspace(found.workspace) !== panelId;
   setZoomedPanelIdForWorkspace(found.workspace, zoomingIn ? panelId : null);
@@ -9342,8 +9387,9 @@ async function flushTerminalFontSizeSync() {
 }
 
 function changeTerminalFontSize(delta, options = {}) {
-  const panel = resolveTerminalPanel(options.panel || panelFromElement(options.event?.target) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || panelFromEvent(options.event) || focusedPanel());
   if (!panel) return false;
+  markInteractedPanel(panel.id);
   const currentSize = terminalFontSizeForPanel(panel);
   const nextSize = normalizeTerminalFontSize(currentSize + delta, currentSize);
   if (nextSize === currentSize) return false;
@@ -9367,8 +9413,9 @@ function changePaneTerminalFontSize(panelId, delta) {
 }
 
 function resetTerminalFontSize(options = {}) {
-  const panel = resolveTerminalPanel(options.panel || panelFromElement(options.event?.target) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || panelFromEvent(options.event) || focusedPanel());
   if (!panel) return false;
+  markInteractedPanel(panel.id);
   if (!panelHasTerminalFontSize(panel)) {
     if (options.toast !== false) toast(`Pane text already uses ${state.settings.terminalFontSize}px default.`);
     return false;

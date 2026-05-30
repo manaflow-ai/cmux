@@ -62,6 +62,36 @@ function pipeRoundTrip(command) {
   const terminal = await terminalResponse.json();
   assert(terminal.cwd === workspaceCwd, "new terminal should inherit workspace folder");
 
+  const initialTerminal = workspace.panels[0];
+  assert(initialTerminal?.type === "terminal", "workspace should start with a terminal panel");
+  const firstFontResponse = await fetch(`${info.url}api/panels/${initialTerminal.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ terminalFontSize: 18 })
+  });
+  assert(firstFontResponse.ok, "first terminal font size update failed");
+  const isolatedFontStateResponse = await fetch(`${info.url}api/state`);
+  const isolatedFontState = await isolatedFontStateResponse.json();
+  const isolatedFontWorkspace = isolatedFontState.workspaces.find((candidate) => candidate.id === workspace.id);
+  const isolatedInitialTerminal = isolatedFontWorkspace.panels.find((panel) => panel.id === initialTerminal.id);
+  const isolatedSecondTerminal = isolatedFontWorkspace.panels.find((panel) => panel.id === terminal.id);
+  assert(isolatedInitialTerminal.terminalFontSize === 18, "target terminal should keep its font size override");
+  assert(isolatedSecondTerminal.terminalFontSize === 0, "other terminals should not inherit a pane font size override");
+
+  const secondFontResponse = await fetch(`${info.url}api/panels/${terminal.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ terminalFontSize: 11 })
+  });
+  assert(secondFontResponse.ok, "second terminal font size update failed");
+  const dualFontStateResponse = await fetch(`${info.url}api/state`);
+  const dualFontState = await dualFontStateResponse.json();
+  const dualFontWorkspace = dualFontState.workspaces.find((candidate) => candidate.id === workspace.id);
+  const dualInitialTerminal = dualFontWorkspace.panels.find((panel) => panel.id === initialTerminal.id);
+  const dualSecondTerminal = dualFontWorkspace.panels.find((panel) => panel.id === terminal.id);
+  assert(dualInitialTerminal.terminalFontSize === 18, "first terminal font size override should remain separate");
+  assert(dualSecondTerminal.terminalFontSize === 11, "second terminal font size override should remain separate");
+
   const defaultBrowserResponse = await fetch(`${info.url}api/panels`, {
     method: "POST",
     headers: { "content-type": "application/json" },
