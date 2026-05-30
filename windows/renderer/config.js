@@ -44,6 +44,73 @@ export const themeOptions = [
   ["paper", "Paper Dark"]
 ];
 
+export const themePreviewOptions = [
+  {
+    id: "cmux",
+    canvas: "oklch(12% 0.006 255)",
+    pane: "oklch(16% 0.007 255)",
+    rail: "oklch(15% 0.007 255)",
+    line: "oklch(31% 0.012 255)",
+    accent: "oklch(61% 0.22 255)"
+  },
+  {
+    id: "graphite",
+    canvas: "oklch(12% 0.008 260)",
+    pane: "oklch(16% 0.01 260)",
+    rail: "oklch(15% 0.01 260)",
+    line: "oklch(32% 0.015 260)",
+    accent: "oklch(72% 0.17 230)"
+  },
+  {
+    id: "forest",
+    canvas: "oklch(13% 0.018 150)",
+    pane: "oklch(17% 0.018 150)",
+    rail: "oklch(16% 0.02 150)",
+    line: "oklch(32% 0.03 150)",
+    accent: "oklch(70% 0.16 145)"
+  },
+  {
+    id: "blueprint",
+    canvas: "oklch(13% 0.026 245)",
+    pane: "oklch(17% 0.026 245)",
+    rail: "oklch(16% 0.03 245)",
+    line: "oklch(32% 0.04 245)",
+    accent: "oklch(72% 0.17 230)"
+  },
+  {
+    id: "harbor",
+    canvas: "oklch(13% 0.02 205)",
+    pane: "oklch(17% 0.02 205)",
+    rail: "oklch(16% 0.024 205)",
+    line: "oklch(34% 0.032 205)",
+    accent: "oklch(66% 0.13 175)"
+  },
+  {
+    id: "orchid",
+    canvas: "oklch(13% 0.022 315)",
+    pane: "oklch(17% 0.022 315)",
+    rail: "oklch(16% 0.026 315)",
+    line: "oklch(34% 0.035 315)",
+    accent: "oklch(74% 0.18 305)"
+  },
+  {
+    id: "ember",
+    canvas: "oklch(13% 0.018 35)",
+    pane: "oklch(17% 0.02 35)",
+    rail: "oklch(16% 0.022 35)",
+    line: "oklch(34% 0.035 35)",
+    accent: "oklch(64% 0.17 28)"
+  },
+  {
+    id: "paper",
+    canvas: "oklch(17% 0.006 95)",
+    pane: "oklch(21% 0.007 95)",
+    rail: "oklch(20% 0.008 95)",
+    line: "oklch(38% 0.014 95)",
+    accent: "oklch(86% 0.11 70)"
+  }
+];
+
 export const accentOptions = [
   "oklch(61% 0.22 255)",
   "oklch(70% 0.16 145)",

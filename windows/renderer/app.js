@@ -14,6 +14,7 @@ import {
   terminalFontOptions,
   terminalProfiles,
   tabSizeOptions,
+  themePreviewOptions,
   titleDetailOptions,
   toolbarModeOptions,
   themeOptions
@@ -57,6 +58,16 @@ const terminalOutputBacklogThreshold = 262144;
 const renderSlowFrameMs = 24;
 const renderVerySlowFrameMs = 72;
 const renderSlowFrameTriggerCount = 4;
+const appearancePreviewKeys = new Set([
+  "theme",
+  "accent",
+  "backgroundImage",
+  "backgroundOpacity",
+  "terminalFontFamily",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursorColor"
+]);
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
   activeMatchBackground: "#9d6b20",
@@ -208,6 +219,7 @@ const state = {
   settingsSaveTimer: 0,
   settingsSavePending: false,
   terminalAppearanceFrame: 0,
+  appearancePreviewFrame: 0,
   settingsFilterFrame: 0,
   renderStats: {
     count: 0,
@@ -1151,6 +1163,9 @@ function updateSettings(updates, options = {}) {
     applyTerminalScrollback();
   } else if (terminalAppearanceChanged.length > 0) {
     scheduleTerminalAppearanceRefresh();
+  }
+  if (changedKeys.some((key) => appearancePreviewKeys.has(key))) {
+    scheduleAppearancePreviewRefresh();
   }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
@@ -2993,6 +3008,7 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(appearancePreviewPanel());
     const themeSelect = document.createElement("select");
     themeSelect.className = "setting-select";
+    themeSelect.dataset.settingControl = "theme";
     for (const [value, label] of themeOptions) {
       const option = document.createElement("option");
       option.value = value;
@@ -3002,6 +3018,7 @@ function renderSettingsInspector(options = {}) {
     themeSelect.value = state.settings.theme;
     themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
     appearanceSection.append(settingRow("Theme", themeSelect));
+    appearanceSection.append(settingRow("Theme gallery", themeChoiceGrid(), true, "theme visual gallery preview"));
     appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
     appearanceSection.append(settingRow("Saved colors", savedColorPalettePanel(), true, "saved color palette custom accent workspace tab pane color"));
@@ -3611,8 +3628,66 @@ function appearancePreviewPanel() {
     terminalTheme: terminalTheme(),
     backgroundImage: backgroundCss(state.settings.backgroundImage)
   });
-  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme accent background image strength terminal colors font");
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent background image strength terminal colors font");
   return preview;
+}
+
+function scheduleAppearancePreviewRefresh() {
+  if (state.appearancePreviewFrame) return;
+  state.appearancePreviewFrame = requestAnimationFrame(() => {
+    state.appearancePreviewFrame = 0;
+    refreshAppearancePreview();
+  });
+}
+
+function refreshAppearancePreview() {
+  const preview = elements.inspectorBody.querySelector(".appearance-preview");
+  if (preview) preview.replaceWith(appearancePreviewPanel());
+  const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
+  if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
+  for (const button of elements.inspectorBody.querySelectorAll("[data-theme-choice]")) {
+    const active = button.dataset.themeChoice === state.settings.theme;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function themeChoiceGrid() {
+  const grid = document.createElement("div");
+  grid.className = "theme-choice-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("theme gallery visual preview color appearance look");
+  for (const theme of themePreviewOptions) {
+    const label = optionLabel(themeOptions, theme.id, theme.id);
+    const button = document.createElement("button");
+    const active = theme.id === state.settings.theme;
+    button.className = `theme-choice${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = label;
+    button.dataset.themeChoice = theme.id;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`theme visual gallery preview ${label} ${theme.id}`);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.style.setProperty("--theme-preview-canvas", theme.canvas);
+    button.style.setProperty("--theme-preview-pane", theme.pane);
+    button.style.setProperty("--theme-preview-rail", theme.rail);
+    button.style.setProperty("--theme-preview-line", theme.line);
+    button.style.setProperty("--theme-preview-accent", theme.accent);
+    button.innerHTML = `
+      <span class="theme-choice-preview">
+        <span class="theme-choice-sidebar"></span>
+        <span class="theme-choice-pane"></span>
+        <span class="theme-choice-accent"></span>
+      </span>
+      <span class="theme-choice-label"></span>
+    `;
+    button.querySelector(".theme-choice-label").textContent = label;
+    button.onclick = () => {
+      const changed = updateSettings({ theme: theme.id });
+      if (!changed) toast(`${label} theme already active.`);
+    };
+    grid.append(button);
+  }
+  return grid;
 }
 
 function settingsSection(title, searchTerms = "") {
