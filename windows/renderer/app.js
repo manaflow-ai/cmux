@@ -3373,6 +3373,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("data")) {
     const actionsSection = settingsSection("Settings data");
+    actionsSection.append(settingsMetricGrid(settingsDataMetrics(), "data storage local settings metric"));
     const actions = document.createElement("div");
     actions.className = "settings-actions";
     const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages history");
@@ -3411,22 +3412,22 @@ function settingsInspectorSignature() {
   if (searching || ["workspace", "layout", "blueprints", "appearance", "performance", "actions"].includes(category)) {
     parts.push(activeWorkspaceSettingsSignature());
   }
-  if (searching || ["appearance", "actions"].includes(category)) {
+  if (searching || ["appearance", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
   }
-  if (searching || ["browser", "actions"].includes(category)) {
+  if (searching || ["browser", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.recentBrowserPages));
   }
-  if (searching || ["workspace", "actions"].includes(category)) {
+  if (searching || ["workspace", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.recentFolders));
   }
   if (searching || ["commands", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.customCommandSnippets), stableJson(state.recentCommands));
   }
-  if (searching || ["profiles", "actions"].includes(category)) {
+  if (searching || ["profiles", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.savedSettingsProfiles));
   }
-  if (searching || ["blueprints", "actions"].includes(category)) {
+  if (searching || ["blueprints", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.workspaceBlueprints));
   }
   if (searching || category === "performance") {
@@ -3733,6 +3734,61 @@ function performanceMetrics() {
   ];
 }
 
+function localStorageString(key) {
+  try {
+    return localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storageStringBytes(value) {
+  const text = String(value || "");
+  if (typeof Blob === "function") return new Blob([text]).size;
+  return text.length;
+}
+
+function storageEntryBytes(key) {
+  return storageStringBytes(localStorageString(key));
+}
+
+function settingsDataMetrics() {
+  const storageEntries = [
+    ["settings", "Settings", "cmux.settings"],
+    ["terminalFontSize", "Terminal font", "cmux.terminalFontSize"],
+    ["paneLayout", "Pane layouts", paneLayoutStorageKey],
+    ["recentFolders", "Recent folders", recentFoldersStorageKey],
+    ["recentCommands", "Recent commands", recentCommandsStorageKey],
+    ["recentBrowserPages", "Recent pages", recentBrowserPagesStorageKey],
+    ["commandSnippets", "Command snippets", customCommandSnippetsStorageKey],
+    ["settingsProfiles", "Profiles", savedSettingsProfilesStorageKey],
+    ["workspaceBlueprints", "Blueprints", workspaceBlueprintsStorageKey],
+    ["customColors", "Saved colors", customColorPaletteStorageKey],
+    ["savedBackgrounds", "Backgrounds", savedBackgroundImagesStorageKey]
+  ];
+  const totalBytes = storageEntries.reduce((sum, [, , key]) => sum + storageEntryBytes(key), 0);
+  const recentItems = state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length;
+  const savedItems = state.customCommandSnippets.length
+    + state.savedSettingsProfiles.length
+    + state.workspaceBlueprints.length
+    + state.customColorPalette.length
+    + state.savedBackgroundImages.length;
+  return [
+    ["Local data", formatBytes(totalBytes)],
+    ["Recent items", String(recentItems)],
+    ["Saved items", String(savedItems)],
+    ["Recent folders", `${state.recentFolders.length}/${recentFoldersLimit}`],
+    ["Recent commands", `${state.recentCommands.length}/${recentCommandsLimit}`],
+    ["Recent pages", `${state.recentBrowserPages.length}/${recentBrowserPagesLimit}`],
+    ["Command snippets", `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`],
+    ["Profiles", `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
+    ["Blueprints", `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`],
+    ["Saved colors", `${state.customColorPalette.length}/${customColorPaletteLimit}`],
+    ["Backgrounds", `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit}`],
+    ["Pane layouts", formatBytes(storageEntryBytes(paneLayoutStorageKey))]
+  ];
+}
+
 function performanceDiagnosticsPayload() {
   const workspace = activeWorkspace();
   const panels = allPanels();
@@ -3827,13 +3883,13 @@ async function copyPerformanceDiagnostics() {
   });
 }
 
-function settingsMetricGrid(metrics) {
+function settingsMetricGrid(metrics, searchPrefix = "performance diagnostics metric") {
   const grid = document.createElement("div");
   grid.className = "settings-metric-grid";
   for (const [label, value] of metrics) {
     const card = document.createElement("div");
     card.className = "settings-metric";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`performance diagnostics metric ${label} ${value}`);
+    card.dataset.settingsSearch = normalizeSettingsQuery(`${searchPrefix} ${label} ${value}`);
     card.innerHTML = `<span class="settings-metric-value"></span><span class="settings-metric-label"></span>`;
     card.querySelector(".settings-metric-value").textContent = value;
     card.querySelector(".settings-metric-label").textContent = label;
