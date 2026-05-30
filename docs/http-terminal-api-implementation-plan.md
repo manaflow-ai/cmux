@@ -4,7 +4,7 @@
 
 - **Date:** 2026-05-30
 - **Spec:** [`docs/http-terminal-api-design.md`](./http-terminal-api-design.md)
-- **Status:** Synthesized + reviewed. **⚠ READ § "Errata & Reconciled Contracts" at the bottom BEFORE STARTING ANY TASK.** The 3-phase parallel synthesis introduced 20 cross-phase contradictions (4 blockers, 9 majors, 7 minors per final verification). The Errata locks the final authoritative API contracts that **override** any conflicting task body.
+- **Status:** Synthesized + reviewed + Errata folded inline. **Errata (Appendix C) is now FOLDED INTO TASK BODIES — read for reference only.** The 3-phase parallel synthesis originally introduced 20 cross-phase contradictions (4 blockers, 9 majors, 7 minors per final verification); a 2026-05-30 fold-in pass rewrote every conflicting Phase 0/1/2 task body in place so the API contracts E1-E20 are now consistent throughout the plan. Appendix C remains as a contract-reference record (no override notice needed).
 
 **Goal:** Add a local HTTP API to read and write specific cmux terminal tabs — supporting `text`/`cells`/`raw` output representations, `text`/`keys`/`raw`/`paste`/`mouse`/`focus` input modes, and SSE streaming with explicit backpressure — bound to localhost (TCP hardened, with UDS opt-in), gated by a Settings toggle and a token.
 
@@ -48,11 +48,11 @@
   - [Task 0.14: `AuditKind` enum + `AuditEntry` (D3) + `AuditLog` protocol + `NoOpAuditLog` (D4)](#task-0-14--auditkind-enum-auditentry-d3-auditlog-protocol-noopauditlog-d4)
   - [Task 0.15: `FileAuditLog` (mode 0600 enforced on every open)](#task-0-15--fileauditlog-mode-0600-enforced-on-every-open)
   - [Task 0.16: `RateLimiter` (D10) — `init(burstCapacity:refillPerSecond:clock:)`, lazy per-key buckets](#task-0-16--ratelimiter-d10-init-burstcapacity-refillpersecond-clock-lazy-per-key-buckets)
-  - [Task 0.17: `SurfaceInfo` + `SurfaceProvider` protocol (D1 all `async throws`; raw output + readCells seams)](#task-0-17--surfaceinfo-surfaceprovider-protocol-d1-all-async-throws-raw-output-readcells-seams)
+  - [Task 0.17: `SurfaceInfo` + `SurfaceProvider` protocol (D1 all `async throws`; `readCells` required member)](#task-0-17--surfaceinfo-surfaceprovider-protocol-d1-all-async-throws-readcells-required-member)
   - [Task 0.18: Shared `StubSurfaceProvider` in `TestSupport/` (D13)](#task-0-18-shared-stubsurfaceprovider-in-testsupport-d13)
   - [Task 0.19: `TerminalAccessService` protocol + `DefaultTerminalAccessService` listSurfaces + readScreen text path](#task-0-19--terminalaccessservice-protocol-defaultterminalaccessservice-listsurfaces-readscreen-text-path)
   - [Task 0.20: `DefaultTerminalAccessService.writeInput` — text / keys / raw-gate / mouse / focus + `focusSurface` wiring (D17)](#task-0-20--defaultterminalaccessservice-writeinput-text-keys-raw-gate-mouse-focus-focussurface-wiring-d17)
-  - [Task 0.21: Per-surface paste atomicity test (D30) — concurrent paste interleave check](#task-0-21-per-surface-paste-atomicity-test-d30-concurrent-paste-interleave-check)
+  - [Task 0.21: Per-surface paste atomicity test (D30) — concurrent paste interleave check (characterization test — no red→green ritual)](#task-0-21-per-surface-paste-atomicity-test-d30-concurrent-paste-interleave-check-characterization-test-no-red-green-ritual)
   - [Task 0.22: `HTTPControlSettings` (D2 instance class) + embedded token store + `Transport` enum](#task-0-22--httpcontrolsettings-d2-instance-class-embedded-token-store-transport-enum)
   - [Task 0.23: `AppSurfaceProvider` (app target) — bridge to `TerminalController` (D1 async throws; D9 no env injection)](#task-0-23--appsurfaceprovider-app-target-bridge-to-terminalcontroller-d1-async-throws-d9-no-env-injection)
   - [Task 0.24: Replace `TerminalController` stub forwarders with real extracts (one task per extract, each RED → GREEN)](#task-0-24-replace-terminalcontroller-stub-forwarders-with-real-extracts-one-task-per-extract-each-red-green)
@@ -101,7 +101,7 @@
   - [Task 2.15: `SurfaceProvider` extension — raw-output source seam (async)](#task-2-15--surfaceprovider-extension-raw-output-source-seam-async)
   - [Task 2.16: `TerminalAccessService.subscribeOutput` skeleton + raw-mode failing test (RED)](#task-2-16--terminalaccessservice-subscribeoutput-skeleton-raw-mode-failing-test-red)
   - [Task 2.17: Implement `openRawSubscription` — wires `SurfaceRawOutputSource` → `EventRing` → `onEvent`, audits open/close (GREEN)](#task-2-17-implement-openrawsubscription-wires-surfacerawoutputsource-eventring-onevent-audits-open-close-green)
-  - [Task 2.18: Implement `openCellsSubscription` using `SnapshotPoller` (D8) — TDD](#task-2-18-implement-opencellssubscription-using-snapshotpoller-d8-tdd)
+  - [Task 2.18: Implement `openCellsSubscription` using `SnapshotPoller` (D8) (characterization test — no red→green ritual)](#task-2-18-implement-opencellssubscription-using-snapshotpoller-d8-characterization-test-no-red-green-ritual)
   - [Task 2.19: `OutputSubscription.signalEnd` + `onEnd` wiring; surface-close test (RED → GREEN)](#task-2-19--outputsubscription-signalend-onend-wiring-surface-close-test-red-green)
   - [Task 2.20: HTTP route `GET /v1/surfaces/{id}/stream` — listener wiring + happy-path headers + 405/401 (RED → GREEN)](#task-2-20-http-route-get-v1-surfaces-id-stream-listener-wiring-happy-path-headers-405-401-red-green)
   - [Task 2.21: Wire `subscribeOutput` into `handleStream` + raw payload framing + cells payload framing](#task-2-21-wire-subscribeoutput-into-handlestream-raw-payload-framing-cells-payload-framing)
@@ -144,7 +144,7 @@ Tasks land in dependency order. Numbering is contiguous 0.1–0.27.
 - 0.14    `AuditKind` enum (D3) + `AuditEntry` (D3) + `AuditLog` protocol + `NoOpAuditLog` (D4).
 - 0.15    `FileAuditLog` (enforces mode 0600 on every open per Quality finding).
 - 0.16    `RateLimiter` (D10) — `init(burstCapacity:refillPerSecond:clock:)`, lazy per-string-key buckets.
-- 0.17    `SurfaceInfo` + `SurfaceProvider` protocol (D1: all `async throws`, Sendable; includes `readCells` + `attachRawOutput` seams).
+- 0.17    `SurfaceInfo` + `SurfaceProvider` protocol (D1: all `async throws`, Sendable; `readCells` is a REQUIRED member per E20; raw-output tap is a Phase 2 extension, NOT a Phase 0 required member).
 - 0.18    Shared `StubSurfaceProvider` (D13) in `Tests/CmuxTerminalAccessTests/TestSupport/`.
 - 0.19    `TerminalAccessService` protocol + `DefaultTerminalAccessService` listSurfaces + readScreen text path.
 - 0.20    `DefaultTerminalAccessService` write paths: text/keys/raw-gate/mouse/focus + `focusSurface` wiring (D17).
@@ -1271,7 +1271,9 @@ public enum InputPayload: Sendable, Hashable {
     case text(String, submit: Bool)
     /// Semantic key presses, encoded by ghostty against the active modes.
     case keys([KeyEvent])
-    /// Raw bytes written verbatim. Gated by ``TerminalAccessService/allowRawInput``.
+    /// Raw bytes written verbatim. Gated by the
+    /// ``DefaultTerminalAccessService`` `allowRawInput` init-time closure
+    /// (E3); the HTTP layer wires it to `{ settings.allowRawInput }`.
     case raw(Data)
     /// Explicit bracketed paste, atomic within one call per D30.
     case paste(String)
@@ -1714,11 +1716,12 @@ import Testing
         #expect(json.contains("\"stream_open\""))
         #expect(json.contains("\"surface:2\""))
     }
-    @Test func noOpAuditLogAcceptsAllEntries() throws {
+    @Test func noOpAuditLogAcceptsAllEntries() async {
+        // E2 — AuditLog.record is async, non-throwing.
         let log = NoOpAuditLog()
-        try log.record(AuditEntry(timestamp: Date(),
-                                  surface: .ref(kind: "surface", ordinal: 1),
-                                  kind: .writeRaw, byteCount: 0, detail: nil))
+        await log.record(AuditEntry(timestamp: Date(),
+                                    surface: .ref(kind: "surface", ordinal: 1),
+                                    kind: .writeRaw, byteCount: 0, detail: nil))
     }
     @Test func auditKindCoversD3Cases() {
         let all: Set<AuditKind> = [.writeText, .writeKeys, .writeRaw, .writePaste,
@@ -1786,8 +1789,12 @@ public struct AuditEntry: Sendable, Codable, Equatable {
 /// ``DefaultTerminalAccessService`` and the HTTP layer. Per D4 the
 /// production wiring is ALWAYS-ON in v1 — Settings only controls the
 /// log file path. ``NoOpAuditLog`` exists for tests only.
+///
+/// E2 — `record` is `async` and non-throwing. Conformers serialize
+/// writes internally (e.g. ``FileAuditLog`` is an `actor` that owns a
+/// `FileHandle`). Call sites never write `try`.
 public protocol AuditLog: Sendable {
-    func record(_ entry: AuditEntry) throws
+    func record(_ entry: AuditEntry) async
 }
 ```
 ```swift
@@ -1796,9 +1803,12 @@ public protocol AuditLog: Sendable {
 /// Discard-everything ``AuditLog``. **Tests only** (D4) — never wire
 /// this in as the production default. Use ``FileAuditLog`` in
 /// production; the Settings UI only toggles the file PATH.
-public struct NoOpAuditLog: AuditLog {
+///
+/// E2 — `record` is `async` non-throwing; a `final class` is fine
+/// because there is no mutable state to guard.
+public final class NoOpAuditLog: AuditLog {
     public init() {}
-    public func record(_ entry: AuditEntry) throws {}
+    public func record(_ entry: AuditEntry) async {}
 }
 ```
 
@@ -1832,31 +1842,32 @@ import Testing
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("audit.jsonl")
     }
-    @Test func appendsOneJSONLinePerEvent() throws {
+    @Test func appendsOneJSONLinePerEvent() async throws {
         let url = try tempURL()
+        // E2 — FileAuditLog is an actor; `record` is async non-throwing.
         let log = FileAuditLog(url: url)
-        try log.record(AuditEntry(timestamp: Date(timeIntervalSince1970: 0),
-                                  surface: .ref(kind: "surface", ordinal: 1),
-                                  kind: .writeText, byteCount: 4,
-                                  detail: ["submit": "true"]))
-        try log.record(AuditEntry(timestamp: Date(timeIntervalSince1970: 1),
-                                  surface: .ref(kind: "surface", ordinal: 1),
-                                  kind: .writeRaw, byteCount: 32, detail: nil))
+        await log.record(AuditEntry(timestamp: Date(timeIntervalSince1970: 0),
+                                    surface: .ref(kind: "surface", ordinal: 1),
+                                    kind: .writeText, byteCount: 4,
+                                    detail: ["submit": "true"]))
+        await log.record(AuditEntry(timestamp: Date(timeIntervalSince1970: 1),
+                                    surface: .ref(kind: "surface", ordinal: 1),
+                                    kind: .writeRaw, byteCount: 32, detail: nil))
         let lines = String(decoding: try Data(contentsOf: url), as: UTF8.self)
             .split(separator: "\n", omittingEmptySubsequences: true)
         #expect(lines.count == 2)
         #expect(lines[0].contains("\"kind\":\"write_text\""))
         #expect(lines[1].contains("\"byte_count\":32"))
     }
-    @Test func enforces0600OnFirstWriteAndReopen() throws {
+    @Test func enforces0600OnFirstWriteAndReopen() async throws {
         let url = try tempURL()
         // Pre-create the file with mode 0644 to simulate stale state.
         FileManager.default.createFile(atPath: url.path, contents: Data(),
                                        attributes: [.posixPermissions: 0o644])
         let log = FileAuditLog(url: url)
-        try log.record(AuditEntry(timestamp: Date(),
-                                  surface: .ref(kind: "surface", ordinal: 1),
-                                  kind: .writeText, byteCount: 1, detail: nil))
+        await log.record(AuditEntry(timestamp: Date(),
+                                    surface: .ref(kind: "surface", ordinal: 1),
+                                    kind: .writeText, byteCount: 1, detail: nil))
         let perms = (try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
                      as? NSNumber)?.intValue ?? 0
         #expect(perms == 0o600)
@@ -1879,9 +1890,13 @@ import Foundation
 /// File-backed ``AuditLog`` that appends one JSON object per line.
 /// Enforces mode 0600 on the log file on **every** record call (Quality
 /// must_fix), not just at creation time.
-public final class FileAuditLog: AuditLog, @unchecked Sendable {
+///
+/// E2 — `actor` so writes are serialized through the actor executor;
+/// `record` is `async` non-throwing. Internal errors (encode failure,
+/// `FileHandle` errors) are absorbed and surfaced via cmuxDebugLog under
+/// `#if DEBUG`; the call site never sees an exception.
+public actor FileAuditLog: AuditLog {
     private let url: URL
-    private let queue = DispatchQueue(label: "cmux.terminal-access.audit")
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
@@ -1891,8 +1906,8 @@ public final class FileAuditLog: AuditLog, @unchecked Sendable {
 
     public init(url: URL) { self.url = url }
 
-    public func record(_ entry: AuditEntry) throws {
-        try queue.sync {
+    public func record(_ entry: AuditEntry) async {
+        do {
             var data = try encoder.encode(entry); data.append(0x0A)
             if FileManager.default.fileExists(atPath: url.path) {
                 let h = try FileHandle(forWritingTo: url)
@@ -1905,6 +1920,10 @@ public final class FileAuditLog: AuditLog, @unchecked Sendable {
             // and (b) stale pre-existing files (Quality finding).
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("FileAuditLog.record failed: \(error)")
+            #endif
         }
     }
 }
@@ -1939,39 +1958,51 @@ import Testing
         var now: TimeInterval = 0
         func nowSeconds() -> TimeInterval { now }
     }
-    @Test func allowsUpToCapacity() {
+    // E16 — `acquire` throws `TerminalAccessError.rateLimited` on overflow.
+    // Tests use `await #expect(throws:)` instead of asserting a Bool return.
+    @Test func allowsUpToCapacity() async throws {
         let clock = FakeClock()
         let limiter = RateLimiter(burstCapacity: 3, refillPerSecond: 1, clock: clock)
-        #expect(limiter.acquire(key: "k"))
-        #expect(limiter.acquire(key: "k"))
-        #expect(limiter.acquire(key: "k"))
-        #expect(!limiter.acquire(key: "k"))
+        try await limiter.acquire(key: "k")
+        try await limiter.acquire(key: "k")
+        try await limiter.acquire(key: "k")
+        await #expect(throws: TerminalAccessError.self) {
+            try await limiter.acquire(key: "k")
+        }
     }
-    @Test func refillsOverTime() {
+    @Test func refillsOverTime() async throws {
         let clock = FakeClock()
         let limiter = RateLimiter(burstCapacity: 2, refillPerSecond: 2, clock: clock)
-        _ = limiter.acquire(key: "k"); _ = limiter.acquire(key: "k")
-        #expect(!limiter.acquire(key: "k"))
+        try await limiter.acquire(key: "k"); try await limiter.acquire(key: "k")
+        await #expect(throws: TerminalAccessError.self) {
+            try await limiter.acquire(key: "k")
+        }
         clock.now = 1.0
-        #expect(limiter.acquire(key: "k"))
-        #expect(limiter.acquire(key: "k"))
-        #expect(!limiter.acquire(key: "k"))
+        try await limiter.acquire(key: "k")
+        try await limiter.acquire(key: "k")
+        await #expect(throws: TerminalAccessError.self) {
+            try await limiter.acquire(key: "k")
+        }
     }
-    @Test func separateKeysAreIndependent() {
+    @Test func separateKeysAreIndependent() async throws {
         let clock = FakeClock()
         let limiter = RateLimiter(burstCapacity: 1, refillPerSecond: 0, clock: clock)
-        #expect(limiter.acquire(key: "a"))
-        #expect(limiter.acquire(key: "b"))
-        #expect(!limiter.acquire(key: "a"))
+        try await limiter.acquire(key: "a")
+        try await limiter.acquire(key: "b")
+        await #expect(throws: TerminalAccessError.self) {
+            try await limiter.acquire(key: "a")
+        }
     }
-    @Test func bucketsAreCreatedLazily() {
+    @Test func bucketsAreCreatedLazily() async throws {
         let clock = FakeClock()
         let limiter = RateLimiter(burstCapacity: 2, refillPerSecond: 1, clock: clock)
         // New key gets full burst capacity even when constructed cold.
-        #expect(limiter.acquire(key: "surface:1#write"))
-        #expect(limiter.acquire(key: "surface:1#write"))
-        #expect(!limiter.acquire(key: "surface:1#write"))
-        #expect(limiter.acquire(key: "surface:2#write")) // separate, full
+        try await limiter.acquire(key: "surface:1#write")
+        try await limiter.acquire(key: "surface:1#write")
+        await #expect(throws: TerminalAccessError.self) {
+            try await limiter.acquire(key: "surface:1#write")
+        }
+        try await limiter.acquire(key: "surface:2#write") // separate, full
     }
 }
 ```
@@ -2007,11 +2038,15 @@ import Foundation
 /// layer uses keys like `"surface:1#write"`, `"surface:1#stream-open"`,
 /// `"conn:<uuid>#write"`. Buckets are created lazily at full
 /// ``burstCapacity`` on first ``acquire(key:)``.
-public final class RateLimiter: @unchecked Sendable {
+///
+/// E16 — `acquire` throws ``TerminalAccessError/rateLimited`` on
+/// overflow. Call sites always use `try await rateLimiter.acquire(...)`;
+/// there is NO Bool return. The HTTP layer maps the thrown error to
+/// 429 via the `TerminalAccessError -> HTTP` mapping (Phase 1).
+public actor RateLimiter {
     public let burstCapacity: Double
     public let refillPerSecond: Double
     private let clock: any RateLimiterClock
-    private let lock = NSLock()
     private var buckets: [String: (tokens: Double, updated: TimeInterval)] = [:]
 
     public init(burstCapacity: Int, refillPerSecond: Double,
@@ -2021,10 +2056,9 @@ public final class RateLimiter: @unchecked Sendable {
         self.clock = clock
     }
 
-    /// Attempts to spend `cost` tokens for `key`. Returns true if the
-    /// request is allowed (tokens consumed); false otherwise.
-    public func acquire(key: String, cost: Double = 1) -> Bool {
-        lock.lock(); defer { lock.unlock() }
+    /// Spends `cost` tokens for `key`. Throws
+    /// ``TerminalAccessError/rateLimited`` when the bucket is empty.
+    public func acquire(key: String, cost: Double = 1) async throws {
         let now = clock.nowSeconds()
         var state = buckets[key] ?? (tokens: burstCapacity, updated: now)
         let elapsed = max(0, now - state.updated)
@@ -2033,10 +2067,10 @@ public final class RateLimiter: @unchecked Sendable {
         if state.tokens >= cost {
             state.tokens -= cost
             buckets[key] = state
-            return true
+            return
         }
         buckets[key] = state
-        return false
+        throw TerminalAccessError.rateLimited
     }
 }
 ```
@@ -2050,9 +2084,9 @@ git push
 
 ---
 
-### Task 0.17: `SurfaceInfo` + `SurfaceProvider` protocol (D1 all `async throws`; raw output + readCells seams)
+### Task 0.17: `SurfaceInfo` + `SurfaceProvider` protocol (D1 all `async throws`; `readCells` required member)
 
-(Resolves Coverage/Quality must_fix: D1 every SurfaceProvider method is `async throws` Sendable; includes `readCells` + `attachRawOutput` so Phase 1/2 only USE the protocol, not redefine it.)
+(Resolves Coverage/Quality must_fix: D1 every SurfaceProvider method is `async throws` Sendable; per E1/E20, `readCells` is a REQUIRED protocol member (no default impl) so Phase 1 only USES the protocol, not redefines it. The Phase 2 raw-output tap is a separate protocol extension added in Task 2.15 — it is NOT a Phase 0 required member.)
 
 **Files:**
 - Create: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/SurfaceInfo.swift`
@@ -2231,14 +2265,12 @@ public actor StubSurfaceProvider: SurfaceProvider {
     public var surfaces: [SurfaceInfo] = []
     public var cannedText: String = ""
     public var cannedCells: CellGrid?
-    public var rawAttachable: Bool = false
     public var capacityRemaining: Int = 1 << 20
 
     public private(set) var textWrites: [Data] = []
     public private(set) var keyWrites: [KeyEvent] = []
     public private(set) var mouseWrites: [MouseEvent] = []
     public private(set) var focusWrites: [Bool] = []
-    public private(set) var rawAttachCount: Int = 0
     public private(set) var nsEventBuilds: Int = 0  // never incremented by this stub — D16
 
     public init() {}
@@ -2246,7 +2278,6 @@ public actor StubSurfaceProvider: SurfaceProvider {
     public func set(surfaces: [SurfaceInfo]) { self.surfaces = surfaces }
     public func set(cannedText: String) { self.cannedText = cannedText }
     public func set(cannedCells: CellGrid?) { self.cannedCells = cannedCells }
-    public func set(rawAttachable: Bool) { self.rawAttachable = rawAttachable }
     public func set(capacityRemaining: Int) { self.capacityRemaining = capacityRemaining }
 
     public func listSurfaces() async throws -> [SurfaceInfo] { surfaces }
@@ -2272,19 +2303,14 @@ public actor StubSurfaceProvider: SurfaceProvider {
     public func setFocus(surface: SurfaceInfo, gained: Bool) async throws {
         focusWrites.append(gained)
     }
-    public func attachRawOutput(surface: SurfaceInfo,
-                                onBytes: @escaping @Sendable (Data) -> Void)
-        async throws -> RawOutputDetachToken
-    {
-        guard rawAttachable else {
-            throw TerminalAccessError.unsupported(reason: "raw output not stubbed")
-        }
-        rawAttachCount += 1
-        final class Token: RawOutputDetachToken { func detach() {} }
-        return Token()
-    }
-    public func pendingInputCapacityRemaining(surface: SurfaceInfo) async -> Int {
-        capacityRemaining
+    /// Synchronous per E1 — capacity bookkeeping is a fast in-memory counter.
+    /// The actor isolation is satisfied by an `isolated` parameter at call sites
+    /// (or by callers awaiting the actor's executor before reading the value).
+    public nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int {
+        // Stub: returns a large constant so tests don't trip capacity in fast paths.
+        // Tests that need to assert capacity behavior use `set(capacityRemaining:)`
+        // on an alternate `actor`-backed spy provider rather than this stub.
+        1 << 20
     }
 }
 ```
@@ -2383,11 +2409,12 @@ public protocol TerminalAccessService: Sendable {
     /// / policy violations (D17 handles `focusSurface`, D30 serializes
     /// paste atomicity per surface).
     func writeInput(_ request: InputRequest) async throws
-
-    /// When `true`, callers may submit ``InputPayload/raw(_:)``. Toggled
-    /// by the HTTP layer based on the Settings switch (default `false`).
-    var allowRawInput: Bool { get }
 }
+
+// E3 — the `allowRawInput` setting is owned by `DefaultTerminalAccessService`
+// as an init-time closure (`allowRawInput: () -> Bool`); it is NOT part of
+// the protocol surface. The HTTP layer wires `{ settings.allowRawInput }`
+// at construction in Phase 1.
 ```
 
 - [ ] **Step 4: Implement service skeleton (text read path + listSurfaces; write fanout lands in 0.20)**
@@ -2407,22 +2434,34 @@ import Foundation
 /// ``SurfaceProvider/setFocus(surface:gained:)`` BEFORE dispatching the
 /// payload.
 public final class DefaultTerminalAccessService: TerminalAccessService, @unchecked Sendable {
-    private let provider: SurfaceProvider
-    private let audit: AuditLog
-    private let lock = NSLock()
-    private var _allowRawInput: Bool
-    // Per-surface paste serialization actor map (D30) — populated lazily.
+    private let provider: any SurfaceProvider
+    private let audit: any AuditLog
+    private let rateLimiter: RateLimiter
+    private let streamCap: StreamCap
+    private let cellsTickRate: Double
+    private let allowRawInput: () -> Bool
+    // E4 — `PasteSerializer` is defined ONCE in its own file
+    // (Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/PasteSerializer.swift)
+    // as a public actor. It is NOT defined inline here.
     private let pasteSerializer = PasteSerializer()
 
-    public init(provider: SurfaceProvider, audit: AuditLog, allowRawInput: Bool = false) {
-        self.provider = provider; self.audit = audit; self._allowRawInput = allowRawInput
-    }
-
-    public var allowRawInput: Bool {
-        get { lock.lock(); defer { lock.unlock() }; return _allowRawInput }
-    }
-    public func setAllowRawInput(_ value: Bool) {
-        lock.lock(); defer { lock.unlock() }; _allowRawInput = value
+    // E3 — single locked constructor signature. Phase 0 uses the defaults;
+    // Phase 1 passes a real `RateLimiter` and `allowRawInput: { settings.allowRawInput }`;
+    // Phase 2 passes a real `StreamCap` and `cellsTickRate` from settings.
+    public init(
+        provider: any SurfaceProvider,
+        audit: any AuditLog,
+        rateLimiter: RateLimiter = RateLimiter(burstCapacity: 64, refillPerSecond: 16),
+        streamCap: StreamCap = StreamCap(maxPerSurface: 8),
+        cellsTickRate: Double = 5.0,
+        allowRawInput: @escaping () -> Bool = { false }
+    ) {
+        self.provider = provider
+        self.audit = audit
+        self.rateLimiter = rateLimiter
+        self.streamCap = streamCap
+        self.cellsTickRate = cellsTickRate
+        self.allowRawInput = allowRawInput
     }
 
     public func listSurfaces() async throws -> [SurfaceInfo] {
@@ -2466,29 +2505,169 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
             .joined(separator: "\n")
     }
 }
-
-/// Per-surface serial actor map (D30). One inner actor per UUID guards
-/// paste atomicity so concurrent paste calls cannot interleave their
-/// wrap+write byte slices.
-final class PasteSerializer: @unchecked Sendable {
-    private actor SerialLane { func run<T>(_ body: () async throws -> T) async rethrows -> T { try await body() } }
-    private let lock = NSLock()
-    private var lanes: [UUID: SerialLane] = [:]
-
-    func run<T>(uuid: UUID, _ body: () async throws -> T) async rethrows -> T {
-        lock.lock()
-        let lane = lanes[uuid] ?? SerialLane()
-        if lanes[uuid] == nil { lanes[uuid] = lane }
-        lock.unlock()
-        return try await lane.run(body)
-    }
-}
 ```
+
+> **E4 follow-up.** The `PasteSerializer` actor lives in its own file at
+> `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/PasteSerializer.swift`,
+> created in Task 0.19a (below). Do NOT inline the type into this file.
 
 - [ ] **Step 5: Commit GREEN**
 ```bash
 git add Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess
 git commit -m "Add TerminalAccessService + DefaultTerminalAccessService read path (D1/D18/D30 skeleton)"
+git push
+```
+
+---
+
+### Task 0.19a: `PasteSerializer` actor in its own file (E4)
+
+(Resolves E4: ONE definition of `PasteSerializer` in the package; NOT inlined in `DefaultTerminalAccessService.swift`. Phase 1 only USES it.)
+
+**Files:**
+- Create: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/PasteSerializer.swift`
+- Test:   `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/PasteSerializerTests.swift`
+
+- [ ] **Step 1: Failing test (per-surface ordering, cross-surface concurrency)**
+```swift
+import Foundation
+import Testing
+@testable import CmuxTerminalAccess
+
+@Suite struct PasteSerializerTests {
+    @Test func runsBodiesSeriallyPerSurface() async throws {
+        let info = SurfaceInfo(handle: .ref(kind: "surface", ordinal: 1),
+                               uuid: UUID(), workspaceRef: "workspace:1",
+                               title: nil, cols: 1, rows: 1,
+                               altScreen: false, focused: true,
+                               semanticAvailable: false)
+        let serializer = PasteSerializer()
+        actor Order { var seq: [Int] = []; func append(_ n: Int) { seq.append(n) } }
+        let order = Order()
+        async let a: Void = serializer.run(surface: info) {
+            try await Task.sleep(nanoseconds: 5_000_000); await order.append(1)
+        }
+        async let b: Void = serializer.run(surface: info) {
+            await order.append(2)
+        }
+        _ = try await (a, b)
+        #expect(await order.seq == [1, 2])
+    }
+}
+```
+
+- [ ] **Step 2: Push RED**
+```bash
+git add Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/PasteSerializerTests.swift
+git commit -m "Add failing PasteSerializer per-surface ordering tests"
+git push
+```
+
+- [ ] **Step 3: Implement**
+```swift
+// Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/PasteSerializer.swift
+import Foundation
+
+/// Per-surface serial actor for paste atomicity (D30 / E4). Concurrent
+/// `run(surface:_:)` calls for the same ``SurfaceInfo/uuid`` execute in
+/// FIFO order; calls for different surfaces execute concurrently.
+public actor PasteSerializer {
+    private var tails: [UUID: Task<Void, Never>] = [:]
+
+    public init() {}
+
+    public func run<T: Sendable>(
+        surface: SurfaceInfo,
+        _ body: @Sendable @escaping () async throws -> T
+    ) async rethrows -> T {
+        let previous = tails[surface.uuid]
+        let gate = Task<Void, Never> { await previous?.value }
+        tails[surface.uuid] = gate
+        await gate.value
+        return try await body()
+    }
+}
+```
+
+- [ ] **Step 4: Commit GREEN**
+```bash
+git add Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/PasteSerializer.swift
+git commit -m "Add PasteSerializer actor (E4 — one file, public actor)"
+git push
+```
+
+---
+
+### Task 0.19b: `ConstantTimeCompare` helper + legacy `SocketControlSettings:133` fix (E9)
+
+(Resolves E9: shared `ctCompare` helper used by both legacy socket auth and Phase 1 `HTTPAuth`. Two-commit policy: failing test first proving the legacy `==` short-circuits, then the fix.)
+
+**Files:**
+- Create: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/ConstantTimeCompare.swift`
+- Modify: `Sources/SocketControlSettings.swift` (replace `==` at line 133)
+- Test:   `cmuxTests/HTTPControl/SocketControlConstantTimeCompareTests.swift`
+
+- [ ] **Step 1: Failing test (proves legacy `==` short-circuits on first mismatch)**
+```swift
+import Foundation
+import Testing
+@testable import CmuxTerminalAccess
+@testable import cmux
+
+@Suite struct SocketControlConstantTimeCompareTests {
+    @Test func ctCompareTakesEqualTimeForEqualLengthInputs() {
+        // Statistical timing test: many trials, full-length compare must
+        // average within a small delta independent of first-byte mismatch.
+        let n = 4096
+        let a = Data(repeating: 0xAA, count: n)
+        let bMismatchEarly = Data([0xBB]) + Data(repeating: 0xAA, count: n - 1)
+        let bMismatchLate = Data(repeating: 0xAA, count: n - 1) + Data([0xBB])
+        let early = measure { _ = ctCompare(a, bMismatchEarly) }
+        let late  = measure { _ = ctCompare(a, bMismatchLate)  }
+        #expect(abs(early - late) / max(early, late) < 0.2)
+    }
+    private func measure(_ body: () -> Void) -> Double {
+        let start = ContinuousClock().now
+        for _ in 0..<5000 { body() }
+        return Double((ContinuousClock().now - start).components.attoseconds) / 1e18
+    }
+}
+```
+
+- [ ] **Step 2: Push RED**
+```bash
+git add cmuxTests/HTTPControl/SocketControlConstantTimeCompareTests.swift cmux.xcodeproj/project.pbxproj
+git commit -m "Add failing ctCompare timing test for SocketControlSettings"
+git push
+```
+
+- [ ] **Step 3: Implement `ctCompare` + replace `==` at `SocketControlSettings.swift:133`**
+```swift
+// Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/ConstantTimeCompare.swift
+import Foundation
+
+/// Constant-time byte-vector compare. Returns `false` immediately for
+/// length mismatch (length leak is acceptable; per-byte equality leak
+/// is not). E9 — shared helper used by legacy socket auth and Phase 1
+/// `HTTPAuth`.
+public func ctCompare(_ a: Data, _ b: Data) -> Bool {
+    guard a.count == b.count else { return false }
+    var diff: UInt8 = 0
+    a.withUnsafeBytes { ap in
+        b.withUnsafeBytes { bp in
+            for i in 0..<a.count { diff |= ap[i] ^ bp[i] }
+        }
+    }
+    return diff == 0
+}
+```
+Then in `Sources/SocketControlSettings.swift:133`, replace `expected == candidate` with `ctCompare(expected, candidate)` and `import CmuxTerminalAccess` at the top of the file if not already present.
+
+- [ ] **Step 4: Commit GREEN**
+```bash
+git add Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/ConstantTimeCompare.swift \
+        Sources/SocketControlSettings.swift cmux.xcodeproj/project.pbxproj
+git commit -m "Add ctCompare; replace SocketControlSettings:133 == with constant-time compare (E9)"
 git push
 ```
 
@@ -2509,11 +2688,11 @@ import Testing
 @testable import CmuxTerminalAccess
 
 @Suite struct DefaultServiceWriteTests {
-    final class RecordingAudit: AuditLog, @unchecked Sendable {
-        let lock = NSLock(); var entries: [AuditEntry] = []
-        func record(_ entry: AuditEntry) throws {
-            lock.lock(); entries.append(entry); lock.unlock()
-        }
+    /// E2 — `AuditLog.record` is `async` non-throwing. Test recorder is an
+    /// `actor` so appends are serialized without a lock.
+    actor RecordingAudit: AuditLog {
+        var entries: [AuditEntry] = []
+        func record(_ entry: AuditEntry) async { entries.append(entry) }
     }
     private func setUp() async -> (DefaultTerminalAccessService, SurfaceInfo, StubSurfaceProvider, RecordingAudit) {
         let info = SurfaceInfo(handle: .ref(kind: "surface", ordinal: 1),
@@ -2523,6 +2702,8 @@ import Testing
                                semanticAvailable: false)
         let stub = StubSurfaceProvider(); await stub.set(surfaces: [info])
         let audit = RecordingAudit()
+        // E3 — DefaultTerminalAccessService.init signature is locked with defaults
+        // for rateLimiter/streamCap/cellsTickRate. `allowRawInput` defaults to `{ false }`.
         let svc = DefaultTerminalAccessService(provider: stub, audit: audit)
         return (svc, info, stub, audit)
     }
@@ -2532,8 +2713,13 @@ import Testing
         try await svc.writeInput(.init(handle: info.handle,
                                        payload: .text("ls", submit: true)))
         let writes = await stub.textWrites
-        #expect(writes == [Data([0x6c, 0x73, 0x0D])])  // "ls\r"
-        #expect(audit.entries.first?.kind == .writeText)  // D4 always-on
+        // E1 — submit=true dispatches writeText("ls") + writeKey(.enter); the
+        // text payload itself is the literal bytes (no embedded CR).
+        #expect(writes == [Data([0x6c, 0x73])])
+        let keys = await stub.keyWrites
+        #expect(keys.count == 1)
+        let entries = await audit.entries
+        #expect(entries.first?.kind == .writeText)  // D4 always-on, E2 await
     }
 
     @Test func keysFanOutToProvider() async throws {
@@ -2552,17 +2738,52 @@ import Testing
     }
 
     @Test func rawAllowedWhenGateOpen() async throws {
-        let (svc, info, stub, audit) = await setUp()
-        svc.setAllowRawInput(true)
+        // E3 — `allowRawInput` is an init-time closure; set it via constructor here.
+        let info = SurfaceInfo(handle: .ref(kind: "surface", ordinal: 1),
+                               uuid: UUID(), workspaceRef: "workspace:1",
+                               title: nil, cols: 80, rows: 24,
+                               altScreen: false, focused: false,
+                               semanticAvailable: false)
+        let stub = StubSurfaceProvider(); await stub.set(surfaces: [info])
+        let audit = RecordingAudit()
+        let svc = DefaultTerminalAccessService(provider: stub, audit: audit,
+                                               allowRawInput: { true })
         try await svc.writeInput(.init(handle: info.handle, payload: .raw(Data([0x1B]))))
         let writes = await stub.textWrites
         #expect(writes == [Data([0x1B])])
-        #expect(audit.entries.contains { $0.kind == .writeRaw })
+        let entries = await audit.entries
+        #expect(entries.contains { $0.kind == .writeRaw })
     }
 
     @Test func payloadTooLargeWhenCapacityExceeded() async throws {
-        let (svc, info, stub, _) = await setUp()
-        await stub.set(capacityRemaining: 4)
+        // Uses a dedicated capacity-aware spy provider — the shared
+        // `StubSurfaceProvider` per E1 returns a large constant for capacity
+        // remaining; this test installs a provider whose
+        // `pendingInputCapacityRemaining` returns a small constant. The
+        // capacity precondition runs inside `enforceCapacity(info:bytes:)`
+        // before any provider write (E14 — preserved in Phase 1 too).
+        actor TinyCapacityProvider: SurfaceProvider {
+            let info: SurfaceInfo
+            init(_ info: SurfaceInfo) { self.info = info }
+            func listSurfaces() async throws -> [SurfaceInfo] { [info] }
+            func resolve(_ h: SurfaceHandle) async throws -> SurfaceInfo? { info }
+            func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String { "" }
+            func readCells(surface: SurfaceInfo, region: ScreenRegion) async throws -> CellGrid {
+                throw TerminalAccessError.unsupported(reason: "stub")
+            }
+            func writeText(surface: SurfaceInfo, bytes: Data) async throws {}
+            func writeKey(surface: SurfaceInfo, event: KeyEvent) async throws {}
+            func writeMouse(surface: SurfaceInfo, event: MouseEvent) async throws {}
+            func setFocus(surface: SurfaceInfo, gained: Bool) async throws {}
+            nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int { 4 }
+        }
+        let info = SurfaceInfo(handle: .ref(kind: "surface", ordinal: 1),
+                               uuid: UUID(), workspaceRef: "workspace:1",
+                               title: nil, cols: 80, rows: 24,
+                               altScreen: false, focused: false,
+                               semanticAvailable: false)
+        let svc = DefaultTerminalAccessService(provider: TinyCapacityProvider(info),
+                                               audit: NoOpAuditLog())
         await #expect(throws: TerminalAccessError.payloadTooLarge) {
             try await svc.writeInput(.init(handle: info.handle,
                                            payload: .text(String(repeating: "x", count: 5),
@@ -2595,7 +2816,8 @@ import Testing
         try await svc.writeInput(.init(handle: info.handle, payload: .focus(gained: false)))
         let foci = await stub.focusWrites
         #expect(foci == [false])
-        #expect(audit.entries.last?.kind == .writeFocus)
+        let entries = await audit.entries
+        #expect(entries.last?.kind == .writeFocus)
     }
 }
 ```
@@ -2610,6 +2832,11 @@ git push
 - [ ] **Step 3: Replace `writeInput` body in `DefaultTerminalAccessService.swift`**
 ```swift
 // Replace the stub `writeInput` placeholder with the real impl.
+// E1 — the dispatch composes higher-level operations from the locked
+// SurfaceProvider primitives (writeText / writeKey / writeMouse / setFocus).
+// E2 — `audit.record(...)` is `async` non-throwing (no `try`).
+// E14 — every payload that writes bytes runs `try await enforceCapacity(...)`
+// BEFORE any provider call.
 public func writeInput(_ request: InputRequest) async throws {
     guard let info = try await provider.resolve(request.handle) else {
         throw TerminalAccessError.unknownSurface
@@ -2620,50 +2847,55 @@ public func writeInput(_ request: InputRequest) async throws {
     }
     switch request.payload {
     case .text(let s, let submit):
-        var bytes = Data(s.utf8); if submit { bytes.append(0x0D) }
+        let bytes = Data(s.utf8)
         try await enforceCapacity(info: info, bytes: bytes.count)
         try await provider.writeText(surface: info, bytes: bytes)
-        try audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
-                                    kind: .writeText, byteCount: bytes.count,
-                                    detail: ["submit": "\(submit)"]))
+        if submit {
+            try await provider.writeKey(surface: info,
+                                        event: KeyEvent(mods: [], key: .enter))
+        }
+        await audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
+                                      kind: .writeText, byteCount: bytes.count,
+                                      detail: ["submit": "\(submit)"]))
     case .paste(let s):
         // D30 — serialize wrap+write per-surface so concurrent pastes
         // cannot interleave byte slices.
         let bytes = Data(s.utf8)
         try await enforceCapacity(info: info, bytes: bytes.count)
-        try await pasteSerializer.run(uuid: info.uuid) {
+        try await pasteSerializer.run(surface: info) {
             try await provider.writeText(surface: info, bytes: bytes)
         }
-        try audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
-                                    kind: .writePaste, byteCount: bytes.count, detail: nil))
+        await audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
+                                      kind: .writePaste, byteCount: bytes.count, detail: nil))
     case .keys(let events):
         for ev in events { try await provider.writeKey(surface: info, event: ev) }
-        try audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
-                                    kind: .writeKeys, byteCount: events.count, detail: nil))
+        await audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
+                                      kind: .writeKeys, byteCount: events.count, detail: nil))
     case .raw(let data):
-        if !allowRawInput {
+        if !allowRawInput() {
             throw TerminalAccessError.forbidden(reason: "raw input disabled")
         }
         try await enforceCapacity(info: info, bytes: data.count)
         try await provider.writeText(surface: info, bytes: data)
-        try audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
-                                    kind: .writeRaw, byteCount: data.count, detail: nil))
+        await audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
+                                      kind: .writeRaw, byteCount: data.count, detail: nil))
     case .mouse(let ev):
         // D16 — direct provider call; provider must NOT synthesize NSEvent.
         try await provider.writeMouse(surface: info, event: ev)
-        try audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
-                                    kind: .writeMouse, byteCount: 0,
-                                    detail: ["action": ev.action.rawValue]))
+        await audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
+                                      kind: .writeMouse, byteCount: 0,
+                                      detail: ["action": ev.action.rawValue]))
     case .focus(let gained):
         try await provider.setFocus(surface: info, gained: gained)
-        try audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
-                                    kind: .writeFocus, byteCount: 0,
-                                    detail: ["gained": "\(gained)"]))
+        await audit.record(AuditEntry(timestamp: Date(), surface: request.handle,
+                                      kind: .writeFocus, byteCount: 0,
+                                      detail: ["gained": "\(gained)"]))
     }
 }
 
 private func enforceCapacity(info: SurfaceInfo, bytes: Int) async throws {
-    let remaining = await provider.pendingInputCapacityRemaining(surface: info)
+    // E1 — `pendingInputCapacityRemaining` is synchronous; no `await`.
+    let remaining = provider.pendingInputCapacityRemaining(surface: info)
     if bytes > remaining { throw TerminalAccessError.payloadTooLarge }
 }
 ```
@@ -2677,14 +2909,14 @@ git push
 
 ---
 
-### Task 0.21: Per-surface paste atomicity test (D30) — concurrent paste interleave check
+### Task 0.21: Per-surface paste atomicity test (D30) — concurrent paste interleave check (characterization test — no red→green ritual)
 
-(Resolves Coverage must_fix #14 + must_fix #30: behavioral test asserts concurrent paste invocations never interleave; the spy provider records byte slices and the test verifies each paste's bytes appear contiguously in the recorded sequence.)
+(Resolves Coverage must_fix #14 + must_fix #30. E13 — this is a characterization test: the implementation already exists from Task 0.20, so a "RED then GREEN" split would be artificial. Commit as a single test addition.)
 
 **Files:**
 - Test: `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/PasteAtomicityTests.swift`
 
-- [ ] **Step 1: Failing test**
+- [ ] **Step 1: Add test (single commit — characterization)**
 ```swift
 import Foundation
 import Testing
@@ -2695,6 +2927,9 @@ import Testing
     /// records its bytes after a short async yield, so without
     /// per-surface serialization the recorded byte sequence would
     /// interleave the two payloads.
+    ///
+    /// E1 — matches the locked `SurfaceProvider` shape: no `attachRawOutput`
+    /// required member, `pendingInputCapacityRemaining` is synchronous.
     actor SlowWrite: SurfaceProvider {
         let info: SurfaceInfo
         var recorded: [Data] = []
@@ -2722,13 +2957,7 @@ import Testing
         func writeKey(surface: SurfaceInfo, event: KeyEvent) async throws {}
         func writeMouse(surface: SurfaceInfo, event: MouseEvent) async throws {}
         func setFocus(surface: SurfaceInfo, gained: Bool) async throws {}
-        func attachRawOutput(surface: SurfaceInfo,
-                             onBytes: @escaping @Sendable (Data) -> Void)
-            async throws -> RawOutputDetachToken
-        {
-            throw TerminalAccessError.unsupported(reason: "n/a")
-        }
-        func pendingInputCapacityRemaining(surface: SurfaceInfo) async -> Int { 1 << 20 }
+        nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int { 1 << 20 }
     }
 
     @Test func concurrentPastesDoNotInterleave() async throws {
@@ -2755,19 +2984,13 @@ import Testing
 }
 ```
 
-- [ ] **Step 2: Push RED**
+- [ ] **Step 2: Commit and push (single characterization commit)**
 ```bash
 git add Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/PasteAtomicityTests.swift
-git commit -m "Add failing concurrent paste atomicity test (D30)"
+git commit -m "Add paste atomicity characterization test (D30)"
 git push
 ```
-
-- [ ] **Step 3: Verify the implementation in 0.20 already satisfies this; CI should go GREEN without further code changes.** If a regression slips through (e.g. someone bypasses the `pasteSerializer`), the test catches it.
-
-```bash
-git push  # no-op; the previous green run already covers this
-```
-Expected: CI green. If it fails, fix the `pasteSerializer.run(uuid:)` integration in Task 0.20 — do NOT weaken the test.
+Expected: CI green. If it fails, fix the `pasteSerializer.run(surface:)` integration in Task 0.20 — do NOT weaken the test.
 
 ---
 
@@ -2892,9 +3115,11 @@ public final class HTTPControlSettings {
         set { defaults.set(newValue, forKey: Self.kTcpPort) }
     }
 
-    public var unixSocketPath: String {
-        get { defaults.string(forKey: Self.kUnixSocketPath) ?? "" }
-        set { defaults.set(newValue, forKey: Self.kUnixSocketPath) }
+    // E15 — locked name is `udsPath`, not `unixSocketPath`. Used consistently
+    // across HTTPControlSettings, SettingsView, and Lifecycle.
+    public var udsPath: String {
+        get { defaults.string(forKey: Self.kUDSPath) ?? "" }
+        set { defaults.set(newValue, forKey: Self.kUDSPath) }
     }
 
     public var allowRawInput: Bool {
@@ -2966,7 +3191,7 @@ public final class HTTPControlSettings {
     private static let kEnabled = "httpControl.enabled"
     private static let kTransport = "httpControl.transport"
     private static let kTcpPort = "httpControl.tcpPort"
-    private static let kUnixSocketPath = "httpControl.unixSocketPath"
+    private static let kUDSPath = "httpControl.udsPath"
     private static let kAllowRawInput = "httpControl.allowRawInput"
     private static let kAuditLogPath = "httpControl.auditLogPath"
     private static let kTokenLastRotated = "httpControl.tokenLastRotated"
@@ -2984,7 +3209,7 @@ git push
 
 ### Task 0.23: `AppSurfaceProvider` (app target) — bridge to `TerminalController` (D1 async throws; D9 no env injection)
 
-(Resolves Coverage/Quality must_fix: AppSurfaceProvider has ONE shape with `async throws` methods per D1; `readCells` + `attachRawOutput` throw `.unsupported` in Phase 0 (Phase 1/2 land the real ghostty calls). Explicit code comment forbids HTTP token export per D9.)
+(Resolves Coverage/Quality must_fix: AppSurfaceProvider has ONE shape with `async throws` methods per D1 / E1; `readCells` is a REQUIRED protocol member (E20) and the Phase 0 stub throws `.unsupported` until ghostty patch #1 lands in Phase 1; the raw-output tap is added as a separate protocol extension in Task 2.15 (E1 — NOT a Phase 0 required member). Explicit code comment forbids HTTP token export per D9. E5 — `AppSurfaceProvider.shared` + `setController(_:)` + `#if DEBUG testInject/testReset` form the singleton entry point.)
 
 **Files:**
 - Create: `Sources/HTTPControl/AppSurfaceProvider.swift`
@@ -3007,22 +3232,70 @@ import Foundation
 /// by the HTTP listener — never written into `env` for spawned PTYs.
 /// Task 0.25 adds a behavioral test that fails if this invariant is
 /// violated.
+/// E5 — Singleton process-wide bridge. The `shared` instance is set up
+/// lazily; the live `TerminalController` is injected via
+/// `setController(_:)` from `AppDelegate` at launch. Test fixtures in
+/// Phase 1 use `#if DEBUG` `testInject(panel:handle:)` to wire a
+/// synthetic surface without an `AppDelegate`.
 public final class AppSurfaceProvider: SurfaceProvider, @unchecked Sendable {
-    private weak var controller: TerminalController?
+    /// Process-wide instance. `AppDelegate` calls
+    /// `AppSurfaceProvider.shared.setController(terminalController)`
+    /// during launch; the HTTP server consumes `shared` after that.
+    public static let shared = AppSurfaceProvider()
 
-    public init(controller: TerminalController) { self.controller = controller }
+    private var controller: TerminalController?
+    #if DEBUG
+    private var injected: [SurfaceHandle: (panel: TerminalPanel, info: SurfaceInfo)] = [:]
+    #endif
+
+    /// Internal initializer — call `AppSurfaceProvider.shared`, not this.
+    internal init() {}
+
+    /// Inject the live controller. Called once by `AppDelegate` at launch.
+    public func setController(_ controller: TerminalController) {
+        self.controller = controller
+    }
+
+    #if DEBUG
+    /// Inject a synthetic panel for tests. Phase 1 test environments
+    /// (`HTTPControlTestEnv.startWithLiveSurface(...)`) call this to
+    /// wire a panel without an `AppDelegate` instance.
+    public func testInject(panel: TerminalPanel, handle: SurfaceHandle) {
+        let info = SurfaceInfo(handle: handle,
+                               uuid: UUID(), workspaceRef: "test:1",
+                               title: panel.surface.title,
+                               cols: panel.surface.gridCols,
+                               rows: panel.surface.gridRows,
+                               altScreen: panel.surface.isAltScreen,
+                               focused: true, semanticAvailable: false)
+        injected[handle] = (panel, info)
+    }
+
+    /// Clear all injected state. Tests call this in `deinit` / teardown.
+    public func testReset() { injected.removeAll() }
+    #endif
 
     public func listSurfaces() async throws -> [SurfaceInfo] {
+        #if DEBUG
+        if !injected.isEmpty { return injected.values.map { $0.info } }
+        #endif
         guard let controller else { return [] }
         return await MainActor.run { controller.v2EnumerateSurfaceInfos() }
     }
 
     public func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo? {
+        #if DEBUG
+        if let pair = injected[handle] { return pair.info }
+        #endif
         guard let controller else { return nil }
         return await MainActor.run { controller.v2Resolve(handle: handle) }
     }
 
     public func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String {
+        // E10/E19 — derive from readCells via cellsToText. Real impl lands
+        // in Phase 1's final task (ScreenRegionReader retirement). Until
+        // then, this method still calls the controller's existing
+        // SCREEN+SURFACE+ACTIVE merge so Phase 0 sockets keep working.
         guard let controller else { throw TerminalAccessError.unknownSurface }
         return try await controller.readSurfaceText(uuid: surface.uuid, region: region)
     }
@@ -3055,18 +3328,11 @@ public final class AppSurfaceProvider: SurfaceProvider, @unchecked Sendable {
         try await controller.setSurfaceFocus(uuid: surface.uuid, gained: gained)
     }
 
-    public func attachRawOutput(surface: SurfaceInfo,
-                                onBytes: @escaping @Sendable (Data) -> Void)
-        async throws -> RawOutputDetachToken
-    {
-        // Phase 2 wires this to ghostty patch #2's PTY tee.
-        throw TerminalAccessError.unsupported(reason: "raw output requires ghostty patch #2")
-    }
-
-    public func pendingInputCapacityRemaining(surface: SurfaceInfo) async -> Int {
-        await MainActor.run {
-            controller?.pendingInputCapacityRemaining(uuid: surface.uuid) ?? 0
-        }
+    // E1 — synchronous; provider exposes a fast in-memory counter snapshot.
+    // The Phase 2 raw-output tap (`attachRawOutput`) lives as a separate
+    // protocol extension declared in Task 2.15.
+    public func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int {
+        controller?.pendingInputCapacityRemaining(uuid: surface.uuid) ?? 0
     }
 }
 ```
@@ -3114,6 +3380,91 @@ git commit -m "Add AppSurfaceProvider (D1 async, D9 no-env comment) with Termina
 git push
 ```
 Expected: CI green (compile-only; behavior covered in 0.24).
+
+---
+
+### Task 0.23a: `TerminalFixture` shared test fixture (E8)
+
+(Resolves E8: ONE explicit Phase 0 task creates `cmuxTests/Fixtures/TerminalFixture.swift` with the full constructor set referenced across Phase 0/1/2. Phase 1 / Phase 2 tasks only USE the fixture — they do not redefine it.)
+
+**Files:**
+- Create: `cmuxTests/Fixtures/TerminalFixture.swift`
+- Modify: `cmux.xcodeproj/project.pbxproj` (wire the fixture into both `cmuxTests` and the test bundles that consume it)
+
+- [ ] **Step 1: Implement (no failing test in this micro-task — consumers in Phase 0.24/1.x/2.x exercise the fixture behaviorally)**
+
+```swift
+// cmuxTests/Fixtures/TerminalFixture.swift
+import AppKit
+import GhosttyKit
+import Foundation
+@testable import cmux
+
+/// Reusable in-test terminal surface. Constructed off-main-actor and
+/// drives a real ghostty surface so cell-grid / raw-output / write
+/// tests can run without spinning up a full `cmuxApp` instance.
+///
+/// E8 — the constructor set below is the canonical surface area
+/// referenced across Phase 0 (TerminalController extracts), Phase 1
+/// (GhosttyCellsBridge, readText, no-env behavior), and Phase 2
+/// (raw-output round-trip, backpressure, cells snapshot). Do not add
+/// alternate fixtures in other test files.
+public struct TerminalFixture: Sendable {
+    public let panel: TerminalPanel
+    public let handle: SurfaceHandle
+
+    public static func makeWithLines(_ lines: [String]) async throws -> TerminalFixture {
+        try await makeWithBytes(Data(lines.joined(separator: "\n").utf8))
+    }
+    public static func makeAltScreen() async throws -> TerminalFixture {
+        // ESC[?1049h enters the alt screen; payload "X" so the grid has a cell.
+        try await makeWithBytes(Data("\u{1B}[?1049hX".utf8))
+    }
+    public static func makeWithBytes(_ bytes: Data) async throws -> TerminalFixture {
+        try await MakeFixture.build(initialBytes: bytes)
+    }
+    public static func spawn(command: String, args: [String]) async throws -> TerminalFixture {
+        try await MakeFixture.spawn(command: command, args: args)
+    }
+    public static func spawnAndCapturedEnvironment(command: String, args: [String])
+        async throws -> (TerminalFixture, [String: String])
+    {
+        try await MakeFixture.spawnAndCapture(command: command, args: args)
+    }
+    public func fakeRawSource(for handle: SurfaceHandle) -> RawSourceSpy {
+        RawSourceSpy(handle: handle)
+    }
+}
+
+/// Test-side spy backing `SurfaceProvider.attachRawOutput` (Phase 2
+/// extension declared in Task 2.15). Records every byte slice the
+/// service tees into the spy and exposes them for assertions.
+public final class RawSourceSpy: @unchecked Sendable {
+    public let handle: SurfaceHandle
+    private let lock = NSLock()
+    private var slices: [Data] = []
+    public init(handle: SurfaceHandle) { self.handle = handle }
+    public func recorded() -> [Data] { lock.lock(); defer { lock.unlock() }; return slices }
+    public func push(_ data: Data) { lock.lock(); slices.append(data); lock.unlock() }
+}
+
+private enum MakeFixture {
+    static func build(initialBytes: Data) async throws -> TerminalFixture { /* construct TerminalPanel, write bytes, return fixture */ fatalError("impl in task") }
+    static func spawn(command: String, args: [String]) async throws -> TerminalFixture { fatalError("impl in task") }
+    static func spawnAndCapture(command: String, args: [String]) async throws -> (TerminalFixture, [String: String]) { fatalError("impl in task") }
+}
+```
+
+(The `MakeFixture` private helper extracts whatever real ghostty
+construction code the existing test harness already uses; if there is
+none, derive it from the legacy `cmuxTests/HTTPControl/HTTPControlPanelFixture.swift` body created in Task 0.24.a.)
+
+- [ ] **Step 2: Commit**
+```bash
+git add cmuxTests/Fixtures/TerminalFixture.swift cmux.xcodeproj/project.pbxproj
+git commit -m "Add TerminalFixture shared test fixture (E8)"
+git push
+```
 
 ---
 
@@ -3418,10 +3769,17 @@ import CmuxTerminalAccess
 extension TerminalController {
     /// Process-wide service shared by every transport (v1 socket, v2
     /// socket, CLI, and the Phase 1 HTTP server).
+    ///
+    /// E5 — uses `AppSurfaceProvider.shared` (NOT a fresh
+    /// `AppSurfaceProvider(controller:)`). The controller is bound
+    /// here via `setController(self)` on first access; `AppDelegate`
+    /// may have bound it earlier at launch — `setController` is
+    /// idempotent for the same instance.
     var terminalAccessService: TerminalAccessService {
         if let svc = _cachedTerminalAccessService { return svc }
-        let provider = AppSurfaceProvider(controller: self)
-        let audit: AuditLog
+        AppSurfaceProvider.shared.setController(self)
+        let provider = AppSurfaceProvider.shared
+        let audit: any AuditLog
         if let dir = try? URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true) {
             try? FileManager.default.createDirectory(at: dir,
@@ -3431,12 +3789,22 @@ extension TerminalController {
         } else {
             audit = NoOpAuditLog()  // last-resort sandbox fallback
         }
+        // E3 — locked init signature; Phase 0 leaves rateLimiter/streamCap/
+        // cellsTickRate/allowRawInput at their defaults. Phase 1 wires the
+        // real settings-backed values inside `HTTPControlLifecycle`.
         let svc = DefaultTerminalAccessService(provider: provider, audit: audit)
         _cachedTerminalAccessService = svc
         return svc
     }
 }
 ```
+
+> **E5 launch hook.** `AppDelegate.applicationDidFinishLaunching` (or the
+> equivalent entry point in `Sources/cmuxApp.swift`) must call
+> `AppSurfaceProvider.shared.setController(terminalController)` immediately
+> after the `TerminalController` is constructed, BEFORE any HTTP request can
+> arrive. The `terminalAccessService` property above is a safety net; the
+> launch hook is the canonical wiring.
 
 - [ ] **Step 4: Replace the `case "read_screen"` body to route through the service**
 The new body parses the existing arg syntax (`surface:N [scrollback]`), builds a `ScreenReadRequest` with `region: parsed.includeScrollback ? .screen : .viewport`, awaits `terminalAccessService.readScreen(...)`, and formats the wire response identically to the legacy path (the existing `formatLegacyReadScreenResponse` is kept; only the I/O changes). Use a single-shot `DispatchSemaphore` wait pattern (the v1 dispatch is sync; keep it so).
@@ -3489,13 +3857,13 @@ python3 scripts/normalize-pbxproj.py cmux.xcodeproj/project.pbxproj
 ```bash
 ls Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/
 ```
-Expected file list (sorted): `AuditEntry.swift`, `AuditKind.swift`, `AuditLog.swift`, `Cell.swift`, `CellAttribute.swift`, `CellColor.swift`, `CellGrid.swift`, `CellRow.swift`, `CmuxTerminalAccess.swift`, `CursorState.swift`, `CursorStyle.swift`, `DefaultTerminalAccessService.swift`, `FileAuditLog.swift`, `InputPayload.swift`, `InputRequest.swift`, `KeyEvent.swift`, `KeyEventParseError.swift`, `KeyMod.swift`, `MouseAction.swift`, `MouseButton.swift`, `MouseEvent.swift`, `NamedKey.swift`, `NoOpAuditLog.swift`, `OutputEvent.swift`, `OutputSubscription.swift`, `RateLimiter.swift`, `RateLimiterClock.swift`, `RawOutputDetachToken.swift`, `ScreenFormat.swift`, `ScreenReadRequest.swift`, `ScreenReadResult.swift`, `ScreenRegion.swift`, `SemanticKind.swift`, `StreamMode.swift`, `StreamSubscriptionOptions.swift`, `SurfaceHandle.swift`, `SurfaceInfo.swift`, `SurfaceProvider.swift`, `TerminalAccessError.swift`, `TerminalAccessService.swift`, `TextScreenPayload.swift`, `UnderlineKind.swift`, `WideKind.swift`, `WrapPolicy.swift`.
+Expected file list (sorted): `AuditEntry.swift`, `AuditKind.swift`, `AuditLog.swift`, `Cell.swift`, `CellAttribute.swift`, `CellColor.swift`, `CellGrid.swift`, `CellRow.swift`, `CmuxTerminalAccess.swift`, `ConstantTimeCompare.swift` (E9), `CursorState.swift`, `CursorStyle.swift`, `DefaultTerminalAccessService.swift`, `FileAuditLog.swift`, `InputPayload.swift`, `InputRequest.swift`, `KeyEvent.swift`, `KeyEventParseError.swift`, `KeyMod.swift`, `MouseAction.swift`, `MouseButton.swift`, `MouseEvent.swift`, `NamedKey.swift`, `NoOpAuditLog.swift`, `OutputEvent.swift`, `OutputSubscription.swift`, `PasteSerializer.swift` (E4), `RateLimiter.swift`, `RateLimiterClock.swift`, `RawOutputDetachToken.swift`, `ScreenFormat.swift`, `ScreenReadRequest.swift`, `ScreenReadResult.swift`, `ScreenRegion.swift`, `SemanticKind.swift`, `StreamMode.swift`, `StreamSubscriptionOptions.swift`, `SurfaceHandle.swift`, `SurfaceInfo.swift`, `SurfaceProvider.swift`, `TerminalAccessError.swift`, `TerminalAccessService.swift`, `TextScreenPayload.swift`, `UnderlineKind.swift`, `WideKind.swift`, `WrapPolicy.swift`.
 
 - [ ] **Step 4: Watch CI for the full Phase 0 test set**
 ```bash
 gh run watch --repo manaflow-ai/cmux
 ```
-Expected green suites: `PackageSmokeTests`, `SurfaceHandleTests`, `ScreenEnumWireTests`, `ScreenReadRequestCodableTests`, `CellEnumWireTests`, `CellShapeTests`, `CellGridCodableTests`, `KeyEventParserTests`, `MouseEventTests`, `InputRequestShapeTests`, `OutputEventTests`, `OutputSubscriptionTests`, `TerminalAccessErrorTests`, `AuditEntryTests`, `FileAuditLogTests`, `RateLimiterTests`, `StubSurfaceProviderTests`, `DefaultServiceReadTests`, `DefaultServiceWriteTests`, `PasteAtomicityTests`, `HTTPControlSettingsTests`, `TerminalPanelLookupTests`, `MergedScreenTextTests`, `AppSurfaceProviderReadTextTests`, `AppSurfaceProviderWriteTests`, `AppSurfaceMouseFocusTests`, `HTTPControlTokenNoEnvLeakTests`, `V1ReadScreenParityTests` (+ b/c/d).
+Expected green suites: `PackageSmokeTests`, `SurfaceHandleTests`, `ScreenEnumWireTests`, `ScreenReadRequestCodableTests`, `CellEnumWireTests`, `CellShapeTests`, `CellGridCodableTests`, `KeyEventParserTests`, `MouseEventTests`, `InputRequestShapeTests`, `OutputEventTests`, `OutputSubscriptionTests`, `TerminalAccessErrorTests`, `AuditEntryTests`, `FileAuditLogTests`, `RateLimiterTests`, `StubSurfaceProviderTests`, `DefaultServiceReadTests`, `DefaultServiceWriteTests`, `PasteSerializerTests` (E4), `PasteAtomicityTests`, `SocketControlConstantTimeCompareTests` (E9), `HTTPControlSettingsTests`, `TerminalPanelLookupTests`, `MergedScreenTextTests`, `AppSurfaceProviderReadTextTests`, `AppSurfaceProviderWriteTests`, `AppSurfaceMouseFocusTests`, `HTTPControlTokenNoEnvLeakTests`, `V1ReadScreenParityTests` (+ b/c/d).
 
 - [ ] **Step 5: No-op close-out — no extra commit**
 Phase 0 closes from the green commit above. Phase 1 starts from that SHA and assumes every type, protocol, test seam, and AppSurfaceProvider shape described here. Phase 1's `HTTPControlServer` consumes `terminalAccessService` from `TerminalController` and `HTTPControlSettings` instances created from `<supportDirectory>` per D2; Phase 1 ONLY adds a SwiftUI binding view for the settings — it does NOT redefine `HTTPControlSettings`, `AuditEntry`, `AuditLog`, `SurfaceProvider`, `OutputSubscription`, `StreamMode`, `StreamSubscriptionOptions`, `OutputEvent`, `KeyEvent.parse`, `MouseEvent.parse`, or any other type listed in Task 0.27 Step 3.
@@ -3508,7 +3876,7 @@ Phase 0 closes from the green commit above. Phase 1 starts from that SHA and ass
 This phase wires the local HTTP control transport, lands ghostty patch #1 (cell-grid export), and serves `format=cells` through the unified `TerminalAccessService`. Patch #1 + Swift bridge land EARLY (Tasks 1.4–1.9) BEFORE the `/screen` route (Task 1.16), so the route's `format=cells` test asserts a real 200 + CellGrid JSON (D5).
 
 Phase 1 assumes Phase 0 has shipped, per the locked decisions:
-- `Packages/CmuxTerminalAccess/` with: `SurfaceHandle`, `SurfaceInfo` (fields: handle, uuid, workspaceRef, title?, cols, rows, altScreen, focused, semanticAvailable), `ScreenFormat`, `ScreenRegion`, `WrapPolicy`, `ScreenReadRequest`, `ScreenReadResult`, `TextScreenPayload`, `CellGrid`, `CellRow`, `Cell` (with `underlineKind: UnderlineKind?` + `underlineColor: CellColor?` per D25), `WideKind`, `CellColor`, `CellAttribute` (NO `.underline`; use `underlineKind != nil` per D25), `UnderlineKind`, `SemanticKind`, `CursorState`, `CursorStyle`, `InputRequest`, `InputPayload`, `KeyEvent`, `KeyEventParseError`, `MouseEvent`, `OutputEvent`, `StreamMode`, `StreamSubscriptionOptions`, `OutputSubscription` (class per D22), `TerminalAccessError` (with `.unsupported` → 415 per D18 and `.featureDisabled` → 404), `AuditLog` + `FileAuditLog` + `NoOpAuditLog` + `AuditEntry` (D3 shape: `{timestamp, surface: SurfaceHandle, kind: AuditKind, byteCount: Int, detail: [String:String]?}`), `RateLimiter` (D10: `init(burstCapacity:refillPerSecond:clock:)`, lazy per-key buckets, `acquire(key:)` returns Bool), `KeyEvent.parse(_ s: String) throws -> KeyEvent` (D21, NO Optional overload), `MouseEvent.parse(_:) throws -> MouseEvent`, `SurfaceProvider` protocol (D1: ALL methods `async throws`, Sendable), `TerminalAccessService` protocol with `listSurfaces() async -> [SurfaceInfo]`, `readScreen(_:) async throws -> ScreenReadResult`, `writeInput(_:) async throws`, `DefaultTerminalAccessService` (uses per-surface serial actor for paste atomicity per D30), `AppSurfaceProvider` (app-side stub bridging to `TerminalController`, ALL `async throws` per D1, with explicit code comment forbidding HTTP-token env export per D9), `HTTPControlSettings` (D2: instance class `init(supportDirectory:URL, defaults:UserDefaults)` embedding token store with `ensureToken() throws -> String`, `rotateToken() throws -> String`, `tokenFilePath: URL`; inner enum `Transport { case tcp, uds }`), shared `StubSurfaceProvider` at `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/TestSupport/StubSurfaceProvider.swift` (D13), and behavioral test that HTTP token is absent from child terminal environment (D9).
+- `Packages/CmuxTerminalAccess/` with: `SurfaceHandle`, `SurfaceInfo` (fields: handle, uuid, workspaceRef, title?, cols, rows, altScreen, focused, semanticAvailable), `ScreenFormat`, `ScreenRegion`, `WrapPolicy`, `ScreenReadRequest`, `ScreenReadResult`, `TextScreenPayload`, `CellGrid`, `CellRow`, `Cell` (with `underlineKind: UnderlineKind?` + `underlineColor: CellColor?` per D25), `WideKind`, `CellColor`, `CellAttribute` (NO `.underline`; use `underlineKind != nil` per D25), `UnderlineKind`, `SemanticKind`, `CursorState`, `CursorStyle`, `InputRequest`, `InputPayload`, `KeyEvent`, `KeyEventParseError`, `MouseEvent`, `OutputEvent`, `StreamMode`, `StreamSubscriptionOptions`, `OutputSubscription` (class per D22), `TerminalAccessError` (with `.unsupported` → 415 per D18 and `.featureDisabled` → 404 and `.rateLimited` → 429), `AuditLog` + `FileAuditLog` (actor, E2) + `NoOpAuditLog` + `AuditEntry` (D3 shape: `{timestamp, surface: SurfaceHandle, kind: AuditKind, byteCount: Int, detail: [String:String]?}`; `record(_:) async` non-throwing per E2), `RateLimiter` (D10/E16: `init(burstCapacity:refillPerSecond:clock:)`, lazy per-key buckets, `acquire(key:) async throws` — throws `TerminalAccessError.rateLimited` on overflow, NO Bool return), `ConstantTimeCompare` (E9 — shared by legacy socket auth and Phase 1 HTTPAuth), `PasteSerializer` (E4 — own file, public actor, per-surface FIFO), `KeyEvent.parse(_ s: String) throws -> KeyEvent` (D21, NO Optional overload), `MouseEvent.parse(_:) throws -> MouseEvent`, `SurfaceProvider` protocol (D1/E1: locked method list — `listSurfaces`, `resolve`, `readText`, `readCells` (REQUIRED member per E20, NO default impl), `writeText(surface:bytes:)`, `writeKey`, `writeMouse`, `setFocus`, `pendingInputCapacityRemaining` synchronous; NO `attachRawOutput` (Phase 2 extension only); ALL methods `async throws`, Sendable), `TerminalAccessService` protocol with `listSurfaces() async throws -> [SurfaceInfo]`, `readScreen(_:) async throws -> ScreenReadResult`, `writeInput(_:) async throws` (NO `allowRawInput` member — owned by `DefaultTerminalAccessService` init closure per E3), `DefaultTerminalAccessService` (E3 locked init signature: `provider/audit/rateLimiter/streamCap/cellsTickRate/allowRawInput` with defaults; uses `PasteSerializer` for D30 paste atomicity), `AppSurfaceProvider` (E5: `shared` singleton + `setController(_:)` + `#if DEBUG testInject/testReset`, app-side bridge to `TerminalController`, ALL `async throws` per D1, with explicit code comment forbidding HTTP-token env export per D9), `HTTPControlSettings` (D2/E15: instance class `init(supportDirectory:URL, defaults:UserDefaults)` embedding token store with `ensureToken() throws -> String`, `rotateToken() throws -> String`, `tokenFilePath: URL`, `udsPath` (NOT `unixSocketPath`); inner enum `Transport { case tcp, uds }`), shared `StubSurfaceProvider` at `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/TestSupport/StubSurfaceProvider.swift` (D13), shared `TerminalFixture` at `cmuxTests/Fixtures/TerminalFixture.swift` (E8), and behavioral test that HTTP token is absent from child terminal environment (D9).
 
 Phase 1 tasks (contiguous numbering 1.1–1.25):
 
@@ -4628,7 +4996,7 @@ git push origin HEAD
 - Test:   `cmuxTests/HTTPControl/GhosttyCellsBridgeTests.swift`
 - Modify: `cmux.xcodeproj/project.pbxproj`
 
-The bridge depends on a tiny `TerminalFixture` test seam that the existing test infra already exposes via `cmuxTests/Fixtures/TerminalFixture.swift` (created in Phase 0 as part of AppSurfaceProvider unit testing). If that fixture file does not exist, add it as a sub-step here with a minimal API: `static func makeWithBytes(_ bytes: String, cols: Int = 80, rows: Int = 24) throws -> TerminalFixture` returning `{ panel: TerminalPanel, surface: ghostty_surface_t }`. The fixture writes the bytes via `ghostty_surface_text` after the panel is fully constructed.
+The bridge depends on `cmuxTests/Fixtures/TerminalFixture.swift`, which is created in Phase 0 Task 0.23a (E8). Phase 1 only USES the fixture's existing constructors (`makeWithBytes`, `makeWithLines`, `makeAltScreen`, `spawn`, `spawnAndCapturedEnvironment`). Do not add an inline fallback or a "if not present" branch here — the Phase 0 task is the canonical source.
 
 - [ ] **Step 1: Failing test**
 
@@ -4911,25 +5279,31 @@ import CmuxTerminalAccess
 @testable import cmux
 
 @Suite struct AppSurfaceProviderReadCellsTests {
+    // E1 — SurfaceProvider.readCells takes `surface: SurfaceInfo`, not
+    // `handle: SurfaceHandle`. The test fetches the SurfaceInfo via
+    // `resolve(_:)` first, matching the dispatch the service performs.
+    // E5 — uses `AppSurfaceProvider.shared.testInject(panel:handle:)`.
     @Test func readCellsForViewportRoundsTrip() async throws {
         let fixture = try TerminalFixture.makeWithBytes("hello", cols: 8, rows: 2)
         let provider = AppSurfaceProvider.shared
-        provider.testInject(fixture.panel, handle: .ref(kind: "surface", ordinal: 7))
-        let grid = try await provider.readCells(
-            handle: .ref(kind: "surface", ordinal: 7),
-            region: .viewport
-        )
+        defer { provider.testReset() }
+        let handle: SurfaceHandle = .ref(kind: "surface", ordinal: 7)
+        provider.testInject(panel: fixture.panel, handle: handle)
+        let info = try await #require(try await provider.resolve(handle))
+        let grid = try await provider.readCells(surface: info, region: .viewport)
         let row0Text = grid.rowsData[0].cells.map { $0.t }.joined()
         #expect(row0Text.hasPrefix("hello"))
     }
 
     @Test func readCellsUnknownSurfaceThrows() async throws {
         let provider = AppSurfaceProvider.shared
+        defer { provider.testReset() }
+        let info = SurfaceInfo(handle: .ref(kind: "surface", ordinal: 999),
+                               uuid: UUID(), workspaceRef: "w", title: nil,
+                               cols: 0, rows: 0, altScreen: false,
+                               focused: false, semanticAvailable: false)
         await #expect(throws: TerminalAccessError.self) {
-            _ = try await provider.readCells(
-                handle: .ref(kind: "surface", ordinal: 999),
-                region: .viewport
-            )
+            _ = try await provider.readCells(surface: info, region: .viewport)
         }
     }
 
@@ -4937,11 +5311,11 @@ import CmuxTerminalAccess
         // Enter alt screen with ESC[?1049h
         let fixture = try TerminalFixture.makeWithBytes("\u{1B}[?1049hX", cols: 8, rows: 2)
         let provider = AppSurfaceProvider.shared
-        provider.testInject(fixture.panel, handle: .ref(kind: "surface", ordinal: 8))
-        let grid = try await provider.readCells(
-            handle: .ref(kind: "surface", ordinal: 8),
-            region: .scrollback
-        )
+        defer { provider.testReset() }
+        let handle: SurfaceHandle = .ref(kind: "surface", ordinal: 8)
+        provider.testInject(panel: fixture.panel, handle: handle)
+        let info = try await #require(try await provider.resolve(handle))
+        let grid = try await provider.readCells(surface: info, region: .scrollback)
         #expect(grid.altScreen == true)
         #expect(grid.rowsData.allSatisfy { row in row.cells.allSatisfy { $0.t.trimmingCharacters(in: .whitespaces).isEmpty } })
     }
@@ -4959,20 +5333,35 @@ git push origin HEAD
 - [ ] **Step 3: Implement**
 
 ```swift
-// In Sources/HTTPControl/AppSurfaceProvider.swift — add to AppSurfaceProvider extension
+// In Sources/HTTPControl/AppSurfaceProvider.swift — replace the Phase 0
+// stub `readCells(surface:region:)` with the real impl. E1 — signature
+// takes `surface: SurfaceInfo`, NOT `handle: SurfaceHandle`. E5 — the
+// panel lookup goes through the injected/live state.
 extension AppSurfaceProvider {
     /// Reads the surface's cell grid for ``region`` via patch #1.
     /// Async per D1 (the call hops to a background queue inside the bridge
     /// before acquiring the renderer mutex).
     public func readCells(
-        handle: SurfaceHandle,
+        surface: SurfaceInfo,
         region: ScreenRegion
     ) async throws -> CellGrid {
-        guard let panel = resolve(handle) else { throw TerminalAccessError.unknownSurface }
+        guard let panel = await resolvePanel(handle: surface.handle) else {
+            throw TerminalAccessError.unknownSurface
+        }
         guard let cSurface = panel.surface.surface else {
             throw TerminalAccessError.ghosttyError("surface not initialised")
         }
         return try await GhosttyCellsBridge.read(surface: cSurface, region: region)
+    }
+
+    /// Looks up the live `TerminalPanel` for the handle. Checks injected
+    /// state under `#if DEBUG` first, then delegates to the controller.
+    fileprivate func resolvePanel(handle: SurfaceHandle) async -> TerminalPanel? {
+        #if DEBUG
+        if let pair = injected[handle] { return pair.panel }
+        #endif
+        guard let controller else { return nil }
+        return await MainActor.run { controller.terminalPanel(forHandle: handle) }
     }
 }
 ```
@@ -5213,10 +5602,17 @@ import Network
 /// happen here BEFORE route dispatch.
 public final class HTTPControlServer {
     public typealias HostAllowlistFactory = @Sendable (UInt16) -> HostAllowlist
+    /// E11 — `isEnabled` is read atomically on every request inside
+    /// `handle(_:)`. Lifecycle still stops the listener on toggle-off;
+    /// this closure handles in-flight requests during the stop and any
+    /// races where settings flip false mid-connection. Defaults to `true`
+    /// for legacy unit tests that don't pass settings.
+    public typealias EnabledProbe = @Sendable () -> Bool
 
     let routeTable: RouteTable
     let auth: HTTPAuth
     let hostAllowlistFor: HostAllowlistFactory
+    let isEnabled: EnabledProbe
     private var tcpListener: NWListener?
     private var udsListener: HTTPControlUDSListener?
     private let queue = DispatchQueue(label: "cmux.http-control", qos: .userInitiated)
@@ -5225,11 +5621,13 @@ public final class HTTPControlServer {
     public init(
         routeTable: RouteTable,
         auth: HTTPAuth,
-        hostAllowlistFor: @escaping HostAllowlistFactory
+        hostAllowlistFor: @escaping HostAllowlistFactory,
+        isEnabled: @escaping EnabledProbe = { true }
     ) {
         self.routeTable = routeTable
         self.auth = auth
         self.hostAllowlistFor = hostAllowlistFor
+        self.isEnabled = isEnabled
     }
 
     @discardableResult
@@ -5281,6 +5679,13 @@ public final class HTTPControlServer {
     }
 
     fileprivate func handle(_ req: HTTPRequest, connection: NWConnection) async {
+        // E11 — runtime-disabled check happens on every request. If
+        // Settings flips off mid-connection, in-flight requests get
+        // a 404 with the `featureDisabled` wire code, identical to
+        // what a client would see if the listener never started.
+        guard isEnabled() else {
+            return write(JSONResponses.error(.featureDisabled), to: connection, close: true)
+        }
         switch hostAllowlistFor(boundPort).evaluate(host: req.header("host"), origin: req.header("origin")) {
         case .missingHost:
             return write(JSONResponses.error(.badRequest(reason: "missing Host")), to: connection, close: true)
@@ -5467,7 +5872,9 @@ final actor StubTerminalAccessService: TerminalAccessService {
     func setSurfaces(_ s: [SurfaceInfo]) { self.surfaces = s }
     func setScreen(_ r: ScreenReadResult?) { self.screenResult = r }
 
-    func listSurfaces() async -> [SurfaceInfo] { surfaces }
+    // E17 — protocol signature is `async throws`; even if the stub never
+    // throws, the `throws` keyword must be present to match the protocol.
+    func listSurfaces() async throws -> [SurfaceInfo] { surfaces }
 
     func readScreen(_ req: ScreenReadRequest) async throws -> ScreenReadResult {
         guard surfaces.contains(where: { $0.handle == req.handle }) else {
@@ -5533,8 +5940,15 @@ enum HTTPControlRoutes {
         service: TerminalAccessService
     ) {
         table.register(method: "GET", pattern: "/v1/surfaces") { _ in
-            let surfaces = await service.listSurfaces()
-            return JSONResponses.json(200, SurfaceListJSON.encode(surfaces))
+            // E17 — protocol is `async throws`; route handler must `try await`.
+            do {
+                let surfaces = try await service.listSurfaces()
+                return JSONResponses.json(200, SurfaceListJSON.encode(surfaces))
+            } catch let e as TerminalAccessError {
+                return JSONResponses.error(e)
+            } catch {
+                return JSONResponses.error(.ghosttyError(String(describing: error)))
+            }
         }
     }
 }
@@ -5952,16 +6366,28 @@ enum ScreenRegionReader {
 }
 ```
 
+> **Note.** This Phase 1 intermediate helper takes
+> `(handle:region:wrap:trim:)` and returns `TextScreenPayload` to bridge the
+> /screen route through the legacy `ScreenRegionReader`. Task 1.22b retires
+> `ScreenRegionReader` and routes `AppSurfaceProvider.readText` through
+> `readCells` + `cellsToText` (E10/E19), at which point the helper below
+> collapses back into the E1-shaped `readText(surface:region:)` protocol
+> method.
+
 ```swift
-// Append in Sources/HTTPControl/AppSurfaceProvider.swift
+// Append in Sources/HTTPControl/AppSurfaceProvider.swift (intermediate
+// Phase 1 helper — retired in Task 1.22b per E10).
 extension AppSurfaceProvider {
     public func readText(
         handle: SurfaceHandle, region: ScreenRegion, wrap: WrapPolicy, trim: Bool
     ) async throws -> TextScreenPayload {
-        guard let panel = resolve(handle) else { throw TerminalAccessError.unknownSurface }
+        guard let panel = await resolvePanel(handle: handle) else { throw TerminalAccessError.unknownSurface }
+        // E1 — readCells takes `surface: SurfaceInfo`. Resolve the panel's
+        // SurfaceInfo before calling the protocol method.
+        guard let info = try await resolve(handle) else { throw TerminalAccessError.unknownSurface }
         if wrap == .join {
             // Use cells path to join soft-wrapped rows accurately (D5).
-            let grid = try await readCells(handle: handle, region: region)
+            let grid = try await readCells(surface: info, region: region)
             var lines: [String] = []
             var current = ""
             for row in grid.rowsData {
@@ -5995,18 +6421,25 @@ extension AppSurfaceProvider {
 
 ```swift
 // In Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/DefaultTerminalAccessService.swift
+//
+// E1 — service composes the response from the locked provider primitives
+// `readText(surface:region:)` and `readCells(surface:region:)`. The
+// `wrap` and `trim` policies are applied here, NOT on the provider.
+// Task 1.22b will replace the `.text` branch with a cells-derived path
+// once `cellsToText` lands (E10/E19). Intermediate Phase 1 shape:
 public func readScreen(_ request: ScreenReadRequest) async throws -> ScreenReadResult {
+    guard let info = try await provider.resolve(request.handle) else {
+        throw TerminalAccessError.unknownSurface
+    }
     switch request.format {
     case .text:
-        let t = try await provider.readText(
-            handle: request.handle,
-            region: request.region,
-            wrap: request.wrap,
-            trim: request.trim
-        )
-        return .text(t)
+        var text = try await provider.readText(surface: info, region: request.region)
+        if request.trim { text = Self.trimTrailingSpaces(text) }
+        return .text(TextScreenPayload(cols: info.cols, rows: info.rows,
+                                       altScreen: info.altScreen,
+                                       title: info.title, text: text))
     case .cells:
-        let g = try await provider.readCells(handle: request.handle, region: request.region)
+        let g = try await provider.readCells(surface: info, region: request.region)
         return .cells(g)
     }
 }
@@ -6046,9 +6479,10 @@ import Testing
 @testable import CmuxTerminalAccess
 
 @Suite struct DefaultServiceAuditAlwaysOnTests {
-    final actor RecordingAudit: AuditLog {
+    // E2 — `AuditLog.record` is `async` non-throwing.
+    actor RecordingAudit: AuditLog {
         var entries: [AuditEntry] = []
-        func record(_ e: AuditEntry) { entries.append(e) }
+        func record(_ e: AuditEntry) async { entries.append(e) }
         func snapshot() -> [AuditEntry] { entries }
     }
 
@@ -6105,44 +6539,67 @@ git push origin HEAD
 
 ```swift
 // In Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/DefaultTerminalAccessService.swift
+//
+// E1 — dispatches compose higher-level operations from the locked
+// SurfaceProvider primitives (writeText / writeKey / writeMouse /
+// setFocus); no writeKeys/writeRaw/writePaste on the provider.
+// E2 — `audit.record(...)` is `async` non-throwing (no `try`).
+// E14 — `try await enforceCapacity(info: info, bytes: payloadByteCount)`
+// is preserved BEFORE the dispatch (Phase 0 line 2562 test
+// `payloadTooLargeWhenCapacityExceeded` continues to pass).
+// E16 — `rateLimiter.acquire` throws `TerminalAccessError.rateLimited`;
+// callers always `try await` it. No `guard ... else` Bool branch.
+// E18 — Phase 1's `SpyRecordingProvider` matches this dispatch shape.
 public func writeInput(_ request: InputRequest) async throws {
-    let key = HTTPControlRateKeys.write(for: request.handle)
-    guard await rateLimiter.acquire(key: key) else {
-        throw TerminalAccessError.rateLimited
+    guard let info = try await provider.resolve(request.handle) else {
+        throw TerminalAccessError.unknownSurface
     }
+    let rateKey = HTTPControlRateKeys.write(for: request.handle)
+    try await rateLimiter.acquire(key: rateKey)
     // D17: focus first if requested
     if request.focusSurface {
-        try await provider.setFocus(surface: request.handle, gained: true)
+        try await provider.setFocus(surface: info, gained: true)
     }
-    // D30: paste atomicity — per-surface serial actor (see PasteSerializer)
     let kind: AuditKind
     let byteCount: Int
     let detail: [String: String]?
     switch request.payload {
     case .text(let s, let submit):
-        try await provider.writeText(surface: request.handle, text: s, submit: submit)
-        kind = .writeText; byteCount = s.utf8.count
+        let bytes = Data(s.utf8)
+        try await enforceCapacity(info: info, bytes: bytes.count)
+        try await provider.writeText(surface: info, bytes: bytes)
+        if submit {
+            try await provider.writeKey(surface: info,
+                                        event: KeyEvent(mods: [], key: .enter))
+        }
+        kind = .writeText; byteCount = bytes.count
         detail = submit ? ["submit": "true"] : nil
     case .keys(let events):
-        try await provider.writeKeys(surface: request.handle, events: events)
+        for ev in events { try await provider.writeKey(surface: info, event: ev) }
         kind = .writeKeys; byteCount = events.count
         detail = nil
     case .raw(let data):
-        try await provider.writeRaw(surface: request.handle, data: data)
+        if !allowRawInput() {
+            throw TerminalAccessError.forbidden(reason: "raw input disabled")
+        }
+        try await enforceCapacity(info: info, bytes: data.count)
+        try await provider.writeText(surface: info, bytes: data)
         kind = .writeRaw; byteCount = data.count
         detail = nil
     case .paste(let s):
-        try await pasteSerializer.run(for: request.handle) {
-            try await provider.writePaste(surface: request.handle, text: s)
+        let bytes = Data(s.utf8)
+        try await enforceCapacity(info: info, bytes: bytes.count)
+        try await pasteSerializer.run(surface: info) {
+            try await provider.writeText(surface: info, bytes: bytes)
         }
-        kind = .writePaste; byteCount = s.utf8.count
+        kind = .writePaste; byteCount = bytes.count
         detail = nil
     case .mouse(let m):
-        try await provider.writeMouse(surface: request.handle, event: m)
+        try await provider.writeMouse(surface: info, event: m)
         kind = .writeMouse; byteCount = 0
         detail = ["action": "\(m.action)"]
     case .focus(let gained):
-        try await provider.setFocus(surface: request.handle, gained: gained)
+        try await provider.setFocus(surface: info, gained: gained)
         kind = .writeFocus; byteCount = 0
         detail = ["gained": gained ? "true" : "false"]
     }
@@ -6399,9 +6856,9 @@ import Testing
             focusSurface: true
         ))
         let timeline = await provider.callTimeline()
-        // First call is setFocus(gained: true); second is writeText.
+        // First call is setFocus(gained: true); second is writeText with "x" bytes.
         #expect(timeline.first == .setFocus(true))
-        #expect(timeline.dropFirst().first == .writeText("x", submit: false))
+        #expect(timeline.dropFirst().first == .writeText(Data("x".utf8)))
     }
 
     @Test func focusSurfaceFalseSkipsSetFocus() async throws {
@@ -6425,15 +6882,18 @@ Add `SpyRecordingProvider` to `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAcc
 
 ```swift
 // Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/TestSupport/SpyRecordingProvider.swift
+//
+// E18 — conforms to the E1 `SurfaceProvider` shape: `writeText(surface:
+// SurfaceInfo, bytes: Data)` (NOT `surface: SurfaceHandle, text: String,
+// submit: Bool`). The service decomposes `.text(submit:)` and `.paste`
+// into provider primitives; the spy records bytes/keys/mouse/focus.
 import Foundation
 @testable import CmuxTerminalAccess
 
 enum SpyCall: Equatable, Sendable {
     case setFocus(Bool)
-    case writeText(String, submit: Bool)
-    case writeKeys(Int)
-    case writeRaw(Int)
-    case writePaste(Int)
+    case writeText(Data)
+    case writeKey(KeyEvent)
     case writeMouse(MouseAction)
 }
 
@@ -6441,52 +6901,51 @@ final actor SpyRecordingProvider: SurfaceProvider {
     var simulateSlowPaste: TimeInterval = 0
     private(set) var calls: [SpyCall] = []
     private var pasteBytes: [UInt8] = []
-    private var writeSlices: [[UInt8]] = []
+    private var writeSlices: [Data] = []
     private var mouseCalls: [MouseEvent] = []
     private var _nsEventCount = 0
+    private var canned: SurfaceInfo
 
-    func surfaceInfo(for handle: SurfaceHandle) async throws -> SurfaceInfo {
-        SurfaceInfo(handle: handle, uuid: UUID(), workspaceRef: "w:1", title: "t",
-                    cols: 80, rows: 24, altScreen: false, focused: false, semanticAvailable: false)
+    init() {
+        canned = SurfaceInfo(handle: .ref(kind: "surface", ordinal: 1),
+                             uuid: UUID(), workspaceRef: "w:1", title: "t",
+                             cols: 80, rows: 24, altScreen: false,
+                             focused: false, semanticAvailable: false)
     }
-    func listSurfaces() async -> [SurfaceInfo] { [] }
-    func readText(handle: SurfaceHandle, region: ScreenRegion, wrap: WrapPolicy, trim: Bool) async throws -> TextScreenPayload {
-        .init(cols: 80, rows: 24, altScreen: false, title: nil, text: "")
+
+    func listSurfaces() async throws -> [SurfaceInfo] { [canned] }
+    func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo? {
+        (handle == canned.handle || handle == .uuid(canned.uuid)) ? canned : nil
     }
-    func readCells(handle: SurfaceHandle, region: ScreenRegion) async throws -> CellGrid {
-        CellGrid(cols: 0, rows: 0, altScreen: false, title: nil,
-                 cursor: .init(row: 0, col: 0, visible: false, style: .block),
-                 semanticAvailable: false, rowsData: [])
+    func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String { "" }
+    func readCells(surface: SurfaceInfo, region: ScreenRegion) async throws -> CellGrid {
+        throw TerminalAccessError.unsupported(reason: "spy")
     }
-    func writeText(surface: SurfaceHandle, text: String, submit: Bool) async throws {
-        calls.append(.writeText(text, submit: submit))
-        writeSlices.append(Array(text.utf8))
+    func writeText(surface: SurfaceInfo, bytes: Data) async throws {
+        if simulateSlowPaste > 0 {
+            try await Task.sleep(nanoseconds: UInt64(simulateSlowPaste * 1_000_000_000))
+        }
+        // Simulate ghostty's ESC stripping at the encoder boundary (D15).
+        let stripped = bytes.filter { $0 != 0x1B }
+        calls.append(.writeText(stripped))
+        pasteBytes.append(contentsOf: stripped)
+        writeSlices.append(stripped)
     }
-    func writeKeys(surface: SurfaceHandle, events: [KeyEvent]) async throws {
-        calls.append(.writeKeys(events.count))
+    func writeKey(surface: SurfaceInfo, event: KeyEvent) async throws {
+        calls.append(.writeKey(event))
     }
-    func writeRaw(surface: SurfaceHandle, data: Data) async throws {
-        calls.append(.writeRaw(data.count)); writeSlices.append(Array(data))
-    }
-    func writePaste(surface: SurfaceHandle, text: String) async throws {
-        if simulateSlowPaste > 0 { try await Task.sleep(nanoseconds: UInt64(simulateSlowPaste * 1_000_000_000)) }
-        // Simulate ghostty's ESC stripping at paste boundary.
-        let stripped = text.unicodeScalars.filter { $0 != "\u{001B}" }.map(Character.init)
-        let asString = String(stripped)
-        calls.append(.writePaste(asString.utf8.count))
-        let b = Array(asString.utf8)
-        pasteBytes.append(contentsOf: b)
-        writeSlices.append(b)
-    }
-    func writeMouse(surface: SurfaceHandle, event: MouseEvent) async throws {
+    func writeMouse(surface: SurfaceInfo, event: MouseEvent) async throws {
         calls.append(.writeMouse(event.action)); mouseCalls.append(event)
     }
-    func setFocus(surface: SurfaceHandle, gained: Bool) async throws {
+    func setFocus(surface: SurfaceInfo, gained: Bool) async throws {
         calls.append(.setFocus(gained))
     }
+    nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int { 1 << 20 }
 
+    // Recording helpers — E18 mandates these expose bytes/info-keyed results.
     func allRecordedPasteBytes() -> [UInt8] { pasteBytes }
-    func allWriteSlicesInOrder() -> [[UInt8]] { writeSlices }
+    func allWriteSlicesInOrder() -> [Data] { writeSlices }
+    func recordedBytes(for surface: SurfaceInfo) -> [Data] { writeSlices }
     func recordedMouseCalls() -> [MouseEvent] { mouseCalls }
     func nsEventCount() -> Int { _nsEventCount }
     func callTimeline() -> [SpyCall] { calls }
@@ -7149,41 +7608,37 @@ git push origin HEAD
 
 (Resolves Coverage / Quality must_fix: replace forbidden schema-text-grep test with a behavioral round-trip through the real loader. Resolves Coverage gap §13.1: schema must accept the new keys.)
 
+**E7** — locked symbol is `HTTPControlConfigLoader.parse(_:)` in the
+package, NOT `CmuxJSONConfigLoader.load(from:)` in the app target. Phase 2
+Task 2.31 extends the same loader + test file.
+
 **Files:**
 - Modify: `web/data/cmux.schema.json` (add `httpControl` object)
-- Modify: existing `CmuxJSONConfigLoader.swift` (or equivalent — `git grep -l 'cmux.json\|CmuxJSONConfig\|parseConfig' Sources/`) to wire `httpControl` keys
-- Test:   `cmuxTests/HTTPControl/CmuxJSONConfigHTTPControlTests.swift`
-- Modify: `cmux.xcodeproj/project.pbxproj`
+- Create: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/HTTPControlConfigLoader.swift`
+- Test:   `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/HTTPControlConfigLoaderTests.swift`
+- Modify: app-target config bootstrap (calls `HTTPControlConfigLoader.parse` and applies values to the running `HTTPControlSettings` — wire-up in Task 1.22)
 
-- [ ] **Step 1: Failing test (D14: load a real cmux.json through the loader)**
+- [ ] **Step 1: Failing test (D14: parse a real cmux.json httpControl block through the loader)**
 
 ```swift
-// cmuxTests/HTTPControl/CmuxJSONConfigHTTPControlTests.swift
+// Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/HTTPControlConfigLoaderTests.swift
 import Foundation
 import Testing
-@testable import cmux
+@testable import CmuxTerminalAccess
 
-@Suite struct CmuxJSONConfigHTTPControlTests {
-    @Test func loaderAcceptsHTTPControlBlockAndRoundTrips() throws {
+@Suite struct HTTPControlConfigLoaderTests {
+    @Test func parseAcceptsHTTPControlBlockAndRoundTrips() throws {
         let json = """
         {
-          "httpControl": {
-            "enabled": true,
-            "transport": "uds",
-            "tcpPort": 9999,
-            "udsPath": "/tmp/cmux-test.sock",
-            "allowRawInput": false,
-            "auditLogPath": "/tmp/cmux-audit.log"
-          }
+          "enabled": true,
+          "transport": "uds",
+          "tcpPort": 9999,
+          "udsPath": "/tmp/cmux-test.sock",
+          "allowRawInput": false,
+          "auditLogPath": "/tmp/cmux-audit.log"
         }
         """
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-\(UUID().uuidString).json")
-        try Data(json.utf8).write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let loaded = try CmuxJSONConfigLoader.load(from: url)
-        let http = try #require(loaded.httpControl)
+        let http = try HTTPControlConfigLoader.parse(Data(json.utf8))
         #expect(http.enabled == true)
         #expect(http.transport == .uds)
         #expect(http.tcpPort == 9999)
@@ -7192,16 +7647,12 @@ import Testing
         #expect(http.auditLogPath == "/tmp/cmux-audit.log")
     }
 
-    @Test func loaderRejectsBadTransportEnum() throws {
+    @Test func parseRejectsBadTransportEnum() throws {
         let json = """
-        { "httpControl": { "transport": "bonkers" } }
+        { "transport": "bonkers" }
         """
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-\(UUID().uuidString).json")
-        try Data(json.utf8).write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-        #expect(throws: CmuxJSONConfigError.self) {
-            _ = try CmuxJSONConfigLoader.load(from: url)
+        #expect(throws: DecodingError.self) {
+            _ = try HTTPControlConfigLoader.parse(Data(json.utf8))
         }
     }
 }
@@ -7210,33 +7661,45 @@ import Testing
 - [ ] **Step 2: Commit failing test**
 
 ```bash
-git add cmuxTests/HTTPControl/CmuxJSONConfigHTTPControlTests.swift cmux.xcodeproj/project.pbxproj
-git commit -m "Add failing cmux.json httpControl loader round-trip test"
+git add Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/HTTPControlConfigLoaderTests.swift
+git commit -m "Add failing HTTPControlConfigLoader round-trip test (E7)"
 git push origin HEAD
 ```
 
-- [ ] **Step 3: Extend the loader**
+- [ ] **Step 3: Implement the loader**
 
 ```swift
-// In Sources/CmuxJSONConfig.swift — extend the Codable model:
-public struct CmuxJSONConfig: Codable, Equatable {
-    public var httpControl: HTTPControlConfig?
-    // ... existing fields ...
+// Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/HTTPControlConfigLoader.swift
+import Foundation
+
+/// Behavioral cmux.json `httpControl` block parser (D14 / E7). Locked
+/// symbol — both Phase 1 Task 1.20 and Phase 2 Task 2.31 use this entry
+/// point. The app-target bootstrap calls `parse(_:)` with the `httpControl`
+/// sub-object bytes from cmux.json and applies the result to a running
+/// `HTTPControlSettings` instance.
+public enum HTTPControlConfigLoader {
+    public static func parse(_ json: Data) throws -> HTTPControlConfig {
+        try JSONDecoder().decode(HTTPControlConfig.self, from: json)
+    }
 }
 
-public struct HTTPControlConfig: Codable, Equatable {
+public struct HTTPControlConfig: Codable, Equatable, Sendable {
     public var enabled: Bool?
-    public var transport: HTTPControlSettings.Transport?
+    public var transport: HTTPControlTransport?
     public var tcpPort: Int?
     public var udsPath: String?
     public var allowRawInput: Bool?
     public var auditLogPath: String?
 }
+
+public enum HTTPControlTransport: String, Codable, Sendable {
+    case tcp, uds
+}
 ```
 
-(`HTTPControlSettings.Transport` is already `Codable` per D2.)
-
-If the loader funnels CLI / config into `HTTPControlSettings` at startup, also extend the bootstrap to apply the JSON values into the `HTTPControlSettings` instance (defer to Task 1.22 lifecycle wiring).
+The app target's `HTTPControlSettings.Transport` mirrors
+`HTTPControlTransport`; lifecycle code (Task 1.22) maps one to the other
+when applying a parsed config to a running settings instance.
 
 - [ ] **Step 4: Update `web/data/cmux.schema.json`**
 
@@ -7260,8 +7723,9 @@ The schema update is for users / IDE assist; the **test that asserts the config 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/CmuxJSONConfig.swift web/data/cmux.schema.json cmux.xcodeproj/project.pbxproj
-git commit -m "Wire httpControl block into cmux.json loader + schema"
+git add Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/HTTPControlConfigLoader.swift \
+        web/data/cmux.schema.json
+git commit -m "Wire httpControl block into HTTPControlConfigLoader + schema (E7)"
 git push origin HEAD
 ```
 
@@ -7576,6 +8040,213 @@ git add Sources/HTTPControl/HTTPControlLifecycle.swift \
         cmux.xcodeproj/project.pbxproj
 git commit -m "Wire HTTPControlLifecycle to settings + invalidate connections on rotate"
 git push origin HEAD
+```
+
+---
+
+### Task 1.22a: `HTTPControlTestEnv` shared Phase 1 helper (E6)
+
+(Resolves E6: ONE explicit Phase 1 task creates `cmuxTests/HTTPControl/Support/HTTPControlTestEnv.swift` with the FULL overload set Phase 2 references — `start(...)`, `startWithLiveSurface(command:args:ringCapacity:)`, plus exposed `settings`, `server`, `fixture`, `port`, `token`, `baseURL`, `surfaceHandle`, and `shutdown()`. Phase 2 tasks 2.20–2.32 only USE this helper; they do not redefine its constructors.)
+
+**Files:**
+- Create: `cmuxTests/HTTPControl/Support/HTTPControlTestEnv.swift`
+- Modify: `cmux.xcodeproj/project.pbxproj`
+
+- [ ] **Step 1: Implement (no failing test — every Phase 2 test consumer covers the helper behaviorally)**
+
+```swift
+// cmuxTests/HTTPControl/Support/HTTPControlTestEnv.swift
+import Foundation
+import CmuxTerminalAccess
+@testable import cmux
+
+/// Boots an `HTTPControlServer` against a `StubSurfaceProvider` (or a
+/// live `TerminalFixture` surface), wires the bearer-token auth, picks
+/// a dynamic loopback port, and exposes the URL + handle + token used
+/// by Phase 2 stream / cells / backpressure tests. E6 — single locked
+/// constructor surface.
+final class HTTPControlTestEnv {
+    let settings: HTTPControlSettings
+    let server: HTTPControlServer
+    let fixture: TerminalFixture
+    var port: Int { server.boundPort }
+    var token: String { settings.tokenInMemory }
+    var baseURL: URL { URL(string: "http://127.0.0.1:\(port)")! }
+    var surfaceHandle: SurfaceHandle { fixture.handle }
+
+    private init(settings: HTTPControlSettings, server: HTTPControlServer, fixture: TerminalFixture) {
+        self.settings = settings; self.server = server; self.fixture = fixture
+    }
+
+    static func start(
+        heartbeatSeconds: TimeInterval = 20,
+        maxStreamsPerSurface: Int = 8,
+        ringCapacity: Int = 512,
+        streamOpenBurst: Int = 4,
+        streamOpenRefillPerSecond: Double = 1.0
+    ) async throws -> HTTPControlTestEnv {
+        let fixture = try await TerminalFixture.makeWithLines(["READY"])
+        let (settings, server) = try await Self.boot(
+            stubBacked: true, fixture: fixture,
+            heartbeat: heartbeatSeconds, cap: maxStreamsPerSurface,
+            ring: ringCapacity, openBurst: streamOpenBurst,
+            openRefill: streamOpenRefillPerSecond
+        )
+        return HTTPControlTestEnv(settings: settings, server: server, fixture: fixture)
+    }
+
+    static func startWithLiveSurface(
+        command: String, args: [String], ringCapacity: Int = 512
+    ) async throws -> HTTPControlTestEnv {
+        let fixture = try await TerminalFixture.spawn(command: command, args: args)
+        let (settings, server) = try await Self.boot(
+            stubBacked: false, fixture: fixture,
+            heartbeat: 20, cap: 8, ring: ringCapacity,
+            openBurst: 4, openRefill: 1.0
+        )
+        return HTTPControlTestEnv(settings: settings, server: server, fixture: fixture)
+    }
+
+    func shutdown() async { server.stop() }
+
+    private static func boot(
+        stubBacked: Bool, fixture: TerminalFixture,
+        heartbeat: TimeInterval, cap: Int, ring: Int,
+        openBurst: Int, openRefill: Double
+    ) async throws -> (HTTPControlSettings, HTTPControlServer) {
+        /* construct HTTPControlSettings in a temp dir; ensureToken();
+           build a SurfaceProvider (stub or live via
+           AppSurfaceProvider.shared.testInject(panel:, handle:));
+           construct DefaultTerminalAccessService with the locked E3
+           init; build RouteTable + auth + host allowlist; startTCP(0). */
+        fatalError("impl in task")
+    }
+}
+```
+
+- [ ] **Step 2: Commit**
+```bash
+git add cmuxTests/HTTPControl/Support/HTTPControlTestEnv.swift cmux.xcodeproj/project.pbxproj
+git commit -m "Add HTTPControlTestEnv shared Phase 1 helper (E6)"
+git push
+```
+
+---
+
+### Task 1.22b: Retire `ScreenRegionReader`; route `AppSurfaceProvider.readText` through `cellsToText` (E10 + E19)
+
+(Resolves E10: Phase 1's last task retires `ScreenRegionReader` (the three-tag SCREEN+SURFACE+ACTIVE merge). After patch #1 + the Swift bridge are live, `AppSurfaceProvider.readText(surface:region:)` derives via `let g = try await readCells(surface:, region:); return cellsToText(g, wrap: .preserve)`. Resolves E19: `wrap=join` in `DefaultTerminalAccessService.readScreen` is applied by passing the wrap policy through and having `cellsToText` join rows based on `row.wrap` / `row.wrap_continuation` flags.)
+
+**Files:**
+- Create: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/CellsToText.swift`
+- Modify: `Sources/HTTPControl/AppSurfaceProvider.swift` (drop the `ScreenRegionReader.read(panel:region:)` path; derive text from `readCells` + `cellsToText`)
+- Delete: `Sources/HTTPControl/ScreenRegionReader.swift`
+- Modify: `Sources/TerminalController.swift` (the legacy v1/v2 socket text path already routes through `service.readScreen(.text)` per Task 0.26; it inherits the retirement automatically)
+- Test:   `cmuxTests/HTTPControl/AppSurfaceProviderReadTextCellsParityTests.swift`
+
+- [ ] **Step 1: Failing regression test (byte-identical output)**
+```swift
+// cmuxTests/HTTPControl/AppSurfaceProviderReadTextCellsParityTests.swift
+import Foundation
+import Testing
+import CmuxTerminalAccess
+@testable import cmux
+
+@Suite struct AppSurfaceProviderReadTextCellsParityTests {
+    @Test func readTextDerivedFromCellsMatchesLegacyMerge() async throws {
+        // Boot a fixture with a soft-wrap boundary so the cells path
+        // exercises wrap / wrap_continuation row flags.
+        let fixture = try await TerminalFixture.makeWithBytes(Data("abcdefghij\n12345\n".utf8))
+        let provider = AppSurfaceProvider.shared
+        defer { provider.testReset() }
+        let handle: SurfaceHandle = .ref(kind: "surface", ordinal: 1)
+        provider.testInject(panel: fixture.panel, handle: handle)
+        let info = try await #require(try await provider.resolve(handle))
+
+        // Legacy three-tag merge bytes (captured BEFORE this commit lands).
+        let legacy = try await ScreenRegionReaderLegacyShim.read(
+            panel: fixture.panel, region: .screen)
+
+        // New cells-derived path.
+        let derived = try await provider.readText(surface: info, region: .screen)
+        #expect(derived == legacy)
+    }
+}
+```
+
+(`ScreenRegionReaderLegacyShim` is a `#if DEBUG` snapshot of the legacy merge body kept in the test target ONLY for this one regression test; it gets deleted in the same commit that deletes `ScreenRegionReader.swift` once the test passes.)
+
+- [ ] **Step 2: Push RED**
+```bash
+git add cmuxTests/HTTPControl/AppSurfaceProviderReadTextCellsParityTests.swift cmux.xcodeproj/project.pbxproj
+git commit -m "Add failing readText/cells parity regression test (E10)"
+git push
+```
+
+- [ ] **Step 3: Implement `cellsToText` + rewrite `AppSurfaceProvider.readText`**
+
+```swift
+// Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/CellsToText.swift
+import Foundation
+
+/// Renders a ``CellGrid`` to a plain UTF-8 string. When `wrap == .preserve`,
+/// each row is emitted as one line with a trailing `\n`. When `wrap == .join`,
+/// adjacent rows whose `row.wrap` (this row was wrapped to the next) /
+/// `row.wrap_continuation` (this row continues the previous) flags are true
+/// are concatenated without a separator, joining soft-wrapped logical lines.
+/// E19 — `wrap=join` in `DefaultTerminalAccessService.readScreen` passes the
+/// wrap policy through and uses this helper.
+public func cellsToText(_ grid: CellGrid, wrap: WrapPolicy) -> String {
+    var out = ""
+    var pendingJoin = false
+    for row in grid.rowsData {
+        let line = row.cells.map { $0.t }.joined()
+        if wrap == .join, pendingJoin || row.wrapContinuation {
+            out.append(line)
+        } else {
+            if !out.isEmpty { out.append("\n") }
+            out.append(line)
+        }
+        pendingJoin = (wrap == .join && row.wrap)
+    }
+    return out
+}
+```
+
+```swift
+// In Sources/HTTPControl/AppSurfaceProvider.swift — replace `readText`:
+public func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String {
+    // E10/E19 — derive from cells; wrap is .preserve here because the
+    // service hands us the raw row text; wrap=join is handled at the
+    // service boundary by calling `cellsToText(g, wrap: .join)` directly
+    // on the cells path before falling into this helper.
+    let grid = try await readCells(surface: surface, region: region)
+    return cellsToText(grid, wrap: .preserve)
+}
+```
+
+In `DefaultTerminalAccessService.readScreen`, change the `.text` branch to:
+```swift
+case .text:
+    let grid = try await provider.readCells(surface: info, region: request.region)
+    var text = cellsToText(grid, wrap: request.wrap)
+    if request.trim { text = Self.trimTrailingSpaces(text) }
+    return .text(TextScreenPayload(cols: info.cols, rows: info.rows,
+                                   altScreen: info.altScreen,
+                                   title: info.title, text: text))
+```
+The `wrap == .join` early-throw is removed (cells now always available post-patch #1).
+
+- [ ] **Step 4: Delete `ScreenRegionReader.swift` + commit GREEN**
+
+```bash
+git rm Sources/HTTPControl/ScreenRegionReader.swift
+git add Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/CellsToText.swift \
+        Sources/HTTPControl/AppSurfaceProvider.swift \
+        Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/DefaultTerminalAccessService.swift \
+        cmux.xcodeproj/project.pbxproj
+git commit -m "Retire ScreenRegionReader; derive readText from cells via cellsToText (E10)"
+git push
 ```
 
 ---
@@ -9150,15 +9821,7 @@ public extension TerminalAccessService {
 
 - [ ] **Step 2: Skeleton in `DefaultTerminalAccessService.swift`**
 
-Add stored properties:
-
-```swift
-    private let streamCap: StreamCap
-    private let auditAlwaysOn: AuditLog
-    // (Phase 0 already injects audit; we alias here for readability.)
-```
-
-Add method:
+The `streamCap` and `audit` properties already exist on the service from the E3 locked Phase 0 init signature; no new stored properties needed here. Add the public method:
 
 ```swift
     public func subscribeOutput(
@@ -9166,7 +9829,11 @@ Add method:
         onEvent: @escaping @Sendable (OutputEvent) -> Void
     ) async throws -> OutputSubscription {
         let capToken = try streamCap.acquire(options.handle)
-        let info = try await provider.resolve(options.handle)
+        // E1 — provider.resolve returns SurfaceInfo? (optional).
+        guard let info = try await provider.resolve(options.handle) else {
+            capToken.release()
+            throw TerminalAccessError.unknownSurface
+        }
 
         switch options.mode {
         case .raw:
@@ -9229,27 +9896,34 @@ import Testing
         func emit(_ d: Data) { handler?(d) }
     }
 
+    // E1 — full SurfaceProvider conformance. Methods we don't exercise in
+    // this test return safe defaults / unsupported.
     final class FakeProvider: SurfaceProvider, @unchecked Sendable {
         let raw = FakeRaw()
-        func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo {
+        func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo? {
             SurfaceInfo(handle: handle, uuid: UUID(), workspaceRef: "ws:1",
                         title: "t", cols: 80, rows: 24, altScreen: false,
                         focused: false, semanticAvailable: false)
         }
         func listSurfaces() async throws -> [SurfaceInfo] { [] }
+        func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String { "" }
+        func readCells(surface: SurfaceInfo, region: ScreenRegion) async throws -> CellGrid {
+            throw TerminalAccessError.unsupported(reason: "fake")
+        }
+        func writeText(surface: SurfaceInfo, bytes: Data) async throws {}
+        func writeKey(surface: SurfaceInfo, event: KeyEvent) async throws {}
+        func writeMouse(surface: SurfaceInfo, event: MouseEvent) async throws {}
+        func setFocus(surface: SurfaceInfo, gained: Bool) async throws {}
+        nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int { 1 << 20 }
         func rawOutputSource(for handle: SurfaceHandle) async throws -> SurfaceRawOutputSource? { raw }
     }
 
-    final class RecordingAudit: AuditLog, @unchecked Sendable {
-        let lock = NSLock()
+    // E2 — AuditLog.record is `async` non-throwing. Test recorder is an
+    // `actor` so appends are serialized through the actor executor.
+    actor RecordingAudit: AuditLog {
         var entries: [AuditEntry] = []
-        func record(_ entry: AuditEntry) {
-            lock.lock(); entries.append(entry); lock.unlock()
-        }
-        var kinds: [AuditKind] {
-            lock.lock(); defer { lock.unlock() }
-            return entries.map { $0.kind }
-        }
+        func record(_ entry: AuditEntry) async { entries.append(entry) }
+        func kinds() -> [AuditKind] { entries.map { $0.kind } }
     }
 
     @Test func rawSubscriptionForwardsBytesAndAuditsOpenClose() async throws {
@@ -9276,11 +9950,11 @@ import Testing
 
         lock.lock(); let got = rx; lock.unlock()
         #expect(got == Data("hello".utf8))
-        #expect(audit.kinds.contains(.streamOpen))
+        #expect(await audit.kinds().contains(.streamOpen))
 
         sub.cancel()
         try await Task.sleep(nanoseconds: 50_000_000)
-        #expect(audit.kinds.contains(.streamClose))
+        #expect(await audit.kinds().contains(.streamClose))
     }
 }
 ```
@@ -9352,22 +10026,27 @@ Expected: CI red — placeholder `openRawSubscription` never wires `FakeRaw` to 
             wake.add(data: 1)
         }
 
-        // Audit: stream open (D3 shape).
-        audit.record(AuditEntry(
+        // E2 — audit.record is async non-throwing.
+        await audit.record(AuditEntry(
             timestamp: Date(), surface: options.handle,
             kind: .streamOpen, byteCount: 0,
             detail: ["mode": "raw", "resume": "\(resumeAfter)"]))
 
         let sub = OutputSubscription(
             id: UUID(), handle: options.handle, mode: .raw,
-            onCancel: { [weak self] in
+            onCancel: { [audit = self.audit] in
                 wake.cancel()
                 _ = detachToken  // keep alive until cancel
                 capToken.release()
-                self?.audit.record(AuditEntry(
-                    timestamp: Date(), surface: options.handle,
-                    kind: .streamClose, byteCount: 0,
-                    detail: ["mode": "raw"]))
+                // E2 — synchronous cancel closure schedules the async
+                // audit write on a detached task; failure to await here
+                // is fine because the audit is fire-and-forget.
+                Task { @Sendable in
+                    await audit.record(AuditEntry(
+                        timestamp: Date(), surface: options.handle,
+                        kind: .streamClose, byteCount: 0,
+                        detail: ["mode": "raw"]))
+                }
             }
         )
         return sub
@@ -9386,15 +10065,17 @@ Expected: `SubscribeRawTests` from Task 2.16 turn green.
 
 ---
 
-### Task 2.18: Implement `openCellsSubscription` using `SnapshotPoller` (D8) — TDD
+### Task 2.18: Implement `openCellsSubscription` using `SnapshotPoller` (D8) (characterization test — no red→green ritual)
 
-(Resolves D8 entirely; Coverage must_fix on dirty-coalescing AND "no third ghostty patch".)
+(Resolves D8 entirely; Coverage must_fix on dirty-coalescing AND "no third ghostty patch". E13 — single characterization commit; the SnapshotPoller plumbing was already exercised by the SnapshotPollerTests in Task 2.10/2.11. E12 — Step 3 below promotes `SnapshotPoller.read` to `@Sendable () async throws -> CellGrid?`; the explicit fixture edits to Tasks 2.10/2.11 are listed below — they are NOT "adjust if needed" notes.)
 
 **Files:**
 - Modify: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/DefaultTerminalAccessService.swift`
+- Modify: `Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/SnapshotPoller.swift` (E12 — promote `read` closure to async)
+- Modify: `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/SnapshotPollerTests.swift` (E12 — wrap test fixture `read` closures as `{ @Sendable () async in current }`)
 - Create: `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/SubscribeCellsTests.swift`
 
-- [ ] **Step 1: Failing test**
+- [ ] **Step 1: Failing test (the failing-test commit lands FIRST per E12; the SnapshotPoller async change + Task 2.10/2.11 fixture updates ship in Step 2's GREEN commit)**
 
 ```swift
 import Foundation
@@ -9402,19 +10083,28 @@ import Testing
 @testable import CmuxTerminalAccess
 
 @Suite struct SubscribeCellsTests {
+    // E1 — `SurfaceProvider.readCells(surface:region:)` (not `handle:`); the
+    // provider also returns `SurfaceInfo?` (optional) from `resolve(_:)`.
     final class StaticCellsProvider: SurfaceProvider, @unchecked Sendable {
         var grid: CellGrid
-        init(grid: CellGrid) { self.grid = grid }
-        func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo {
-            SurfaceInfo(handle: handle, uuid: UUID(), workspaceRef: "ws:1",
-                        title: nil, cols: grid.cols, rows: grid.rows,
-                        altScreen: grid.altScreen, focused: false,
-                        semanticAvailable: grid.semanticAvailable)
+        let canned: SurfaceInfo
+        init(grid: CellGrid) {
+            self.grid = grid
+            self.canned = SurfaceInfo(
+                handle: .ref(kind: "surface", ordinal: 1),
+                uuid: UUID(), workspaceRef: "ws:1", title: nil,
+                cols: grid.cols, rows: grid.rows, altScreen: grid.altScreen,
+                focused: false, semanticAvailable: grid.semanticAvailable)
         }
-        func listSurfaces() async throws -> [SurfaceInfo] { [] }
-        func readCells(handle: SurfaceHandle, region: ScreenRegion) async throws -> CellGrid {
-            grid
-        }
+        func listSurfaces() async throws -> [SurfaceInfo] { [canned] }
+        func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo? { canned }
+        func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String { "" }
+        func readCells(surface: SurfaceInfo, region: ScreenRegion) async throws -> CellGrid { grid }
+        func writeText(surface: SurfaceInfo, bytes: Data) async throws {}
+        func writeKey(surface: SurfaceInfo, event: KeyEvent) async throws {}
+        func writeMouse(surface: SurfaceInfo, event: MouseEvent) async throws {}
+        func setFocus(surface: SurfaceInfo, gained: Bool) async throws {}
+        nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int { 1 << 20 }
     }
 
     private func grid(letter: String) -> CellGrid {
@@ -9465,7 +10155,7 @@ import Testing
 
 - [ ] **Step 2: Real `openCellsSubscription` with `SnapshotPoller`**
 
-Add a constructor parameter `cellsTickRate: Double = 5.0` on `DefaultTerminalAccessService` and replace the placeholder:
+`DefaultTerminalAccessService` already accepts `cellsTickRate: Double = 5.0` per the E3 locked init signature; no new constructor parameter is needed. Replace the placeholder body:
 
 ```swift
     private func openCellsSubscription(
@@ -9479,15 +10169,14 @@ Add a constructor parameter `cellsTickRate: Double = 5.0` on `DefaultTerminalAcc
             label: "cmux.stream.cells.\(UUID().uuidString)", qos: .utility)
 
         let provider = self.provider
-        let handle = options.handle
+        let surface = info  // E1 — readCells takes `surface: SurfaceInfo`.
 
         // SnapshotPoller reads + hashes + emits only on change (D8).
         let poller = SnapshotPoller(
             tickRate: cellsTickRate,
             clock: SystemMonotonicClock(),
             read: {
-                try await provider.readCells(
-                    handle: handle, region: .viewport)
+                try await provider.readCells(surface: surface, region: .viewport)
             },
             emit: { grid in
                 _ = ring.append(.cellsSnapshot(grid, seq: 0))
@@ -9505,26 +10194,29 @@ Add a constructor parameter `cellsTickRate: Double = 5.0` on `DefaultTerminalAcc
         timer.setEventHandler { poller.tick() }
         timer.resume()
 
-        audit.record(AuditEntry(
+        // E2 — audit.record is async non-throwing.
+        await audit.record(AuditEntry(
             timestamp: Date(), surface: options.handle,
             kind: .streamOpen, byteCount: 0,
             detail: ["mode": "cells", "tickRate": "\(cellsTickRate)"]))
 
         return OutputSubscription(
             id: UUID(), handle: options.handle, mode: .cells,
-            onCancel: { [weak self] in
+            onCancel: { [audit = self.audit] in
                 timer.cancel()
                 capToken.release()
-                self?.audit.record(AuditEntry(
-                    timestamp: Date(), surface: options.handle,
-                    kind: .streamClose, byteCount: 0,
-                    detail: ["mode": "cells"]))
+                Task { @Sendable in
+                    await audit.record(AuditEntry(
+                        timestamp: Date(), surface: options.handle,
+                        kind: .streamClose, byteCount: 0,
+                        detail: ["mode": "cells"]))
+                }
             }
         )
     }
 ```
 
-(Note on async-in-closure: `SnapshotPoller.read` is non-async per its current signature in Task 2.10/2.11. Update the `read` closure type to `@Sendable () async throws -> CellGrid?` in `SnapshotPoller.swift` and have `tick()` use `Task.detached { try await self.read() }` joined synchronously via a semaphore inside the timer queue — implemented as a follow-up commit below.)
+(`SnapshotPoller.read` becomes `@Sendable () async throws -> CellGrid?` in Step 3 below per E12.)
 
 - [ ] **Step 3: Promote `SnapshotPoller.read` to async**
 
@@ -9556,15 +10248,26 @@ In `SnapshotPoller.swift`, change the closure type to `@Sendable () async throws
     }
 ```
 
-Adjust the `SnapshotPollerTests` from Task 2.10 to use `read: { current }` returning synchronously — Swift will wrap a non-async closure into `async` automatically at the call site since `read` is `() async throws -> CellGrid?`. If the test fails to compile, change the test's closures to `read: { @Sendable in current }` form.
+**E12 mandatory edits to Task 2.10/2.11 SnapshotPollerTests.swift.** The async promotion breaks the existing fixture; update every test in `SnapshotPollerTests` to wrap the read closure as an async closure:
 
-- [ ] **Step 4: Commit (TDD pair: failing test in same commit as fix is acceptable here only because the test file was just introduced and we keep the red/green discipline by pushing the failing test commit first in a separate commit if `subscribeOutput` placeholder is still in place; we already did that in Task 2.16. So this is the green commit.)**
+```swift
+// BEFORE (Task 2.10/2.11):
+read: { current },
+
+// AFTER (E12):
+read: { @Sendable () async in current },
+```
+
+`current` is captured by reference where it mutates between ticks (`var current = sampleGrid(letter: "a")`); in async-closure form, the read closure returns the current value synchronously inside an async wrapper. Each existing test in `SnapshotPollerTests` (`emitsOnceWhenContentChangesAcrossTicks`, `suppressesEmitWhenContentUnchanged`, `swallowsReadErrors`) updates the same way. The `swallowsReadErrors` test changes its `throw` form to `throw TerminalAccessError.unknownSurface` inside the async closure — the swallow semantics in `tick()` still apply.
+
+- [ ] **Step 4: Commit (E13 — single characterization commit; no red/green split)**
 
 ```bash
 git add Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/SnapshotPoller.swift \
         Packages/CmuxTerminalAccess/Sources/CmuxTerminalAccess/DefaultTerminalAccessService.swift \
+        Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/SnapshotPollerTests.swift \
         Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/SubscribeCellsTests.swift
-git commit -m "Implement cells subscription via SnapshotPoller (D8: poll + hash)"
+git commit -m "Implement cells subscription via SnapshotPoller (D8 + E12 async read)"
 git push origin HEAD
 ```
 
@@ -9605,14 +10308,25 @@ import Testing
 @testable import CmuxTerminalAccess
 
 @Suite struct StreamEndOnSurfaceCloseTests {
+    // E1 — full SurfaceProvider conformance; only the methods this test
+    // exercises (resolve, rawOutputSource, observeClose) carry behavior.
     final class ClosableProvider: SurfaceProvider, @unchecked Sendable {
         var closer: (@Sendable () -> Void)?
-        func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo {
+        func resolve(_ handle: SurfaceHandle) async throws -> SurfaceInfo? {
             SurfaceInfo(handle: handle, uuid: UUID(), workspaceRef: "ws:1",
                         title: nil, cols: 80, rows: 24, altScreen: false,
                         focused: false, semanticAvailable: false)
         }
         func listSurfaces() async throws -> [SurfaceInfo] { [] }
+        func readText(surface: SurfaceInfo, region: ScreenRegion) async throws -> String { "" }
+        func readCells(surface: SurfaceInfo, region: ScreenRegion) async throws -> CellGrid {
+            throw TerminalAccessError.unsupported(reason: "closable")
+        }
+        func writeText(surface: SurfaceInfo, bytes: Data) async throws {}
+        func writeKey(surface: SurfaceInfo, event: KeyEvent) async throws {}
+        func writeMouse(surface: SurfaceInfo, event: MouseEvent) async throws {}
+        func setFocus(surface: SurfaceInfo, gained: Bool) async throws {}
+        nonisolated func pendingInputCapacityRemaining(surface: SurfaceInfo) -> Int { 1 << 20 }
         func rawOutputSource(for handle: SurfaceHandle) async throws -> SurfaceRawOutputSource? {
             final class S: SurfaceRawOutputSource, @unchecked Sendable {
                 func attachRawOutput(_ handler: @escaping @Sendable (Data) -> Void) async throws -> AnyObject {
@@ -10847,25 +11561,30 @@ Under `properties.httpControl`, add:
 
 - [ ] **Step 4: Extend Phase 1's behavioral loader test**
 
-In `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/HTTPControlConfigLoaderTests.swift` (created in Phase 1 per Coverage must_fix #15 replacement), add:
+In `Packages/CmuxTerminalAccess/Tests/CmuxTerminalAccessTests/HTTPControlConfigLoaderTests.swift` (created in Phase 1 Task 1.20 per E7), add:
 
 ```swift
-    @Test func loaderAcceptsStreamBlockAndRoundTripsValues() throws {
+    @Test func parseAcceptsStreamBlockAndRoundTripsValues() throws {
         let json = #"""
-        { "httpControl": { "enabled": true,
-            "stream": { "maxPerSurface": 16, "heartbeatSeconds": 30,
-                        "cellsTickRate": 10.0, "eventRingCapacity": 2048,
-                        "openBurst": 10, "openRefillPerSecond": 1.0 } } }
+        { "enabled": true,
+          "stream": { "maxPerSurface": 16, "heartbeatSeconds": 30,
+                      "cellsTickRate": 10.0, "eventRingCapacity": 2048,
+                      "openBurst": 10, "openRefillPerSecond": 1.0 } }
         """#
-        let loaded = try ConfigLoader.parse(Data(json.utf8))
-        #expect(loaded.httpControl.stream.maxPerSurface == 16)
-        #expect(loaded.httpControl.stream.heartbeatSeconds == 30)
-        #expect(loaded.httpControl.stream.cellsTickRate == 10.0)
-        #expect(loaded.httpControl.stream.eventRingCapacity == 2048)
-        #expect(loaded.httpControl.stream.openBurst == 10)
-        #expect(loaded.httpControl.stream.openRefillPerSecond == 1.0)
+        let loaded = try HTTPControlConfigLoader.parse(Data(json.utf8))
+        let stream = try #require(loaded.stream)
+        #expect(stream.maxPerSurface == 16)
+        #expect(stream.heartbeatSeconds == 30)
+        #expect(stream.cellsTickRate == 10.0)
+        #expect(stream.eventRingCapacity == 2048)
+        #expect(stream.openBurst == 10)
+        #expect(stream.openRefillPerSecond == 1.0)
     }
 ```
+
+And extend `HTTPControlConfig` in `HTTPControlConfigLoader.swift` with a
+new optional `stream: HTTPControlStreamConfig?` field, plus the
+`HTTPControlStreamConfig` struct enumerating the six fields above.
 
 - [ ] **Step 5: Document in `docs/configuration.md`**
 
@@ -11119,11 +11838,11 @@ The original drafts and reviewer reports are kept at `/tmp/cmux-plan-drafts/` an
 
 ---
 
-## Appendix C — Errata & Reconciled Contracts (AUTHORITATIVE)
+## Appendix C — Errata & Reconciled Contracts (REFERENCE)
 
-> **Read this first.** A final cross-phase verification pass against this plan ran on 2026-05-30 and surfaced **20 cross-phase contradictions** that the 3-phase parallel synthesis introduced. The locked decisions D1–D30 (Appendix A) ARE all honored, but the per-phase correctors diverged on smaller interface details that span phase boundaries (protocol method names, constructor evolution, helper definitions, type duplications, naming inconsistencies).
+> **All E1-E20 contracts have been folded into the task bodies; this Appendix is now a REFERENCE record, not an override.** The 2026-05-30 fold-in pass rewrote every conflicting Phase 0/1/2 task body in place so that protocol shapes, constructor signatures, helper definitions, naming, and audit/rate-limit/paste contracts are internally consistent throughout the plan.
 >
-> **The Errata wins.** When a task body in Phase 0/1/2 conflicts with the Errata below, the Errata is the source of truth. Adjust the task body during execution; do not re-relitigate the contract.
+> Keep the E1-E20 details below as a quick lookup when implementing a task — but the task body itself is now the source of truth. If you ever find a task body that disagrees with the Errata text below, the task body wins (the fold-in pass took precedence over Errata text).
 
 ### E1 — `SurfaceProvider` protocol: complete, locked method list [resolves verification BLOCKER #1]
 The full protocol surface — **no other methods** — and `DefaultTerminalAccessService` composes higher-level operations from these primitives:
@@ -11290,9 +12009,9 @@ Phase 0's `SurfaceProvider.readCells` default stub returns `.unsupported(reason:
 ### How to use this Errata during execution
 
 When you (the implementing agent) reach a task:
-1. Skim the task body for any references to: `SurfaceProvider` method shapes, `AuditLog` API, `DefaultTerminalAccessService.init`, `PasteSerializer`, `AppSurfaceProvider.shared`/`testInject`, `HTTPControlTestEnv`, the config loader symbol, `TerminalFixture`, the legacy `SocketControlSettings` compare, `ScreenRegionReader`, `udsPath`/`unixSocketPath`, `RateLimiter.acquire` return type, or `StubTerminalAccessService.listSurfaces`.
-2. If the task body uses a shape inconsistent with E1–E20 above, **apply the Errata shape, not the task body's shape**.
-3. The task body's TDD steps, file paths, commit messages, and test assertions remain valid — only the API contract details are overridden.
+1. The task body itself is the source of truth — the 2026-05-30 fold-in pass rewrote every conflicting Phase 0/1/2 task body in place.
+2. The E1-E20 contracts below are a **reference index** if you need a quick check on a specific contract (protocol method shape, constructor signature, helper file location, naming convention).
+3. The new Phase 0 tasks introduced by the fold-in pass are: 0.19a (`PasteSerializer` actor, E4), 0.19b (`ConstantTimeCompare` + legacy socket fix, E9), and 0.23a (`TerminalFixture`, E8). The new Phase 1 tasks are: 1.22a (`HTTPControlTestEnv`, E6) and 1.22b (`ScreenRegionReader` retirement, E10 + E19).
 
 ---
 
@@ -11301,6 +12020,7 @@ When you (the implementing agent) reach a task:
 The final verification pass (2026-05-30) audited the spliced plan against the 38 original reviewer must_fix items and surfaced new cross-phase issues:
 
 - **37 / 38 reviewer must_fix items RESOLVED** (only one minor partial: Task 0.23 lacks a failing test for `AppSurfaceProvider` helper extracts — split sub-tasks 0.24.a–e in the corrected plan cover the bulk).
-- **20 NEW cross-phase issues introduced by the synthesis** (4 blockers, 9 majors, 7 minors) — all 20 are addressed by Errata items E1–E20 above.
+- **20 NEW cross-phase issues introduced by the synthesis** (4 blockers, 9 majors, 7 minors) — all 20 were addressed by Errata items E1–E20.
 - **Verdict before Errata:** `needs_another_pass`.
-- **Verdict after Errata:** Errata locks the 20 contracts authoritatively; the implementing agent uses the Errata as source-of-truth on conflict, so the plan is **executable** with the Errata read first. A future revision could fold the Errata into the task bodies inline, but doing so risks introducing yet more cross-phase drift (which is how we got here). The Errata-as-source-of-truth pattern is honest and minimizes drift.
+- **Verdict after Errata (as-override):** Errata-as-source-of-truth pattern; plan executable with Errata read first.
+- **Verdict after fold-in pass (current state):** The 2026-05-30 fold-in pass rewrote every conflicting Phase 0/1/2 task body in place so the API contracts E1-E20 are now internally consistent throughout the task bodies. Appendix C is now a reference record. New Phase 0 sub-tasks 0.19a / 0.19b / 0.23a and new Phase 1 sub-tasks 1.22a / 1.22b were introduced by the fold-in to give E4 / E9 / E8 / E6 / E10 + E19 their own task scope (they previously lived only in Errata prose). Plan is **executable straight from the task bodies**.
