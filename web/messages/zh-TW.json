@@ -45,7 +45,7 @@
     "taglinePrefix": "開源終端，專為 ",
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
-    "subtitle": "基於 Ghostty 的原生 macOS 終端應用程式。開源免費。垂直分頁、代理需要注意時的通知環、分割窗格，以及用於自動化的 socket API。",
+    "subtitle": "基於 Ghostty 的原生 macOS 終端應用程式。開源免費。垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
     "features": "功能",
     "faq": "常見問題",
     "communitySection": "社群",
@@ -673,7 +673,7 @@
       "metaTitle": "鍵盤快捷鍵"
     },
     "api": {
-      "title": "API 參考",
+      "title": "CLI 參考",
       "metaDescription": "cmux CLI 和 Unix socket API 參考。工作區管理、分割窗格、輸入控制、通知、側邊欄中繼資料、環境變數和偵測方法。",
       "intro": "cmux 提供 CLI 工具和 Unix socket，用於程式化控制。每個指令都可以透過兩種介面使用。",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Python 用戶端",
       "shellScript": "Shell 腳本",
       "buildScriptNotification": "帶有通知的建構腳本",
-      "metaTitle": "API 參考"
+      "metaTitle": "CLI 參考"
     },
     "notifications": {
       "title": "通知",
@@ -895,7 +895,7 @@
       "authoringCallout": "新增技能時，請包含 <code>agents/openai.yaml</code>，讓 installer 顯示清楚名稱、短描述和預設 prompt。",
       "relatedTitle": "相關文件",
       "relatedBrowserAutomation": "瀏覽器自動化",
-      "relatedApi": "API 參考",
+      "relatedApi": "CLI 參考",
       "relatedCustomCommands": "自訂指令"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "工作階段還原",
       "customCommands": "自訂指令",
       "keyboardShortcuts": "鍵盤快捷鍵",
-      "apiReference": "API 參考",
+      "apiReference": "CLI 參考",
       "browserAutomation": "瀏覽器自動化",
       "skills": "技能",
       "notifications": "通知",

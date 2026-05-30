@@ -1813,6 +1813,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case project
 }
 
 struct CmuxResolvedCommand: Sendable {

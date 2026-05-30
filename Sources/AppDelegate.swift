@@ -625,8 +625,9 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
     nonisolated(unsafe) static var shared: AppDelegate?
+    private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
     private var isRunningUnderXCTestCached: Bool {
@@ -793,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var reloadConfigurationMenuItemRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -11667,6 +11669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleShortcutDefaultsDidChange() {
         clearConfiguredShortcutChordState()
+        scheduleReloadConfigurationMenuItemRefresh()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
@@ -11723,6 +11726,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
         }
+    }
+
+    @objc func reloadConfigurationMenuItem(_ sender: Any?) {
+        reloadConfiguration(source: "menu.reload_configuration")
+    }
+
+    func installReloadConfigurationMenuItemAction() {
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
+        appMenu.delegate = self
+        configureReloadConfigurationMenuItem(in: appMenu)
+    }
+
+    private func scheduleReloadConfigurationMenuItemRefresh() {
+        guard !reloadConfigurationMenuItemRefreshScheduled else { return }
+        reloadConfigurationMenuItemRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.reloadConfigurationMenuItemRefreshScheduled = false
+            self.installReloadConfigurationMenuItemAction()
+        }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === NSApp.mainMenu?.items.first?.submenu else { return }
+        configureReloadConfigurationMenuItem(in: menu)
+    }
+
+    private func configureReloadConfigurationMenuItem(in menu: NSMenu) {
+        guard let item = reloadConfigurationMenuItem(in: menu) else { return }
+
+        item.identifier = Self.reloadConfigurationMenuItemIdentifier
+        item.target = self
+        item.action = #selector(reloadConfigurationMenuItem(_:))
+
+        let shortcut = KeyboardShortcutSettings.menuShortcut(for: .reloadConfiguration)
+        if let keyEquivalent = shortcut.menuItemKeyEquivalent {
+            item.keyEquivalent = keyEquivalent
+            item.keyEquivalentModifierMask = shortcut.modifierFlags
+        } else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+        }
+    }
+
+    private func reloadConfigurationMenuItem(in menu: NSMenu) -> NSMenuItem? {
+        if let identifiedItem = menu.items.first(where: { $0.identifier == Self.reloadConfigurationMenuItemIdentifier }) {
+            return identifiedItem
+        }
+
+        let reloadConfigurationTitle = String(
+            localized: "menu.app.reloadConfiguration",
+            defaultValue: "Reload Configuration"
+        )
+        return menu.items.first(where: { $0.title == reloadConfigurationTitle })
+    }
+
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String,
+        reloadSettingsFromFile: Bool = true,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+    ) {
+#if DEBUG
+        cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
+#endif
+        GhosttyApp.shared.reloadConfiguration(
+            soft: soft,
+            source: source,
+            reloadSettingsFromFile: reloadSettingsFromFile,
+            preferredColorScheme: preferredColorScheme
+        )
     }
 
     func reloadCmuxConfigStores(source: String) {
@@ -12420,7 +12494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
-            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
+            reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
         }
 
@@ -15952,7 +16026,7 @@ private extension AppDelegate {
                 guard let self,
                       self.cmuxThemePreviewReloadGeneration == generation else { return }
                 self.cmuxThemePreviewReloadWorkItem = nil
-                GhosttyApp.shared.reloadConfiguration(source: source)
+                self.reloadConfiguration(source: source)
             }
             cmuxThemePreviewReloadWorkItem = workItem
             DispatchQueue.main.asyncAfter(
@@ -15967,7 +16041,7 @@ private extension AppDelegate {
         cmuxThemePreviewReloadGeneration += 1
         cmuxThemePreviewReloadWorkItem?.cancel()
         cmuxThemePreviewReloadWorkItem = nil
-        GhosttyApp.shared.reloadConfiguration(source: source)
+        reloadConfiguration(source: source)
     }
 }
 

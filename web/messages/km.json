@@ -45,7 +45,7 @@
     "taglinePrefix": "ទែមីណលដែលបង្កើតសម្រាប់ ",
     "typingCodingAgents": "ភ្នាក់ងារសរសេរកូដ",
     "typingMultitasking": "ពហុកិច្ចការ",
-    "subtitle": "កម្មវិធី macOS ដើមដែលបង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង socket API សម្រាប់ស្វ័យប្រវត្តិកម្ម។",
+    "subtitle": "កម្មវិធី macOS ដើមដែលបង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង <cliLink>CLI</cliLink> សម្រាប់ការសរសេរកម្មវិធី។",
     "features": "មុខងារ",
     "faq": "សំណួរញឹកញាប់",
     "communitySection": "សហគមន៍",
@@ -673,7 +673,7 @@
       "metaTitle": "ផ្លូវកាត់ក្តារចុច"
     },
     "api": {
-      "title": "ឯកសារយោង API",
+      "title": "ឯកសារយោង CLI",
       "metaDescription": "ឯកសារយោង cmux CLI និង Unix socket API។ ការគ្រប់គ្រង workspace, បន្ទះបំបែក, ការគ្រប់គ្រងការបញ្ចូល, ជូនដំណឹង, ទិន្នន័យមេតារបារចំហៀង, អថេរបរិស្ថាន, និងវិធីកំណត់។",
       "intro": "cmux ផ្ដល់ទាំងឧបករណ៍ CLI និង Unix socket សម្រាប់ការគ្រប់គ្រងដោយកម្មវិធី។ ពាក្យបញ្ជាទាំងអស់មានតាមរយៈចំណុចប្រទាក់ទាំងពីរ។",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Python client",
       "shellScript": "Shell script",
       "buildScriptNotification": "Build script ជាមួយជូនដំណឹង",
-      "metaTitle": "ឯកសារ API"
+      "metaTitle": "ឯកសារយោង CLI"
     },
     "notifications": {
       "title": "ជូនដំណឹង",
@@ -895,7 +895,7 @@
       "authoringCallout": "នៅពេលបន្ថែមជំនាញថ្មី សូមរួមបញ្ចូល <code>agents/openai.yaml</code> ដើម្បីឱ្យ installer បង្ហាញឈ្មោះច្បាស់ ការពិពណ៌នាខ្លី និង prompt លំនាំដើម។",
       "relatedTitle": "ឯកសារពាក់ព័ន្ធ",
       "relatedBrowserAutomation": "ការធ្វើស្វ័យប្រវត្តិកម្ម Browser",
-      "relatedApi": "ឯកសារយោង API",
+      "relatedApi": "ឯកសារយោង CLI",
       "relatedCustomCommands": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "ស្ដារវគ្គ",
       "customCommands": "ពាក្យបញ្ជាផ្ទាល់ខ្លួន",
       "keyboardShortcuts": "ផ្លូវកាត់ក្ដារចុច",
-      "apiReference": "ឯកសារយោង API",
+      "apiReference": "ឯកសារយោង CLI",
       "browserAutomation": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",
       "skills": "ជំនាញ",
       "notifications": "ជូនដំណឹង",

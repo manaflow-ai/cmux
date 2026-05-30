@@ -1521,6 +1521,112 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testReloadConfigurationMenuActionReloadsRegisteredCmuxConfigStore() throws {
+#if DEBUG
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "actions": {
+                "first": { "type": "command", "command": "echo first" }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let tabManager = TabManager()
+        let cmuxConfigStore = CmuxConfigStore(
+            globalConfigPath: settingsFileURL.path,
+            startFileWatchers: false
+        )
+        cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+        cmuxConfigStore.loadAll()
+        XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "first"))
+        XCTAssertNil(cmuxConfigStore.resolvedAction(id: "second"))
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: cmuxConfigStore
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let previousMainMenu = NSApp.mainMenu
+        defer { NSApp.mainMenu = previousMainMenu }
+
+        let mainMenu = NSMenu(title: "Main")
+        let appMenuItem = NSMenuItem(title: "cmux", action: nil, keyEquivalent: "")
+        let appMenu = NSMenu(title: "cmux")
+        let originalReloadItem = NSMenuItem(
+            title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"),
+            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(originalReloadItem)
+        mainMenu.addItem(appMenuItem)
+        mainMenu.setSubmenu(appMenu, for: appMenuItem)
+        NSApp.mainMenu = mainMenu
+
+        let selector = NSSelectorFromString("reloadConfigurationMenuItem:")
+        XCTAssertTrue(
+            appDelegate.responds(to: selector),
+            "Reload Configuration menu item must have an AppKit selector-backed action path"
+        )
+        appDelegate.installReloadConfigurationMenuItemAction()
+        XCTAssertTrue(originalReloadItem.target === appDelegate)
+        XCTAssertEqual(originalReloadItem.action, selector)
+        XCTAssertEqual(
+            originalReloadItem.identifier,
+            NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
+        )
+
+        let rebuiltReloadItem = NSMenuItem(
+            title: originalReloadItem.title,
+            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            keyEquivalent: ""
+        )
+        appMenu.removeItem(originalReloadItem)
+        appMenu.addItem(rebuiltReloadItem)
+        appDelegate.menuNeedsUpdate(appMenu)
+        XCTAssertTrue(rebuiltReloadItem.target === appDelegate)
+        XCTAssertEqual(rebuiltReloadItem.action, selector)
+
+        try writeSettingsFile(
+            """
+            {
+              "actions": {
+                "second": { "type": "command", "command": "echo second" }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let unrelatedReloadItem = NSMenuItem(
+            title: rebuiltReloadItem.title,
+            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            keyEquivalent: ""
+        )
+        let unrelatedMenu = NSMenu(title: "Unrelated")
+        unrelatedMenu.addItem(unrelatedReloadItem)
+        appDelegate.menuNeedsUpdate(unrelatedMenu)
+        XCTAssertFalse(unrelatedReloadItem.target === appDelegate)
+        XCTAssertNotEqual(unrelatedReloadItem.action, selector)
+
+        XCTAssertTrue(NSApp.sendAction(selector, to: rebuiltReloadItem.target, from: rebuiltReloadItem))
+
+        XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
+        XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
+#else
+        throw XCTSkip("menu selector regression requires DEBUG app test helpers")
+#endif
+    }
+
     func testSettingsFileShortcutCanBeOverriddenFromUI() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
