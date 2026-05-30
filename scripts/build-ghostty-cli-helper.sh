@@ -37,6 +37,14 @@ select_zig_for_target() {
   local target="${1:-}"
   local desired_arch
   desired_arch="$(target_arch_for_triple "$target")"
+  local host_arch=""
+  case "$(uname -m)" in
+    arm64 | aarch64) host_arch="arm64" ;;
+    x86_64) host_arch="x86_64" ;;
+  esac
+  if [[ "$host_arch" == "x86_64" && "$(sysctl -in hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]; then
+    host_arch="arm64"
+  fi
 
   if [[ -n "${CMUX_ZIG:-}" ]]; then
     if [[ ! -x "$CMUX_ZIG" ]]; then
@@ -54,6 +62,8 @@ select_zig_for_target() {
   candidates+=("/opt/homebrew/bin/zig" "/usr/local/bin/zig")
 
   local fallback=""
+  local host_match=""
+  local desired_match=""
   local seen=" "
   local candidate=""
   local canonical=""
@@ -64,14 +74,27 @@ select_zig_for_target() {
     [[ "$seen" == *" $canonical "* ]] && continue
     seen="${seen}${canonical} "
     [[ -z "$fallback" ]] && fallback="$canonical"
-    if [[ -n "$desired_arch" ]]; then
-      arch="$(zig_binary_arch "$canonical")"
-      if [[ "$arch" == "$desired_arch" ]]; then
-        echo "$canonical"
-        return 0
-      fi
+    arch="$(zig_binary_arch "$canonical")"
+    if [[ -n "$host_arch" && -z "$host_match" && "$arch" == "$host_arch" ]]; then
+      host_match="$canonical"
+    fi
+    if [[ -n "$desired_arch" && -z "$desired_match" && "$arch" == "$desired_arch" ]]; then
+      desired_match="$canonical"
     fi
   done
+
+  # Prefer a host-native Zig and let Zig cross-compile non-host targets. On
+  # macOS 26, running x86_64 Zig under Rosetta can fail to link libSystem while
+  # the arm64 Zig cross-link path succeeds for the x86_64 helper slice.
+  if [[ -n "$host_match" ]]; then
+    echo "$host_match"
+    return 0
+  fi
+
+  if [[ -n "$desired_match" ]]; then
+    echo "$desired_match"
+    return 0
+  fi
 
   if [[ -n "$fallback" ]]; then
     echo "$fallback"
