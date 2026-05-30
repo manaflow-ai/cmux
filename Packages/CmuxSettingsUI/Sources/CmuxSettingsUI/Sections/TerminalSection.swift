@@ -1,0 +1,179 @@
+import CmuxSettings
+import SwiftUI
+
+/// **Terminal** section — mirrors the legacy in-app section
+/// row-for-row: scroll bar, text-box max lines, copy on selection,
+/// resume agent sessions, agent hibernation enable + idle seconds +
+/// max live terminals, plus the JSON-backed Resume Commands editor.
+@MainActor
+public struct TerminalSection: View {
+    private let jsonStore: JSONConfigStore
+    private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions
+
+    @State private var scrollBar: DefaultsValueModel<Bool>
+    @State private var textBoxLines: DefaultsValueModel<Int>
+    @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var autoResume: DefaultsValueModel<Bool>
+    @State private var hibernation: DefaultsValueModel<Bool>
+    @State private var idleSeconds: DefaultsValueModel<Double>
+    @State private var maxLive: DefaultsValueModel<Int>
+
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions
+    ) {
+        self.jsonStore = jsonStore
+        self.catalog = catalog
+        self.hostActions = hostActions
+        _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
+        _textBoxLines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines))
+        _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
+        _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
+        _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
+        _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
+    }
+
+    public var body: some View {
+        Group {
+            SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+            mainCard
+            resumeCommandsCard
+        }
+    }
+
+    @ViewBuilder
+    private var resumeCommandsCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("terminal.resumeCommands"),
+                String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"),
+                subtitle: String(
+                    localized: "settings.terminal.resumeCommands.subtitle",
+                    defaultValue: "Review signed command prefixes that can restore non-agent terminal surfaces."
+                ),
+                controlWidth: 170
+            ) {
+                HStack(spacing: 8) {
+                    Text(verbatim: "0")
+                        .font(.caption.monospacedDigit())
+                        .foregroundColor(.secondary)
+                    Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
+                        hostActions.openConfigInExternalEditor()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mainCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("terminal.showScrollBar"),
+                String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
+                subtitle: scrollBar.current
+                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                    : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+            ) {
+                Toggle("", isOn: Binding(get: { scrollBar.current }, set: { scrollBar.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.textBoxMaxLines"),
+                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
+                subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
+                controlWidth: 196
+            ) {
+                Stepper(
+                    value: Binding(get: { textBoxLines.current }, set: { textBoxLines.set($0) }),
+                    in: 1...20
+                ) {
+                    Text(verbatim: "\(textBoxLines.current)")
+                        .monospacedDigit()
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.copyOnSelect"),
+                String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
+                subtitle: copyOnSelect.current
+                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is copied to the system clipboard when the selection is committed.")
+                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually.")
+            ) {
+                Toggle("", isOn: Binding(get: { copyOnSelect.current }, set: { copyOnSelect.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.autoResumeAgentSessions"),
+                String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
+                subtitle: autoResume.current
+                    ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
+                    : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
+            ) {
+                Toggle("", isOn: Binding(get: { autoResume.current }, set: { autoResume.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.agentHibernation.enabled"),
+                String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
+                subtitle: hibernation.current
+                    ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
+                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Agent terminals stay live until you close them or quit cmux.")
+            ) {
+                Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalAgentHibernationToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.agentHibernation.idleSeconds"),
+                String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"),
+                subtitle: String(localized: "settings.terminal.agentHibernation.idleSeconds.subtitle", defaultValue: "A terminal must have no output and report an idle agent lifecycle for this long before it can be suspended."),
+                controlWidth: 140
+            ) {
+                Stepper(
+                    "\(Int(idleSeconds.current))",
+                    value: Binding(get: { idleSeconds.current }, set: { idleSeconds.set($0) }),
+                    in: 5...604_800,
+                    step: 60
+                )
+                .accessibilityIdentifier("SettingsTerminalAgentHibernationIdleSecondsStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.agentHibernation.maxLiveTerminals"),
+                String(localized: "settings.terminal.agentHibernation.maxLiveTerminals", defaultValue: "Max Live Agent Terminals"),
+                subtitle: String(localized: "settings.terminal.agentHibernation.maxLiveTerminals.subtitle", defaultValue: "Visible terminals stay live. Extra idle background agent terminals hibernate oldest first."),
+                controlWidth: 120
+            ) {
+                Stepper(
+                    "\(maxLive.current)",
+                    value: Binding(get: { maxLive.current }, set: { maxLive.set($0) }),
+                    in: 1...256,
+                    step: 1
+                )
+                .accessibilityIdentifier("SettingsTerminalAgentHibernationMaxLiveStepper")
+            }
+        }
+    }
+
+}

@@ -45,7 +45,7 @@
     "taglinePrefix": "Das Terminal für ",
     "typingCodingAgents": "Coding-Agenten",
     "typingMultitasking": "Multitasking",
-    "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine Socket-API für Automatisierung.",
+    "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine <cliLink>CLI</cliLink> für Programmierbarkeit.",
     "features": "Funktionen",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -495,7 +495,8 @@
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
-          "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden."
+          "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
+          "forkConversationDefaultDestination": "Standardziel für die primäre Fork Conversation-Aktion im Tab-Kontextmenü. Das Untermenü zeigt weiterhin alle Ziele."
         },
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
@@ -672,7 +673,7 @@
       "metaTitle": "Tastenkürzel"
     },
     "api": {
-      "title": "API-Referenz",
+      "title": "CLI-Referenz",
       "metaDescription": "cmux CLI und Unix-Socket-API-Referenz. Workspace-Verwaltung, geteilte Bereiche, Eingabesteuerung, Benachrichtigungen, Seitenleisten-Metadaten, Umgebungsvariablen und Erkennungsmethoden.",
       "intro": "cmux bietet sowohl ein CLI-Werkzeug als auch einen Unix-Socket für programmatische Steuerung. Jeder Befehl ist über beide Schnittstellen verfügbar.",
       "socket": "Socket",
@@ -751,7 +752,7 @@
       "pythonClient": "Python-Client",
       "shellScript": "Shell-Skript",
       "buildScriptNotification": "Build-Skript mit Benachrichtigung",
-      "metaTitle": "API-Referenz"
+      "metaTitle": "CLI-Referenz"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -894,7 +895,7 @@
       "authoringCallout": "Füge beim Hinzufügen eines neuen Skills <code>agents/openai.yaml</code> hinzu, damit der Installer einen klaren Namen, eine kurze Beschreibung und einen Standardprompt anzeigen kann.",
       "relatedTitle": "Verwandte Dokumentation",
       "relatedBrowserAutomation": "Browserautomatisierung",
-      "relatedApi": "API-Referenz",
+      "relatedApi": "CLI-Referenz",
       "relatedCustomCommands": "Benutzerdefinierte Befehle"
     },
     "changelog": {
@@ -909,7 +910,7 @@
       "sessionRestore": "Sitzungswiederherstellung",
       "customCommands": "Benutzerdefinierte Befehle",
       "keyboardShortcuts": "Tastaturkürzel",
-      "apiReference": "API-Referenz",
+      "apiReference": "CLI-Referenz",
       "browserAutomation": "Browser-Automatisierung",
       "skills": "Skills",
       "notifications": "Benachrichtigungen",
@@ -1072,11 +1073,18 @@
     "egrefen": "Ich habe das ganze Wochenende damit gearbeitet und es ist großartig.",
     "max4c": "Das ist mein Lieblingstool der letzten zwei Wochen",
     "lucas_flatwhite": "Es ist noch nicht zu spät. Ich nutze Ghostty viel, und cmux liebe ich inzwischen auch. Vertikale Tabs, Benachrichtigungsringe, eingebauter Browser, geteilte Panels, GPU-Beschleunigung... es gibt wirklich viele Vorteile!",
+    "yamadashy": "Ich habe cmux eine Weile genutzt und mag es. Es fühlt sich weniger nach 'das ist unglaublich' an, sondern eher nach 'ja, genau das ist es'. Es passt auch gut zu k1Low/mo.",
     "minixalpha": "Ich nutze cmux ebenfalls als Hauptterminal und empfehle es Kolleginnen und Kollegen. Benachrichtigungen, Workspaces und Tastenkürzel machen paralleles Arbeiten effizienter. Obwohl cmux etwas hässlich ist, macht die Funktionalität es unverzichtbar.",
+    "juan_barbat": "Ich hatte ein Problem mit dem Browser, aber cmux ist in meinem Alltag unverzichtbar.",
+    "yousefrol": "Mein Vorschlag ist: benutzt einfach cmux. Es hat fast jedes Terminalproblem für mich gelöst.",
+    "tobiasgloeckler": "Hab mir gerade cmux installiert, hab bisher ghostty genutzt. Aber cmux ist nochmal besser für KI Agenten und Coding geeignet.",
+    "wescld": "Mann, ich weiß nicht, wie ich so lange ohne cmux gelebt habe.",
     "jinchenma_ai": "cmux ist das Terminal-Tool, das ich zuletzt am meisten nutze. Es ist Open Source und kostenlos. Für mich hat es iTerm2 im Grunde ersetzt und löst das Layoutproblem vieler Terminalfenster perfekt.",
+    "zvasil": "Ich bin vor einiger Zeit von Warp dorthin gewechselt, und es fühlte sich an, als wäre ich auf eine Rakete umgestiegen. Es ist natives macOS Swift und wird super aktiv entwickelt.",
     "immazzystar": "Ein Tool, das ich in letzter Zeit gern nutze: cmux. Ich muss nicht mehr ständig zwischen Terminalfenstern wechseln.",
     "blitz_zidan": "cmux ist derzeit mein Lieblingsterminal. Für mehrere Terminals ist es meiner Meinung nach wirklich gut.",
     "asaza": "cmux sieht so gut aus, dass es vielleicht Zeit ist, sich von VSCode zu verabschieden",
+    "ssarisen": "Wenn ihr mit mehreren Terminals arbeiten müsst, solltet ihr cmux unbedingt ausprobieren. Wenn ein Terminal auf eure Eingabe wartet, bekommt ihr automatisch eine Benachrichtigung.",
     "johnthedebs": "Hey, das sieht echt toll aus. Ich liebe die Ideen hier, insbesondere: die Programmierbarkeit, das geschichtete UI, der Browser mit API. Freue mich darauf, das auszuprobieren. Außerdem möchte ich sagen, dass ich es sehr schätze, dass Mitchell Hashimoto libghostty geschaffen hat; es fühlt sich wie eine aufregende Zeit an, Terminal-Nutzer zu sein.",
     "joeriddles": "Vertikale Tabs in meinem Terminal! Daran habe ich vorher nie gedacht. Ich nutze und liebe Firefox-Vertical-Tabs.",
     "dchu17": "Habe es ausprobiert und es war ziemlich intuitiv. Gute Arbeit!",
@@ -1136,5 +1144,8 @@
       "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
     }
+  },
+  "testimonialSubtitles": {
+    "steipete": "OpenClaw-Entwickler. Gründer von PSPDFKit."
   }
 }

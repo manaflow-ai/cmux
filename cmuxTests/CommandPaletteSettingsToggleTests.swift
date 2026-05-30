@@ -129,6 +129,34 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testOpenMarkdownViewerCommandTogglesAndPostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.openMarkdownInCmuxViewer"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: CmdClickMarkdownRouteSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertEqual(defaults.object(forKey: CmdClickMarkdownRouteSettings.key) as? Bool, false)
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
     func testAgentHibernationCommandTogglesAndPostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
