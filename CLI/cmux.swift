@@ -27073,17 +27073,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
+        func rawAgentHookEventName() -> String? {
+            input.object.flatMap {
+                firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+            } ?? input.rawObject.flatMap {
+                firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+            }
+        }
         func shouldSuppressGenericFeedTelemetry() -> Bool {
             guard def.name == "hermes-agent",
-                  let event = input.object.flatMap({
-                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-                  }) ?? input.rawObject.flatMap({
-                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-                  })
+                  let event = rawAgentHookEventName()
             else {
                 return false
             }
             return def.feedHookEvents.contains(event)
+        }
+        func sessionEndIsTurnBoundary() -> Bool {
+            if def.name == "grok" || def.name == "antigravity" {
+                return true
+            }
+            guard def.name == "hermes-agent" else { return false }
+            return rawAgentHookEventName()?.caseInsensitiveCompare("on_session_end") == .orderedSame
         }
         func sendAgentFeedTelemetryUnlessSuppressed(workspaceId: String? = nil) {
             if shouldSuppressGenericFeedTelemetry() {
@@ -28041,7 +28051,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
-            if def.name == "grok" || def.name == "antigravity" {
+            if sessionEndIsTurnBoundary() {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                     _ = try? store.recordPromptStop(
