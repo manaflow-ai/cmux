@@ -813,6 +813,14 @@ function clearRecentBrowserPages() {
   toast("Recent browser pages cleared.");
 }
 
+function embeddedBrowserUserAgent() {
+  return navigator.userAgent
+    .replace(/\sElectron\/\S+/ig, "")
+    .replace(/\scmux-windows\/\S+/ig, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function normalizeBrowserProfiles(profiles = []) {
   const result = [];
   const seen = new Set();
@@ -1883,6 +1891,7 @@ const commands = [
   { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
   { id: "workspace.saveBlueprint", label: "Save Workspace Blueprint", shortcut: "", run: () => saveCurrentWorkspaceBlueprint() },
   { id: "settings.blueprints", label: "Open Workspace Blueprints", shortcut: "", run: () => openSettingsCategory("blueprints") },
+  { id: "workspace.closeEmpty", label: "Close Empty Workspaces", shortcut: "", run: () => closeEmptyWorkspaces() },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
@@ -3499,7 +3508,7 @@ function ensureBrowser(panel, body) {
   if (view.tagName.toLowerCase() === "webview") {
     view.setAttribute("partition", "persist:cmux-browser");
     view.setAttribute("webpreferences", "contextIsolation=yes,nodeIntegration=no");
-    view.setAttribute("useragent", navigator.userAgent.replace(/\sElectron\/\S+/i, ""));
+    view.setAttribute("useragent", embeddedBrowserUserAgent());
   }
   view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
   const isWebview = view.tagName.toLowerCase() === "webview";
@@ -4187,9 +4196,12 @@ function renderSettingsInspector(options = {}) {
     actions.className = "settings-actions";
     const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages history");
     clearRecent.disabled = !hasRecentActivity();
+    const closeEmpty = settingsActionButton("Close empty workspaces", closeEmptyWorkspaces, "danger", "workspace cleanup empty duplicate close remove");
+    closeEmpty.disabled = !hasEmptyWorkspaceCleanupTargets();
     actions.append(
       settingsActionButton("Export", exportSettings),
       settingsActionButton("Import", importSettings),
+      closeEmpty,
       clearRecent,
       settingsActionButton("Reset", resetSettings, "danger")
     );
@@ -5016,6 +5028,25 @@ function savedDataItemCount() {
     + state.savedBackgroundImages.length;
 }
 
+function emptyWorkspaces() {
+  return (state.data?.workspaces || []).filter((workspace) => (workspace.panels?.length || 0) === 0);
+}
+
+function emptyWorkspaceCleanupTargets() {
+  const workspaces = state.data?.workspaces || [];
+  const empty = emptyWorkspaces();
+  if (empty.length === 0 || workspaces.length <= 1) return [];
+  const nonEmptyCount = workspaces.length - empty.length;
+  const keepWorkspaceId = nonEmptyCount > 0
+    ? ""
+    : state.data?.activeWorkspaceId || workspaces[0]?.id || "";
+  return empty.filter((workspace) => workspace.id !== keepWorkspaceId);
+}
+
+function hasEmptyWorkspaceCleanupTargets() {
+  return emptyWorkspaceCleanupTargets().length > 0;
+}
+
 function dataStorageEntries() {
   const entries = [
     {
@@ -5130,6 +5161,7 @@ function settingsDataMetrics() {
     ["Command snippets", `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`],
     ["Profiles", `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
     ["Blueprints", `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`],
+    ["Empty workspaces", String(emptyWorkspaces().length)],
     ["Saved colors", `${state.customColorPalette.length}/${customColorPaletteLimit}`],
     ["Backgrounds", `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit}`],
     ["Pane layouts", formatBytes(storageEntryBytes(paneLayoutStorageKey))]
@@ -5321,7 +5353,7 @@ function quickSettingsShortcutGrid() {
 function dataSettingsOverviewPanel() {
   const panel = document.createElement("div");
   panel.className = "data-settings-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved cleanup reset local settings");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved cleanup reset local settings empty workspaces");
   panel.innerHTML = `
     <div class="data-overview-heading">
       <span class="data-overview-title">Local data</span>
@@ -5331,13 +5363,13 @@ function dataSettingsOverviewPanel() {
       <span><b>Storage</b><em data-data-overview-storage></em></span>
       <span><b>Saved</b><em data-data-overview-saved></em></span>
       <span><b>Recent</b><em data-data-overview-recent></em></span>
-      <span><b>Layouts</b><em data-data-overview-layouts></em></span>
+      <span><b>Empty</b><em data-data-overview-empty></em></span>
     </div>
   `;
   panel.querySelector("[data-data-overview-storage]").textContent = formatBytes(totalDataStorageBytes());
   panel.querySelector("[data-data-overview-saved]").textContent = String(savedDataItemCount());
   panel.querySelector("[data-data-overview-recent]").textContent = String(recentDataItemCount());
-  panel.querySelector("[data-data-overview-layouts]").textContent = String(state.paneLayouts.size);
+  panel.querySelector("[data-data-overview-empty]").textContent = String(emptyWorkspaces().length);
   return panel;
 }
 
@@ -5490,6 +5522,7 @@ function commandGroupLabel(command) {
 function isDangerCommand(command) {
   return [
     "workspace.close",
+    "workspace.closeEmpty",
     "terminal.close",
     "terminal.closeOthers",
     "terminal.closeRight",
@@ -6952,7 +6985,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !workspace),
       contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd),
       contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
-      contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel)
+      contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel),
+      contextMenuButton("Close empty workspaces", closeEmptyWorkspaces, !hasEmptyWorkspaceCleanupTargets(), "danger")
     ),
     contextMenuSectionTitle("Settings"),
     contextMenuActionGroup(
@@ -7822,6 +7856,31 @@ async function closeActiveWorkspace() {
 async function closeWorkspaceById(workspaceId) {
   if (!workspaceId) return;
   await api(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
+}
+
+async function closeEmptyWorkspaces() {
+  const targets = emptyWorkspaceCleanupTargets();
+  if (targets.length === 0) {
+    toast(emptyWorkspaces().length ? "One empty workspace stays available." : "No empty workspaces to close.");
+    return false;
+  }
+  const label = `${targets.length} empty workspace${targets.length === 1 ? "" : "s"}`;
+  if (!await showConfirmDialog({
+    title: "Close empty workspaces",
+    message: `Close ${label}? Workspaces with panes stay open.`,
+    confirmLabel: "Close",
+    danger: true
+  })) return false;
+  const targetIds = targets.map((workspace) => workspace.id);
+  for (const workspaceId of targetIds) {
+    state.paneTrees.delete(workspaceId);
+  }
+  savePaneTreeLayouts(state.paneTrees);
+  await Promise.all(targetIds.map((workspaceId) => api(`/api/workspaces/${workspaceId}`, { method: "DELETE" })));
+  await loadState();
+  renderSettingsInspector();
+  toast(`Closed ${label}.`);
+  return true;
 }
 
 async function createPanel(type, direction = "right", options = {}) {
