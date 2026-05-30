@@ -3043,6 +3043,7 @@ function getPaneSplitter(workspace, splitNode) {
 }
 
 function startPaneResize(event, splitter) {
+  if (event.button !== 0 || state.resizing) return;
   event.preventDefault();
   const workspace = activeWorkspace();
   if (!workspace) return;
@@ -3060,25 +3061,50 @@ function startPaneResize(event, splitter) {
   previousPane.style.flex = `0 0 ${Math.max(1, previousSize)}px`;
   nextPane.style.flex = `0 0 ${Math.max(1, nextSize)}px`;
   splitter.classList.add("is-dragging");
+  elements.shell.classList.add("pane-resizing", vertical ? "pane-resizing-y" : "pane-resizing-x");
   safeSetPointerCapture(splitter, event.pointerId);
   state.resizing = {
     splitter,
     splitId,
+    pointerId: event.pointerId,
     previousPane,
     nextPane,
     vertical,
     direction: vertical ? "down" : "right",
     workspaceId: workspace.id,
     start,
+    current: start,
     previousSize,
-    nextSize
+    nextSize,
+    frame: 0,
+    panelIds: [
+      ...new Set([
+        ...paneElementPanelIds(previousPane),
+        ...paneElementPanelIds(nextPane)
+      ])
+    ]
   };
 }
 
 function continuePaneResize(event) {
-  if (!state.resizing) return;
-  const { previousPane, nextPane, vertical, start, previousSize, nextSize } = state.resizing;
-  const current = vertical ? event.clientY : event.clientX;
+  const resize = state.resizing;
+  if (!resize || event.pointerId !== resize.pointerId) return;
+  event.preventDefault();
+  resize.current = resize.vertical ? event.clientY : event.clientX;
+  schedulePaneResizeFrame(resize);
+}
+
+function schedulePaneResizeFrame(resize = state.resizing) {
+  if (!resize || resize.frame) return;
+  resize.frame = requestAnimationFrame(() => {
+    resize.frame = 0;
+    applyPaneResize(resize);
+  });
+}
+
+function applyPaneResize(resize = state.resizing) {
+  if (!resize) return;
+  const { previousPane, nextPane, vertical, start, previousSize, nextSize, current, panelIds } = resize;
   const delta = current - start;
   const pairTotal = Math.max(2, previousSize + nextSize);
   const baseMinSize = vertical ? paneResizeMinHeight : paneResizeMinWidth;
@@ -3087,10 +3113,6 @@ function continuePaneResize(event) {
   const nextNext = pairTotal - nextPrevious;
   previousPane.style.flex = `0 0 ${nextPrevious}px`;
   nextPane.style.flex = `0 0 ${nextNext}px`;
-  const panelIds = [
-    ...paneElementPanelIds(previousPane),
-    ...paneElementPanelIds(nextPane)
-  ];
   for (const panelId of panelIds) {
     const terminal = state.terminals.get(panelId);
     if (terminal) scheduleFitTerminal(terminal);
@@ -3104,10 +3126,17 @@ function paneElementPanelIds(element) {
 }
 
 function finishPaneResize(event) {
-  if (!state.resizing) return;
-  const { splitter, splitId, previousPane, nextPane, vertical, workspaceId, direction } = state.resizing;
+  const resize = state.resizing;
+  if (!resize || event.pointerId !== resize.pointerId) return;
+  const { splitter, splitId, previousPane, nextPane, vertical, workspaceId, direction } = resize;
+  if (resize.frame) {
+    cancelAnimationFrame(resize.frame);
+    resize.frame = 0;
+  }
+  applyPaneResize(resize);
   safeReleasePointerCapture(splitter, event.pointerId);
   splitter.classList.remove("is-dragging");
+  elements.shell.classList.remove("pane-resizing", "pane-resizing-x", "pane-resizing-y");
   if (splitId) {
     const previousRect = previousPane.getBoundingClientRect();
     const nextRect = nextPane.getBoundingClientRect();

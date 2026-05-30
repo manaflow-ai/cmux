@@ -1216,6 +1216,30 @@ body.reduce-motion *::after {
   background: var(--color-line-strong);
 }
 
+.shell.pane-resizing,
+.shell.pane-resizing * {
+  user-select: none;
+}
+
+.shell.pane-resizing-x,
+.shell.pane-resizing-x * {
+  cursor: col-resize !important;
+}
+
+.shell.pane-resizing-y,
+.shell.pane-resizing-y * {
+  cursor: row-resize !important;
+}
+
+.shell.pane-resizing .pane,
+.shell.pane-resizing .pane-split {
+  transition: none !important;
+}
+
+.shell.pane-resizing .pane-body {
+  pointer-events: none;
+}
+
 .pane.is-active {
   border-color: var(--color-line);
   box-shadow:
