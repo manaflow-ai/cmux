@@ -872,10 +872,7 @@ struct PaperCanvasWorkspaceView: View {
                 y: pane.frame.minY - viewportOrigin.y + (pane.frame.height / 2)
             )
             .onTapGesture {
-                workspace.bonsplitController.focusPane(paneId)
-                if let selectedTabId {
-                    workspace.bonsplitController.selectTab(TabID(uuid: selectedTabId))
-                }
+                workspace.focusPanel(panel.id)
             }
         } else {
             EmptyPanelView(workspace: workspace, paneId: paneId)
@@ -891,17 +888,7 @@ struct PaperCanvasWorkspaceView: View {
     }
 
     private func initializePaperLayoutIfNeeded(viewportSize: CGSize) {
-        guard workspace.paperLayoutState == nil else { return }
-        let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
-        guard let paneId else { return }
-        let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ??
-            workspace.bonsplitController.tabs(inPane: paneId).first?.id
-        guard let tabId else { return }
-        workspace.paperLayoutState = PaperLayoutState.initial(
-            paneId: paneId,
-            tabId: tabId.uuid,
-            viewportSize: viewportSize
-        )
+        workspace.ensurePaperLayoutState(viewportSize: viewportSize)
     }
 }
 

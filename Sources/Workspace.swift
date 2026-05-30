@@ -9402,6 +9402,14 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
     var focusedPaneId: UUID?
     var viewportOrigin: PaperPoint
 
+    var focusedPane: PaperPane? {
+        if let focusedPaneId,
+           let pane = panes.first(where: { $0.id == focusedPaneId }) {
+            return pane
+        }
+        return panes.first
+    }
+
     static func initial(paneId: PaneID, tabId: UUID, viewportSize: CGSize) -> PaperLayoutState {
         let frame = PaperRect(
             x: 0,
@@ -9421,6 +9429,54 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
             focusedPaneId: pane.id,
             viewportOrigin: PaperPoint(x: 0, y: 0)
         )
+    }
+
+    func pane(containingTabId tabId: UUID) -> PaperPane? {
+        panes.first { $0.tabIds.contains(tabId) }
+    }
+
+    mutating func focusPane(containingTabId tabId: UUID) {
+        guard let paneIndex = panes.firstIndex(where: { $0.tabIds.contains(tabId) }) else { return }
+        focusedPaneId = panes[paneIndex].id
+        panes[paneIndex].selectedTabId = tabId
+    }
+
+    @discardableResult
+    mutating func insertPaneBesideFocused(
+        id: UUID,
+        tabId: UUID,
+        orientation: SplitOrientation,
+        gap: CGFloat = 24
+    ) -> PaperPane? {
+        guard let focusedPane = focusedPane else { return nil }
+        let frame: PaperRect
+        switch orientation {
+        case .horizontal:
+            frame = PaperRect(
+                x: focusedPane.frame.maxX + gap,
+                y: focusedPane.frame.minY,
+                width: focusedPane.frame.width,
+                height: focusedPane.frame.height
+            )
+        case .vertical:
+            frame = PaperRect(
+                x: focusedPane.frame.minX,
+                y: focusedPane.frame.maxY + gap,
+                width: focusedPane.frame.width,
+                height: focusedPane.frame.height
+            )
+        }
+
+        let pane = PaperPane(
+            id: id,
+            frame: frame,
+            tabIds: [tabId],
+            selectedTabId: tabId
+        )
+        panes.append(pane)
+        focusedPaneId = id
+        viewportOrigin = PaperPoint(x: frame.minX, y: frame.minY)
+        return pane
     }
 }
 
@@ -9541,6 +9597,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
+        if layoutMode == .paper,
+           let tabId = paperLayoutState?.focusedPane?.selectedTabId {
+            return panelIdFromSurfaceId(TabID(uuid: tabId))
+        }
+
         guard let paneId = bonsplitController.focusedPaneId,
               let tab = bonsplitController.selectedTab(inPane: paneId) else {
             return nil
@@ -9555,6 +9616,43 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panel
+    }
+
+    @discardableResult
+    func ensurePaperLayoutState(viewportSize: CGSize = CGSize(width: 900, height: 600)) -> PaperLayoutState? {
+        if let paperLayoutState {
+            return paperLayoutState
+        }
+
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id ??
+            bonsplitController.tabs(inPane: paneId).first?.id else {
+            return nil
+        }
+
+        let initialState = PaperLayoutState.initial(
+            paneId: paneId,
+            tabId: tabId.uuid,
+            viewportSize: viewportSize
+        )
+        paperLayoutState = initialState
+        return initialState
+    }
+
+    private func focusPaperPanel(tabId: TabID, panelId: UUID) {
+        guard layoutMode == .paper else { return }
+        if paperLayoutState == nil {
+            _ = ensurePaperLayoutState()
+        }
+        paperLayoutState?.focusPane(containingTabId: tabId.uuid)
+
+        if let terminalPanel = terminalPanel(for: panelId) {
+            terminalPanel.focus()
+        } else if let browserPanel = panels[panelId] as? BrowserPanel {
+            maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
+        }
     }
 
     func representativePanelIdForWorkspaceManualUnread() -> UUID? {
@@ -12999,6 +13097,139 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    @discardableResult
+    func splitPaperPane(orientation: SplitOrientation) -> TerminalPanel? {
+        guard let panelId = focusedPanelId else { return nil }
+        return splitPaperPane(from: panelId, orientation: orientation)
+    }
+
+    @discardableResult
+    private func splitPaperPane(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        remotePTYSessionID: String? = nil,
+        focus: Bool = true
+    ) -> TerminalPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        guard var paperState = ensurePaperLayoutState(),
+              paperState.pane(containingTabId: sourceTabId.uuid) != nil else {
+            return nil
+        }
+        paperState.focusPane(containingTabId: sourceTabId.uuid)
+        guard let sourcePaperPane = paperState.focusedPane else { return nil }
+
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId)
+        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+        if startupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
+
+        let splitWorkingDirectory: String? = {
+            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                return workingDirectory
+            }
+            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !panelDirectory.isEmpty {
+                return panelDirectory
+            }
+            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
+                .requestedWorkingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !requestedWorkingDirectory.isEmpty {
+                return requestedWorkingDirectory
+            }
+            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        }()
+
+        let newPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            workingDirectory: splitWorkingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            additionalEnvironment: startupEnvironment
+        )
+        configureTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        if let normalizedRemotePTYSessionID {
+            remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
+        }
+        if tracksRemoteTerminalSurface {
+            trackRemoteTerminalSurface(newPanel.id)
+        }
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+
+        let newTab = Bonsplit.Tab(
+            title: newPanel.displayTitle,
+            icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal,
+            isDirty: newPanel.isDirty,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = newPanel.id
+
+        guard let newPaperPane = paperState.insertPaneBesideFocused(
+            id: UUID(),
+            tabId: newTab.id.uuid,
+            orientation: orientation
+        ) else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            if tracksRemoteTerminalSurface {
+                untrackRemoteTerminalSurface(newPanel.id)
+            }
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            return nil
+        }
+        paperLayoutState = paperState
+
+        publishCmuxSplitCreated(
+            PaneID(id: newPaperPane.id),
+            sourcePaneId: PaneID(id: sourcePaperPane.id),
+            orientation: orientation,
+            surfaceId: newPanel.id,
+            kind: "terminal",
+            origin: "paper_terminal_split",
+            focused: focus
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "paper.split.created workspace=\(id.uuidString.prefix(5)) " +
+            "sourcePane=\(sourcePaperPane.id.uuidString.prefix(5)) " +
+            "newPane=\(newPaperPane.id.uuidString.prefix(5)) orientation=\(orientation.rawValue)"
+        )
+#endif
+
+        if focus {
+            focusPanel(newPanel.id)
+        }
+        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: id,
+            panelId: newPanel.id,
+            reason: "paperSplitCreate"
+        )
+
+        return newPanel
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -13021,6 +13252,19 @@ final class Workspace: Identifiable, ObservableObject {
             "transport=\(splitTransport) stage=start elapsedMs=0.00"
         )
 #endif
+        if layoutMode == .paper {
+            return splitPaperPane(
+                from: panelId,
+                orientation: orientation,
+                workingDirectory: workingDirectory,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                startupEnvironment: startupEnvironment,
+                remotePTYSessionID: remotePTYSessionID,
+                focus: focus
+            )
+        }
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -14743,6 +14987,21 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        if layoutMode == .paper {
+            let previouslyFocusedPanelId = focusedPanelId
+            focusPaperPanel(tabId: tabId, panelId: panelId)
+            if previouslyFocusedPanelId != panelId {
+                syncUnreadBadgeStateForAllPanels()
+            }
+            if trigger == .terminalFirstResponder,
+               panels[panelId] is TerminalPanel {
+                beginEventDrivenLayoutFollowUp(
+                    reason: "workspace.focusPanel.paperTerminal",
+                    terminalFocusPanelId: panelId
+                )
+            }
+            return
+        }
         let currentlyFocusedPanelId = focusedPanelId
 
         // Capture the currently focused terminal view so we can explicitly move AppKit first
