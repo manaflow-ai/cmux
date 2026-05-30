@@ -358,6 +358,122 @@ private struct AgentHookNotificationSummary {
     let isFallback: Bool
 }
 
+private enum AgentNeedsInputSourceSignal: String {
+    case claudeAskUserQuestion
+    case claudeNotification
+    case codexOsc
+    case grokHook
+    case opencodeQuestion
+    case cursorHook
+    case geminiHook
+    case qwenHook
+    case unknown
+}
+
+private struct AgentNeedsInputEvent {
+    let agentKind: String
+    let statusKey: String
+    let title: String
+    let workspaceId: String
+    let surfaceId: String
+    let sessionId: String?
+    let subtitle: String
+    let body: String
+    let dedupKey: String?
+    let sourceSignal: AgentNeedsInputSourceSignal
+}
+
+private enum AgentNeedsInputPublishResult: Equatable {
+    case published(response: String)
+    case duplicateSuppressed
+    case targetUnavailable
+}
+
+private struct AgentNeedsInputPublisher {
+    let sessionStore: ClaudeHookSessionStore
+    let sendCommand: (String) throws -> String
+    let notificationPayload: (String, String, String) -> String
+    let surfaceOption: (String?) -> String
+    let quote: (String) -> String
+    let redact: (String) -> String
+    var dedupInterval: TimeInterval = 60 * 60
+
+    func publish(_ event: AgentNeedsInputEvent) throws -> AgentNeedsInputPublishResult {
+        guard !event.workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !event.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .targetUnavailable
+        }
+
+        if try isDuplicate(event) {
+            return .duplicateSuppressed
+        }
+
+        let statusValue = String.localizedStringWithFormat(
+            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+            event.title
+        )
+        let redactedSubtitle = redact(event.subtitle)
+        let redactedBody = redact(event.body)
+        let statusCommand = "set_status \(event.statusKey) \(quote(statusValue)) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(event.workspaceId)\(surfaceOption(event.surfaceId))"
+        _ = try? sendCommand(statusCommand)
+
+        let payload = notificationPayload(event.title, redactedSubtitle, redactedBody)
+        let response = try sendCommand("notify_target_async \(event.workspaceId) \(event.surfaceId) \(payload)")
+        try markPublished(event)
+        return .published(response: response)
+    }
+
+    func isDuplicate(_ event: AgentNeedsInputEvent) throws -> Bool {
+        guard let sessionId = normalized(event.sessionId),
+              let dedupKey = normalized(event.dedupKey) else {
+            return false
+        }
+        return try sessionStore.recentlyEmittedNotification(
+            sessionId: sessionId,
+            fingerprint: dedupKey,
+            within: dedupInterval
+        )
+    }
+
+    func markPublished(_ event: AgentNeedsInputEvent) throws {
+        guard let sessionId = normalized(event.sessionId),
+              let dedupKey = normalized(event.dedupKey) else {
+            return
+        }
+        try sessionStore.markNotificationEmitted(
+            sessionId: sessionId,
+            fingerprint: dedupKey,
+            marksAskUserQuestion: event.sourceSignal == .claudeAskUserQuestion
+        )
+    }
+
+    static func dedupKey(agentKind: String, sessionId: String?, body: String) -> String? {
+        guard let sessionId = normalized(sessionId) else { return nil }
+        let bodyFingerprint = normalizedSingleLineForNeedsInput(body).lowercased()
+        guard !bodyFingerprint.isEmpty else { return nil }
+        let digest = SHA256.hash(data: Data(bodyFingerprint.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "needs-input:\(agentKind):\(sessionId):\(digest)"
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        Self.normalized(value)
+    }
+
+    private static func normalizedSingleLineForNeedsInput(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -435,6 +551,8 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastNotificationStatus: AgentHookNotificationStatus?
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
+    var lastAskUserQuestionNotificationFingerprint: String?
+    var lastAskUserQuestionNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var activePromptTurnId: String?
@@ -833,6 +951,8 @@ private final class ClaudeHookSessionStore {
                 lastNotificationStatus: nil,
                 lastEmittedNotificationFingerprint: nil,
                 lastEmittedNotificationAt: nil,
+                lastAskUserQuestionNotificationFingerprint: nil,
+                lastAskUserQuestionNotificationAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
                 activePromptTurnId: nil,
@@ -1080,6 +1200,19 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func clearAskUserQuestionNotification(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            let now = Date().timeIntervalSince1970
+            record.lastAskUserQuestionNotificationFingerprint = nil
+            record.lastAskUserQuestionNotificationAt = nil
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
     func recentlyEmittedNotification(
         sessionId: String,
         fingerprint: String,
@@ -1099,7 +1232,29 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func markNotificationEmitted(sessionId: String, fingerprint: String) throws {
+    func hasPendingAskUserQuestionNotification(
+        sessionId: String,
+        within interval: TimeInterval = 60 * 60
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalized],
+                  let fingerprint = record.lastAskUserQuestionNotificationFingerprint?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !fingerprint.isEmpty,
+                  let emittedAt = record.lastAskUserQuestionNotificationAt else {
+                return false
+            }
+            return Date().timeIntervalSince1970 - emittedAt <= interval
+        }
+    }
+
+    func markNotificationEmitted(
+        sessionId: String,
+        fingerprint: String,
+        marksAskUserQuestion: Bool = false
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1109,6 +1264,10 @@ private final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
+            if marksAskUserQuestion {
+                record.lastAskUserQuestionNotificationFingerprint = normalizedFingerprint
+                record.lastAskUserQuestionNotificationAt = now
+            }
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -20795,6 +20954,17 @@ struct CMUXCLI {
             }
             if isClearSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                if let sessionId = parsedInput.sessionId {
+                    do {
+                        try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                        try sessionStore.clearAskUserQuestionNotification(sessionId: sessionId)
+                    } catch {
+                        telemetry.breadcrumb(
+                            "claude-hook.clear-notification-emission.error",
+                            data: ["error": String(describing: error)]
+                        )
+                    }
+                }
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -20971,9 +21141,22 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    lastNotificationStatus: .idle,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
+                do {
+                    try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                    try sessionStore.clearAskUserQuestionNotification(sessionId: sessionId)
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.clear-notification-emission.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -21005,7 +21188,7 @@ struct CMUXCLI {
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
-            var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
+            let summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
@@ -21034,10 +21217,13 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+            if claudeNotificationBodyIsGenericAttentionPlaceholder(summary.body),
+               let sessionId = parsedInput.sessionId,
+               try sessionStore.hasPendingAskUserQuestionNotification(
+                sessionId: sessionId
+               ) {
+                print("OK")
+                return
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -21051,7 +21237,6 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -21062,7 +21247,11 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
             }
 
@@ -21073,16 +21262,29 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
-            _ = try? setClaudeStatus(
-                client: client,
+            let dedupKey = AgentNeedsInputPublisher.dedupKey(
+                agentKind: "claude",
+                sessionId: parsedInput.sessionId,
+                body: summary.body
+            )
+            let event = AgentNeedsInputEvent(
+                agentKind: "claude",
+                statusKey: Self.claudeCodeStatusKey,
+                title: title,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
+                sessionId: parsedInput.sessionId,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                dedupKey: dedupKey,
+                sourceSignal: .claudeNotification
             )
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-            print(response)
+            switch try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event) {
+            case let .published(response):
+                print(response)
+            case .duplicateSuppressed, .targetUnavailable:
+                print("OK")
+            }
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -21207,6 +21409,10 @@ struct CMUXCLI {
                 // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
+                let waitingSubtitle = String(
+                    localized: "agent.generic.notification.subtitle.waiting",
+                    defaultValue: "Waiting"
+                )
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -21214,8 +21420,12 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
+                    lastSubtitle: waitingSubtitle,
+                    lastBody: question,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
                 setAgentLifecycle(
                     client: client,
@@ -21224,12 +21434,39 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId
                 )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
+                let title = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+                let event = AgentNeedsInputEvent(
+                    agentKind: "claude",
+                    statusKey: Self.claudeCodeStatusKey,
+                    title: title,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSurfaceId,
+                    sessionId: sessionId,
+                    subtitle: waitingSubtitle,
+                    body: question,
+                    dedupKey: AgentNeedsInputPublisher.dedupKey(
+                        agentKind: "claude",
+                        sessionId: sessionId,
+                        body: question
+                    ),
+                    sourceSignal: .claudeAskUserQuestion
+                )
+                do {
+                    _ = try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event)
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.pre-tool-use.needs-input-publish.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
                 print("OK")
                 return
             }
 
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -21237,10 +21474,22 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .running
+                    agentLifecycle: .running,
+                    lastNotificationStatus: .idle,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true
                 )
+                do {
+                    try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                    try sessionStore.clearAskUserQuestionNotification(sessionId: sessionId)
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.clear-notification-emission.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -23817,6 +24066,14 @@ struct CMUXCLI {
         return ("Attention", "Claude needs your attention")
     }
 
+    private func claudeNotificationBodyIsGenericAttentionPlaceholder(_ body: String) -> Bool {
+        let normalized = normalizedSingleLine(body).lowercased()
+        return normalized == "claude needs your attention"
+            || normalized == "claude needs your input"
+            || normalized == "claude code needs your attention"
+            || normalized == "claude code needs your input"
+    }
+
     private func containsCompletionCue(_ lowercasedText: String) -> Bool {
         notificationCueTokens(lowercasedText).contains { token in
             token == "done"
@@ -23897,6 +24154,30 @@ struct CMUXCLI {
 
     private func notificationPayload(title: String, subtitle: String, body: String) -> String {
         "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+    }
+
+    private func agentNeedsInputPublisher(
+        client: SocketClient,
+        sessionStore: ClaudeHookSessionStore
+    ) -> AgentNeedsInputPublisher {
+        AgentNeedsInputPublisher(
+            sessionStore: sessionStore,
+            sendCommand: { command in
+                try sendV1Command(command, client: client)
+            },
+            notificationPayload: { title, subtitle, body in
+                notificationPayload(title: title, subtitle: subtitle, body: body)
+            },
+            surfaceOption: { surfaceId in
+                socketPanelOption(surfaceId)
+            },
+            quote: { value in
+                socketQuote(value)
+            },
+            redact: { value in
+                redactClaudeSensitiveSpans(value)
+            }
+        )
     }
 
     private func redactClaudeSensitiveSpans(_ value: String) -> String {
@@ -27245,7 +27526,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
-                    try? store.clearNotificationEmission(sessionId: sessionId)
+                    do {
+                        try store.clearNotificationEmission(sessionId: sessionId)
+                    } catch {
+                        telemetry.breadcrumb(
+                            "\(def.name)-hook.clear-notification-emission.error",
+                            data: ["error": String(describing: error)]
+                        )
+                    }
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -27361,7 +27649,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: .running,
                     updateRuntimeStatus: true
                 )
-                try? store.clearNotificationEmission(sessionId: sessionId)
+                do {
+                    try store.clearNotificationEmission(sessionId: sessionId)
+                } catch {
+                    telemetry.breadcrumb(
+                        "\(def.name)-hook.clear-notification-emission.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
