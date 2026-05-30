@@ -2991,7 +2991,7 @@ struct CMUXCLI {
         }
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print(hooksNoCmuxTargetFallbackOutput(commandArgs)); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -3000,7 +3000,7 @@ struct CMUXCLI {
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
                !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
-                print("{}")
+                print(hooksNoCmuxTargetFallbackOutput(commandArgs))
                 return
             }
         }
@@ -28493,6 +28493,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
         }
         return feedHookFallbackOutput(source: source, agentEvent: agentEvent)
+    }
+
+    /// Output for a `hooks feed` / legacy `feed-hook` invocation that needs
+    /// a cmux target but is running outside a cmux terminal (no
+    /// CMUX_SURFACE_ID / CMUX_WORKSPACE_ID). Most agents treat an empty
+    /// `{}` as a no-op, but Antigravity's PreToolUse hook is a permission
+    /// gate whose `allow_tool` field defaults to `false`, so `{}` denies
+    /// every tool call (https://github.com/manaflow-ai/cmux/issues/4591).
+    /// Route through the agent-aware fail-open fallback so Antigravity
+    /// PreToolUse emits `{"allow_tool":true}` while every other agent/event
+    /// keeps the `{}` no-op.
+    private func hooksNoCmuxTargetFallbackOutput(_ commandArgs: [String]) -> String {
+        let source = optionValue(commandArgs, name: "--source") ?? ""
+        let event = optionValue(commandArgs, name: "--event") ?? ""
+        return Self.feedHookFallbackOutput(source: source, agentEvent: event)
     }
 
     /// Reads an agent hook JSON payload from stdin, forwards it to the
