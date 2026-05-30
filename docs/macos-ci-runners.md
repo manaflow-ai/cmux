@@ -2,8 +2,8 @@
 
 All paid macOS CI/CD jobs pick their runner from two repository variables instead of a hardcoded label:
 
-- `MACOS_RUNNER_15` for macOS 15 jobs (most jobs, plus the e2e/perf defaults)
-- `MACOS_RUNNER_26` for macOS 26 jobs (release, nightly, the `release-build` job, compat)
+- `MACOS_RUNNER_15` for macOS 15 jobs (most jobs, release, nightly, the `release-build` job, plus the e2e/perf defaults)
+- `MACOS_RUNNER_26` for macOS 26 compatibility jobs
 
 Workflows reference them as `runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}`. If a variable is unset, the job falls back to WarpBuild, so CI is never broken by a missing variable.
 

@@ -15,7 +15,7 @@ EOF
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-GHOSTTY_DIR="$REPO_ROOT/ghostty"
+GHOSTTY_DIR="${CMUX_GHOSTTY_DIR:-$REPO_ROOT/ghostty}"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
@@ -80,6 +80,27 @@ select_zig_for_target() {
 
   echo "error: zig is required to build the Ghostty CLI helper" >&2
   return 1
+}
+
+zig_build_path() {
+  local input_path="${PATH:-}"
+  local output_path=""
+  local entry=""
+  local separator=""
+  local -a path_entries=()
+
+  IFS=':' read -r -a path_entries <<< "$input_path"
+  for entry in "${path_entries[@]}"; do
+    case "$entry" in
+      *Metal.xctoolchain*|*SWBUniversalPlatformPlugin.bundle*)
+        continue
+        ;;
+    esac
+    output_path="${output_path}${separator}${entry}"
+    separator=":"
+  done
+
+  printf '%s\n' "$output_path"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -182,9 +203,35 @@ build_helper() {
   fi
 
   echo "Building Ghostty CLI helper with $zig_bin${target:+ for $target}"
+  local -a clean_env=(
+    env
+    -i
+    "PATH=$(zig_build_path)"
+  )
+  local name=""
+  for name in \
+    DEVELOPER_DIR \
+    HOME \
+    LANG \
+    LC_ALL \
+    LC_CTYPE \
+    LOGNAME \
+    SSH_AUTH_SOCK \
+    TMPDIR \
+    USER \
+    XDG_CACHE_HOME \
+    ZIG_GLOBAL_CACHE_DIR \
+    ZIG_LIB_DIR \
+    ZIG_LOCAL_CACHE_DIR
+  do
+    if [[ -n "${!name+x}" ]]; then
+      clean_env+=("$name=${!name}")
+    fi
+  done
+
   (
     cd "$GHOSTTY_DIR"
-    env -u TOOLCHAINS -u TOOLCHAIN_DIR -u TOOLCHAIN_VERSION "${args[@]}"
+    "${clean_env[@]}" "${args[@]}"
   )
 }
 

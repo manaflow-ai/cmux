@@ -13,6 +13,8 @@ CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -132,6 +134,22 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_zig_release_build_runner() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /runs-on:.*vars\.MACOS_RUNNER_15/ { saw_runner=1 }
+    in_job && /runs-on:.*warp-macos-15-arm64-6x/ { saw_fallback=1 }
+    END { exit !(saw_runner && saw_fallback) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must use the macOS 15 runner lane until Zig 0.15.2 no longer links against the Xcode 26.4 SDK"
+    exit 1
+  fi
+
+  echo "PASS: $job in $(basename "$file") avoids the Xcode 26.4 Zig linker failure lane"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -151,3 +169,6 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_no_xctest_quarantines
+check_zig_release_build_runner "$CI_FILE" "release-build"
+check_zig_release_build_runner "$NIGHTLY_FILE" "build-sign-notarize-nightly"
+check_zig_release_build_runner "$RELEASE_FILE" "build-sign-notarize"
