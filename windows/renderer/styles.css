@@ -403,6 +403,7 @@ body.reduce-motion *::after {
 .workspace-starter,
 .empty-workspace-starter,
 .background-preset,
+.settings-page-tab,
 .context-action,
 .context-color,
 .sidebar-action,
@@ -500,6 +501,7 @@ body.reduce-motion *::after {
 .empty-workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
 .background-preset:focus-visible,
+.settings-page-tab:focus-visible,
 .context-action:focus-visible,
 .context-color:focus-visible,
 .rail-button:focus-visible,
@@ -531,6 +533,7 @@ body.reduce-motion *::after {
 .empty-workspace-starter:active,
 .settings-command-run:active,
 .background-preset:active,
+.settings-page-tab:active,
 .context-action:active,
 .rail-button:active,
 .notification-action:active {
@@ -2042,12 +2045,18 @@ body.reduce-motion *::after {
   top: 38px;
   z-index: 2;
   display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-bottom: var(--space-2);
+  background: var(--color-rail);
+}
+
+.settings-page-head {
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  padding-bottom: var(--space-2);
-  background: var(--color-rail);
 }
 
 .settings-page-label {
@@ -2062,6 +2071,43 @@ body.reduce-motion *::after {
 .settings-page-select {
   width: 100%;
   background: var(--color-pane);
+}
+
+.settings-page-tabs {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 0 10px 2px 2px;
+  scroll-padding-inline: 10px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  scrollbar-width: thin;
+}
+
+.settings-page-tab {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border-color: var(--color-line);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.settings-page-tab:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.settings-page-tab.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 66%, var(--color-line) 34%);
+  background: color-mix(in oklch, var(--color-accent) 22%, var(--color-pane) 78%);
+  color: var(--color-text);
 }
 
 .settings-section-title {

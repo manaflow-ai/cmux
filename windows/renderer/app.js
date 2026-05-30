@@ -4611,6 +4611,8 @@ function scheduleSettingsSearchFocus() {
 function settingsCategoryNav() {
   const nav = document.createElement("div");
   nav.className = "settings-page-switcher";
+  const head = document.createElement("div");
+  head.className = "settings-page-head";
   const labelText = document.createElement("span");
   labelText.className = "settings-page-label";
   labelText.textContent = "Page";
@@ -4629,7 +4631,36 @@ function settingsCategoryNav() {
     state.settingsQuery = "";
     renderSettingsInspector({ resetScroll: true });
   };
-  nav.append(labelText, select);
+  head.append(labelText, select);
+
+  const tabs = document.createElement("div");
+  tabs.className = "settings-page-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "Settings pages");
+  for (const [id, label] of settingsCategories) {
+    const button = document.createElement("button");
+    const active = id === state.settingsCategory;
+    button.className = `settings-page-tab${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.textContent = label;
+    button.title = `${label} settings`;
+    button.dataset.settingsCategory = id;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`settings page ${label} ${id} ${settingsCategorySearchAliases.get(id) || ""}`);
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.onclick = () => {
+      if (state.settingsCategory === id && !state.settingsQuery) return;
+      state.settingsCategory = id;
+      state.settingsQuery = "";
+      renderSettingsInspector({ resetScroll: true });
+    };
+    tabs.append(button);
+    if (active) {
+      requestAnimationFrame(() => button.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    }
+  }
+  attachHorizontalWheelScroll(tabs);
+  nav.append(head, tabs);
   return nav;
 }
 
