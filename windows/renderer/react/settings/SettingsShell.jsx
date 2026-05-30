@@ -9,6 +9,18 @@ export function SettingsShell({
   onQuery,
   onClear
 }) {
+  const navRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const activeButton = navRef.current?.querySelector(".settings-nav-button.is-active");
+    if (!activeButton) return;
+    activeButton.scrollIntoView({
+      block: "nearest",
+      inline: "center",
+      behavior: document.body?.classList.contains("reduce-motion") ? "auto" : "smooth"
+    });
+  }, [activeCategory, categories]);
+
   return (
     <div className="settings-react-shell" data-react-settings="true">
       <div className="settings-search">
@@ -30,7 +42,7 @@ export function SettingsShell({
           x
         </button>
       </div>
-      <div className="settings-nav" role="tablist" aria-label={subtitle || "Settings pages"}>
+      <div ref={navRef} className="settings-nav" role="tablist" aria-label={subtitle || "Settings pages"}>
         {categories.map(([id, label]) => (
           <button
             key={id}

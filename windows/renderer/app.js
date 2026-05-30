@@ -3776,7 +3776,18 @@ function settingsCategoryNav() {
     };
     nav.append(button);
   }
+  requestAnimationFrame(() => scrollActiveSettingsNavIntoView(nav));
   return nav;
+}
+
+function scrollActiveSettingsNavIntoView(root = elements.inspectorBody) {
+  const activeButton = root?.querySelector?.(".settings-nav-button.is-active");
+  if (!activeButton) return;
+  activeButton.scrollIntoView({
+    block: "nearest",
+    inline: "center",
+    behavior: document.body.classList.contains("reduce-motion") ? "auto" : "smooth"
+  });
 }
 
 function settingsCategoryLabel(id) {
