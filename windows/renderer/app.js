@@ -1960,6 +1960,16 @@ const paneOrdinalCommands = Array.from({ length: 9 }, (_, index) => {
   };
 });
 
+const workspaceOrdinalCommands = Array.from({ length: 9 }, (_, index) => {
+  const ordinal = index + 1;
+  return {
+    id: `workspace.focus${ordinal}`,
+    label: ordinal === 9 ? "Focus Last Workspace" : `Focus Workspace ${ordinal}`,
+    shortcut: `Ctrl+Alt+${ordinal}`,
+    run: () => focusWorkspaceByOrdinal(ordinal)
+  };
+});
+
 const commands = [
   { id: "workspace.new", label: "New Workspace", shortcut: "Ctrl+N", run: () => createWorkspace() },
   { id: "workspace.newFromFolder", label: "New Workspace From Folder", shortcut: "", run: () => createWorkspaceFromFolder() },
@@ -1969,6 +1979,7 @@ const commands = [
   { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
   { id: "workspace.next", label: "Next Workspace", shortcut: "Ctrl+PageDown", run: () => cycleWorkspace(1) },
   { id: "workspace.previous", label: "Previous Workspace", shortcut: "Ctrl+PageUp", run: () => cycleWorkspace(-1) },
+  ...workspaceOrdinalCommands,
   { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
   { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
   { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
@@ -9417,6 +9428,16 @@ function cycleWorkspace(delta = 1) {
   return true;
 }
 
+function focusWorkspaceByOrdinal(ordinal) {
+  const workspaces = state.data?.workspaces || [];
+  if (workspaces.length === 0) return false;
+  const index = ordinal === 9 ? workspaces.length - 1 : ordinal - 1;
+  const workspace = workspaces[clamp(index, 0, workspaces.length - 1)];
+  if (!workspace) return false;
+  focusWorkspace(workspace.id);
+  return true;
+}
+
 function focusTerminalSession(panelId) {
   const terminal = state.terminals.get(panelId);
   if (terminal) setTimeout(() => terminal.term.focus(), 20);
@@ -10212,6 +10233,9 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && /^[1-9]$/.test(event.key)) {
     consumeGlobalShortcut(event);
     focusPaneByOrdinal(Number(event.key));
+  } else if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && /^[1-9]$/.test(event.key)) {
+    consumeGlobalShortcut(event);
+    focusWorkspaceByOrdinal(Number(event.key));
   } else if (event.ctrlKey && event.key === "PageDown") {
     consumeGlobalShortcut(event);
     cycleWorkspace(1);
