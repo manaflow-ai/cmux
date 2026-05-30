@@ -536,6 +536,70 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(synchronizedSource, "test.defaultsObserver")
     }
 
+    // Regression for the launch-time appearance gap introduced by
+    // commit 70bcbda2 (PR #4415): after the settings-file store stopped
+    // applying appearance as a side-effect, the observer became the
+    // single source of truth for live appearance — but it only fired
+    // on *changes*. When a launch begins with the stored mode already
+    // matching what's persisted (the steady-state case after the first
+    // import of `app.appearance` from cmux.json), no change event ever
+    // fires, so `NSApplication.shared.appearance` is never updated and
+    // the first `NSWindow` materializes with the wrong appearance.
+    func testStartObservingAppliesStoredAppearanceImmediately() {
+        let suiteName = "AppearanceSettingsTests.StartObservingInitialApply.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var appliedAppearanceName: NSAppearance.Name?
+        var synchronizedAppearanceName: NSAppearance.Name?
+        var synchronizedSource: String?
+        let liveEnvironment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+            },
+            synchronizeTerminalThemeWithAppearance: { appearance, source in
+                synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                synchronizedSource = source
+            },
+            systemAppearance: {
+                XCTFail("Dark mode should not resolve system appearance")
+                return nil
+            }
+        )
+        let observer = AppearanceSettingsUserDefaultsObserver(
+            environment: .init(
+                addDefaultsObserver: { _ in NSObject() },
+                removeObserver: { _ in },
+                currentRawValue: {
+                    defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+                },
+                applyStoredMode: { rawValue, source in
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: rawValue,
+                        defaults: defaults,
+                        source: source,
+                        environment: liveEnvironment
+                    )
+                }
+            ),
+            source: "test.startObservingInitialApply"
+        )
+
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        observer.startObserving()
+
+        XCTAssertEqual(
+            appliedAppearanceName,
+            .darkAqua,
+            "startObserving must apply the persisted appearance mode immediately so the main WindowGroup window picks it up on launch"
+        )
+        XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
+        XCTAssertEqual(synchronizedSource, "test.startObservingInitialApply")
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
