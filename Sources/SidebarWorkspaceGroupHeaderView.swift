@@ -386,7 +386,7 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     private func updateGroupHeaderCenterDrop(_ info: DropInfo) -> Bool {
         guard groupHeaderCenterDropAction(info) != nil else { return false }
         dragAutoScrollController.updateFromDragLocation()
-        dragState.dropIndicator = nil
+        dragState.clearDropIndicator()
         return true
     }
 
@@ -433,8 +433,7 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     private func clearDropState() {
-        dragState.draggedTabId = nil
-        dragState.dropIndicator = nil
+        dragState.clearDrag()
         dragAutoScrollController.stop()
     }
 }

@@ -5634,9 +5634,10 @@ class TabManager: ObservableObject {
 
     func sidebarReorderWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
-        targetWorkspaceId: UUID? = nil
+        targetWorkspaceId: UUID? = nil,
+        usesTopLevelRows: Bool = false
     ) -> [UUID] {
-        guard sidebarReorderUsesTopLevelRows(
+        guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {
@@ -5647,9 +5648,10 @@ class TabManager: ObservableObject {
 
     func sidebarReorderPinnedWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
-        targetWorkspaceId: UUID? = nil
+        targetWorkspaceId: UUID? = nil,
+        usesTopLevelRows: Bool = false
     ) -> Set<UUID> {
-        guard sidebarReorderUsesTopLevelRows(
+        guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         ) else {

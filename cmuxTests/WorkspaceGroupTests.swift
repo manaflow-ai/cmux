@@ -138,6 +138,49 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let fullRowIds = manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: originalIds[0])
+        let headerTargetIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[0],
+            targetWorkspaceId: group.anchorWorkspaceId
+        )
+        let forcedTopLevelIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[0],
+            usesTopLevelRows: true
+        )
+        let indicator = SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .bottom)
+
+        #expect(headerTargetIds == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[3],
+        ])
+        #expect(forcedTopLevelIds == headerTargetIds)
+        #expect(!SidebarTabDropIndicatorPredicate.topVisible(
+            forTabId: originalIds[3],
+            draggedTabId: originalIds[0],
+            dropIndicator: indicator,
+            tabIds: fullRowIds
+        ))
+        #expect(SidebarTabDropIndicatorPredicate.topVisible(
+            forTabId: originalIds[3],
+            draggedTabId: originalIds[0],
+            dropIndicator: indicator,
+            tabIds: forcedTopLevelIds
+        ))
+    }
+
     @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

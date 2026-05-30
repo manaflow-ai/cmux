@@ -36,14 +36,13 @@ extension VerticalTabsSidebar {
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            tabIds: renderContext.sidebarGroupHeaderReorderIds
+            tabIds: renderContext.sidebarReorderIds
         )
         let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
             #endif
-            dragState.draggedTabId = anchorId
-            dragState.dropIndicator = nil
+            dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload.provider(for: anchorId)
         }
         let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
@@ -90,7 +89,7 @@ extension VerticalTabsSidebar {
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             cwdContextMenuItems: cwdContextMenuItems,
             rowSpacing: tabRowSpacing,
-            isFirstRow: renderContext.sidebarGroupHeaderReorderIds.first == group.anchorWorkspaceId,
+            isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
             onDragStart: onDragStart,
