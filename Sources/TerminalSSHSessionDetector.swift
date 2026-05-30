@@ -837,7 +837,7 @@ enum TerminalSSHSessionDetector {
                     index = trimmed.index(after: index)
                     continue
                 }
-                if character == "\\" {
+                if activeQuote == "\"" && character == "\\" {
                     let nextIndex = trimmed.index(after: index)
                     if nextIndex < trimmed.endIndex {
                         current.append(trimmed[nextIndex])
