@@ -135,6 +135,48 @@ extension Workspace {
         return Self.truthyStartupEnvironmentValues.contains(rawValue)
     }
 
+    @discardableResult
+    func acknowledgeStructuredAgentInputStatus(
+        statusKeys acknowledgedStatusKeys: Set<String>,
+        panelId: UUID? = nil,
+        notificationCreatedAt: Date
+    ) -> Bool {
+        let candidateStatusKeys: Set<String>
+        if let panelId {
+            let panelStatusKeys = Set((agentPIDKeysByPanelId[panelId] ?? []).map {
+                agentStatusKey(forAgentPIDKey: $0)
+            })
+            candidateStatusKeys = panelStatusKeys.intersection(acknowledgedStatusKeys)
+        } else {
+            candidateStatusKeys = acknowledgedStatusKeys
+        }
+
+        let idleValue = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+        var didChange = false
+        for key in candidateStatusKeys where Self.structuredAgentHookStatusKeys.contains(key) {
+            guard let entry = statusEntries[key],
+                  isStructuredAgentInputStatus(entry),
+                  entry.timestamp <= notificationCreatedAt else {
+                continue
+            }
+            statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: idleValue,
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+            didChange = true
+        }
+        return didChange
+    }
+
+    private func isStructuredAgentInputStatus(_ entry: SidebarStatusEntry) -> Bool {
+        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
+            return false
+        }
+        return entry.icon == "bell.fill"
+    }
+
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
         let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
         return statusEntries.values.filter { entry in

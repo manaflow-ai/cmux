@@ -89,11 +89,24 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         let secondPanel = try XCTUnwrap(
             workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
         )
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-clear-command",
+            pid: pid_t(12345),
+            panelId: firstPanelId,
+            refreshPorts: false
+        )
 
         TerminalMutationBus.shared.enqueueNotification(
             tabId: workspace.id,
             surfaceId: firstPanelId,
-            title: "Grok",
+            title: "Claude Code",
             subtitle: "Waiting",
             body: "First"
         )
@@ -119,6 +132,250 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: secondPanel.id))
         XCTAssertEqual(store.notifications.count, 1)
         XCTAssertEqual(store.notifications.first?.surfaceId, secondPanel.id)
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.value, "Idle")
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.icon, "pause.circle.fill")
+    }
+
+    func testMarkingClaudeNeedsInputNotificationReadDemotesSidebarStatusToIdle() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-needs-input",
+            pid: pid_t(12345),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Claude needs your input"
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+
+        store.markRead(forTabId: workspace.id, surfaceId: panelId)
+
+        let status = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(status.value, "Idle")
+        XCTAssertEqual(status.icon, "pause.circle.fill")
+        XCTAssertEqual(status.color, "#8E8E93")
+        XCTAssertEqual(status.priority, 0)
+    }
+
+    func testMarkingNonAgentNotificationReadDoesNotDemoteClaudeNeedsInputOnSamePanel() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-needs-input",
+            pid: pid_t(12345),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Build",
+            subtitle: "Done",
+            body: "A non-agent notification on the same panel"
+        )
+
+        store.markRead(forTabId: workspace.id, surfaceId: panelId)
+
+        let status = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(status.value, "Needs input")
+        XCTAssertEqual(status.icon, "bell.fill")
+        XCTAssertEqual(status.color, "#4C8DFF")
+        XCTAssertEqual(status.priority, 100)
+    }
+
+    func testMarkingOlderClaudeNotificationReadDoesNotDemoteNewerNeedsInputStatus() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.recordAgentPID(
+            key: "claude_code.session-needs-input",
+            pid: pid_t(12345),
+            panelId: panelId,
+            refreshPorts: false
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Older prompt notification"
+        )
+        let notification = try XCTUnwrap(store.notifications.first)
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100,
+            timestamp: notification.createdAt.addingTimeInterval(1)
+        )
+
+        store.markRead(id: notification.id)
+
+        let status = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(status.value, "Needs input")
+        XCTAssertEqual(status.icon, "bell.fill")
+        XCTAssertEqual(status.color, "#4C8DFF")
+        XCTAssertEqual(status.priority, 100)
+    }
+
+    func testMarkingSiblingPanelReadDoesNotDemoteClaudeNeedsInputForOtherPanel() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        workspace.recordAgentPID(
+            key: "claude_code.session-needs-input",
+            pid: pid_t(12345),
+            panelId: secondPanel.id,
+            refreshPorts: false
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            title: "Build",
+            subtitle: "Done",
+            body: "Sibling panel notification"
+        )
+
+        store.markRead(forTabId: workspace.id, surfaceId: firstPanelId)
+
+        let status = try XCTUnwrap(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(status.value, "Needs input")
+        XCTAssertEqual(status.icon, "bell.fill")
+        XCTAssertEqual(status.color, "#4C8DFF")
+        XCTAssertEqual(status.priority, 100)
     }
 
     func testClosingPaneRemovesSurfaceNotificationContribution() throws {
