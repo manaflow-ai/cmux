@@ -41,6 +41,84 @@ func presentSidebarWorkspaceGroupRenamePrompt(
     tabManager.renameWorkspaceGroup(groupId: groupId, name: input.stringValue)
 }
 
+@MainActor
+func presentSidebarWorkspaceGroupIconPrompt(
+    tabManager: TabManager,
+    groupId: UUID,
+    currentSymbol: String?
+) {
+    var nextValue = WorkspaceGroupIconSymbol.normalized(currentSymbol) ?? ""
+    while true {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "workspaceGroup.icon.title",
+            defaultValue: "Set Group Icon"
+        )
+        alert.informativeText = String(
+            localized: "workspaceGroup.icon.message",
+            defaultValue: "Enter an SF Symbol name for this group. Leave it empty to use the configured or default icon."
+        )
+        alert.addButton(
+            withTitle: String(localized: "workspaceGroup.icon.confirm", defaultValue: "Set Icon")
+        )
+        alert.addButton(
+            withTitle: String(localized: "workspaceGroup.icon.clear", defaultValue: "Clear Icon")
+        )
+        alert.addButton(
+            withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
+        )
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        input.stringValue = nextValue
+        input.placeholderString = String(
+            localized: "workspaceGroup.icon.placeholder",
+            defaultValue: "folder.fill"
+        )
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            let normalized = WorkspaceGroupIconSymbol.normalized(input.stringValue)
+            guard let symbol = normalized else {
+                tabManager.setWorkspaceGroupIcon(groupId: groupId, symbol: nil)
+                return
+            }
+            guard WorkspaceGroupIconSymbol.isRenderable(symbol) else {
+                presentSidebarWorkspaceGroupInvalidIconAlert(symbol: symbol)
+                nextValue = symbol
+                continue
+            }
+            tabManager.setWorkspaceGroupIcon(groupId: groupId, symbol: symbol)
+            return
+        case .alertSecondButtonReturn:
+            tabManager.setWorkspaceGroupIcon(groupId: groupId, symbol: nil)
+            return
+        default:
+            return
+        }
+    }
+}
+
+@MainActor
+private func presentSidebarWorkspaceGroupInvalidIconAlert(symbol: String) {
+    let alert = NSAlert()
+    alert.messageText = String(
+        localized: "workspaceGroup.icon.invalid.title",
+        defaultValue: "Icon Not Found"
+    )
+    let format = String(
+        localized: "workspaceGroup.icon.invalid.message",
+        defaultValue: "\"%@\" is not an SF Symbol name available on this Mac."
+    )
+    alert.informativeText = String.localizedStringWithFormat(format, symbol)
+    alert.addButton(
+        withTitle: String(localized: "settings.error.alert.dismiss", defaultValue: "OK")
+    )
+    alert.runModal()
+}
+
 /// Confirmation dialog for destructive group deletion.
 @MainActor
 func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bool {
