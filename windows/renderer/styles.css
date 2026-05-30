@@ -1464,14 +1464,16 @@ body.reduce-motion *::after {
 }
 
 .browser-shell {
+  container-type: inline-size;
   height: 100%;
   display: grid;
   grid-template-rows: 34px auto minmax(0, 1fr);
 }
 
 .browser-bar {
+  min-width: 0;
   display: grid;
-  grid-template-columns: auto auto auto auto minmax(120px, 1fr) auto auto;
+  grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px;
   align-items: center;
   gap: var(--space-1);
   padding: 4px var(--space-2);
@@ -1522,10 +1524,55 @@ body.reduce-motion *::after {
 }
 
 .browser-go {
+  min-width: 0;
   height: 24px;
   padding: 0 var(--space-2);
   border-color: var(--color-line);
   background: var(--color-pane);
+}
+
+.browser-go-external {
+  width: 26px;
+  padding: 0;
+}
+
+@container (max-width: 320px) {
+  .browser-bar {
+    grid-template-columns: 24px 24px minmax(0, 1fr) 26px;
+  }
+
+  .browser-forward,
+  .browser-home,
+  .browser-go-submit {
+    display: none;
+  }
+}
+
+@container (max-width: 220px) {
+  .browser-bar {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .browser-back,
+  .browser-go-external {
+    display: none;
+  }
+}
+
+@container (max-width: 150px) {
+  .browser-bar {
+    grid-template-columns: minmax(0, 1fr);
+    padding-inline: var(--space-1);
+  }
+
+  .browser-reload {
+    display: none;
+  }
+
+  .browser-address {
+    padding-inline: var(--space-1);
+    font-size: 11px;
+  }
 }
 
 .browser-view {
