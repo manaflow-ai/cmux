@@ -842,6 +842,12 @@ struct BrowserPanelView: View {
         refreshBrowserExtensionActions()
     }
 
+    private func handleBrowserExtensionsPopoverPresentationChange(_ isPresented: Bool) {
+        guard !isPresented, let actionID = pendingBrowserExtensionActionID else { return }
+        pendingBrowserExtensionActionID = nil
+        BrowserWebExtensionSupport.performAction(actionID, for: panel)
+    }
+
     private func handleBrowserThemeModeRawChange() {
         let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
         if browserThemeModeRaw != normalizedMode.rawValue {
@@ -1069,7 +1075,7 @@ struct BrowserPanelView: View {
         }
     }
 
-    var body: some View {
+    private var browserPanelBaseViewWithPreferences: some View {
         browserPanelBaseView
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
@@ -1079,9 +1085,7 @@ struct BrowserPanelView: View {
             addressBarHeight = height
         }
         .onChange(of: isBrowserExtensionsPopoverPresented) { _, isPresented in
-            guard !isPresented, let actionID = pendingBrowserExtensionActionID else { return }
-            pendingBrowserExtensionActionID = nil
-            BrowserWebExtensionSupport.performAction(actionID, for: panel)
+            handleBrowserExtensionsPopoverPresentationChange(isPresented)
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
@@ -1093,6 +1097,10 @@ struct BrowserPanelView: View {
         ) { _ in
             refreshBrowserExtensionActions()
         }
+    }
+
+    var body: some View {
+        browserPanelBaseViewWithPreferences
         .onAppear {
             handleBrowserPanelAppear()
         }
