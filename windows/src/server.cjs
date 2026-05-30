@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
-const { WebSocketServer } = require("ws");
+const { WebSocket, WebSocketServer } = require("ws");
 
 let pty = null;
 try {
@@ -758,7 +758,7 @@ class CmuxWindowsRuntime {
   broadcastState() {
     const payload = JSON.stringify({ type: "state", state: this.serializedState() });
     for (const socket of this.eventSockets) {
-      if (socket.readyState === socket.OPEN) socket.send(payload);
+      if (socket.readyState === WebSocket.OPEN) socket.send(payload);
     }
   }
 
