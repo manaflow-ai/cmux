@@ -36,6 +36,13 @@ import {
   setTitleIfChanged,
   toggleClassIfChanged
 } from "./dom-utils.js";
+import {
+  clampPaneLayoutPercent,
+  paneLayoutPercentMax,
+  paneLayoutPercentMin,
+  paneLayoutPercentFromWeights,
+  paneLayoutWeightsByActivePercent
+} from "./layout-utils.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
@@ -1440,6 +1447,66 @@ function applyStoredPaneLayoutToVisiblePanes(direction) {
   return true;
 }
 
+function visiblePaneWeights(direction) {
+  const panes = [...elements.paneGrid.querySelectorAll(".pane")].filter((pane) => pane.dataset.panelId);
+  if (panes.length <= 1) return null;
+  const sizes = panes.map((pane) => {
+    const rect = pane.getBoundingClientRect();
+    return {
+      panelId: pane.dataset.panelId,
+      size: Math.max(1, direction === "down" ? rect.height : rect.width)
+    };
+  });
+  const total = sizes.reduce((sum, item) => sum + item.size, 0);
+  if (!total) return null;
+  return new Map(sizes.map((item) => [item.panelId, Math.round((item.size / total) * paneLayoutScale)]));
+}
+
+function defaultActivePaneLayoutPercent(workspace = activeWorkspace()) {
+  const paneCount = workspace?.panels?.length || 0;
+  return paneCount > 1 ? Math.round(100 / paneCount) : 50;
+}
+
+function activePaneLayoutPercent(workspace = activeWorkspace()) {
+  if (!workspace || workspace.panels.length <= 1 || !workspace.activePanelId) return 50;
+  const direction = paneLayoutDirection(workspace);
+  const fallback = defaultActivePaneLayoutPercent(workspace);
+  const storedWeights = storedPaneWeightsForPanels(workspace.panels, direction, null);
+  if (storedWeights) return paneLayoutPercentFromWeights(storedWeights, workspace.activePanelId, fallback);
+  const visibleWeights = visiblePaneWeights(direction);
+  if (visibleWeights) return paneLayoutPercentFromWeights(visibleWeights, workspace.activePanelId, fallback);
+  return fallback;
+}
+
+function applyActivePaneLayoutPercent(percent, options = {}) {
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length <= 1 || !workspace.activePanelId) {
+    if (options.toast) toast("Open another pane to resize the active pane.");
+    return 50;
+  }
+  const direction = paneLayoutDirection(workspace);
+  const nextPercent = clampPaneLayoutPercent(percent);
+  const weights = paneLayoutWeightsByActivePercent(workspace.panels, workspace.activePanelId, nextPercent, paneLayoutScale);
+  if (state.zoomedPanelId) {
+    state.zoomedPanelId = null;
+    render();
+  }
+  for (const [panelId, weight] of weights) setStoredPaneWeight(panelId, direction, weight);
+  renderPaneLayoutStylesForWeights(weights);
+  clearVisiblePaneInlineFlex();
+  requestAnimationFrame(() => {
+    renderPaneLayoutStylesForWeights(weights);
+    clearVisiblePaneInlineFlex();
+    for (const panel of workspace.panels) {
+      const terminal = state.terminals.get(panel.id);
+      if (terminal) scheduleFitTerminal(terminal, true);
+    }
+  });
+  if (options.save) savePaneLayouts();
+  if (options.toast) toast(`Active pane ${nextPercent}%.`);
+  return nextPercent;
+}
+
 function scheduleVisiblePaneLayoutApply() {
   if (state.resizing || state.paneLayoutFrame) return;
   state.paneLayoutFrame = requestAnimationFrame(() => {
@@ -1576,6 +1643,7 @@ const commands = [
   { id: "layout.stacked", label: "Stack Panes Vertically", shortcut: "", run: () => applyPaneLayoutPreset("stacked") },
   { id: "layout.activeWide", label: "Make Active Pane Wide", shortcut: "", run: () => applyPaneLayoutPreset("activeWide") },
   { id: "layout.activeTall", label: "Make Active Pane Tall", shortcut: "", run: () => applyPaneLayoutPreset("activeTall") },
+  { id: "layout.activePercent", label: "Set Active Pane Size", shortcut: "", run: () => promptActivePaneLayoutPercent() },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
@@ -3352,6 +3420,28 @@ function renderSettingsInspector(options = {}) {
     );
     layoutSection.append(layoutActions);
     layoutSection.append(settingRow("Pane presets", paneLayoutPresetGrid(), true, "split layout pane presets side by side stacked active wide tall equal"));
+    const activePanePercent = activePaneLayoutPercent(workspace);
+    const activePaneRange = document.createElement("input");
+    activePaneRange.className = "setting-control";
+    activePaneRange.type = "range";
+    activePaneRange.min = String(paneLayoutPercentMin);
+    activePaneRange.max = String(paneLayoutPercentMax);
+    activePaneRange.step = "1";
+    activePaneRange.value = String(activePanePercent);
+    activePaneRange.disabled = !workspace || workspace.panels.length <= 1;
+    const activePaneRow = settingRow(`Active pane ${activePanePercent}%`, activePaneRange, false, "split layout pane resize percent active pane size width height custom");
+    activePaneRange.oninput = () => {
+      const nextPercent = applyActivePaneLayoutPercent(activePaneRange.value);
+      activePaneRow.querySelector(".setting-label").textContent = `Active pane ${nextPercent}%`;
+      setTextIfChanged(elements.inspectorBody.querySelector("[data-layout-preview-active-pane]"), `${nextPercent}%`);
+    };
+    activePaneRange.onchange = () => {
+      const nextPercent = applyActivePaneLayoutPercent(activePaneRange.value, { save: true, toast: true });
+      activePaneRange.value = String(nextPercent);
+      activePaneRow.querySelector(".setting-label").textContent = `Active pane ${nextPercent}%`;
+      setTextIfChanged(elements.inspectorBody.querySelector("[data-layout-preview-active-pane]"), `${nextPercent}%`);
+    };
+    layoutSection.append(activePaneRow);
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
@@ -3903,7 +3993,7 @@ function layoutSettingsPreviewPanel() {
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -3939,6 +4029,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
       <span><b>Settings</b><em data-layout-preview-settings></em></span>
       <span><b>Status</b><em data-layout-preview-status></em></span>
+      <span><b>Active pane</b><em data-layout-preview-active-pane></em></span>
     </div>
   `;
   panel.querySelector("[data-layout-preview-toolbar]").textContent = optionLabel(toolbarModeOptions, settings.toolbarMode, settings.toolbarMode);
@@ -3947,6 +4038,8 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-sidebar]").textContent = `${settings.sidebarWidth}px`;
   panel.querySelector("[data-layout-preview-settings]").textContent = `${settings.inspectorWidth}px`;
   panel.querySelector("[data-layout-preview-status]").textContent = settings.showStatusbar ? "On" : "Off";
+  const workspace = activeWorkspace();
+  panel.querySelector("[data-layout-preview-active-pane]").textContent = workspace?.panels?.length > 1 ? `${activePaneLayoutPercent(workspace)}%` : "Single";
   return panel;
 }
 
@@ -6231,6 +6324,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !multiPane),
       contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
       contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !multiPane),
+      contextMenuButton("Set active pane size", promptActivePaneLayoutPercent, !multiPane),
       contextMenuButton("Close other panes", () => closeOtherPanes(), !multiPane, "danger")
     ),
     contextMenuSectionTitle("Terminal"),
@@ -7672,22 +7766,7 @@ function paneLayoutPresetWeights(panels, activePanelId, mode) {
     const equalWeight = Math.round(paneLayoutScale / panels.length);
     return new Map(panels.map((panel) => [panel.id, equalWeight]));
   }
-  const activeWeight = panels.length === 2 ? 680 : 600;
-  const remaining = Math.max(1, paneLayoutScale - activeWeight);
-  const otherPanels = panels.filter((panel) => panel.id !== activePanelId);
-  const otherWeight = Math.max(1, Math.floor(remaining / Math.max(1, otherPanels.length)));
-  let assignedOther = 0;
-  const weights = new Map();
-  for (const panel of panels) {
-    if (panel.id === activePanelId) {
-      weights.set(panel.id, activeWeight);
-    } else {
-      const isLastOther = assignedOther === otherPanels.length - 1;
-      weights.set(panel.id, isLastOther ? Math.max(1, remaining - otherWeight * assignedOther) : otherWeight);
-      assignedOther += 1;
-    }
-  }
-  return weights;
+  return paneLayoutWeightsByActivePercent(panels, activePanelId, panels.length === 2 ? 68 : 60, paneLayoutScale);
 }
 
 async function applyPaneLayoutPreset(presetId) {
@@ -7717,6 +7796,30 @@ async function applyPaneLayoutPreset(presetId) {
     }
   });
   toast(`${preset.label} layout applied.`);
+  return true;
+}
+
+async function promptActivePaneLayoutPercent() {
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length <= 1) {
+    toast("Open another pane to resize the active pane.");
+    return false;
+  }
+  const value = await showTextDialog({
+    title: "Set active pane size",
+    message: `Enter a percentage from ${paneLayoutPercentMin} to ${paneLayoutPercentMax}.`,
+    value: String(activePaneLayoutPercent(workspace)),
+    placeholder: "65",
+    confirmLabel: "Apply"
+  });
+  if (value === null) return false;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    toast(`Enter a number from ${paneLayoutPercentMin} to ${paneLayoutPercentMax}.`);
+    return false;
+  }
+  applyActivePaneLayoutPercent(parsed, { save: true, toast: true });
+  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") renderSettingsInspector();
   return true;
 }
 
