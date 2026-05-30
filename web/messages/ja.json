@@ -45,7 +45,7 @@
     "taglinePrefix": "次のために作られたターミナル：",
     "typingCodingAgents": "コーディングエージェント",
     "typingMultitasking": "マルチタスク",
-    "subtitle": "GhosttyベースのネイティブmacOSアプリ。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、自動化用のsocket APIを搭載。",
+    "subtitle": "GhosttyベースのネイティブmacOSアプリ。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
     "features": "機能",
     "faq": "FAQ",
     "communitySection": "コミュニティ",
@@ -741,7 +741,7 @@
       "metaTitle": "キーボードショートカット"
     },
     "api": {
-      "title": "APIリファレンス",
+      "title": "CLIリファレンス",
       "metaDescription": "cmux CLIおよびUnix socket APIリファレンス。ワークスペース管理、分割ペイン、入力制御、通知、サイドバーメタデータ、環境変数、検出方法。",
       "intro": "cmuxはCLIツールとUnix socketの両方をプログラム制御に提供します。すべてのコマンドは両方のインターフェースから利用可能です。",
       "socket": "Socket",
@@ -820,7 +820,7 @@
       "pythonClient": "Pythonクライアント",
       "shellScript": "シェルスクリプト",
       "buildScriptNotification": "通知付きビルドスクリプト",
-      "metaTitle": "APIリファレンス"
+      "metaTitle": "CLIリファレンス"
     },
     "notifications": {
       "title": "通知",
@@ -1034,7 +1034,7 @@
       "suggestionsCallout": "今後のスキルは、実際のコマンド列を持つ反復可能なワークフローに絞ってください。製品ドキュメントを言い換えるだけなら、スキルではなくドキュメントに追加します。",
       "relatedTitle": "関連ドキュメント",
       "relatedBrowserAutomation": "ブラウザ自動化",
-      "relatedApi": "API リファレンス",
+      "relatedApi": "CLI リファレンス",
       "relatedCustomCommands": "カスタムコマンド"
     },
     "changelog": {
@@ -1191,7 +1191,7 @@
       "sessionRestore": "セッション復元",
       "customCommands": "カスタムコマンド",
       "keyboardShortcuts": "キーボードショートカット",
-      "apiReference": "APIリファレンス",
+      "apiReference": "CLIリファレンス",
       "browserAutomation": "ブラウザ自動化",
       "skills": "スキル",
       "notifications": "通知",

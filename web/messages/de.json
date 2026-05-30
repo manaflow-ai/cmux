@@ -45,7 +45,7 @@
     "taglinePrefix": "Das Terminal für ",
     "typingCodingAgents": "Coding-Agenten",
     "typingMultitasking": "Multitasking",
-    "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine Socket-API für Automatisierung.",
+    "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine <cliLink>CLI</cliLink> für Programmierbarkeit.",
     "features": "Funktionen",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -673,7 +673,7 @@
       "metaTitle": "Tastenkürzel"
     },
     "api": {
-      "title": "API-Referenz",
+      "title": "CLI-Referenz",
       "metaDescription": "cmux CLI und Unix-Socket-API-Referenz. Workspace-Verwaltung, geteilte Bereiche, Eingabesteuerung, Benachrichtigungen, Seitenleisten-Metadaten, Umgebungsvariablen und Erkennungsmethoden.",
       "intro": "cmux bietet sowohl ein CLI-Werkzeug als auch einen Unix-Socket für programmatische Steuerung. Jeder Befehl ist über beide Schnittstellen verfügbar.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Python-Client",
       "shellScript": "Shell-Skript",
       "buildScriptNotification": "Build-Skript mit Benachrichtigung",
-      "metaTitle": "API-Referenz"
+      "metaTitle": "CLI-Referenz"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -895,7 +895,7 @@
       "authoringCallout": "Füge beim Hinzufügen eines neuen Skills <code>agents/openai.yaml</code> hinzu, damit der Installer einen klaren Namen, eine kurze Beschreibung und einen Standardprompt anzeigen kann.",
       "relatedTitle": "Verwandte Dokumentation",
       "relatedBrowserAutomation": "Browserautomatisierung",
-      "relatedApi": "API-Referenz",
+      "relatedApi": "CLI-Referenz",
       "relatedCustomCommands": "Benutzerdefinierte Befehle"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Sitzungswiederherstellung",
       "customCommands": "Benutzerdefinierte Befehle",
       "keyboardShortcuts": "Tastaturkürzel",
-      "apiReference": "API-Referenz",
+      "apiReference": "CLI-Referenz",
       "browserAutomation": "Browser-Automatisierung",
       "skills": "Skills",
       "notifications": "Benachrichtigungen",

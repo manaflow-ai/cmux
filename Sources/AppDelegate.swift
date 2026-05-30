@@ -625,8 +625,9 @@ final class CmuxMainThreadTurnProfiler {
 #endif
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate {
     nonisolated(unsafe) static var shared: AppDelegate?
+    private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
     private var isRunningUnderXCTestCached: Bool {
@@ -793,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
+    private var reloadConfigurationMenuItemRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -1672,6 +1674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        ClosedItemHistoryStore.shared.flushPendingSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -1764,6 +1767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        ClosedItemHistoryStore.shared.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1793,6 +1797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
@@ -3051,55 +3056,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = SessionPersistenceStore.loadReopenSessionSnapshot() else {
             return false
         }
+        return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
+    }
 
+    @discardableResult
+    func restorePreviousSessionSnapshot(
+        _ snapshot: AppSessionSnapshot,
+        shouldActivate: Bool = true
+    ) -> Bool {
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
         guard !snapshotWindows.isEmpty else { return false }
 
-        let existingContexts = sortedMainWindowContextsForSessionSnapshot()
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
+        var createdWindowIds: [UUID] = []
 
-        if existingContexts.isEmpty {
-            for windowSnapshot in snapshotWindows {
-                _ = createMainWindow(
-                    sessionWindowSnapshot: windowSnapshot,
-                    shouldActivate: shouldActivate
-                )
-            }
-        } else {
-            for (context, windowSnapshot) in zip(existingContexts, snapshotWindows) {
-                applySessionWindowSnapshot(
-                    windowSnapshot,
-                    to: context,
-                    window: context.window ?? windowForMainWindowId(context.windowId)
-                )
-            }
-
-            if snapshotWindows.count > existingContexts.count {
-                for windowSnapshot in snapshotWindows.dropFirst(existingContexts.count) {
-                    _ = createMainWindow(
-                        sessionWindowSnapshot: windowSnapshot,
-                        shouldActivate: shouldActivate
-                    )
-                }
-            }
-
-            if existingContexts.count > snapshotWindows.count {
-                for context in existingContexts.dropFirst(snapshotWindows.count) {
-                    _ = closeMainWindow(windowId: context.windowId, recordHistory: false)
-                }
-            }
+        for windowSnapshot in snapshotWindows {
+            let windowId = createMainWindow(
+                sessionWindowSnapshot: windowSnapshot,
+                shouldActivate: false
+            )
+            createdWindowIds.append(windowId)
         }
 
         completeSessionRestoreOperation(isManualReopen: true)
 
         if shouldActivate,
-           let primaryWindow = sortedMainWindowContextsForSessionSnapshot()
-            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
-            .first {
+           let primaryWindowId = createdWindowIds.first,
+           let primaryWindow = mainWindow(for: primaryWindowId) {
             primaryWindow.makeKeyAndOrderFront(nil)
             setActiveMainWindow(primaryWindow)
             NSRunningApplication.current.activate(
@@ -3124,6 +3111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+        if let originalWindowId = snapshot.windowId,
+           originalWindowId != context.windowId {
+            ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
+            ClosedItemHistoryStore.shared.flushPendingSaves()
+        }
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
@@ -3529,6 +3521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 self.isTerminatingApp = true
                 _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3542,6 +3535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                    ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
@@ -4136,6 +4130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let window = context.window ?? windowForMainWindowId(context.windowId)
         return SessionWindowSnapshot(
+            windowId: context.windowId,
             frame: window.map { SessionRectSnapshot($0.frame) },
             display: displaySnapshot(for: window),
             tabManager: tabManagerSnapshot,
@@ -7611,7 +7606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
-        closedWindowHistoryWorkspaceIds: [UUID] = [],
+        remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
@@ -7623,12 +7618,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
         if let sessionWindowSnapshot {
-            let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(sessionWindowSnapshot.tabManager)
-            if !closedWindowHistoryWorkspaceIds.isEmpty {
-                tabManager.remapClosedPanelHistoryAfterWindowRestore(
-                    originalWorkspaceIds: closedWindowHistoryWorkspaceIds,
-                    restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
-                )
+            let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
+                sessionWindowSnapshot.tabManager,
+                remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
+            )
+            if let originalWindowId = sessionWindowSnapshot.windowId,
+               originalWindowId != windowId {
+                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
+                ClosedItemHistoryStore.shared.flushPendingSaves()
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
@@ -11672,6 +11669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleShortcutDefaultsDidChange() {
         clearConfiguredShortcutChordState()
+        scheduleReloadConfigurationMenuItemRefresh()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
@@ -11728,6 +11726,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
         }
+    }
+
+    @objc func reloadConfigurationMenuItem(_ sender: Any?) {
+        reloadConfiguration(source: "menu.reload_configuration")
+    }
+
+    func installReloadConfigurationMenuItemAction() {
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
+        appMenu.delegate = self
+        configureReloadConfigurationMenuItem(in: appMenu)
+    }
+
+    private func scheduleReloadConfigurationMenuItemRefresh() {
+        guard !reloadConfigurationMenuItemRefreshScheduled else { return }
+        reloadConfigurationMenuItemRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.reloadConfigurationMenuItemRefreshScheduled = false
+            self.installReloadConfigurationMenuItemAction()
+        }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === NSApp.mainMenu?.items.first?.submenu else { return }
+        configureReloadConfigurationMenuItem(in: menu)
+    }
+
+    private func configureReloadConfigurationMenuItem(in menu: NSMenu) {
+        guard let item = reloadConfigurationMenuItem(in: menu) else { return }
+
+        item.identifier = Self.reloadConfigurationMenuItemIdentifier
+        item.target = self
+        item.action = #selector(reloadConfigurationMenuItem(_:))
+
+        let shortcut = KeyboardShortcutSettings.menuShortcut(for: .reloadConfiguration)
+        if let keyEquivalent = shortcut.menuItemKeyEquivalent {
+            item.keyEquivalent = keyEquivalent
+            item.keyEquivalentModifierMask = shortcut.modifierFlags
+        } else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+        }
+    }
+
+    private func reloadConfigurationMenuItem(in menu: NSMenu) -> NSMenuItem? {
+        if let identifiedItem = menu.items.first(where: { $0.identifier == Self.reloadConfigurationMenuItemIdentifier }) {
+            return identifiedItem
+        }
+
+        let reloadConfigurationTitle = String(
+            localized: "menu.app.reloadConfiguration",
+            defaultValue: "Reload Configuration"
+        )
+        return menu.items.first(where: { $0.title == reloadConfigurationTitle })
+    }
+
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String,
+        reloadSettingsFromFile: Bool = true,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+    ) {
+#if DEBUG
+        cmuxDebugLog("reload.config.request source=\(source) soft=\(soft)")
+#endif
+        GhosttyApp.shared.reloadConfiguration(
+            soft: soft,
+            source: source,
+            reloadSettingsFromFile: reloadSettingsFromFile,
+            preferredColorScheme: preferredColorScheme
+        )
     }
 
     func reloadCmuxConfigStores(source: String) {
@@ -12425,7 +12494,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
-            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
+            reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
         }
 
@@ -15957,7 +16026,7 @@ private extension AppDelegate {
                 guard let self,
                       self.cmuxThemePreviewReloadGeneration == generation else { return }
                 self.cmuxThemePreviewReloadWorkItem = nil
-                GhosttyApp.shared.reloadConfiguration(source: source)
+                self.reloadConfiguration(source: source)
             }
             cmuxThemePreviewReloadWorkItem = workItem
             DispatchQueue.main.asyncAfter(
@@ -15972,7 +16041,7 @@ private extension AppDelegate {
         cmuxThemePreviewReloadGeneration += 1
         cmuxThemePreviewReloadWorkItem?.cancel()
         cmuxThemePreviewReloadWorkItem = nil
-        GhosttyApp.shared.reloadConfiguration(source: source)
+        reloadConfiguration(source: source)
     }
 }
 

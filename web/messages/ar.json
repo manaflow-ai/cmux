@@ -45,7 +45,7 @@
     "taglinePrefix": "الطرفية المصممة لـ",
     "typingCodingAgents": "وكلاء البرمجة",
     "typingMultitasking": "تعدد المهام",
-    "subtitle": "تطبيق macOS أصلي مبني على Ghostty. علامات تبويب عمودية، حلقات إشعار عندما يحتاج الوكلاء انتباهك، ألواح مقسمة، وواجهة برمجة عبر المقابس للأتمتة.",
+    "subtitle": "تطبيق macOS أصلي مبني على Ghostty. علامات تبويب عمودية، حلقات إشعار عندما يحتاج الوكلاء انتباهك، ألواح مقسمة، و<cliLink>CLI</cliLink> للبرمجة.",
     "features": "الميزات",
     "faq": "الأسئلة الشائعة",
     "communitySection": "المجتمع",
@@ -673,7 +673,7 @@
       "metaTitle": "اختصارات لوحة المفاتيح"
     },
     "api": {
-      "title": "مرجع الواجهة البرمجية",
+      "title": "مرجع CLI",
       "metaDescription": "مرجع واجهة أوامر cmux وواجهة مقابس Unix. إدارة مساحات العمل، الألواح المقسمة، التحكم بالإدخال، الإشعارات، بيانات الشريط الجانبي الوصفية، متغيرات البيئة، وطرق الكشف.",
       "intro": "يوفر cmux أداة سطر أوامر ومقبس Unix للتحكم البرمجي. كل أمر متاح عبر كلتا الواجهتين.",
       "socket": "المقبس",
@@ -752,7 +752,7 @@
       "pythonClient": "عميل Python",
       "shellScript": "نص Shell",
       "buildScriptNotification": "نص بناء مع إشعار",
-      "metaTitle": "مرجع API"
+      "metaTitle": "مرجع CLI"
     },
     "notifications": {
       "title": "الإشعارات",
@@ -895,7 +895,7 @@
       "authoringCallout": "عند إضافة مهارة جديدة، أدرج <code>agents/openai.yaml</code> كي يعرض المثبّت اسمًا واضحًا، ووصفًا قصيرًا، وموجّهًا افتراضيًا.",
       "relatedTitle": "وثائق ذات صلة",
       "relatedBrowserAutomation": "أتمتة المتصفح",
-      "relatedApi": "مرجع API",
+      "relatedApi": "مرجع CLI",
       "relatedCustomCommands": "الأوامر المخصصة"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "استعادة الجلسة",
       "customCommands": "أوامر مخصصة",
       "keyboardShortcuts": "اختصارات لوحة المفاتيح",
-      "apiReference": "مرجع الواجهة البرمجية",
+      "apiReference": "مرجع CLI",
       "browserAutomation": "أتمتة المتصفح",
       "skills": "المهارات",
       "notifications": "الإشعارات",

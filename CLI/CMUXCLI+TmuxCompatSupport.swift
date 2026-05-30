@@ -6,29 +6,29 @@ extension CMUXCLI {
         pane: [String: Any],
         containerFrame: [String: Any]?
     ) {
-        let isFocused = (pane["focused"] as? Bool) == true
+        let isFocused = boolFromAny(pane["focused"]) == true
         context["pane_active"] = isFocused ? "1" : "0"
 
-        guard let columns = pane["columns"] as? Int,
-              let rows = pane["rows"] as? Int else { return }
+        guard let columns = intFromAny(pane["columns"]),
+              let rows = intFromAny(pane["rows"]) else { return }
 
         context["pane_width"] = String(columns)
         context["pane_height"] = String(rows)
 
-        let cellW = pane["cell_width_px"] as? Int ?? 0
-        let cellH = pane["cell_height_px"] as? Int ?? 0
+        let cellW = intFromAny(pane["cell_width_px"]) ?? 0
+        let cellH = intFromAny(pane["cell_height_px"]) ?? 0
         guard cellW > 0, cellH > 0 else { return }
 
         if let frame = pane["pixel_frame"] as? [String: Any] {
-            let px = frame["x"] as? Double ?? 0
-            let py = frame["y"] as? Double ?? 0
+            let px = (frame["x"] as? NSNumber)?.doubleValue ?? (frame["x"] as? Double) ?? 0
+            let py = (frame["y"] as? NSNumber)?.doubleValue ?? (frame["y"] as? Double) ?? 0
             context["pane_left"] = String(Int(px) / cellW)
             context["pane_top"] = String(Int(py) / cellH)
         }
 
         if let cf = containerFrame {
-            let cw = cf["width"] as? Double ?? 0
-            let ch = cf["height"] as? Double ?? 0
+            let cw = (cf["width"] as? NSNumber)?.doubleValue ?? (cf["width"] as? Double) ?? 0
+            let ch = (cf["height"] as? NSNumber)?.doubleValue ?? (cf["height"] as? Double) ?? 0
             context["window_width"] = String(max(Int(cw) / cellW, 1))
             context["window_height"] = String(max(Int(ch) / cellH, 1))
         }

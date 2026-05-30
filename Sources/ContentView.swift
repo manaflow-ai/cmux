@@ -5822,6 +5822,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
+        case .project:
+            return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         }
     }
 
@@ -5837,6 +5839,8 @@ struct ContentView: View {
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
+        case .project:
+            return ["project", "xcode", "build", "settings", "schemes", "targets"]
         }
     }
 
@@ -9230,6 +9234,10 @@ struct ContentView: View {
             return "filePreview.mediaPlayer"
         case .filePreview(.quickLook):
             return "filePreview.quickLook"
+        case .project(.navigator):
+            return "project.navigator"
+        case .project(.detail):
+            return "project.detail"
         }
     }
 
