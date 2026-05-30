@@ -5346,7 +5346,9 @@ function renderPalette() {
   state.paletteIndex = Math.min(state.paletteIndex, Math.max(0, matches.length - 1));
   const nodes = matches.map((entry, index) => {
     const button = document.createElement("button");
+    button.type = "button";
     button.className = `palette-item${index === state.paletteIndex ? " is-selected" : ""}`;
+    button.setAttribute("aria-selected", String(index === state.paletteIndex));
     button.innerHTML = `
       <span class="palette-main">
         <span class="palette-label"></span>
@@ -5367,6 +5369,25 @@ function renderPalette() {
     nodes.push(empty);
   }
   elements.paletteList.replaceChildren(...nodes);
+}
+
+function updatePaletteSelection() {
+  const items = [...elements.paletteList.querySelectorAll(".palette-item")];
+  for (const [index, item] of items.entries()) {
+    const selected = index === state.paletteIndex;
+    toggleClassIfChanged(item, "is-selected", selected);
+    item.setAttribute("aria-selected", String(selected));
+    if (selected) item.scrollIntoView({ block: "nearest" });
+  }
+}
+
+function movePaletteSelection(delta) {
+  const count = elements.paletteList.querySelectorAll(".palette-item").length;
+  if (!count) return;
+  const nextIndex = Math.max(0, Math.min(count - 1, state.paletteIndex + delta));
+  if (nextIndex === state.paletteIndex) return;
+  state.paletteIndex = nextIndex;
+  updatePaletteSelection();
 }
 
 function paletteEntryMatches(entry, query) {
@@ -6651,18 +6672,18 @@ document.getElementById("maximizeWindowButton").onclick = async () => {
 };
 document.getElementById("closeWindowButton").onclick = () => window.cmuxNative?.closeWindow?.();
 
-elements.paletteInput.addEventListener("input", renderPalette);
+elements.paletteInput.addEventListener("input", () => {
+  state.paletteIndex = 0;
+  renderPalette();
+});
 elements.paletteInput.addEventListener("keydown", (event) => {
-  const count = elements.paletteList.children.length;
   if (event.key === "ArrowDown") {
     event.preventDefault();
-    state.paletteIndex = Math.min(count - 1, state.paletteIndex + 1);
-    renderPalette();
+    movePaletteSelection(1);
   }
   if (event.key === "ArrowUp") {
     event.preventDefault();
-    state.paletteIndex = Math.max(0, state.paletteIndex - 1);
-    renderPalette();
+    movePaletteSelection(-1);
   }
   if (event.key === "Enter") {
     event.preventDefault();
