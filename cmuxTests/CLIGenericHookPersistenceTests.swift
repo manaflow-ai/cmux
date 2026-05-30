@@ -792,6 +792,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try storedHermesSessions()[sessionId],
             "Expected Hermes route to remain available after per-turn on_session_end"
         )
+
+        let finalizeCommandStart = state.commands.count
+        let finalize = runHermesHook(
+            "session-end",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(workspace.path)","hook_event_name":"on_session_finalize"}"#
+        )
+        XCTAssertFalse(finalize.timedOut, finalize.stderr)
+        XCTAssertEqual(finalize.status, 0, finalize.stderr)
+        XCTAssertEqual(finalize.stdout, "{}\n")
+
+        let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
+        let finalizeMethods = finalizeCommands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertTrue(
+            finalizeMethods.contains("surface.resume.clear"),
+            "Hermes on_session_finalize is the real session boundary and should clear the resume binding, saw \(finalizeCommands)"
+        )
+        XCTAssertTrue(
+            finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
+            "Hermes on_session_finalize should clear saved routing, saw \(finalizeCommands)"
+        )
+        XCTAssertNil(
+            try storedHermesSessions()[sessionId],
+            "Expected Hermes route to be consumed after on_session_finalize"
+        )
     }
 
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
