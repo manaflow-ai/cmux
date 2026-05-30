@@ -72,11 +72,14 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         guard let info = try await provider.resolve(request.handle) else {
             throw TerminalAccessError.unknownSurface
         }
-        if request.wrap == .join {
-            throw TerminalAccessError.unsupported(reason: "wrap=join requires ghostty patch #1")
-        }
         switch request.format {
         case .text:
+            // Phase 1: ``wrap`` and ``trim`` are policy knobs applied
+            // here. Until Task 1.22b retires ``ScreenRegionReader``,
+            // the provider's text read returns rows already separated
+            // by hard newlines; `wrap=join` is a no-op pass-through
+            // for stub providers and gets the real join treatment
+            // once the cells path lands.
             var text = try await provider.readText(surface: info, region: request.region)
             if request.trim { text = Self.trimTrailingSpaces(text) }
             return .text(
@@ -89,7 +92,12 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
                 )
             )
         case .cells:
-            throw TerminalAccessError.unsupported(reason: "format=cells requires ghostty patch #1")
+            // Per Errata E20 ``readCells`` is a required protocol
+            // member; conformers that lack ghostty patch #1 throw
+            // ``TerminalAccessError/unsupported(reason:)`` (HTTP 415
+            // per D18). The route layer maps that to the wire.
+            let g = try await provider.readCells(surface: info, region: request.region)
+            return .cells(g)
         }
     }
 

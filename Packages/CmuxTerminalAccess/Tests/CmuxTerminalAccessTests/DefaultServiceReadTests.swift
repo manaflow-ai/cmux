@@ -46,18 +46,31 @@ import Testing
         #expect(p.cols == 80)
     }
 
-    @Test func cellsRejectedAsUnsupported415InPhase0() async throws {
+    @Test func cellsThrowsUnsupportedWhenProviderLacksGhosttyPatch() async throws {
+        // Per E20, ``readCells`` is required on ``SurfaceProvider``;
+        // conformers without ghostty patch #1 throw `.unsupported`.
+        // The stub provider returns `.unsupported` when no canned grid
+        // is configured. The service propagates that error so the HTTP
+        // route layer can map it to 415 (D18). Once Task 1.5-1.9 land
+        // patch #1, the AppSurfaceProvider readCells returns a real
+        // grid; this test still covers the propagation invariant.
         let (svc, info, _) = await makeService(text: "")
         await #expect(throws: TerminalAccessError.self) {
             _ = try await svc.readScreen(.init(handle: info.handle, format: .cells))
         }
     }
 
-    @Test func wrapJoinRejectedAsUnsupported415InPhase0() async throws {
-        let (svc, info, _) = await makeService(text: "")
-        await #expect(throws: TerminalAccessError.self) {
-            _ = try await svc.readScreen(.init(handle: info.handle, wrap: .join))
+    @Test func wrapJoinAcceptedInPhase1() async throws {
+        // Phase 1 accepts `wrap=join` (the plan calls it open in v1).
+        // Pre-patch-#1 the stub provider's text payload is returned
+        // unchanged; join semantics light up once `readCells` is real.
+        let (svc, info, _) = await makeService(text: "hello")
+        let res = try await svc.readScreen(.init(handle: info.handle, wrap: .join))
+        guard case .text(let p) = res else {
+            Issue.record("not text")
+            return
         }
+        #expect(p.text == "hello")
     }
 
     @Test func trimRemovesTrailingSpaces() async throws {
