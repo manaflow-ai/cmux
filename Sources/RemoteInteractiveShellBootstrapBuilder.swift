@@ -82,7 +82,13 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
         ]
         outerLines.append(contentsOf: [
-            "if [ -f \"$HOME/.bash_profile\" ]; then . \"$HOME/.bash_profile\"; elif [ -f \"$HOME/.bash_login\" ]; then . \"$HOME/.profile\"; fi",
+            "if [ -f \"$HOME/.bash_profile\" ]; then",
+            "  . \"$HOME/.bash_profile\"",
+            "elif [ -f \"$HOME/.bash_login\" ]; then",
+            "  . \"$HOME/.bash_login\"",
+            "elif [ -f \"$HOME/.profile\" ]; then",
+            "  . \"$HOME/.profile\"",
+            "fi",
             "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
         ] + bashShellLines)
         outerLines += [

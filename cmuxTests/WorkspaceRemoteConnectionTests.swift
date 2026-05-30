@@ -117,6 +117,97 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         return histfile ?? ""
     }
 
+    private func runGeneratedBashBootstrapMarkers(startupFiles: [String: String]) throws -> [String] {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-bash-\(UUID().uuidString)")
+        let bin = home.appendingPathComponent("bin")
+        let markerFile = home.appendingPathComponent("markers.txt")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        for (fileName, marker) in startupFiles {
+            let startupScript = """
+            printf '%s\\n' '\(marker)' >> "$CMUX_BASH_MARKERS"
+            """
+            try startupScript.write(to: home.appendingPathComponent(fileName), atomically: true, encoding: .utf8)
+        }
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("bash"),
+            body: """
+            #!/bin/sh
+            rcfile=
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --rcfile)
+                  shift
+                  rcfile="${1:-}"
+                  ;;
+              esac
+              shift || true
+            done
+            if [ -n "$rcfile" ]; then
+              . "$rcfile"
+            fi
+            """
+        )
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: ""
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "SHELL=\(bin.appendingPathComponent("bash").path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "TERM=xterm-256color",
+                "USER=\(NSUserName())",
+                "CMUX_BASH_MARKERS=\(markerFile.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let contents = (try? String(contentsOf: markerFile, encoding: .utf8)) ?? ""
+        return contents
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    func testGeneratedBashBootstrapSourcesLoginFilesInBashPrecedenceOrder() throws {
+        XCTAssertEqual(
+            try runGeneratedBashBootstrapMarkers(startupFiles: [
+                ".bash_profile": "bash_profile",
+                ".bash_login": "bash_login",
+                ".profile": "profile",
+                ".bashrc": "bashrc",
+            ]),
+            ["bash_profile", "bashrc"]
+        )
+        XCTAssertEqual(
+            try runGeneratedBashBootstrapMarkers(startupFiles: [
+                ".bash_login": "bash_login",
+                ".profile": "profile",
+                ".bashrc": "bashrc",
+            ]),
+            ["bash_login", "bashrc"]
+        )
+        XCTAssertEqual(
+            try runGeneratedBashBootstrapMarkers(startupFiles: [
+                ".profile": "profile",
+                ".bashrc": "bashrc",
+            ]),
+            ["profile", "bashrc"]
+        )
+    }
+
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")
