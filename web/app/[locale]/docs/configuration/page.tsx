@@ -40,6 +40,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -97,6 +98,10 @@ const settingsFileExample = `{
   //     "Blue": "#1565C0",
   //     "Neon Mint": "#00F5D4"
   //   }
+  // },
+
+  // "workspaceGroups": {
+  //   "newWorkspacePlacement": "afterCurrent"
   // },
 
   // "shortcuts": {
