@@ -408,13 +408,28 @@ public struct SettingsWindowRoot: View {
                 startedAt: nil
             )
         }
-        DispatchQueue.main.async {
-            guard navigationGeneration == settingsNavigationGeneration else { return }
+        // Scroll in two passes. The LazyVStack only realizes off-screen
+        // sections as the first scroll brings them near the viewport, so
+        // a single `scrollTo` to a distant section lands before the
+        // target's geometry is known and the header can settle mid- or
+        // bottom-viewport instead of pinned at the top. Re-issuing the
+        // scroll on the next runloop tick, after the target realizes,
+        // makes the section header reliably land at the top. Both passes
+        // are generation-guarded so a newer navigation still wins.
+        let scroll = {
             proxy.scrollTo(sectionID, anchor: .top)
             // Deep row hits also center the specific row; section hits
             // only need the section-top scroll (the header pulses there).
             if anchorID != sectionID {
                 proxy.scrollTo(anchorID, anchor: .center)
+            }
+        }
+        DispatchQueue.main.async {
+            guard navigationGeneration == settingsNavigationGeneration else { return }
+            scroll()
+            DispatchQueue.main.async {
+                guard navigationGeneration == settingsNavigationGeneration else { return }
+                scroll()
             }
         }
     }
