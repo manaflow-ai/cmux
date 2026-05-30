@@ -9788,10 +9788,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func focusPaperPanel(tabId: TabID, panelId: UUID) {
         guard layoutMode == .paper else { return }
-        if paperLayoutState == nil {
-            _ = ensurePaperLayoutState()
+        guard var state = paperLayoutState ?? ensurePaperLayoutState() else {
+            return
         }
-        paperLayoutState?.focusPane(containingTabId: tabId.uuid)
+        state.focusPane(containingTabId: tabId.uuid)
+        if let focusedPane = state.focusedPane {
+            state.viewportOrigin = PaperPoint(
+                x: max(0, focusedPane.frame.minX),
+                y: max(0, focusedPane.frame.minY)
+            )
+        }
+        paperLayoutState = state
 
         if let terminalPanel = terminalPanel(for: panelId) {
             terminalPanel.focus()
@@ -13606,11 +13613,18 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
-        let previousFocusedPanelId = shouldMirrorPaperSplit ? panelId : focusedPanelId
+        let previousFocusedPanelId = focusedPanelId
+        let focusTransitionSourcePanelId: UUID? = shouldMirrorPaperSplit ? panelId : previousFocusedPanelId
 
         // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
         // so we can hand it to focusPanel as the "move focus FROM" view.
-        let previousHostedView = terminalPanel(for: panelId)?.hostedView ?? focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let focusTransitionHostedView: GhosttySurfaceScrollView?
+        if shouldMirrorPaperSplit {
+            focusTransitionHostedView = terminalPanel(for: panelId)?.hostedView ?? previousHostedView
+        } else {
+            focusTransitionHostedView = previousHostedView
+        }
 
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
@@ -13672,14 +13686,14 @@ final class Workspace: Identifiable, ObservableObject {
         // stealing focus from the new panel and creating model/surface divergence.
         if focus {
             suppressReparentFocusUntilLayoutFollowUp(
-                previousHostedView,
+                focusTransitionHostedView,
                 reason: "workspace.terminalSplitReparent"
             )
             focusPanel(
                 newPanel.id,
-                previousHostedView: previousHostedView,
+                previousHostedView: focusTransitionHostedView,
                 forceBonsplitFocusPath: shouldMirrorPaperSplit,
-                currentlyFocusedPanelIdOverride: previousFocusedPanelId
+                currentlyFocusedPanelIdOverride: focusTransitionSourcePanelId
             )
         } else {
             preserveFocusAfterNonFocusSplit(
