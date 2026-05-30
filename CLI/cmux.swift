@@ -30184,7 +30184,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// agent-specific raw event name. Notifications and blocking waits are
     /// keyed off this — never off raw event-name string matching — so the
     /// same misclassification cannot recur as new event names are added.
-    enum FeedEventSemantic {
+    private enum FeedEventSemantic {
         /// A real approval is pending; the user must approve/deny. Drives
         /// the blocking Feed wait and the "needs approval" notification.
         /// Resolved against the tool name so Claude's `ExitPlanMode` /
@@ -30228,6 +30228,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return table[event] ?? .unknown
     }
 
+    /// Tool names that carry their own dedicated approval wire event rather
+    /// than the generic `PermissionRequest`. Returns the actionable wire
+    /// mapping for such a tool, or `nil` for ordinary tools.
+    private static func dedicatedApprovalEvent(for toolName: String) -> (String, Bool)? {
+        switch toolName {
+        case "ExitPlanMode": return ("ExitPlanMode", true)
+        case "AskUserQuestion": return ("AskUserQuestion", true)
+        default: return nil
+        }
+    }
+
     /// Maps a resolved semantic to the wire `hook_event_name` plus the
     /// `isActionable` flag, using `toolName` for the two tool-dependent
     /// semantics.
@@ -30237,25 +30248,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) -> (String, Bool) {
         switch semantic {
         case .approvalRequest:
-            switch toolName {
-            case "ExitPlanMode": return ("ExitPlanMode", true)
-            case "AskUserQuestion": return ("AskUserQuestion", true)
-            default: return ("PermissionRequest", true)
-            }
+            return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
         case .toolStartMaybeApproval:
-            switch toolName {
-            case "ExitPlanMode": return ("ExitPlanMode", true)
-            case "AskUserQuestion": return ("AskUserQuestion", true)
-            default:
-                // Any tool that can mutate the environment surfaces as a
-                // permission request so the user can approve/deny from the
-                // Feed sidebar. Read-only tools stay non-actionable
-                // telemetry so we don't flood the Actionable view.
-                if Self.sideEffectingTools.contains(toolName) {
-                    return ("PermissionRequest", true)
-                }
-                return ("PreToolUse", false)
+            if let dedicated = dedicatedApprovalEvent(for: toolName) {
+                return dedicated
             }
+            // Any tool that can mutate the environment surfaces as a
+            // permission request so the user can approve/deny from the
+            // Feed sidebar. Read-only tools stay non-actionable
+            // telemetry so we don't flood the Actionable view.
+            if Self.sideEffectingTools.contains(toolName) {
+                return ("PermissionRequest", true)
+            }
+            return ("PreToolUse", false)
         case .toolStart:
             return ("PreToolUse", false)
         case .toolEnd:

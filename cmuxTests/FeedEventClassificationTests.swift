@@ -93,10 +93,24 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
+    /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
+    /// approval tool names route to their own wire kinds — they are never
+    /// collapsed into a generic `PermissionRequest`. Guards the shared
+    /// `dedicatedApprovalEvent(for:)` branch inside `.toolStartMaybeApproval`.
+    @Test func genericPreToolUseRoutesDedicatedApprovalTools() {
+        #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").name == "ExitPlanMode")
+        #expect(classify("gemini", "PreToolUse", tool: "ExitPlanMode").actionable == true)
+        #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").name == "AskUserQuestion")
+        #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
+    }
+
     /// Codex has a dedicated `PermissionRequest` feed event, so its
-    /// `PreToolUse` is telemetry only.
+    /// pre-tool events (`PreToolUse` and the Codex-specific
+    /// `beforeShellExecution`) are telemetry only.
     @Test func codexPreToolUseIsTelemetry() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
+        #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
+        #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == true)
     }
 
