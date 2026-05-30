@@ -647,6 +647,10 @@ body.reduce-motion *::after {
   font-size: 11px;
 }
 
+.workspace-meta:empty {
+  display: none;
+}
+
 .workspace-row.is-active .workspace-meta,
 .workspace-row.is-active .workspace-path,
 .workspace-row.is-active .workspace-branch {

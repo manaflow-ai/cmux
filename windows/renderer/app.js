@@ -2479,16 +2479,17 @@ function workspaceDropPlacement(event, row) {
 function updateWorkspaceRow(button, workspace, index, activeId) {
   const hasAttention = workspace.panels.some((panel) => panel.needsAttention);
   const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
+  const title = workspace.title || `Workspace ${index + 1}`;
+  const cwd = workspace.cwdShort || "~";
+  const paneSummary = `${workspace.terminalCount || 0} terminal${workspace.terminalCount === 1 ? "" : "s"} / ${workspace.browserCount || 0} browser${workspace.browserCount === 1 ? "" : "s"}`;
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  setTextIfChanged(button.querySelector(".workspace-name"), workspace.title || `Workspace ${index + 1}`);
-  setTextIfChanged(button.querySelector(".workspace-badge"), String(attentionTotal));
-  setTextIfChanged(
-    button.querySelector(".workspace-meta"),
-    workspace.latestNotification || `${workspace.terminalCount || 0} terminals / ${workspace.browserCount || 0} browsers`
-  );
-  setTextIfChanged(button.querySelector(".workspace-path"), workspace.cwdShort || "~");
+  setTitleIfChanged(button, `${title} - ${cwd} - ${paneSummary}`);
+  setTextIfChanged(button.querySelector(".workspace-name"), title);
+  setTextIfChanged(button.querySelector(".workspace-badge"), hasAttention ? String(attentionTotal) : "");
+  setTextIfChanged(button.querySelector(".workspace-meta"), workspace.latestNotification || "");
+  setTextIfChanged(button.querySelector(".workspace-path"), cwd);
   button.querySelector(".workspace-branch").hidden = true;
 }
 
