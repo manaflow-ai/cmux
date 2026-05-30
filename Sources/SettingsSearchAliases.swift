@@ -45,6 +45,7 @@ enum SettingsSearchAliasIndex {
         "app:language": localized("settings.search.alias.setting.app.language", defaultValue: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
         "app:appearance": localized("settings.search.alias.setting.app.appearance", defaultValue: "app.appearance theme color scheme light mode dark mode system mode"),
         "app:app-icon": localized("settings.search.alias.setting.app.app-icon", defaultValue: "app.appIcon dock icon application icon app switcher alternate icon"),
+        "app:default-terminal": localized("settings.search.alias.setting.app.default-terminal", defaultValue: "app.defaultTerminal default terminal ssh links command tool unix executable launch services handler"),
         "app:new-workspace-placement": localized("settings.search.alias.setting.app.new-workspace-placement", defaultValue: "app.newWorkspacePlacement new tab insert position order top bottom end"),
         "app:fork-conversation-default": localized("settings.search.alias.setting.app.fork-conversation-default", defaultValue: "app.forkConversationDefaultDestination fork conversation right left top bottom split tab workspace default"),
         "app:workspace-inherit-working-directory": localized("settings.search.alias.setting.app.workspace-inherit-working-directory", defaultValue: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"),
