@@ -4574,6 +4574,8 @@ const quickSettingsShortcuts = [
   ["terminal", "Terminal", "Font, cursor, shell.", () => optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto")],
   ["browser", "Browser", "Home page and history.", () => hostnameOf(state.settings.browserHomeUrl)],
   ["performance", "Performance", "Lag tuning and diagnostics.", performanceModeLabel],
+  ["actions", "Actions", "Shortcuts and runnable actions.", () => `${commands.length} actions`],
+  ["commands", "Commands", "Saved shell and GitHub CLI snippets.", () => `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`],
   ["profiles", "Profiles", "Save and reuse setups.", () => `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
   ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`]
 ];

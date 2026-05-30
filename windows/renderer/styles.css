@@ -923,6 +923,7 @@ body.reduce-motion *::after {
 
 .surface-tab {
   position: relative;
+  appearance: none;
   height: 31px;
   flex: 1 1 var(--surface-tab-basis, 160px);
   min-width: var(--surface-tab-min, 104px);
@@ -935,12 +936,14 @@ body.reduce-motion *::after {
   border-bottom-color: transparent;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
   padding: 0 var(--space-2);
+  background: transparent;
   color: var(--color-muted);
+  font: inherit;
   user-select: none;
 }
 
 .surface-tab:hover {
-  background: var(--color-pane);
+  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
 }
 
 .surface-tab.is-active {
@@ -1018,13 +1021,30 @@ body.reduce-motion *::after {
 }
 
 .surface-new-tab {
-  flex: 0 0 40px;
-  min-width: 40px;
-  max-width: 40px;
+  align-self: center;
+  height: 28px;
+  flex: 0 0 34px;
+  min-width: 34px;
+  max-width: 34px;
   grid-template-columns: 1fr;
   justify-items: center;
-  color: var(--color-text);
+  border-color: var(--color-line);
+  border-radius: var(--radius-1);
+  color: var(--color-muted);
   font: 18px/1 var(--font-mono);
+}
+
+.surface-new-tab:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+  color: var(--color-text);
+}
+
+.shell.density-compact .surface-new-tab {
+  height: 28px;
+  flex-basis: 34px;
+  min-width: 34px;
+  max-width: 34px;
 }
 
 .pane-grid {
@@ -1693,6 +1713,7 @@ body.reduce-motion *::after {
 }
 
 .inspector-body {
+  container-type: inline-size;
   min-height: 0;
   overflow: auto;
   padding: var(--space-2);
@@ -2918,6 +2939,11 @@ body.reduce-motion *::after {
   font-style: normal;
 }
 
+.quick-settings-shortcut-body {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .quick-overview-grid b {
   color: var(--color-muted);
   font-size: 10px;
@@ -2983,6 +3009,32 @@ body.reduce-motion *::after {
   background: var(--color-pane-warm);
   color: var(--color-faint);
   font: 10px/1 var(--font-mono);
+}
+
+@container (max-width: 380px) {
+  .quick-settings-shortcut-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-settings-shortcut {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-items: start;
+  }
+
+  .quick-settings-shortcut-title,
+  .quick-settings-shortcut-meta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .quick-settings-shortcut-meta {
+    grid-column: 1;
+    grid-row: 3;
+    justify-self: start;
+    max-width: 100%;
+  }
 }
 
 .data-settings-overview {
