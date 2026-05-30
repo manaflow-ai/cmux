@@ -175,6 +175,8 @@ const state = {
   pendingFocusSync: null,
   focusSyncTimer: 0,
   focusSyncRevision: 0,
+  pendingBrowserUrlSync: new Map(),
+  browserUrlSyncTimer: 0,
   resizing: null,
   sidebarResizing: null,
   inspectorResizing: null,
@@ -2699,9 +2701,8 @@ function ensureBrowser(panel, body) {
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     view.src = next;
-    rememberRecentBrowserPage(next);
     setStatus("Loading");
-    updatePanel(panel.id, { url: next });
+    queueBrowserUrlSync(panel.id, next);
   };
   go.onclick = navigate;
   external.onclick = () => {
@@ -2735,8 +2736,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
       address.value = event.url;
-      rememberRecentBrowserPage(event.url);
-      if (findPanelState(panel.id)) updatePanel(panel.id, { url: event.url });
+      queueBrowserUrlSync(panel.id, event.url);
     }
     updateNavState();
   });
@@ -2747,7 +2747,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate-in-page", (event) => {
     if (event.url) {
       address.value = event.url;
-      rememberRecentBrowserPage(event.url);
+      queueBrowserUrlSync(panel.id, event.url);
     }
     updateNavState();
   });
@@ -5840,6 +5840,39 @@ async function flushFocusSync(revision = state.focusSyncRevision) {
       await loadState();
     }
   }
+}
+
+function queueBrowserUrlSync(panelId, value) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "browser") return false;
+  const url = normalizeUrl(value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+  rememberRecentBrowserPage(url);
+  if (found.panel.url !== url) {
+    found.panel.url = url;
+    render();
+  }
+  state.pendingBrowserUrlSync.set(panelId, url);
+  if (state.browserUrlSyncTimer) clearTimeout(state.browserUrlSyncTimer);
+  state.browserUrlSyncTimer = setTimeout(flushBrowserUrlSync, 180);
+  return true;
+}
+
+async function flushBrowserUrlSync() {
+  state.browserUrlSyncTimer = 0;
+  const entries = [...state.pendingBrowserUrlSync.entries()];
+  state.pendingBrowserUrlSync.clear();
+  await Promise.all(entries.map(async ([panelId, url]) => {
+    const found = findPanelState(panelId);
+    if (!found || found.panel.type !== "browser" || found.panel.url !== url) return;
+    try {
+      await api(`/api/panels/${panelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ url })
+      });
+    } catch {
+      // The pane may have been closed before the debounce fired.
+    }
+  }));
 }
 
 function optimisticClosePanel(panelId, renderNow = true) {
