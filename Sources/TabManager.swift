@@ -5536,29 +5536,7 @@ class TabManager: ObservableObject {
     }
 
     func moveTabToTop(_ tabId: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let previousOrder = tabs.map(\.id)
-        let tab = tabs[index]
-        let targetIndex = tab.isPinned ? 0 : tabs.filter { $0.isPinned }.count
-        if index != targetIndex {
-            tabs.remove(at: index)
-            let pinnedCount = tabs.filter { $0.isPinned }.count
-            let insertIndex = tab.isPinned ? 0 : pinnedCount
-            tabs.insert(tab, at: insertIndex)
-        }
-        if let groupId = tab.groupId,
-           workspaceGroups.contains(where: { $0.id == groupId }) {
-            // Grouped: bring the group's whole section to the top of its
-            // pinned/unpinned tier, then normalize within the group so the
-            // anchor stays first and the moved member lands right after it.
-            _ = moveWorkspaceGroupSlotToTierStart(groupId: groupId)
-            applyWorkspaceGroupSlotOrderToTabs()
-        } else if !workspaceGroups.isEmpty {
-            normalizeWorkspaceGroupContiguity()
-        }
-        if tabs.map(\.id) != previousOrder {
-            postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
-        }
+        moveTabsToTop([tabId])
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
@@ -5566,26 +5544,27 @@ class TabManager: ObservableObject {
         let selectedTabs = tabs.filter { tabIds.contains($0.id) }
         guard !selectedTabs.isEmpty else { return }
         let previousOrder = tabs.map(\.id)
-        let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
-        let selectedPinned = selectedTabs.filter { $0.isPinned }
-        let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
-        let remainingPinned = remainingTabs.filter { $0.isPinned }
-        let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
-        tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+
         if !workspaceGroups.isEmpty {
-            // Promote the owning groups of moved members to the front of
-            // their tier so the visible section actually moves.
-            let movedGroupIds: [UUID] = selectedTabs.compactMap(\.groupId)
-            if !movedGroupIds.isEmpty {
-                var seen = Set<UUID>()
-                let orderedUnique = movedGroupIds.filter { seen.insert($0).inserted }
-                for groupId in orderedUnique.reversed() {
-                    _ = moveWorkspaceGroupSlotToTierStart(groupId: groupId)
-                }
-                applyWorkspaceGroupSlotOrderToTabs()
-            } else {
-                normalizeWorkspaceGroupContiguity()
-            }
+            moveWorkspaceGroupMembersAfterAnchors(workspaceIds: selectedTabs.map(\.id))
+            let topLevelIds = sidebarTopLevelWorkspaceIds()
+            let selectedTopLevelIds = topLevelWorkspaceIds(for: selectedTabs)
+            let selectedTopLevelIdSet = Set(selectedTopLevelIds)
+            let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
+            let desiredTopLevelIds =
+                selectedTopLevelIds.filter { pinnedTopLevelIds.contains($0) } +
+                topLevelIds.filter { pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) } +
+                selectedTopLevelIds.filter { !pinnedTopLevelIds.contains($0) } +
+                topLevelIds.filter { !pinnedTopLevelIds.contains($0) && !selectedTopLevelIdSet.contains($0) }
+            normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
+            syncWorkspaceGroupsOrderToAnchorOrder()
+        } else {
+            let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
+            let selectedPinned = selectedTabs.filter { $0.isPinned }
+            let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
+            let remainingPinned = remainingTabs.filter { $0.isPinned }
+            let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
+            tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
         }
         if tabs.map(\.id) != previousOrder {
             postWorkspaceOrderDidChange(movedWorkspaceIds: selectedTabs.map(\.id))
@@ -5593,17 +5572,39 @@ class TabManager: ObservableObject {
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        guard index != pinnedCount else { return }
-        let tab = tabs[index]
-        guard !tab.isPinned else { return }
-        tabs.remove(at: index)
-        tabs.insert(tab, at: pinnedCount)
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        let previousOrder = tabs.map(\.id)
+
         if !workspaceGroups.isEmpty {
-            normalizeWorkspaceGroupContiguity()
+            guard let topLevelId = topLevelWorkspaceIds(for: [tab]).first else { return }
+            let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
+            guard !pinnedTopLevelIds.contains(topLevelId) else { return }
+            moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [tabId])
+            var desiredTopLevelIds = sidebarTopLevelWorkspaceIds()
+            guard let fromIndex = desiredTopLevelIds.firstIndex(of: topLevelId) else { return }
+            let pinnedCount = desiredTopLevelIds.reduce(into: 0) { count, id in
+                if pinnedTopLevelIds.contains(id) {
+                    count += 1
+                }
+            }
+            if fromIndex != pinnedCount {
+                let movedId = desiredTopLevelIds.remove(at: fromIndex)
+                desiredTopLevelIds.insert(movedId, at: min(pinnedCount, desiredTopLevelIds.count))
+            }
+            normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
+            syncWorkspaceGroupsOrderToAnchorOrder()
+        } else {
+            guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+            let pinnedCount = tabs.filter { $0.isPinned }.count
+            guard index != pinnedCount else { return }
+            let tab = tabs[index]
+            guard !tab.isPinned else { return }
+            tabs.remove(at: index)
+            tabs.insert(tab, at: pinnedCount)
         }
-        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        if tabs.map(\.id) != previousOrder {
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        }
     }
 
     @discardableResult
@@ -6697,6 +6698,78 @@ class TabManager: ObservableObject {
 
     private func isWorkspaceGroupAnchor(_ workspaceId: UUID) -> Bool {
         workspaceGroups.contains { $0.anchorWorkspaceId == workspaceId }
+    }
+
+    private func topLevelWorkspaceIds(for workspaces: [Workspace]) -> [UUID] {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        var emittedIds = Set<UUID>()
+        var ids: [UUID] = []
+        ids.reserveCapacity(workspaces.count)
+        for workspace in workspaces {
+            let topLevelId: UUID
+            if let groupId = workspace.groupId,
+               let group = groupsById[groupId] {
+                topLevelId = group.anchorWorkspaceId
+            } else {
+                topLevelId = workspace.id
+            }
+            if emittedIds.insert(topLevelId).inserted {
+                ids.append(topLevelId)
+            }
+        }
+        return ids
+    }
+
+    private func moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [UUID]) {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        var promotedIdsByGroupId: [UUID: [UUID]] = [:]
+        for workspaceId in workspaceIds {
+            guard let tab = tabsById[workspaceId],
+                  let groupId = tab.groupId,
+                  let group = groupsById[groupId],
+                  tab.id != group.anchorWorkspaceId else {
+                continue
+            }
+            promotedIdsByGroupId[groupId, default: []].append(workspaceId)
+        }
+        guard !promotedIdsByGroupId.isEmpty else { return }
+
+        var replacementMembersByGroupId: [UUID: [Workspace]] = [:]
+        for (groupId, promotedIds) in promotedIdsByGroupId {
+            guard let group = groupsById[groupId] else { continue }
+            let orderedMembers = anchorFirst(
+                tabs.filter { $0.groupId == groupId },
+                anchorId: group.anchorWorkspaceId
+            )
+            guard let anchor = orderedMembers.first(where: { $0.id == group.anchorWorkspaceId }) else { continue }
+            var emittedPromotedIds = Set<UUID>()
+            let promotedMembers = promotedIds.compactMap { id -> Workspace? in
+                guard emittedPromotedIds.insert(id).inserted else { return nil }
+                return tabsById[id]
+            }
+            let promotedIdSet = Set(promotedMembers.map(\.id))
+            let remainingMembers = orderedMembers.filter {
+                $0.id != group.anchorWorkspaceId && !promotedIdSet.contains($0.id)
+            }
+            replacementMembersByGroupId[groupId] = [anchor] + promotedMembers + remainingMembers
+        }
+        guard !replacementMembersByGroupId.isEmpty else { return }
+
+        var emittedGroupIds = Set<UUID>()
+        var reordered: [Workspace] = []
+        reordered.reserveCapacity(tabs.count)
+        for tab in tabs {
+            if let groupId = tab.groupId,
+               let replacementMembers = replacementMembersByGroupId[groupId] {
+                if emittedGroupIds.insert(groupId).inserted {
+                    reordered.append(contentsOf: replacementMembers)
+                }
+            } else {
+                reordered.append(tab)
+            }
+        }
+        tabs = reordered
     }
 
     private func sidebarTopLevelWorkspaceIds(promotingWorkspaceId promotedWorkspaceId: UUID? = nil) -> [UUID] {

@@ -248,6 +248,52 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func movingPinnedGroupedChildToTopUsesGroupPinTier() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let pinnedWorkspace = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(pinnedWorkspace, pinned: true)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Pinned Group", childWorkspaceIds: [
+            originalIds[2],
+        ]))
+        manager.toggleWorkspaceGroupPinned(groupId: groupId)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.moveTabToTop(originalIds[2])
+
+        #expect(Array(manager.tabs.map(\.id).prefix(3)) == [
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[0],
+        ])
+    }
+
+    @Test func movingPinnedGroupedSelectionToTopUsesGroupPinTier() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let pinnedWorkspace = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(pinnedWorkspace, pinned: true)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Pinned Group", childWorkspaceIds: [
+            originalIds[2],
+        ]))
+        manager.toggleWorkspaceGroupPinned(groupId: groupId)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.moveTabsToTop([originalIds[2]])
+
+        #expect(Array(manager.tabs.map(\.id).prefix(3)) == [
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[0],
+        ])
+    }
+
     @Test func movingGroupMemberToTopKeepsScriptableGroupOrderInVisibleOrder() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
