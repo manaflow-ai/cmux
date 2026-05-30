@@ -351,6 +351,7 @@ body.reduce-motion *::after {
 .settings-nav-button,
 .settings-preset,
 .quick-settings-shortcut,
+.actions-group-card,
 .data-storage-row,
 .browser-home-preset,
 .pane-layout-preset,
@@ -445,6 +446,7 @@ body.reduce-motion *::after {
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
 .quick-settings-shortcut:focus-visible,
+.actions-group-card:focus-visible,
 .data-storage-row:focus-visible,
 .browser-home-preset:focus-visible,
 .pane-layout-preset:focus-visible,
@@ -476,6 +478,7 @@ body.reduce-motion *::after {
 .settings-nav-button:active,
 .settings-preset:active,
 .quick-settings-shortcut:active,
+.actions-group-card:active,
 .data-storage-row:active,
 .browser-home-preset:active,
 .pane-layout-preset:active,
@@ -3249,6 +3252,133 @@ body.reduce-motion *::after {
   font-size: 11px;
 }
 
+.actions-settings-overview {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.actions-overview-heading {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.actions-overview-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.actions-overview-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-faint);
+  font: 10px/1.2 var(--font-mono);
+}
+
+.actions-overview-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.actions-overview-grid span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.actions-overview-grid b,
+.actions-overview-grid em,
+.actions-group-title,
+.actions-group-body,
+.actions-group-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.actions-overview-grid b {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.actions-overview-grid em {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.actions-group-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.actions-group-card {
+  min-width: 0;
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: 3px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.actions-group-card:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.actions-group-title {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.actions-group-body {
+  grid-column: 1;
+  grid-row: 2;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.actions-group-meta {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  justify-self: end;
+  max-width: 88px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane-warm);
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+}
+
 .settings-command-list {
   display: grid;
   gap: var(--space-3);
@@ -3257,6 +3387,12 @@ body.reduce-motion *::after {
 .settings-command-group {
   display: grid;
   gap: var(--space-1);
+}
+
+.settings-command-group.is-highlighted {
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-accent) 10%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 44%, transparent);
 }
 
 .settings-command-group-title {
@@ -4442,6 +4578,8 @@ textarea.dialog-input {
   .browser-preview-meta,
   .quick-overview-grid,
   .quick-settings-shortcut-grid,
+  .actions-overview-grid,
+  .actions-group-grid,
   .data-overview-grid {
     grid-template-columns: minmax(0, 1fr);
   }

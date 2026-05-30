@@ -3296,6 +3296,8 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("actions")) {
     const actionsSection = settingsSection("Actions", "commands shortcuts keyboard palette run tools");
+    actionsSection.append(settingsActionsOverviewPanel());
+    actionsSection.append(settingsCommandGroupShortcutGrid());
     actionsSection.append(settingsCommandList());
     nodes.push(actionsSection);
   }
@@ -4692,18 +4694,92 @@ function isDangerCommand(command) {
   ].includes(command.id);
 }
 
-function settingsCommandList() {
-  const list = document.createElement("div");
-  list.className = "settings-command-list";
+function settingsCommandGroups() {
   const grouped = new Map();
   for (const command of commands) {
     const group = commandGroupLabel(command);
     if (!grouped.has(group)) grouped.set(group, []);
     grouped.get(group).push(command);
   }
+  return grouped;
+}
+
+function commandShortcutCount(commandList = commands) {
+  return commandList.filter((command) => Boolean(command.shortcut)).length;
+}
+
+function settingsActionsOverviewPanel() {
+  const grouped = settingsCommandGroups();
+  const panel = document.createElement("div");
+  panel.className = "actions-settings-overview";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("actions overview commands shortcuts keyboard palette tools run groups dangerous confirm");
+  panel.innerHTML = `
+    <div class="actions-overview-heading">
+      <span class="actions-overview-title">Action map</span>
+      <span class="actions-overview-subtitle">Commands stay discoverable without adding toolbar clutter.</span>
+    </div>
+    <div class="actions-overview-grid">
+      <span><b>Commands</b><em data-actions-overview-commands></em></span>
+      <span><b>Shortcuts</b><em data-actions-overview-shortcuts></em></span>
+      <span><b>Groups</b><em data-actions-overview-groups></em></span>
+      <span><b>Confirm</b><em data-actions-overview-danger></em></span>
+    </div>
+  `;
+  panel.querySelector("[data-actions-overview-commands]").textContent = String(commands.length);
+  panel.querySelector("[data-actions-overview-shortcuts]").textContent = String(commandShortcutCount());
+  panel.querySelector("[data-actions-overview-groups]").textContent = String(grouped.size);
+  panel.querySelector("[data-actions-overview-danger]").textContent = String(commands.filter(isDangerCommand).length);
+  return panel;
+}
+
+function firstShortcutLabel(commandList) {
+  return commandList.find((command) => command.shortcut)?.shortcut || "Palette";
+}
+
+function settingsCommandGroupShortcutGrid() {
+  const grid = document.createElement("div");
+  grid.className = "actions-group-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("actions command groups jump shortcuts workspace terminal browser layout settings session tools");
+  for (const [group, groupCommands] of settingsCommandGroups().entries()) {
+    const button = document.createElement("button");
+    button.className = "actions-group-card";
+    button.type = "button";
+    button.dataset.commandGroupJump = group;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`actions command group jump ${group} ${groupCommands.map((command) => `${command.label} ${command.id} ${command.shortcut}`).join(" ")}`);
+    button.innerHTML = `
+      <span class="actions-group-title"></span>
+      <span class="actions-group-body"></span>
+      <span class="actions-group-meta"></span>
+    `;
+    button.querySelector(".actions-group-title").textContent = group;
+    button.querySelector(".actions-group-body").textContent = `${groupCommands.length} command${groupCommands.length === 1 ? "" : "s"} / ${commandShortcutCount(groupCommands)} shortcut${commandShortcutCount(groupCommands) === 1 ? "" : "s"}`;
+    button.querySelector(".actions-group-meta").textContent = firstShortcutLabel(groupCommands);
+    button.onclick = () => jumpToSettingsCommandGroup(group);
+    grid.append(button);
+  }
+  return grid;
+}
+
+function jumpToSettingsCommandGroup(group) {
+  const target = [...elements.inspectorBody.querySelectorAll(".settings-command-group")]
+    .find((node) => node.dataset.commandGroup === group);
+  if (!target) return;
+  const reduceMotion = document.body.classList.contains("reduce-motion") || state.settings.reduceMotion || state.settings.performanceMode;
+  target.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+  target.classList.add("is-highlighted");
+  const firstRun = target.querySelector(".settings-command-run");
+  if (firstRun) firstRun.focus({ preventScroll: true });
+  setTimeout(() => target.classList.remove("is-highlighted"), 900);
+}
+
+function settingsCommandList() {
+  const list = document.createElement("div");
+  list.className = "settings-command-list";
+  const grouped = settingsCommandGroups();
   for (const [group, groupCommands] of grouped.entries()) {
     const groupNode = document.createElement("div");
     groupNode.className = "settings-command-group";
+    groupNode.dataset.commandGroup = group;
     groupNode.dataset.settingsSearch = normalizeSettingsQuery(`actions commands shortcuts keyboard palette ${group}`);
     const title = document.createElement("div");
     title.className = "settings-command-group-title";
