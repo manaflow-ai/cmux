@@ -88,7 +88,6 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
-        case switchRightSidebarToHistory
         case triggerFlash
 
         // Navigation
@@ -106,6 +105,8 @@ enum KeyboardShortcutSettings {
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
+        case groupSelectedWorkspaces
+        case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
@@ -178,7 +179,6 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
-            case .switchRightSidebarToHistory: return String(localized: "shortcut.switchRightSidebarToHistory.label", defaultValue: "Show Sidebar History")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -194,6 +194,8 @@ enum KeyboardShortcutSettings {
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
+            case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
+            case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -239,8 +241,7 @@ enum KeyboardShortcutSettings {
                  .switchRightSidebarToFind,
                  .switchRightSidebarToSessions,
                  .switchRightSidebarToFeed,
-                 .switchRightSidebarToDock,
-                 .switchRightSidebarToHistory:
+                 .switchRightSidebarToDock:
                 return false
             default:
                 return true
@@ -307,8 +308,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToDock:
                 return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
-            case .switchRightSidebarToHistory:
-                return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
@@ -331,6 +330,20 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
+            case .groupSelectedWorkspaces:
+                // Cmd+Shift+G is the user-natural mnemonic. It collides with
+                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
+                // returns false (lets the event propagate) whenever there are
+                // no eligible workspaces to group — so React Grab still
+                // fires in browser/terminal contexts where this shortcut
+                // wouldn't have done anything anyway.
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .toggleFocusedWorkspaceGroupCollapsed:
+                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
+                // used by other group ops, with "." as the collapse
+                // mnemonic. No-ops gracefully when the focused workspace
+                // isn't in a group.
+                return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:

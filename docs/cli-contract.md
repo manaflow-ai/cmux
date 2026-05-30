@@ -27,7 +27,7 @@ written around user-visible behavior so the implementation can change behind it.
 
 | Form | Contract |
 | --- | --- |
-| `cmux <path>` | Open a directory or file path in cmux. Relative paths resolve from the current working directory. |
+| `cmux <path>` | Open a directory or file parent in cmux through the app's file-open path, without requiring control-socket access. Relative paths resolve from the current working directory. |
 | `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
 | `cmux help` | Print top-level usage without a socket. |
