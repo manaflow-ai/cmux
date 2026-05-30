@@ -13,16 +13,19 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `176bd550f`, based on `ff6e1260d`, with the
+Current cmux pinned fork head: `5579fa80f`, merging `395d13a76` with
+`176bd550f`, with the
 manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
-regex bound for spaced file paths followed by prose. This head keeps the cmux
-theme picker hooks, exposes the manual surface IO needed by libghostty iOS
-clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
-prevents Cmd-hover from highlighting normal sentence text after a file path.
-It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
+the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369,
+the URL/path regex bound for spaced file paths followed by prose, and the
+alternate-screen scrollback patch for https://github.com/manaflow-ai/cmux/issues/2334.
+This head keeps the cmux theme picker hooks, exposes the manual surface IO
+needed by libghostty iOS clients, bounds shaped glyph iteration during
+IME/preedit row rebuilds, prevents Cmd-hover from highlighting normal sentence
+text after a file path, supports Ctrl-N and Ctrl-P in the cmux theme picker,
+and keeps TUI output scrollable in the alternate screen.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5579fa80f0eb990ace671c3ce566cdd9e0880611-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -212,11 +215,25 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
+### 13) Alternate-screen scrollback for TUI output
+
+- Commit: `f66517a01` (terminal: retain scrollback for alternate screen)
+- Files:
+  - `src/terminal/Terminal.zig`
+- Summary:
+  - Initializes the alternate screen with the same scrollback limit as the
+    primary screen instead of forcing `scrollback-limit = 0`.
+  - Keeps long-running TUI output from tools like Claude Code and Codex
+    scrollable while they are in alternate-screen mode.
+  - Adds a terminal behavior test that enters mode 1049, writes enough
+    alternate-screen output to scroll, and verifies the earlier lines remain
+    reachable through viewport scrolling.
+
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-themes-broken-ctrl-np`.
-Published `xcframework-176bd550f6fedd29e85cd92470e5dfadf295ebf7-crashsubdir-cmux-crash-v1` and pinned its
+`xcframework-5579fa80f0eb990ace671c3ce566cdd9e0880611-crashsubdir-cmux-crash-v1`
+release tag and branch `issue-2334-alt-screen-scrollback`.
+Published `xcframework-5579fa80f0eb990ace671c3ce566cdd9e0880611-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
@@ -326,6 +343,11 @@ These files change frequently upstream; be careful when rebasing the fork:
 - `src/termio/stream_handler.zig`
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
     `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.
+
+- `src/terminal/Terminal.zig`
+  - Keep alternate-screen initialization inheriting the primary screen's scrollback limit so
+    cmux TUI sessions remain scrollable in mode 1049. If upstream adds its own alternate-screen
+    scrollback setting, prefer that upstream model over the fork-only hardcoded inheritance.
 
 - `src/terminal/stream_terminal.zig`
   - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
