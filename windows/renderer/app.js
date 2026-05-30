@@ -45,12 +45,14 @@ const recentCommandsStorageKey = "cmux.recentTerminalCommands";
 const customCommandSnippetsStorageKey = "cmux.customTerminalCommandSnippets";
 const savedSettingsProfilesStorageKey = "cmux.savedSettingsProfiles";
 const workspaceBlueprintsStorageKey = "cmux.workspaceBlueprints";
+const customColorPaletteStorageKey = "cmux.customColorPalette";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
 const customCommandSnippetsLimit = 20;
 const savedSettingsProfilesLimit = 12;
 const workspaceBlueprintsLimit = 12;
 const workspaceBlueprintPanelLimit = 8;
+const customColorPaletteLimit = 18;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -104,6 +106,7 @@ const state = {
   customCommandSnippets: loadCustomCommandSnippets(),
   savedSettingsProfiles: loadSavedSettingsProfiles(),
   workspaceBlueprints: loadWorkspaceBlueprints(),
+  customColorPalette: loadCustomColorPalette(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -198,12 +201,31 @@ function isAllowedUiColor(value, palette = accentOptions) {
 
 function normalizeUiColor(value, fallback, palette = accentOptions) {
   const color = String(value || "").trim();
-  return isAllowedUiColor(color, palette) ? color : fallback;
+  if (isSafeCustomColor(color)) return color.toLowerCase();
+  return palette.includes(color) ? color : fallback;
 }
 
 function colorInputValue(value, fallback = "#5d8cff") {
   const color = String(value || "").trim();
   return isSafeCustomColor(color) ? color : fallback;
+}
+
+function normalizeCustomPaletteColor(value) {
+  const color = String(value || "").trim().toLowerCase();
+  return isSafeCustomColor(color) ? color : "";
+}
+
+function uniqueColors(colors = []) {
+  const seen = new Set();
+  const result = [];
+  for (const color of colors) {
+    const value = String(color || "").trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
 }
 
 function normalizeTerminalColor(value) {
@@ -566,6 +588,54 @@ function upsertSavedSettingsProfile(profile) {
   ];
   saveSavedSettingsProfiles();
   return state.savedSettingsProfiles[0];
+}
+
+function loadCustomColorPalette() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(customColorPaletteStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return uniqueColors(parsed.map(normalizeCustomPaletteColor).filter(Boolean)).slice(0, customColorPaletteLimit);
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomColorPalette() {
+  localStorage.setItem(customColorPaletteStorageKey, JSON.stringify(state.customColorPalette));
+}
+
+function upsertCustomColorPalette(color, options = {}) {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) {
+    if (options.toast !== false) toast("Pick a custom hex color first.");
+    return false;
+  }
+  const existed = state.customColorPalette.some((candidate) => candidate.toLowerCase() === normalized);
+  state.customColorPalette = [
+    normalized,
+    ...state.customColorPalette.filter((candidate) => candidate.toLowerCase() !== normalized)
+  ].slice(0, customColorPaletteLimit);
+  saveCustomColorPalette();
+  if (options.render !== false) renderSettingsInspector();
+  if (options.toast !== false) toast(existed ? "Saved color moved to top." : "Saved color added.");
+  return true;
+}
+
+function deleteCustomColorPalette(color) {
+  const normalized = normalizeCustomPaletteColor(color);
+  if (!normalized) return;
+  state.customColorPalette = state.customColorPalette.filter((candidate) => candidate.toLowerCase() !== normalized);
+  saveCustomColorPalette();
+  renderSettingsInspector();
+  toast("Saved color deleted.");
+}
+
+function accentColorPalette() {
+  return uniqueColors([...accentOptions, ...state.customColorPalette]);
+}
+
+function workspaceColorPalette() {
+  return uniqueColors([...(state.data?.palette || workspaceColorOptions), ...state.customColorPalette]);
 }
 
 function settingsProfileSummary(settings) {
@@ -1063,6 +1133,9 @@ const commands = [
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
+  { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
+  { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
+  { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -2432,7 +2505,7 @@ function renderSettingsInspector() {
     workspaceSection.append(folderActions);
     workspaceSection.append(recentFoldersSettings());
     workspaceSection.append(workspaceStarterGrid());
-    workspaceSection.append(settingRow("Color", swatchGrid(state.data?.palette || accentOptions, workspace?.color, (color) => setWorkspaceColor(color))));
+    workspaceSection.append(settingRow("Color", swatchGrid(workspaceColorPalette(), workspace?.color, (color) => setWorkspaceColor(color))));
     workspaceSection.append(settingRow("Custom color", colorPicker(workspace?.color, (color) => setWorkspaceColor(color)), false, "custom workspace color hex picker"));
     nodes.push(workspaceSection);
   }
@@ -2450,8 +2523,9 @@ function renderSettingsInspector() {
     themeSelect.value = state.settings.theme;
     themeSelect.onchange = () => updateSettings({ theme: themeSelect.value });
     appearanceSection.append(settingRow("Theme", themeSelect));
-    appearanceSection.append(settingRow("Accent", swatchGrid(accentOptions, state.settings.accent, (accent) => updateSettings({ accent }))));
+    appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
+    appearanceSection.append(settingRow("Saved colors", savedColorPalettePanel(), true, "saved color palette custom accent workspace tab pane color"));
     appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
     const imageInput = document.createElement("input");
@@ -3196,6 +3270,70 @@ function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
   });
   wrapper.append(input, swatch);
   return wrapper;
+}
+
+function savedColorPalettePanel() {
+  const panel = document.createElement("div");
+  panel.className = "saved-color-panel";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("saved color palette custom accent workspace tab pane color save delete");
+
+  const addRow = document.createElement("div");
+  addRow.className = "saved-color-add";
+  const colorInput = document.createElement("input");
+  colorInput.className = "saved-color-input";
+  colorInput.type = "color";
+  colorInput.value = colorInputValue(state.settings.accent);
+  colorInput.dataset.settingsSearch = normalizeSettingsQuery("saved color custom color picker hex");
+  const savePicked = settingsActionButton("Save color", () => upsertCustomColorPalette(colorInput.value), "", "saved color custom palette add");
+  addRow.append(colorInput, savePicked);
+  panel.append(addRow);
+
+  const actions = document.createElement("div");
+  actions.className = "settings-actions saved-color-actions";
+  actions.dataset.settingsSearch = normalizeSettingsQuery("saved color palette save current accent workspace");
+  const saveAccent = settingsActionButton("Save accent", () => upsertCustomColorPalette(state.settings.accent), "", "saved color save current accent");
+  saveAccent.disabled = !normalizeCustomPaletteColor(state.settings.accent);
+  const workspace = activeWorkspace();
+  const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
+  saveWorkspace.disabled = !normalizeCustomPaletteColor(workspace?.color);
+  actions.append(saveAccent, saveWorkspace);
+  panel.append(actions);
+
+  if (state.customColorPalette.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "saved-color-empty";
+    empty.textContent = "Saved custom colors appear in accent, workspace, and pane color pickers.";
+    panel.append(empty);
+    return panel;
+  }
+
+  const list = document.createElement("div");
+  list.className = "saved-color-list";
+  for (const color of state.customColorPalette) {
+    const card = document.createElement("div");
+    card.className = "saved-color-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved color palette custom accent workspace ${color}`);
+    const swatch = document.createElement("button");
+    swatch.className = "saved-color-swatch";
+    swatch.type = "button";
+    swatch.title = `Use ${color} as accent`;
+    swatch.style.setProperty("--saved-color", color);
+    swatch.onclick = () => updateSettings({ accent: color });
+    const value = document.createElement("div");
+    value.className = "saved-color-value";
+    value.textContent = color;
+    const cardActions = document.createElement("div");
+    cardActions.className = "saved-color-card-actions";
+    cardActions.append(
+      settingsActionButton("Accent", () => updateSettings({ accent: color }), "", `saved color apply accent ${color}`),
+      settingsActionButton("Workspace", () => setWorkspaceColor(color), "", `saved color apply workspace ${color}`),
+      settingsActionButton("Delete", () => deleteCustomColorPalette(color), "danger", `saved color delete ${color}`)
+    );
+    card.append(swatch, value, cardActions);
+    list.append(card);
+  }
+  panel.append(list);
+  return panel;
 }
 
 function backgroundPresetGrid() {
@@ -4009,7 +4147,7 @@ function showPanelContextMenu(event, panel) {
   colorTitle.textContent = "Pane color";
   const colors = document.createElement("div");
   colors.className = "context-colors";
-  for (const color of state.data?.palette || accentOptions) {
+  for (const color of workspaceColorPalette()) {
     const button = document.createElement("button");
     button.className = `context-color${panel.color === color ? " is-active" : ""}`;
     button.type = "button";
@@ -4057,7 +4195,7 @@ function showWorkspaceContextMenu(event, workspace) {
   );
   const colors = document.createElement("div");
   colors.className = "context-colors";
-  for (const color of state.data?.palette || accentOptions) {
+  for (const color of workspaceColorPalette()) {
     const button = document.createElement("button");
     button.className = `context-color${workspace.color === color ? " is-active" : ""}`;
     button.type = "button";
@@ -4122,6 +4260,8 @@ function showToolbarMenu(event) {
     contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
     contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
     contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
+    contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
+    contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
     contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
@@ -4596,6 +4736,24 @@ function paletteEntries() {
       run: () => applyTerminalColorPreset(preset)
     });
   }
+  for (const color of state.customColorPalette) {
+    entries.push({
+      id: `savedColor.accent.${color.slice(1)}`,
+      label: `Accent color: ${color}`,
+      meta: "Saved color",
+      shortcut: "Color",
+      search: normalizeSettingsQuery(`saved color palette custom accent ${color}`),
+      run: () => updateSettings({ accent: color })
+    });
+    entries.push({
+      id: `savedColor.workspace.${color.slice(1)}`,
+      label: `Workspace color: ${color}`,
+      meta: activeWorkspace()?.title || "Active workspace",
+      shortcut: "Color",
+      search: normalizeSettingsQuery(`saved color palette custom workspace pane tab ${color}`),
+      run: () => setWorkspaceColor(color)
+    });
+  }
   for (const profile of state.savedSettingsProfiles) {
     entries.push({
       id: `settingsProfile.${profile.id}`,
@@ -4704,7 +4862,7 @@ async function renameWorkspaceTo(title, workspaceId = activeWorkspace()?.id) {
 
 async function cycleWorkspaceColor(workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
-  const palette = state.data?.palette || [];
+  const palette = workspaceColorPalette();
   if (!workspace || palette.length === 0) return;
   const currentIndex = Math.max(0, palette.indexOf(workspace.color));
   const color = palette[(currentIndex + 1) % palette.length];
@@ -5346,11 +5504,12 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 
 async function exportSettings() {
   const payload = JSON.stringify({
-    version: 4,
+    version: 5,
     settings: state.settings,
     commandSnippets: state.customCommandSnippets,
     settingsProfiles: state.savedSettingsProfiles,
-    workspaceBlueprints: state.workspaceBlueprints
+    workspaceBlueprints: state.workspaceBlueprints,
+    customColorPalette: state.customColorPalette
   }, null, 2);
   if (await writeClipboardText(payload)) {
     toast("Settings copied to clipboard.");
@@ -5420,6 +5579,17 @@ async function importSettings() {
         state.workspaceBlueprints.push(blueprint);
       }
       saveWorkspaceBlueprints();
+    }
+    const importedColorPalette = Array.isArray(parsed?.customColorPalette)
+      ? parsed.customColorPalette
+      : Array.isArray(parsed?.customPalette)
+        ? parsed.customPalette
+        : null;
+    if (importedColorPalette) {
+      state.customColorPalette = uniqueColors(
+        importedColorPalette.map(normalizeCustomPaletteColor).filter(Boolean)
+      ).slice(0, customColorPaletteLimit);
+      saveCustomColorPalette();
     }
     saveSettings();
     applySettings();

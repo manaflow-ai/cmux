@@ -321,6 +321,7 @@ button {
 .settings-nav-button,
 .settings-preset,
 .terminal-color-preset,
+.saved-color-swatch,
 .workspace-starter,
 .empty-workspace-starter,
 .background-preset,
@@ -400,6 +401,7 @@ button {
 .browser-go:focus-visible,
 .browser-nav:focus-visible,
 .browser-address:focus-visible,
+.saved-color-input:focus-visible,
 .dialog-button:focus-visible,
 .dialog-input:focus-visible,
 .palette-input:focus-visible,
@@ -408,6 +410,7 @@ button {
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
 .terminal-color-preset:focus-visible,
+.saved-color-swatch:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
@@ -433,6 +436,7 @@ button {
 .settings-nav-button:active,
 .settings-preset:active,
 .terminal-color-preset:active,
+.saved-color-swatch:active,
 .workspace-starter:active,
 .empty-workspace-starter:active,
 .settings-command-run:active,
@@ -2087,6 +2091,97 @@ button {
   border-radius: var(--radius-1);
   background: var(--picked-color);
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
+.saved-color-panel {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.saved-color-add {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.saved-color-input {
+  width: 42px;
+  height: 30px;
+  padding: 3px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.saved-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.saved-color-input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.saved-color-actions,
+.saved-color-card-actions {
+  min-width: 0;
+}
+
+.saved-color-empty {
+  padding: var(--space-2);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-1);
+  color: var(--color-faint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.saved-color-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.saved-color-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.saved-color-swatch {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: var(--saved-color);
+}
+
+.saved-color-swatch:hover {
+  border-color: var(--color-text);
+}
+
+.saved-color-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+  font: 11px/1 var(--font-mono);
+}
+
+.saved-color-card-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
 }
 
 .background-preset-grid {
