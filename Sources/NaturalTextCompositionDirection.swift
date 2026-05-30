@@ -28,6 +28,6 @@ extension NSTextView {
             ?? NSMutableParagraphStyle()
         paragraphStyle.alignment = .natural
         paragraphStyle.baseWritingDirection = .natural
-        return paragraphStyle.copy() as? NSParagraphStyle ?? paragraphStyle
+        return paragraphStyle.copy() as! NSParagraphStyle
     }
 }

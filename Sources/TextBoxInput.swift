@@ -3690,7 +3690,6 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.textContainerInset = TextBoxLayout.textInset
         textView.textContainer?.lineFragmentPadding = 0
         textView.registerForDraggedTypes([.fileURL])
-        textView.configureCmuxNaturalWritingDirectionForComposedText()
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
@@ -3752,7 +3751,6 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onInsertFileURLs = onInsertFileURLs
         textView.onChooseFiles = onChooseFiles
         textView.refreshInlineAttachmentCells(font: font, foregroundColor: foregroundColor)
-        textView.configureCmuxNaturalWritingDirectionForComposedText()
         textView.recenterSingleLineTextContainer()
         textView.wantsLayer = true
         textView.layer?.backgroundColor = NSColor.clear.cgColor
