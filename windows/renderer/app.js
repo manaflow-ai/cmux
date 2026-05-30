@@ -7160,10 +7160,23 @@ function paletteEntries() {
   return entries;
 }
 
-function runPaletteCommand(entry) {
-  state.paletteOpen = false;
-  elements.paletteInput.value = "";
+function openPalette() {
+  state.paletteOpen = true;
+  state.paletteIndex = 0;
   renderPalette();
+  elements.paletteList.scrollTop = 0;
+  setTimeout(() => elements.paletteInput.focus(), 0);
+}
+
+function closePalette() {
+  state.paletteOpen = false;
+  elements.paletteList.scrollTop = 0;
+  renderPalette();
+}
+
+function runPaletteCommand(entry) {
+  closePalette();
+  elements.paletteInput.value = "";
   entry.run();
 }
 
@@ -8334,9 +8347,7 @@ observeCommandStripOverflow();
 attachHorizontalWheelScroll(elements.surfaceTabs);
 observeSurfaceTabOverflow();
 document.getElementById("paletteButton").onclick = () => {
-  state.paletteOpen = true;
-  renderPalette();
-  setTimeout(() => elements.paletteInput.focus(), 0);
+  openPalette();
 };
 document.getElementById("notificationsRailButton").onclick = () => openInspector("notifications");
 document.getElementById("sessionsRailButton").onclick = () => openInspector("session");
@@ -8379,8 +8390,7 @@ elements.paletteInput.addEventListener("keydown", (event) => {
     elements.paletteList.children[state.paletteIndex]?.click();
   }
   if (event.key === "Escape") {
-    state.paletteOpen = false;
-    renderPalette();
+    closePalette();
   }
 });
 
@@ -8421,9 +8431,8 @@ window.addEventListener("keydown", (event) => {
     pasteClipboardToTerminal();
   } else if (event.ctrlKey && event.shiftKey && key === "p") {
     consumeGlobalShortcut(event);
-    state.paletteOpen = !state.paletteOpen;
-    renderPalette();
-    if (state.paletteOpen) setTimeout(() => elements.paletteInput.focus(), 0);
+    if (state.paletteOpen) closePalette();
+    else openPalette();
   } else if (event.ctrlKey && key === "n") {
     consumeGlobalShortcut(event);
     createWorkspace();
@@ -8514,9 +8523,8 @@ if (window.cmuxNative?.onWindowState) {
 if (window.cmuxNative?.onCommand) {
   window.cmuxNative.onCommand((commandId) => {
     if (commandId === "palette.toggle") {
-      state.paletteOpen = !state.paletteOpen;
-      renderPalette();
-      if (state.paletteOpen) setTimeout(() => elements.paletteInput.focus(), 0);
+      if (state.paletteOpen) closePalette();
+      else openPalette();
       return;
     }
     const command = commands.find((candidate) => candidate.id === commandId);
