@@ -506,7 +506,8 @@
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
-          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL."
+          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
+          "shortcutPassthroughHosts": "Hôtes dont les pages reçoivent directement les raccourcis avec touche Cmd. En cas de correspondance, les raccourcis Cmd sont d'abord transmis à la vue web ; si la page ne consomme pas le raccourci, la gestion normale des menus de cmux reprend (Cmd+Q permet donc toujours de quitter). Utile pour héberger des IDE web comme VS Code via code-server. Accepte la correspondance exacte d'hôte et les jokers *.sousdomaine (un motif *.example.com correspond aussi à example.com lui-même). Les numéros de port sont ignorés. Une liste vide conserve le comportement actuel de cmux sur chaque page."
         }
       }
     },

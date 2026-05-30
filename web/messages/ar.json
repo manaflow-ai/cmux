@@ -506,7 +506,8 @@
         "browser": {
           "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
           "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
-          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان."
+          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان.",
+          "shortcutPassthroughHosts": "المضيفون الذين تتلقى صفحاتهم اختصارات معدِّل Cmd مباشرةً. عند المطابقة، تُمرَّر اختصارات Cmd أولاً إلى عرض الويب؛ إذا لم تستهلك الصفحة الاختصار، يُستأنف التعامل العادي مع قائمة cmux (لذا Cmd+Q لا يزال يخرج). مفيد لتضمين بيئات تطوير ويب مثل VS Code عبر code-server. يدعم المطابقة الدقيقة للمضيف ورموز البدل *.subdomain (نمط *.example.com يطابق أيضاً example.com نفسه). تُتجاهل أرقام المنفذ. القائمة الفارغة تحافظ على سلوك cmux الحالي في كل صفحة."
         }
       }
     },

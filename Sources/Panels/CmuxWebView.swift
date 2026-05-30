@@ -636,6 +636,37 @@ final class CmuxWebView: WKWebView {
             return finish(super.performKeyEquivalent(with: event))
         }
 
+        // Per-URL passthrough — CmuxWebView entry point.
+        //
+        // This check is NOT dead code despite an identical check existing in
+        // NSWindow.cmux_performKeyEquivalent. AppKit can reach
+        // CmuxWebView.performKeyEquivalent via at least two paths:
+        //   (a) NSWindow.performKeyEquivalent walking the responder chain
+        //       (the swizzled cmux_performKeyEquivalent's passthrough block
+        //       calls super → reaches us here), and
+        //   (b) direct programmatic dispatch — including the existing
+        //       browser-find / browser-document-editing preflight at
+        //       AppDelegate.swift:~15985, which calls
+        //       firstResponderWebView.performKeyEquivalent(with: event)
+        //       directly without re-entering cmux_performKeyEquivalent.
+        // Removing this check would silently make path (b) bypass the
+        // passthrough rule. Returning super's result lets WebKit consume the
+        // chord (e.g. VS Code's Cmd+P preventDefault); if super returns false,
+        // AppKit's standard responder/menu lookup continues. This branch
+        // deliberately SKIPS the NSApp.mainMenu.performKeyEquivalent
+        // forwarding below — the cmux-menu forward is what was claiming
+        // Cmd+P/Cmd+F before this fix.
+        if shouldPassthroughCommandEquivalentToWebContent(
+            event,
+            responder: window?.firstResponder,
+            url: self.url
+        ) {
+#if DEBUG
+            cmuxDebugLog("browser.web.performKeyEquivalent: passthrough host match → super")
+#endif
+            return finish(super.performKeyEquivalent(with: event))
+        }
+
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
             if event.timestamp > 0 {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp

@@ -506,7 +506,8 @@
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
-          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
+          "shortcutPassthroughHosts": "Host le cui pagine ricevono direttamente le scorciatoie con tasto Cmd. In caso di corrispondenza, le scorciatoie Cmd vengono prima inoltrate alla vista web; se la pagina non consuma una scorciatoia, riprende la normale gestione dei menu di cmux (quindi Cmd+Q continua a far uscire). Utile per ospitare IDE web come VS Code tramite code-server. Supporta corrispondenza host esatta e jolly *.sottodominio (un pattern *.example.com corrisponde anche all'apex example.com). I numeri di porta vengono ignorati. Una lista vuota mantiene il comportamento esistente di cmux su ogni pagina."
         }
       }
     },

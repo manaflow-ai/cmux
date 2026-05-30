@@ -772,6 +772,44 @@ final class BrowserProfileStore: ObservableObject {
     }
 }
 
+/// Thread-safe cache for `BrowserLinkOpenSettings.shortcutPassthroughHosts`.
+/// The raw newline-delimited string is read from UserDefaults on every call
+/// (UserDefaults itself is fast — backed by an in-memory dictionary), but the
+/// expensive `components(separatedBy:)` + `map(trimmingCharacters)` + `filter`
+/// chain is cached and reused while the raw value is unchanged. This matters
+/// because the function fires three times per Cmd-modifier keystroke on the
+/// passthrough dispatch path (handleCustomShortcut → cmux_performKeyEquivalent
+/// → CmuxWebView.performKeyEquivalent). Cache is keyed on the raw string so
+/// it self-invalidates the first call after any UserDefaults change, without
+/// needing an explicit observer.
+private final class ShortcutPassthroughHostsCache: @unchecked Sendable {
+    static let shared = ShortcutPassthroughHostsCache()
+    private let lock = NSLock()
+    private var cachedHosts: [String]?
+    private var cachedRaw: String?
+
+    func hosts(rawValue: String) -> [String] {
+        lock.lock()
+        if let cachedHosts, cachedRaw == rawValue {
+            let result = cachedHosts
+            lock.unlock()
+            return result
+        }
+        lock.unlock()
+
+        let parsed = rawValue
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        lock.lock()
+        cachedHosts = parsed
+        cachedRaw = rawValue
+        lock.unlock()
+        return parsed
+    }
+}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
@@ -789,6 +827,9 @@ enum BrowserLinkOpenSettings {
     static let defaultBrowserHostWhitelist: String = ""
     static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
     static let defaultBrowserExternalOpenPatterns: String = ""
+
+    static let shortcutPassthroughHostsKey = "browserShortcutPassthroughHosts"
+    static let defaultShortcutPassthroughHosts: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
@@ -887,6 +928,38 @@ enum BrowserLinkOpenSettings {
             }
         }
         return false
+    }
+
+    static func shortcutPassthroughHosts(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: shortcutPassthroughHostsKey) ?? defaultShortcutPassthroughHosts
+        return ShortcutPassthroughHostsCache.shared.hosts(rawValue: raw)
+    }
+
+    /// Check whether a hostname is on the user's Cmd-shortcut passthrough allowlist.
+    /// Empty list means "no passthrough" — every Cmd-modifier chord stays with
+    /// cmux's menus. This is the inverse of `hostMatchesWhitelist`'s "empty
+    /// allows all" semantics; the default for passthrough is opt-in.
+    /// Supports exact match and wildcard prefix (`*.example.com`, which also
+    /// matches the `example.com` apex).
+    static func hostMatchesShortcutPassthrough(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        let rawPatterns = shortcutPassthroughHosts(defaults: defaults)
+        if rawPatterns.isEmpty { return false }
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        for rawPattern in rawPatterns {
+            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
+            if hostMatchesPattern(normalizedHost, pattern: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Convenience wrapper around `hostMatchesShortcutPassthrough` that takes a
+    /// `URL?` and extracts the host. Returns `false` for nil URLs and URLs with
+    /// no host component (e.g. `about:blank`).
+    static func urlMatchesShortcutPassthrough(_ url: URL?, defaults: UserDefaults = .standard) -> Bool {
+        guard let host = url?.host, !host.isEmpty else { return false }
+        return hostMatchesShortcutPassthrough(host, defaults: defaults)
     }
 
     private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {

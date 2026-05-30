@@ -922,6 +922,16 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("insecureHttpHostsAllowedInEmbeddedBrowser") {
             logInvalid("browser.insecureHttpHostsAllowedInEmbeddedBrowser", sourcePath: sourcePath)
         }
+        if let values = jsonStringArray(section["shortcutPassthroughHosts"]) {
+            let normalized = values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            snapshot.managedUserDefaults[BrowserLinkOpenSettings.shortcutPassthroughHostsKey] = .string(
+                normalized.joined(separator: "\n")
+            )
+        } else if section.keys.contains("shortcutPassthroughHosts") {
+            logInvalid("browser.shortcutPassthroughHosts", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["showImportHintOnBlankTabs"]) {
             snapshot.managedUserDefaults[BrowserImportHintSettings.showOnBlankTabsKey] = .bool(value)
         }

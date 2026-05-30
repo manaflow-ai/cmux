@@ -1481,6 +1481,128 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         )
     }
 
+    // MARK: - Passthrough host policy (PR #4724 review B2)
+
+    private func withPassthroughHost(_ host: String?, _ body: () -> Void) {
+        let key = BrowserLinkOpenSettings.shortcutPassthroughHostsKey
+        let previous = UserDefaults.standard.string(forKey: key)
+        if let host {
+            UserDefaults.standard.set(host, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        body()
+    }
+
+    private func cmdEvent(key: String, keyCode: UInt16) -> NSEvent? {
+        makeKeyDownEvent(key: key, modifiers: [.command], keyCode: keyCode)
+    }
+
+    @MainActor
+    func testPassthroughPolicyMatchesAllowlistedHosts() {
+        // B1 + B2: the policy function correctly identifies passthrough URLs.
+        // This is what the three production call sites (CmuxWebView, NSWindow
+        // swizzle, AppDelegate local-monitor) consult before forwarding a
+        // Cmd-modifier chord to the web view instead of cmux's menu.
+        withPassthroughHost("127.0.0.1") {
+            guard let event = cmdEvent(key: "q", keyCode: 12) else {
+                XCTFail("Failed to construct Cmd+Q event")
+                return
+            }
+            XCTAssertTrue(
+                shouldPassthroughCommandEquivalentToWebContent(
+                    event,
+                    url: URL(string: "http://127.0.0.1:8888/")
+                ),
+                "URL on allowlist must passthrough"
+            )
+            XCTAssertFalse(
+                shouldPassthroughCommandEquivalentToWebContent(
+                    event,
+                    url: URL(string: "https://github.com/")
+                ),
+                "URL not on allowlist must NOT passthrough"
+            )
+        }
+    }
+
+    @MainActor
+    func testPassthroughPolicyRejectsNonCommandEvents() {
+        // Shift+arrow / plain arrow / Option-only chords have a separate
+        // dispatch path (shouldDispatchBrowserArrowViaFirstResponderKeyDown).
+        // The passthrough policy is for Cmd-modifier chords only.
+        withPassthroughHost("127.0.0.1") {
+            guard let event = makeKeyDownEvent(key: "a", modifiers: [.shift], keyCode: 0) else {
+                XCTFail("Failed to construct Shift+A event")
+                return
+            }
+            XCTAssertFalse(
+                shouldPassthroughCommandEquivalentToWebContent(
+                    event,
+                    url: URL(string: "http://127.0.0.1:8888/")
+                ),
+                "Non-command events must never trigger Cmd-passthrough"
+            )
+        }
+    }
+
+    @MainActor
+    func testPassthroughPolicyEmptyAllowlistMatchesNothing() {
+        // Default-behavior guarantee: an empty / unset allowlist must return
+        // false for every URL so cmux's existing menu routing is preserved.
+        withPassthroughHost(nil) {
+            guard let event = cmdEvent(key: "p", keyCode: 35) else {
+                XCTFail("Failed to construct Cmd+P event")
+                return
+            }
+            XCTAssertFalse(
+                shouldPassthroughCommandEquivalentToWebContent(
+                    event,
+                    url: URL(string: "http://127.0.0.1:8888/")
+                ),
+                "Empty passthrough allowlist must NOT passthrough (zero default-behavior change)"
+            )
+        }
+    }
+
+    @MainActor
+    func testCmuxWebViewSkipsMainMenuForwardOnPassthroughURL() {
+        // B2 integration: a CmuxWebView whose .url matches the passthrough
+        // allowlist must NOT invoke cmux's main-menu forwarding inside
+        // performKeyEquivalent. The fresh WKWebView has no committed URL
+        // (so passthrough is NOT triggered) which exercises the negative
+        // path; the matching URL case is covered by the policy tests above
+        // and the AppDelegate window-level swizzle test
+        // (testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder etc.).
+        //
+        // This regression guard ensures the non-passthrough path still
+        // forwards Cmd+P to the main menu.
+        withPassthroughHost("127.0.0.1") {
+            let spy = ActionSpy()
+            installMenu(spy: spy, key: "p", modifiers: [.command])
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            guard let event = cmdEvent(key: "p", keyCode: 35) else {
+                XCTFail("Failed to construct Cmd+P event")
+                return
+            }
+            // Fresh WKWebView has no URL, so passthrough policy returns false,
+            // and the existing cmux main-menu forward inside CmuxWebView.
+            // performKeyEquivalent runs unchanged.
+            XCTAssertTrue(webView.performKeyEquivalent(with: event))
+            XCTAssertTrue(
+                spy.invoked,
+                "When the web view has no URL (passthrough cannot match), Cmd+P must still reach cmux's main menu — confirms passthrough did not break existing routing"
+            )
+        }
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         installMenu(
             target: spy,

@@ -12033,6 +12033,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             clearConfiguredShortcutChordState()
             return false
         }
+        // Per-URL passthrough — local event monitor entry point.
+        //
+        // Why this check exists despite identical checks at the NSWindow and
+        // CmuxWebView layers: the shortcut monitor (installShortcutMonitor)
+        // fires BEFORE AppKit sends the event to any window. If we let
+        // handleCustomShortcut's configured-shortcut routing run on a
+        // passthrough chord (e.g. Cmd+P with a configured `goToWorkspace`
+        // binding), the monitor would consume the event by returning nil
+        // and the chord would never reach the web view. We bail out here
+        // so the event flows through the normal dispatch chain and the
+        // downstream NSWindow/CmuxWebView passthrough fast paths take over.
+        if let focusedWindow = event.window ?? NSApp.keyWindow,
+           let firstResponder = focusedWindow.firstResponder,
+           browserOmnibarPanelId(for: firstResponder) == nil,
+           let webView = NSWindow.cmuxOwningWebView(for: firstResponder, in: focusedWindow, event: event),
+           shouldPassthroughCommandEquivalentToWebContent(
+               event,
+               responder: firstResponder,
+               url: webView.url
+           ) {
+            clearConfiguredShortcutChordState()
+            return false
+        }
 
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
@@ -16476,6 +16499,40 @@ private extension NSWindow {
             )
             return true
         }
+        // Per-URL Cmd-modifier passthrough — NSWindow swizzle entry point.
+        //
+        // Why this check exists despite identical checks downstream in
+        // CmuxWebView.performKeyEquivalent: by the time AppKit's standard
+        // dispatch reaches the web view, several cmux-internal handlers
+        // further down in this function (stale-menu-shortcut, ghostty
+        // routing, browser-find/document-editing preflight) can have already
+        // claimed the event for cmux. We need to short-circuit at the
+        // window-swizzle layer so passthrough URLs bypass that entire
+        // ladder. Returning WebKit's actual consumption result here means
+        // chords the page does NOT handle (e.g. Cmd+Q with no JS handler)
+        // fall through to AppKit's standard main-menu dispatch and behave
+        // as users expect. The omnibar (browser address bar) is excluded
+        // so its own shortcuts keep working.
+        if let firstResponderWebView,
+           firstResponderOmnibarPanelId == nil,
+           shouldPassthroughCommandEquivalentToWebContent(
+               event,
+               responder: self.firstResponder,
+               url: firstResponderWebView.url
+           ) {
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → passthrough host match: webView.performKeyEquivalent returned \(result)"
+            )
+#endif
+            if result {
+                return true
+            }
+            // Web content did not consume the chord; let AppKit's standard
+            // menu dispatch run so system shortcuts (Cmd+Q, Cmd+W, Cmd+H, ...)
+            // still work on passthrough hosts.
+        }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
 #if DEBUG
@@ -16848,7 +16905,11 @@ private extension NSWindow {
         return nil
     }
 
-    private static func cmuxOwningWebView(
+    // `fileprivate` (not `private`) so AppDelegate.handleCustomShortcut can
+    // resolve the focused web view when applying the
+    // `browser.shortcutPassthroughHosts` policy in the local event monitor
+    // (which runs on the AppDelegate, not on the NSWindow extension).
+    fileprivate static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?

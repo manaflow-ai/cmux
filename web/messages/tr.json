@@ -506,7 +506,8 @@
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "shortcutPassthroughHosts": "Sayfaları Cmd değiştirici kısayollarını doğrudan alan ana bilgisayarlar. Eşleşme durumunda Cmd kısayolları önce web görünümüne iletilir; sayfa kısayolu tüketmezse cmux'un normal menü işleme devam eder (yani Cmd+Q hâlâ çıkış yapar). VS Code gibi web IDE'lerini code-server üzerinden gömmek için kullanışlıdır. Tam ana bilgisayar eşleşmesini ve *.altetkialan joker karakterlerini destekler (*.example.com kalıbı example.com'un kendisiyle de eşleşir). Bağlantı noktası numaraları yok sayılır. Boş liste her sayfada cmux'un mevcut davranışını korur."
         }
       }
     },

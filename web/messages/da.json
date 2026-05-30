@@ -506,7 +506,8 @@
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen."
+          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
+          "shortcutPassthroughHosts": "Værter hvis sider modtager Cmd-modifikatorgenveje direkte. Ved match videresendes Cmd-modifikatorgenveje først til webvisningen; hvis siden ikke forbruger genvejen, genoptages cmux' normale menuhåndtering (så Cmd+Q stadig afslutter). Nyttig til at indlejre web-IDE'er som VS Code via code-server. Understøtter præcis værtsmatch og *.underdomæne jokertegn (et *.example.com-mønster matcher også selve example.com). Portnumre ignoreres. En tom liste bevarer cmux' eksisterende adfærd på hver side."
         }
       }
     },

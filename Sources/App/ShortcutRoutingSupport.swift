@@ -104,10 +104,43 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
         return true
     }
 
-    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
-    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
-    // as trusted keyDown navigation to the start/end of the document.
-    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
+    // cmux owns Cmd+Option+Arrow for pane focus navigation
+    // (focusLeft/focusRight/focusUp/focusDown). Never route those; let cmux's
+    // shortcut chain claim them.
+    if normalizedFlags.contains(.command), normalizedFlags.contains(.option) {
+        return false
+    }
+
+    // Standard macOS text-navigation / selection chords. AppKit dispatches
+    // these via interpretKeyEvents -> moveLeftAndModifySelection: /
+    // moveWordRight: / moveToBeginningOfDocumentAndModifySelection: etc.,
+    // which means WebKit must see them through keyDown (not NSWindow.
+    // performKeyEquivalent) for selection extension and word jumps to work.
+    //
+    // - Shift+arrow:         extend selection by character
+    // - Option+arrow:        jump by word (←/→) or paragraph (↑/↓)
+    // - Shift+Option+arrow:  extend selection by word/paragraph
+    if normalizedFlags == [.shift] {
+        return true
+    }
+    if normalizedFlags == [.option] {
+        return true
+    }
+    if normalizedFlags == [.shift, .option] {
+        return true
+    }
+
+    // Browser document editors own Cmd+Up/Down as trusted keyDown navigation
+    // to the start/end of the document. Cmd+Shift+Up/Down extends selection
+    // to that same boundary.
+    if normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126) {
+        return true
+    }
+    if normalizedFlags == [.command, .shift] && (keyCode == 125 || keyCode == 126) {
+        return true
+    }
+
+    return false
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
