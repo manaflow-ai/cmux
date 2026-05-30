@@ -1580,10 +1580,7 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        max(
-            CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting)),
-            TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: titlebarControlsConfig)
-        )
+        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
     }
 
     private enum SidebarResizerHandle: Hashable {
@@ -1698,14 +1695,6 @@ struct ContentView: View {
             candidate,
             maximumWidth: maxSidebarWidth(),
             minimumWidth: minimumSidebarWidth
-        )
-    }
-
-    private func syncTitlebarControlsSidebarTrailingEdge() {
-        guard let observedWindow else { return }
-        AppDelegate.shared?.updateTitlebarAccessorySidebarTrailingEdge(
-            sidebarState.isVisible ? normalizedSidebarWidth(sidebarWidth) : 0,
-            for: observedWindow
         )
     }
 
@@ -2325,10 +2314,6 @@ struct ContentView: View {
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
     }
 
-    private var titlebarControlsConfig: TitlebarControlsStyleConfig {
-        (TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic).config
-    }
-
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
@@ -2697,7 +2682,6 @@ struct ContentView: View {
             if abs(sidebarWidth - restoredWidth) > 0.5 {
                 sidebarWidth = restoredWidth
             }
-            syncTitlebarControlsSidebarTrailingEdge()
             if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
                 sidebarState.persistedWidth = restoredWidth
             }
@@ -3176,7 +3160,6 @@ struct ContentView: View {
                 sidebarWidth = sanitized
                 return
             }
-            syncTitlebarControlsSidebarTrailingEdge()
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
@@ -3194,7 +3177,6 @@ struct ContentView: View {
         view = AnyView(view.onChange(of: titlebarControlsStyleRawValue) { _ in
             clampSidebarWidthIfNeeded()
             updateSidebarResizerBandState()
-            syncTitlebarControlsSidebarTrailingEdge()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
@@ -3205,7 +3187,6 @@ struct ContentView: View {
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
-            syncTitlebarControlsSidebarTrailingEdge()
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
@@ -3296,7 +3277,6 @@ struct ContentView: View {
                     syncCommandPaletteDebugStateForObservedWindow()
                     installSidebarResizerPointerMonitorIfNeeded()
                     updateSidebarResizerBandState()
-                    syncTitlebarControlsSidebarTrailingEdge()
                 }
             }
 
