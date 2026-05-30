@@ -7917,12 +7917,45 @@ final class WorkspaceRemoteSessionController {
             *) continue ;;
           esac
           cmux_child_pids="$(printf '%s\\n' "$cmux_ps_output" | awk -v parent="$cmux_listener_pid" -v slot="$cmux_persistent_slot" '
+            function clean_token(value) {
+              gsub(/'\''/, "", value)
+              gsub(/"/, "", value)
+              gsub(/\\\\/, "", value)
+              return value
+            }
+            function has_token(target, i) {
+              for (i = 3; i <= NF; i++) {
+                if (clean_token($i) == target) return 1
+              }
+              return 0
+            }
+            function next_value(after, i, value) {
+              for (i = after + 1; i <= NF; i++) {
+                value = clean_token($i)
+                if (value != "") return value
+              }
+              return ""
+            }
+            function has_exact_slot(i, token, value) {
+              for (i = 3; i <= NF; i++) {
+                token = clean_token($i)
+                if (token == "--slot") {
+                  return next_value(i) == slot
+                }
+                if (token ~ /^--slot=/) {
+                  value = substr(token, 8)
+                  if (value != "") return value == slot
+                  return next_value(i) == slot
+                }
+              }
+              return 0
+            }
             $2 == parent &&
             index($0, "cmuxd-remote") &&
-            index($0, "serve") &&
-            index($0, "--stdio") &&
-            index($0, "--persistent") &&
-            index($0, slot) &&
+            has_token("serve") &&
+            has_token("--stdio") &&
+            has_token("--persistent") &&
+            has_exact_slot() &&
             $1 ~ /^[0-9]+$/ {
               print $1
             }
@@ -10411,6 +10444,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
@@ -12546,6 +12580,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
+        endedPersistentRemotePTYAttachSurfaceIds = endedPersistentRemotePTYAttachSurfaceIds.filter { validSurfaceIds.contains($0) }
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
@@ -12790,6 +12825,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
+        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
+        return activeRemoteTerminalSurfaceIds.contains(panelId) ||
+            endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+    }
+
+    @MainActor
     func shouldDemoteWorkspaceAfterChildExit(surfaceId: UUID) -> Bool {
         isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
     }
@@ -12991,6 +13033,7 @@ final class Workspace: Identifiable, ObservableObject {
            previousConfiguration != configuration,
            !previousConfiguration.hasSamePersistentPTYIdentity(as: configuration) {
             remotePTYSessionIDsByPanelId.removeAll()
+            endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
@@ -13094,6 +13137,7 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
+        endedPersistentRemotePTYAttachSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
@@ -13116,6 +13160,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastPortConflictFingerprint = nil
         if clearConfiguration {
             remotePTYSessionIDsByPanelId.removeAll()
+            endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -13150,6 +13195,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         if remoteConfiguration?.preserveAfterTerminalExit == true,
@@ -13470,6 +13516,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func discardRemotePTYSessionID(panelId: UUID) {
         remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
+        endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
         removeRemoteRelaySurfaceAliases(targeting: panelId)
     }
 
@@ -13493,6 +13540,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let wasTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
+        if remoteConfiguration?.preserveAfterTerminalExit == true {
+            endedPersistentRemotePTYAttachSurfaceIds.insert(surfaceId)
+        } else {
+            endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
+        }
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
         removeRemoteRelaySurfaceAliases(targeting: surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
@@ -13503,6 +13555,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
 
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
+        endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
         removeRemoteRelaySurfaceAliases(targeting: surfaceId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)

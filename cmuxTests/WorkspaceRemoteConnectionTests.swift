@@ -454,6 +454,64 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
     }
 
+    func testRemoteStaleRelayListenerCleanupScriptMatchesPersistentSlotExactly() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-slot-prefix-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        let killLog = root.appendingPathComponent("kill.log")
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try "".write(to: killLog, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("lsof"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            p33681
+            f12
+            n127.0.0.1:50446
+            EOF
+            """
+        )
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("ps"),
+            body: """
+            #!/bin/sh
+            cat <<'EOF'
+            33681 1 /usr/sbin/sshd-session
+            34057 33681 /Users/cmux/.cmux/bin/cmuxd-remote/current/darwin-arm64/cmuxd-remote serve --stdio --persistent --slot ssh-ab
+            EOF
+            """
+        )
+
+        let script = try XCTUnwrap(
+            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+                relayPort: 50446,
+                persistentDaemonSlot: "ssh-a"
+            )
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "CMUX_KILL_LOG=\(killLog.path)",
+                "/bin/sh",
+                "-c",
+                """
+                kill() { printf '%s\\n' "$*" >> "$CMUX_KILL_LOG"; return 0; }
+                \(script)
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
+    }
+
     func testRemoteStaleRelayListenerCleanupScriptKillsMetadataMatchedListenerWithoutChild() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-metadata-\(UUID().uuidString)")

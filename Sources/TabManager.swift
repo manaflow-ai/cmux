@@ -7900,8 +7900,7 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
         let keepsPersistentRemoteSurfaceOpen =
-            tab.remoteConfiguration?.preserveAfterTerminalExit == true &&
-            tab.isRemoteTerminalSurface(surfaceId)
+            tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
         let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 

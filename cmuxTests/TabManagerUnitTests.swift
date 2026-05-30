@@ -284,6 +284,56 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
+    func testChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64020,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-attach-end-test.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-child-exit-after-attach-end"
+            ),
+            autoConnect: false
+        )
+        let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
+
+        let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: sessionID)
+
+        XCTAssertTrue(outcome.clearedRemotePTYSession)
+        XCTAssertTrue(outcome.untrackedRemoteTerminal)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertTrue(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertFalse(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
+        )
+    }
+
     func testChildExitOnSplitPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsOnlyThatPTYState() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
