@@ -118,6 +118,10 @@ enum KeyboardShortcutSettings {
         case focusRight
         case focusUp
         case focusDown
+        case resizeSplitLeft
+        case resizeSplitRight
+        case resizeSplitUp
+        case resizeSplitDown
         case splitRight
         case splitDown, toggleSplitZoom
         case equalizeSplits
@@ -205,6 +209,10 @@ enum KeyboardShortcutSettings {
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
+            case .resizeSplitLeft: return String(localized: "shortcut.resizeSplitLeft.label", defaultValue: "Resize Split Left")
+            case .resizeSplitRight: return String(localized: "shortcut.resizeSplitRight.label", defaultValue: "Resize Split Right")
+            case .resizeSplitUp: return String(localized: "shortcut.resizeSplitUp.label", defaultValue: "Resize Split Up")
+            case .resizeSplitDown: return String(localized: "shortcut.resizeSplitDown.label", defaultValue: "Resize Split Down")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
@@ -354,6 +362,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            case .resizeSplitLeft:
+                return Self.tmuxSplitResizeShortcut(chordKey: "←")
+            case .resizeSplitRight:
+                return Self.tmuxSplitResizeShortcut(chordKey: "→")
+            case .resizeSplitUp:
+                return Self.tmuxSplitResizeShortcut(chordKey: "↑")
+            case .resizeSplitDown:
+                return Self.tmuxSplitResizeShortcut(chordKey: "↓")
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
@@ -420,6 +436,21 @@ enum KeyboardShortcutSettings {
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             }
+        }
+
+        private static func tmuxSplitResizeShortcut(chordKey: String) -> StoredShortcut {
+            StoredShortcut(
+                key: "b",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: chordKey,
+                chordCommand: false,
+                chordShift: false,
+                chordOption: true,
+                chordControl: false
+            )
         }
 
         func tooltip(_ base: String) -> String {

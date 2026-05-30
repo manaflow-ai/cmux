@@ -7,6 +7,23 @@ import XCTest
 #endif
 
 final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
+    func testResizeSplitDefaultsUseTmuxStyleArrowChords() {
+        let expected: [(KeyboardShortcutSettings.Action, String)] = [
+            (.resizeSplitLeft, "←"),
+            (.resizeSplitRight, "→"),
+            (.resizeSplitUp, "↑"),
+            (.resizeSplitDown, "↓"),
+        ]
+
+        for (action, chordKey) in expected {
+            XCTAssertEqual(
+                action.defaultShortcut,
+                tmuxResizeShortcut(chordKey: chordKey),
+                "Expected \(action.rawValue) to use Ctrl+B then Option+\(chordKey)"
+            )
+        }
+    }
+
     func testSettingsFileStoreParsesEqualizeSplitsShortcut() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -32,6 +49,36 @@ final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .equalizeSplits),
             StoredShortcut(key: "e", command: true, shift: false, option: false, control: true)
+        )
+    }
+
+    func testSettingsFileStoreParsesResizeSplitShortcutChord() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "resizeSplitRight": ["ctrl+b", "alt+right"]
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .resizeSplitRight),
+            tmuxResizeShortcut(chordKey: "→")
         )
     }
 
@@ -72,5 +119,20 @@ final class KeyboardShortcutSettingsEqualizeSplitsTests: XCTestCase {
 
     private func writeSettingsFile(_ contents: String, to url: URL) throws {
         try contents.data(using: .utf8)?.write(to: url)
+    }
+
+    private func tmuxResizeShortcut(chordKey: String) -> StoredShortcut {
+        StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: chordKey,
+            chordCommand: false,
+            chordShift: false,
+            chordOption: true,
+            chordControl: false
+        )
     }
 }

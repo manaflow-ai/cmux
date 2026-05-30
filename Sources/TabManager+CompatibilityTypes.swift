@@ -52,3 +52,7 @@ enum ResizeDirection {
         requiresPaneInFirstChild ? 1 : -1
     }
 }
+
+enum SplitResizeShortcutDefaults {
+    static let stepPixels: UInt16 = 120
+}

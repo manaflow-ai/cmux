@@ -5,7 +5,12 @@ import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
-import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import {
+  shortcutCategories,
+  shortcutSequences,
+  type LocalizedText,
+  type ShortcutSequence,
+} from "../../../../data/cmux-shortcuts";
 import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
@@ -109,6 +114,7 @@ const settingsFileExample = `{
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
+  //     "resizeSplitRight": ["ctrl+b", "alt+right"],
   //     "commandPalettePrevious": null
   //   }
   // },
@@ -147,6 +153,14 @@ function shortcutComboToConfig(combo: string[]) {
   return combo
     .map((part) => modifierMap[part] ?? keyMap[part] ?? part.toLowerCase())
     .join("+");
+}
+
+function shortcutSequenceToConfig(sequence: ShortcutSequence) {
+  const strokes = sequence.map(shortcutComboToConfig).filter(Boolean);
+  if (strokes.length <= 1) {
+    return strokes[0] ?? "";
+  }
+  return JSON.stringify(strokes);
 }
 
 function formatSchemaType(property: SchemaProperty): string {
@@ -425,7 +439,7 @@ working-directory = ~/code`}</CodeBlock>
                 </div>
                 <div className="text-sm text-muted">
                   <div className="font-medium text-foreground">Default file value</div>
-                  <code>{shortcutComboToConfig(shortcut.combos[0] ?? [])}</code>
+                  <code>{shortcutSequenceToConfig(shortcutSequences(shortcut)[0] ?? [])}</code>
                 </div>
               </div>
             ))}
