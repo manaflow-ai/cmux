@@ -67,17 +67,6 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Tags this view with a single search anchor. Convenience over
-    /// ``settingsSearchAnchors(_:)`` for the common one-path row.
-    @ViewBuilder
-    func settingsSearchAnchor(_ anchorID: String?) -> some View {
-        if let anchorID {
-            settingsSearchAnchors([anchorID])
-        } else {
-            self
-        }
-    }
-
     /// Makes this view both `scrollTo`-addressable (via `.id` on the
     /// first anchor) and eligible for the search-result highlight pulse
     /// when any of `anchorIDs` matches the active highlight state.

@@ -424,6 +424,14 @@ public struct SettingsWindowRoot: View {
                 proxy.scrollTo(anchorID, anchor: .center)
             }
         }
+        // Justification for DispatchQueue.main.async over @MainActor/Task
+        // (package concurrency rule): this is runloop-tick sequencing, not
+        // thread hopping — SettingsWindowRoot is already @MainActor. We need
+        // a layout pass to occur *between* the two scrollTo calls so the
+        // LazyVStack realizes the off-screen target before the second,
+        // landing pass. `Task { @MainActor in await Task.yield() }` does not
+        // guarantee a layout pass between yields, so there is no async-native
+        // replacement that preserves this timing; the main runloop hop does.
         DispatchQueue.main.async {
             guard navigationGeneration == settingsNavigationGeneration else { return }
             scroll()

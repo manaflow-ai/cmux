@@ -21,6 +21,14 @@ struct SettingsRowAnchorResolutionTests {
     /// Every singular cmux.json path declared by a settings row.
     /// Excludes `workspaceColors.colors`, which is a repeated per-palette
     /// color row with no single search result.
+    ///
+    /// This is a deliberately hand-maintained contract list: the rows live
+    /// in SwiftUI view bodies (`Sections/*.swift`) that can't be reflected
+    /// from a test, so there's no `Mirror`-style seam to derive it. Adding
+    /// a settings row means adding its path here. Two companion tests bound
+    /// the drift this can't catch on its own: ``everyCuratedSettingEntryIsReachable``
+    /// fails if a curated search result has no backing anchor, and
+    /// ``rowAnchorsAreUniqueAcrossRows`` fails if two rows collide on one id.
     static let rowConfigPaths: [String] = [
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
