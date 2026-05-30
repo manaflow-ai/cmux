@@ -145,6 +145,9 @@ const paneLayoutMaxWeight = 10000;
 const paneResizeMinWidth = 32;
 const paneResizeMinHeight = 28;
 const settingsSaveDelay = 140;
+const terminalWheelZoomThreshold = 120;
+const terminalWheelZoomIdleResetMs = 450;
+const terminalWheelZoomMaxSteps = 3;
 const closedPanelLimit = 12;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
@@ -300,6 +303,7 @@ const state = {
   performanceGuardTriggered: false,
   performanceGuardReason: "",
   terminalWheelZoomAt: 0,
+  terminalWheelZoomRemainder: 0,
   appliedSettingsSignature: "",
   settings: initialSettings,
   settingsCategory: "quick",
@@ -7856,14 +7860,35 @@ function focusTerminalSession(panelId) {
   if (terminal) setTimeout(() => terminal.term.focus(), 20);
 }
 
+function normalizedWheelZoomDelta(event) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 40;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * 360;
+  return event.deltaY;
+}
+
 function handleTerminalWheelZoom(event) {
   if (!event.ctrlKey) return;
   event.preventDefault();
   event.stopPropagation();
+  const delta = normalizedWheelZoomDelta(event);
+  if (!Number.isFinite(delta) || delta === 0) return;
   const now = performance.now();
-  if (now - state.terminalWheelZoomAt < 35) return;
+  if (now - state.terminalWheelZoomAt > terminalWheelZoomIdleResetMs) {
+    state.terminalWheelZoomRemainder = 0;
+  }
   state.terminalWheelZoomAt = now;
-  changeTerminalFontSize(event.deltaY < 0 ? 1 : -1, { toast: false });
+  if (state.terminalWheelZoomRemainder && Math.sign(state.terminalWheelZoomRemainder) !== Math.sign(delta)) {
+    state.terminalWheelZoomRemainder = 0;
+  }
+  state.terminalWheelZoomRemainder += delta;
+  const steps = Math.min(
+    terminalWheelZoomMaxSteps,
+    Math.trunc(Math.abs(state.terminalWheelZoomRemainder) / terminalWheelZoomThreshold)
+  );
+  if (!steps) return;
+  const direction = state.terminalWheelZoomRemainder < 0 ? 1 : -1;
+  state.terminalWheelZoomRemainder -= Math.sign(state.terminalWheelZoomRemainder) * terminalWheelZoomThreshold * steps;
+  changeTerminalFontSize(direction * steps, { toast: false });
 }
 
 function togglePaneZoom(panelId = activePanel()?.id) {
