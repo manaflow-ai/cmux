@@ -30161,109 +30161,194 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
-    /// blocks waiting for a user decision. Claude Code owns decisions
-    /// through its native PermissionRequest hook. Its PreToolUse hook is
-    /// telemetry/status only.
+    /// blocks waiting for a user decision (and whether `FeedCoordinator`
+    /// posts a "needs approval" notification).
+    ///
+    /// The mapping is driven by an explicit, typed registry
+    /// (`feedEventSemantic`) keyed on `(source, event)` rather than by
+    /// pattern-matching raw event-name strings. Notification eligibility
+    /// is derived only from the resolved ``FeedEventSemantic``, so a
+    /// tool-*starting* lifecycle event can never be mistaken for an
+    /// approval request — and unknown / future event names default to
+    /// non-actionable telemetry that never notifies.
     static func classifyFeedEvent(
         source: String,
         event: String,
         toolName: String
     ) -> (String, Bool) {
-        if source == "claude" {
-            switch event {
-            case "PermissionRequest":
-                switch toolName {
-                case "ExitPlanMode":
-                    return ("ExitPlanMode", true)
-                case "AskUserQuestion":
-                    return ("AskUserQuestion", true)
-                default:
-                    return ("PermissionRequest", true)
-                }
-            case "PostToolUse":
-                return ("PostToolUse", false)
-            case "UserPromptSubmit":
-                return ("UserPromptSubmit", false)
-            case "SessionStart":
-                return ("SessionStart", false)
-            case "SessionEnd":
-                return ("SessionEnd", false)
-            case "Stop":
-                return ("Stop", false)
-            case "SubagentStop":
-                return ("SubagentStop", false)
-            case "Notification":
-                return ("Notification", false)
-            default:
-                return ("PreToolUse", false)
-            }
-        }
+        let semantic = feedEventSemantic(source: source, event: event)
+        return wireMapping(for: semantic, toolName: toolName)
+    }
 
-        if source == "hermes-agent" {
-            switch event {
-            case "pre_tool_call":
-                if Self.sideEffectingTools.contains(toolName) {
-                    return ("PermissionRequest", true)
-                }
-                return ("PreToolUse", false)
-            case "post_tool_call":
-                return ("PostToolUse", false)
-            case "pre_approval_request":
-                return ("Notification", false)
-            case "post_approval_response":
-                return ("Notification", false)
-            case "pre_llm_call":
-                return ("UserPromptSubmit", false)
-            case "post_llm_call":
-                return ("Stop", false)
-            case "on_session_start", "on_session_reset":
-                return ("SessionStart", false)
-            case "on_session_end", "on_session_finalize":
-                return ("SessionEnd", false)
-            default:
-                return ("PreToolUse", false)
-            }
-        }
+    /// User-attention semantic of a hook/feed event, independent of the
+    /// agent-specific raw event name. Notifications and blocking waits are
+    /// keyed off this — never off raw event-name string matching — so the
+    /// same misclassification cannot recur as new event names are added.
+    enum FeedEventSemantic {
+        /// A real approval is pending; the user must approve/deny. Drives
+        /// the blocking Feed wait and the "needs approval" notification.
+        /// Resolved against the tool name so Claude's `ExitPlanMode` /
+        /// `AskUserQuestion` approvals route to their dedicated kinds.
+        case approvalRequest
+        /// A tool is about to run but no approval is pending. Telemetry
+        /// only. Used by agents that expose a *separate* approval event
+        /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
+        case toolStart
+        /// A tool is about to run and the agent has *no* dedicated approval
+        /// event, so a side-effecting tool is escalated to an approval and
+        /// read-only tools stay telemetry. Resolved against the tool name.
+        case toolStartMaybeApproval
+        /// A tool finished. Telemetry only.
+        case toolEnd
+        /// A new turn / prompt started. Telemetry only.
+        case promptSubmit
+        /// The agent finished responding. Telemetry only.
+        case response
+        /// A subagent finished responding. Telemetry only.
+        case subagentResponse
+        case sessionStart
+        case sessionEnd
+        /// A generic status/notification event. Telemetry only — real
+        /// approval banners for these agents fire through the dedicated
+        /// `notification` hook subcommand, not the feed path.
+        case statusNotification
+        /// Unknown / unregistered event. Safe default: telemetry only,
+        /// never actionable, never notifies.
+        case unknown
+    }
 
-        switch event {
-        case "PreToolUse", "beforeShellExecution":
-            if source == "codex" { return ("PreToolUse", false) }
+    /// Resolves the semantic for a `(source, event)` pair. A registered
+    /// source uses its own table (unmatched events fall to ``unknown``);
+    /// unregistered sources use the generic table.
+    private static func feedEventSemantic(
+        source: String,
+        event: String
+    ) -> FeedEventSemantic {
+        let table = feedEventSemanticRegistry[source] ?? genericFeedEventSemantics
+        return table[event] ?? .unknown
+    }
+
+    /// Maps a resolved semantic to the wire `hook_event_name` plus the
+    /// `isActionable` flag, using `toolName` for the two tool-dependent
+    /// semantics.
+    private static func wireMapping(
+        for semantic: FeedEventSemantic,
+        toolName: String
+    ) -> (String, Bool) {
+        switch semantic {
+        case .approvalRequest:
             switch toolName {
-            case "ExitPlanMode":
-                return ("ExitPlanMode", true)
-            case "AskUserQuestion":
-                return ("AskUserQuestion", true)
+            case "ExitPlanMode": return ("ExitPlanMode", true)
+            case "AskUserQuestion": return ("AskUserQuestion", true)
+            default: return ("PermissionRequest", true)
+            }
+        case .toolStartMaybeApproval:
+            switch toolName {
+            case "ExitPlanMode": return ("ExitPlanMode", true)
+            case "AskUserQuestion": return ("AskUserQuestion", true)
             default:
-                // Any tool that can mutate the environment surfaces as
-                // a permission request so the user can approve/deny
-                // from the Feed sidebar. Read-only tools stay as
-                // non-actionable telemetry so we don't flood the
-                // Actionable view with every file read.
+                // Any tool that can mutate the environment surfaces as a
+                // permission request so the user can approve/deny from the
+                // Feed sidebar. Read-only tools stay non-actionable
+                // telemetry so we don't flood the Actionable view.
                 if Self.sideEffectingTools.contains(toolName) {
                     return ("PermissionRequest", true)
                 }
                 return ("PreToolUse", false)
             }
-        case "PermissionRequest":
-            return ("PermissionRequest", true)
-        case "PostToolUse":
+        case .toolStart:
+            return ("PreToolUse", false)
+        case .toolEnd:
             return ("PostToolUse", false)
-        case "UserPromptSubmit":
+        case .promptSubmit:
             return ("UserPromptSubmit", false)
-        case "SessionStart":
-            return ("SessionStart", false)
-        case "SessionEnd":
-            return ("SessionEnd", false)
-        case "Stop":
+        case .response:
             return ("Stop", false)
-        case "SubagentStop":
+        case .subagentResponse:
             return ("SubagentStop", false)
-        case "Notification":
+        case .sessionStart:
+            return ("SessionStart", false)
+        case .sessionEnd:
+            return ("SessionEnd", false)
+        case .statusNotification:
             return ("Notification", false)
-        default:
+        case .unknown:
+            // Safe default: telemetry, no approval, no notification.
             return ("PreToolUse", false)
         }
     }
+
+    /// Per-agent event-semantic tables. Each entry is the source of truth
+    /// for that agent's `(event) -> semantic` mapping; events absent here
+    /// resolve to ``FeedEventSemantic/unknown``.
+    ///
+    /// The key distinction the registry encodes: agents with a *dedicated*
+    /// approval event (Claude `PermissionRequest`, Codex `PermissionRequest`,
+    /// Hermes `pre_approval_request`) classify their pre-tool event as
+    /// ``FeedEventSemantic/toolStart`` (always telemetry). Agents whose only
+    /// signal is the pre-tool event (gemini, copilot, …, handled by
+    /// ``genericFeedEventSemantics``) use
+    /// ``FeedEventSemantic/toolStartMaybeApproval`` so side-effecting tools
+    /// still escalate. Conflating the two is the bug behind #4985.
+    private static let feedEventSemanticRegistry: [String: [String: FeedEventSemantic]] = [
+        "claude": [
+            "PermissionRequest": .approvalRequest,
+            "PreToolUse": .toolStart,
+            "PostToolUse": .toolEnd,
+            "UserPromptSubmit": .promptSubmit,
+            "SessionStart": .sessionStart,
+            "SessionEnd": .sessionEnd,
+            "Stop": .response,
+            "SubagentStop": .subagentResponse,
+            "Notification": .statusNotification,
+        ],
+        "codex": [
+            "PermissionRequest": .approvalRequest,
+            "PreToolUse": .toolStart,
+            "beforeShellExecution": .toolStart,
+            "PostToolUse": .toolEnd,
+            "UserPromptSubmit": .promptSubmit,
+            "SessionStart": .sessionStart,
+            "SessionEnd": .sessionEnd,
+            "Stop": .response,
+            "SubagentStop": .subagentResponse,
+            "Notification": .statusNotification,
+        ],
+        "hermes-agent": [
+            // `pre_tool_call` is a tool *starting* — Hermes raises a
+            // separate `pre_approval_request` for real approvals, so this
+            // must stay telemetry even for side-effecting tools (#4985).
+            "pre_tool_call": .toolStart,
+            "post_tool_call": .toolEnd,
+            // The approval banner for Hermes fires through the dedicated
+            // `notification` hook subcommand; on the feed path this stays a
+            // non-blocking notification to avoid a duplicate banner.
+            "pre_approval_request": .statusNotification,
+            "post_approval_response": .statusNotification,
+            "pre_llm_call": .promptSubmit,
+            "post_llm_call": .response,
+            "on_session_start": .sessionStart,
+            "on_session_reset": .sessionStart,
+            "on_session_end": .sessionEnd,
+            "on_session_finalize": .sessionEnd,
+        ],
+    ]
+
+    /// Fallback table for agents without a dedicated entry in
+    /// ``feedEventSemanticRegistry``. These agents expose only a pre-tool
+    /// event, so it carries ``FeedEventSemantic/toolStartMaybeApproval``.
+    private static let genericFeedEventSemantics: [String: FeedEventSemantic] = [
+        "PreToolUse": .toolStartMaybeApproval,
+        "beforeShellExecution": .toolStartMaybeApproval,
+        "PermissionRequest": .approvalRequest,
+        "PostToolUse": .toolEnd,
+        "UserPromptSubmit": .promptSubmit,
+        "SessionStart": .sessionStart,
+        "SessionEnd": .sessionEnd,
+        "Stop": .response,
+        "SubagentStop": .subagentResponse,
+        "Notification": .statusNotification,
+    ]
 
     /// Tools that mutate state and deserve a user-visible approve/
     /// deny prompt in Feed. Keyed on the canonical tool names Claude,
