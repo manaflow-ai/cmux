@@ -260,6 +260,8 @@ button {
 }
 
 .shell.sidebar-collapsed .sidebar {
+  visibility: hidden;
+  pointer-events: none;
   border-right: 0;
 }
 
@@ -1418,6 +1420,21 @@ button {
   overflow: hidden;
   border-left: 1px solid var(--color-line);
   background: var(--color-rail);
+}
+
+.shell:not(.inspector-open) .inspector {
+  width: 0;
+  max-width: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: clip;
+  border-left: 0;
+  contain: layout paint size;
+}
+
+.shell:not(.inspector-open) .inspector::before,
+.shell:not(.inspector-open) .inspector::after {
+  display: none;
 }
 
 .inspector::before {
