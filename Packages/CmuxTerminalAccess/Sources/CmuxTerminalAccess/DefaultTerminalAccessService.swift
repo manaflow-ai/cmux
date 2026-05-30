@@ -93,9 +93,136 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         }
     }
 
-    /// Placeholder. The full dispatch lands in Task 0.20.
+    /// Dispatch the request to the provider after enforcing every
+    /// Phase 0 invariant.
+    ///
+    /// In order:
+    ///
+    /// 1. Resolve the handle to a live ``SurfaceInfo``; throw
+    ///    ``TerminalAccessError/unknownSurface`` on miss.
+    /// 2. Acquire a token from the per-surface rate limiter (E16 —
+    ///    throws ``TerminalAccessError/rateLimited`` when empty).
+    /// 3. If `request.focusSurface == true`, call
+    ///    ``SurfaceProvider/setFocus(surface:gained:)`` with
+    ///    `gained: true` (D17). This runs **before** the payload
+    ///    dispatches.
+    /// 4. Dispatch by payload kind. Byte-carrying payloads
+    ///    (`.text`, `.paste`, `.raw`) run
+    ///    ``enforceCapacity(info:bytes:)`` **before** any provider
+    ///    write (E14). `.paste` runs the body inside the per-surface
+    ///    ``PasteSerializer`` (D30). `.raw` is rejected unless
+    ///    `allowRawInput()` returns `true` (D9 / E3).
+    /// 5. Emit a write audit entry (D4 — always-on, E2 — async
+    ///    non-throwing).
     public func writeInput(_ request: InputRequest) async throws {
-        throw TerminalAccessError.unsupported(reason: "writeInput lands in Task 0.20")
+        guard let info = try await provider.resolve(request.handle) else {
+            throw TerminalAccessError.unknownSurface
+        }
+        // E16 — rate-limit per surface before any side effect.
+        try await rateLimiter.acquire(key: "surface:\(info.uuid.uuidString)#write")
+        // D17 — explicit focus opt-in fires BEFORE the payload dispatches.
+        if request.focusSurface {
+            try await provider.setFocus(surface: info, gained: true)
+        }
+        switch request.payload {
+        case .text(let s, let submit):
+            let bytes = Data(s.utf8)
+            try await enforceCapacity(info: info, bytes: bytes.count)
+            try await provider.writeText(surface: info, bytes: bytes)
+            if submit {
+                try await provider.writeKey(
+                    surface: info,
+                    event: KeyEvent(mods: [], key: .enter)
+                )
+            }
+            await audit.record(
+                AuditEntry(
+                    timestamp: Date(),
+                    surface: request.handle,
+                    kind: .writeText,
+                    byteCount: bytes.count,
+                    detail: ["submit": "\(submit)"]
+                )
+            )
+        case .paste(let s):
+            // D30 — serialize wrap+write per-surface so concurrent
+            // pastes cannot interleave byte slices.
+            let bytes = Data(s.utf8)
+            try await enforceCapacity(info: info, bytes: bytes.count)
+            try await pasteSerializer.run(surface: info) {
+                try await self.provider.writeText(surface: info, bytes: bytes)
+            }
+            await audit.record(
+                AuditEntry(
+                    timestamp: Date(),
+                    surface: request.handle,
+                    kind: .writePaste,
+                    byteCount: bytes.count,
+                    detail: nil
+                )
+            )
+        case .keys(let events):
+            for ev in events {
+                try await provider.writeKey(surface: info, event: ev)
+            }
+            await audit.record(
+                AuditEntry(
+                    timestamp: Date(),
+                    surface: request.handle,
+                    kind: .writeKeys,
+                    byteCount: events.count,
+                    detail: nil
+                )
+            )
+        case .raw(let data):
+            if !allowRawInput() {
+                throw TerminalAccessError.forbidden(reason: "raw input disabled")
+            }
+            try await enforceCapacity(info: info, bytes: data.count)
+            try await provider.writeText(surface: info, bytes: data)
+            await audit.record(
+                AuditEntry(
+                    timestamp: Date(),
+                    surface: request.handle,
+                    kind: .writeRaw,
+                    byteCount: data.count,
+                    detail: nil
+                )
+            )
+        case .mouse(let ev):
+            // D16 — direct provider call; provider must NOT
+            // synthesize NSEvent instances.
+            try await provider.writeMouse(surface: info, event: ev)
+            await audit.record(
+                AuditEntry(
+                    timestamp: Date(),
+                    surface: request.handle,
+                    kind: .writeMouse,
+                    byteCount: 0,
+                    detail: ["action": ev.action.rawValue]
+                )
+            )
+        case .focus(let gained):
+            try await provider.setFocus(surface: info, gained: gained)
+            await audit.record(
+                AuditEntry(
+                    timestamp: Date(),
+                    surface: request.handle,
+                    kind: .writeFocus,
+                    byteCount: 0,
+                    detail: ["gained": "\(gained)"]
+                )
+            )
+        }
+    }
+
+    /// Per E14 — gate runs before any provider call that writes
+    /// bytes. The capacity reader is synchronous per E1.
+    private func enforceCapacity(info: SurfaceInfo, bytes: Int) async throws {
+        let remaining = provider.pendingInputCapacityRemaining(surface: info)
+        if bytes > remaining {
+            throw TerminalAccessError.payloadTooLarge
+        }
     }
 
     private static func trimTrailingSpaces(_ s: String) -> String {
