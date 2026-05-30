@@ -853,6 +853,7 @@ jobs:
               --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
+            echo "VDISPLAY_PERSISTENT_PID=$HELPER_PID" >> "$GITHUB_ENV"
 
             # Wait for display ready
             echo "Waiting for virtual display..."
@@ -973,36 +974,6 @@ jobs:
             echo "Attempt $attempt failed, retrying..."
             sleep 3
           done
-
-      - name: Create persistent virtual display
-        run: |
-          set -euo pipefail
-          HELPER_PATH="/tmp/create-virtual-display"
-          clang -framework Foundation -framework CoreGraphics \
-            -o "$HELPER_PATH" scripts/create-virtual-display.m
-
-          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
-          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
-
-          "$HELPER_PATH" \
-            --modes "1920x1080" \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
-          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
-
-          echo "Waiting for persistent virtual display..."
-          for _ in $(seq 1 24); do
-            if [ -f "$VDISPLAY_READY" ]; then break; fi
-            sleep 0.5
-          done
-          if [ ! -f "$VDISPLAY_READY" ]; then
-            echo "ERROR: Persistent virtual display not ready after 12s" >&2
-            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
-            exit 1
-          fi
-          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
 
       - name: Run browser find focus UI regression
         run: |
