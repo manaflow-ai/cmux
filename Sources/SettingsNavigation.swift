@@ -89,7 +89,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return "\(title) sign in team sync"
         case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry"
+            return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
@@ -321,6 +321,7 @@ enum SettingsSearchIndex {
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
         setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
+        setting(.app, "default-terminal", String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"), "ssh links command tool unix executable launch services handler registration system default"),
         setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
         setting(.app, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
         setting(
@@ -437,6 +438,7 @@ enum SettingsSearchIndex {
         "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
         "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
+        "app.defaultTerminal": settingID(for: .app, idSuffix: "default-terminal"),
         "app.confirmQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
