@@ -30,6 +30,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate xcodebuild noninteractive crash prompt guard
+        run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -292,7 +295,8 @@ jobs:
             # When that happens, Swift's crash/backtrace handling or the stale
             # app-host process keeps xcodebuild alive until the job-level timeout,
             # hiding the actual unit test summary.
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
