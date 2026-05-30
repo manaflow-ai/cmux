@@ -336,7 +336,7 @@ struct CmuxSSHURLRequest: Equatable {
     }
 
     private static func previewArgument(_ value: String) -> String {
-        if value.range(of: #"[^A-Za-z0-9_./:=+@%\-\[\]]"#, options: .regularExpression) == nil {
+        if value.range(of: #"[^A-Za-z0-9_./:=+@%-]"#, options: .regularExpression) == nil {
             return value
         }
         let escaped = value

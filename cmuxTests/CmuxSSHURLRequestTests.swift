@@ -149,6 +149,39 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
+    func testCommandPreviewShellQuotesBracketedHost() throws {
+        let url = try XCTUnwrap(sshURL(queryItems: [
+            URLQueryItem(name: "host", value: "[::1]")
+        ]))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(request.cliPreview, "cmux ssh '[::1]'")
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
+    func testCommandPreviewShellQuotesBracketedSocketPath() throws {
+        let url = try XCTUnwrap(sshURL(queryItems: [
+            URLQueryItem(name: "host", value: "dev.example.com")
+        ]))
+
+        switch CmuxSSHURLRequest.parse(url) {
+        case .success(.some(let request)):
+            XCTAssertEqual(
+                request.cliPreview(socketPath: "/tmp/cmux-[x].sock"),
+                "cmux --socket '/tmp/cmux-[x].sock' ssh dev.example.com"
+            )
+        case .success(nil):
+            XCTFail("Expected SSH URL request")
+        case .failure(let error):
+            XCTFail("Unexpected parse error: \(error)")
+        }
+    }
+
     func testParsesNoFocusFlagWithoutValue() throws {
         let url = try XCTUnwrap(URL(string: "\(supportedScheme)://ssh?host=dev.example.com&no-focus"))
 
