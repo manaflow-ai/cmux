@@ -51,6 +51,7 @@ const terminalSearchDecorations = {
 const paneLayoutStorageKey = "cmux.paneLayout";
 const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
 const recentCommandsStorageKey = "cmux.recentTerminalCommands";
+const recentBrowserPagesStorageKey = "cmux.recentBrowserPages";
 const customCommandSnippetsStorageKey = "cmux.customTerminalCommandSnippets";
 const savedSettingsProfilesStorageKey = "cmux.savedSettingsProfiles";
 const workspaceBlueprintsStorageKey = "cmux.workspaceBlueprints";
@@ -58,6 +59,7 @@ const customColorPaletteStorageKey = "cmux.customColorPalette";
 const savedBackgroundImagesStorageKey = "cmux.savedBackgroundImages";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
+const recentBrowserPagesLimit = 10;
 const customCommandSnippetsLimit = 20;
 const savedSettingsProfilesLimit = 12;
 const workspaceBlueprintsLimit = 12;
@@ -153,6 +155,7 @@ const state = {
   paneLayouts: loadPaneLayouts(),
   recentFolders: loadRecentFolders(),
   recentCommands: loadRecentCommands(),
+  recentBrowserPages: loadRecentBrowserPages(),
   customCommandSnippets: loadCustomCommandSnippets(),
   savedSettingsProfiles: loadSavedSettingsProfiles(),
   workspaceBlueprints: loadWorkspaceBlueprints(),
@@ -519,6 +522,66 @@ function clearRecentCommands() {
   saveRecentCommands();
   renderSettingsInspector();
   toast("Recent commands cleared.");
+}
+
+function normalizeBrowserPageUrl(value) {
+  const url = normalizeUrl(value || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    return parsed.href.slice(0, 2048);
+  } catch {
+    return "";
+  }
+}
+
+function loadRecentBrowserPages() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentBrowserPagesStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const unique = [];
+    const seen = new Set();
+    for (const entry of parsed) {
+      const url = normalizeBrowserPageUrl(entry);
+      const key = url.toLowerCase();
+      if (!url || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(url);
+      if (unique.length >= recentBrowserPagesLimit) break;
+    }
+    return unique;
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentBrowserPages() {
+  localStorage.setItem(recentBrowserPagesStorageKey, JSON.stringify(state.recentBrowserPages));
+}
+
+function rememberRecentBrowserPage(value) {
+  const url = normalizeBrowserPageUrl(value);
+  if (!url) return;
+  const key = url.toLowerCase();
+  const nextPages = [
+    url,
+    ...state.recentBrowserPages.filter((candidate) => candidate.toLowerCase() !== key)
+  ].slice(0, recentBrowserPagesLimit);
+  if (nextPages.length === state.recentBrowserPages.length && nextPages.every((page, index) => page === state.recentBrowserPages[index])) {
+    return;
+  }
+  state.recentBrowserPages = nextPages;
+  saveRecentBrowserPages();
+  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") {
+    renderSettingsInspector();
+  }
+}
+
+function clearRecentBrowserPages() {
+  state.recentBrowserPages = [];
+  saveRecentBrowserPages();
+  renderSettingsInspector();
+  toast("Recent browser pages cleared.");
 }
 
 function normalizeSnippetLabel(label, command = "") {
@@ -2561,6 +2624,7 @@ function ensureBrowser(panel, body) {
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
     view.src = next;
+    rememberRecentBrowserPage(next);
     setStatus("Loading");
     updatePanel(panel.id, { url: next });
   };
@@ -2596,6 +2660,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
       address.value = event.url;
+      rememberRecentBrowserPage(event.url);
       if (findPanelState(panel.id)) updatePanel(panel.id, { url: event.url });
     }
     updateNavState();
@@ -2605,7 +2670,10 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("did-navigate-in-page", (event) => {
-    if (event.url) address.value = event.url;
+    if (event.url) {
+      address.value = event.url;
+      rememberRecentBrowserPage(event.url);
+    }
     updateNavState();
   });
   view.addEventListener("did-start-loading", () => {
@@ -2850,6 +2918,7 @@ function renderSettingsInspector() {
       })
     );
     browserSection.append(homeActions);
+    browserSection.append(recentBrowserPagesSettings());
     nodes.push(browserSection);
   }
 
@@ -3919,6 +3988,62 @@ function recentCommandsSettings() {
     const run = settingsActionButton("Run", () => runTerminalCommand(command), "", `recent terminal command run ${command}`);
     run.dataset.recentCommandAction = "run";
     actions.append(run);
+    card.append(text, actions);
+    section.append(card);
+  }
+
+  return section;
+}
+
+function recentBrowserPagesSettings() {
+  const section = document.createElement("div");
+  section.className = "recent-folder-list";
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent browser pages urls web history open home clear");
+
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Recent browser pages";
+  const clear = settingsActionButton("Clear", clearRecentBrowserPages, "danger", "recent browser pages clear history");
+  clear.disabled = state.recentBrowserPages.length === 0;
+  header.append(title, clear);
+  section.append(header);
+
+  if (state.recentBrowserPages.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Pages opened inside cmux will appear here.";
+    section.append(empty);
+    return section;
+  }
+
+  for (const url of state.recentBrowserPages) {
+    const card = document.createElement("div");
+    card.className = "recent-folder-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`recent browser page url web open home ${hostnameOf(url)} ${url}`);
+    const text = document.createElement("div");
+    text.className = "recent-folder-text";
+    const name = document.createElement("div");
+    name.className = "recent-folder-name";
+    name.textContent = hostnameOf(url);
+    name.title = url;
+    const path = document.createElement("div");
+    path.className = "recent-folder-path";
+    path.textContent = url;
+    path.title = url;
+    text.append(name, path);
+
+    const actions = document.createElement("div");
+    actions.className = "recent-folder-actions command-snippet-actions is-built-in";
+    const open = settingsActionButton("Open", () => createPanel("browser", "right", { url }), "", `recent browser page open ${url}`);
+    open.dataset.recentBrowserAction = "open";
+    const home = settingsActionButton("Home", () => {
+      updateSettings({ browserHomeUrl: url });
+      renderSettingsInspector();
+      toast("Browser home updated.");
+    }, "", `recent browser page home ${url}`);
+    home.dataset.recentBrowserAction = "home";
+    actions.append(open, home);
     card.append(text, actions);
     section.append(card);
   }
@@ -5135,6 +5260,16 @@ function paletteEntries() {
       run: () => runTerminalCommand(command)
     });
   }
+  for (const [pageIndex, url] of state.recentBrowserPages.entries()) {
+    entries.push({
+      id: `recentBrowser.${pageIndex}`,
+      label: `Open recent page: ${hostnameOf(url)}`,
+      meta: url,
+      shortcut: "Browser",
+      search: normalizeSettingsQuery(`recent browser page web url open ${pageIndex + 1} ${hostnameOf(url)} ${url}`),
+      run: () => createPanel("browser", "right", { url })
+    });
+  }
   for (const snippet of allTerminalCommandSnippets()) {
     entries.push({
       id: `commandSnippet.${snippet.id}`,
@@ -5403,6 +5538,9 @@ async function createPanel(type, direction = "right", options = {}) {
   if (!workspace) return;
   const shellProfile = options.shellProfile || state.settings.terminalProfile;
   const shellPath = options.shellPath || state.settings.terminalCustomShell;
+  const url = type === "browser"
+    ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl)
+    : undefined;
   clearPaneLayoutsForWorkspace(workspace);
   const createdPanel = await api("/api/panels", {
     method: "POST",
@@ -5415,9 +5553,10 @@ async function createPanel(type, direction = "right", options = {}) {
       shellProfile: type === "terminal" ? shellProfile : undefined,
       shellPath: type === "terminal" && shellProfile === "custom" ? shellPath : undefined,
       cwd: options.cwd || workspace.cwd,
-      url: type === "browser" ? normalizeUrl(options.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl) : undefined
+      url
     })
   });
+  if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
   if (options.reconcile !== false) {
     await loadState();
     if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
@@ -5987,13 +6126,14 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 
 async function exportSettings() {
   const payload = JSON.stringify({
-    version: 6,
+    version: 7,
     settings: state.settings,
     commandSnippets: state.customCommandSnippets,
     settingsProfiles: state.savedSettingsProfiles,
     workspaceBlueprints: state.workspaceBlueprints,
     customColorPalette: state.customColorPalette,
-    savedBackgroundImages: state.savedBackgroundImages
+    savedBackgroundImages: state.savedBackgroundImages,
+    recentBrowserPages: state.recentBrowserPages
   }, null, 2);
   if (await writeClipboardText(payload)) {
     toast("Settings copied to clipboard.");
@@ -6096,6 +6236,19 @@ async function importSettings() {
         state.savedBackgroundImages.push(background);
       }
       saveSavedBackgroundImages();
+    }
+    if (Array.isArray(parsed?.recentBrowserPages)) {
+      state.recentBrowserPages = [];
+      const seenRecentPages = new Set();
+      for (const entry of parsed.recentBrowserPages) {
+        if (state.recentBrowserPages.length >= recentBrowserPagesLimit) break;
+        const url = normalizeBrowserPageUrl(entry);
+        const urlKey = url.toLowerCase();
+        if (!url || seenRecentPages.has(urlKey)) continue;
+        seenRecentPages.add(urlKey);
+        state.recentBrowserPages.push(url);
+      }
+      saveRecentBrowserPages();
     }
     saveSettings();
     applySettings();
