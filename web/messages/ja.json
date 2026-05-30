@@ -559,7 +559,9 @@
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。"
         },
         "terminal": {
-          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。"
+          "copyOnSelect": "選択が確定したとき、ダブルクリックやトリプルクリックによる単語・行の選択を含め、選択したターミナルテキストをシステムクリップボードへコピーします。",
+          "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
+          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
         },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
@@ -1201,7 +1203,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "変更履歴",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox（ベータ）"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1290,6 +1293,21 @@
       "daemonSession": "セッション管理",
       "daemonSessionHow": "再接続後もセッションを維持し、複数の添付ファイル間で PTY のサイズ変更を調整します",
       "daemonPath": "デーモン バイナリはリモート ホストの ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote に保存され、アプリに埋め込まれた SHA-256 マニフェストに対して検証されます。"
+    },
+    "textBox": {
+      "title": "TextBox（ベータ）",
+      "metaTitle": "TextBox（ベータ）",
+      "metaDescription": "新しいターミナルタブ、分割、ワークスペースで使うベータ版の cmux TextBox 入力を設定します。",
+      "intro": "TextBox は、ターミナルへ送る前にプロンプトを組み立てるための cmux のリッチなターミナル入力面です。",
+      "betaCallout": "TextBox はベータ機能です。テスト中のため、既定値や動作が変わる場合があります。",
+      "defaultsTitle": "既定値",
+      "defaultsDesc": "TextBox の設定は Settings > TextBox にあります：",
+      "showSetting": "Show TextBox on New Terminals は、新しいワークスペース、ターミナルタブ、ターミナル分割を TextBox 表示状態で開き、フォーカスはターミナルに残します。",
+      "focusSetting": "Focus TextBox on New Terminals はキーボードフォーカスを TextBox に置きます。フォーカスする場合は TextBox も表示されます。",
+      "maxLinesSetting": "TextBox Max Lines は、内容がスクロールし始める前の TextBox の最大高さを制限します。",
+      "configTitle": "cmux.json",
+      "configDesc": "同じ既定値は ~/.config/cmux/cmux.json の terminal で設定できます：",
+      "focusNote": "復元されたセッションは保存済みの TextBox 表示状態とフォーカス状態を保ちます。これらの既定値は新しく作成されたターミナル面にのみ適用されます。"
     }
   },
   "legal": {
