@@ -23,6 +23,7 @@ import {
   normalizeBrowserPageUrl,
   normalizeUrl
 } from "./browser-utils.js";
+import { createAppearancePreview } from "./appearance-preview.js";
 import {
   replaceChildrenIfChanged,
   setClassNameIfChanged,
@@ -2989,6 +2990,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("appearance")) {
     const appearanceSection = settingsSection("Appearance");
+    appearanceSection.append(appearancePreviewPanel());
     const themeSelect = document.createElement("select");
     themeSelect.className = "setting-select";
     for (const [value, label] of themeOptions) {
@@ -3584,6 +3586,33 @@ function settingsCategoryNav() {
 
 function settingsCategoryLabel(id) {
   return settingsCategories.find(([categoryId]) => categoryId === id)?.[1] || "Quick";
+}
+
+function optionLabel(options, value, fallback = "") {
+  return options.find(([id]) => id === value)?.[1] || fallback || String(value || "");
+}
+
+function appearanceBackgroundLabel(value) {
+  const normalized = normalizeBackgroundValue(value);
+  if (!normalized) return "None";
+  const preset = backgroundPresetMap.get(normalized);
+  if (preset) return preset.label;
+  return defaultBackgroundLabel(normalized);
+}
+
+function appearancePreviewPanel() {
+  const preview = createAppearancePreview({
+    settings: state.settings,
+    themeLabel: optionLabel(themeOptions, state.settings.theme, "cmux"),
+    accentLabel: normalizeCustomPaletteColor(state.settings.accent) ? "Custom" : "Preset",
+    backgroundLabel: appearanceBackgroundLabel(state.settings.backgroundImage),
+    terminalFontLabel: optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono"),
+    terminalFontStack: terminalFontStack(),
+    terminalTheme: terminalTheme(),
+    backgroundImage: backgroundCss(state.settings.backgroundImage)
+  });
+  preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme accent background image strength terminal colors font");
+  return preview;
 }
 
 function settingsSection(title, searchTerms = "") {
