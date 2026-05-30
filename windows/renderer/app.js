@@ -2996,6 +2996,8 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("quick")) {
     const quickSection = settingsSection("Quick setup");
+    quickSection.append(quickSetupOverviewPanel());
+    quickSection.append(quickSettingsShortcutGrid());
     quickSection.append(settingsPresetGrid());
     nodes.push(quickSection);
   }
@@ -3485,6 +3487,9 @@ function settingsInspectorSignature() {
   if (searching || ["workspace", "layout", "blueprints", "appearance", "performance", "actions"].includes(category)) {
     parts.push(activeWorkspaceSettingsSignature());
   }
+  if (searching || category === "quick") {
+    parts.push(quickSettingsSignature());
+  }
   if (searching || ["appearance", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
   }
@@ -3533,6 +3538,24 @@ function activeWorkspaceSettingsSignature() {
       shellPath: panel.shellPath,
       url: panel.url
     }))
+  });
+}
+
+function quickSettingsSignature() {
+  const panels = allPanels();
+  return stableJson({
+    workspace: activeWorkspaceSettingsSignature(),
+    workspaces: state.data?.workspaces?.length || 0,
+    panes: panels.length,
+    recentFolders: state.recentFolders.length,
+    recentCommands: state.recentCommands.length,
+    recentBrowserPages: state.recentBrowserPages.length,
+    commandSnippets: state.customCommandSnippets.length,
+    profiles: state.savedSettingsProfiles.length,
+    blueprints: state.workspaceBlueprints.length,
+    colors: state.customColorPalette.length,
+    backgrounds: state.savedBackgroundImages.length,
+    performanceGuardTriggered: state.performanceGuardTriggered
   });
 }
 
@@ -4305,6 +4328,92 @@ async function copyPerformanceDiagnostics() {
     multiline: true,
     readOnly: true
   });
+}
+
+function activeSettingsPresetLabel() {
+  return settingsPresets.find((preset) => isActiveSettingsPreset(preset))?.label || "Custom";
+}
+
+function accentModeLabel() {
+  return normalizeCustomPaletteColor(state.settings.accent) ? "Custom color" : "Preset color";
+}
+
+function performanceModeLabel() {
+  if (state.settings.performanceMode) return "Tuned";
+  if (state.settings.adaptivePerformance) return state.performanceGuardTriggered ? "Auto tuned" : "Watching";
+  return "Manual";
+}
+
+function workspaceCountLabel() {
+  const count = state.data?.workspaces?.length || 0;
+  return `${count} workspace${count === 1 ? "" : "s"}`;
+}
+
+function quickSetupOverviewPanel() {
+  const workspace = activeWorkspace();
+  const panels = workspace?.panels || [];
+  const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
+  const browserCount = panels.filter((panel) => panel.type === "browser").length;
+  const folder = workspace?.cwdShort || workspace?.cwd || "No folder";
+  const panel = document.createElement("div");
+  panel.className = "quick-setup-overview";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("quick setup overview current settings workspace panes theme layout terminal browser performance data");
+  panel.innerHTML = `
+    <div class="quick-overview-heading">
+      <span class="quick-overview-title">Current setup</span>
+      <span class="quick-overview-subtitle"></span>
+    </div>
+    <div class="quick-overview-grid">
+      <span><b>Profile</b><em data-quick-profile></em></span>
+      <span><b>Workspace</b><em data-quick-workspace></em></span>
+      <span><b>Panes</b><em data-quick-panes></em></span>
+      <span><b>Look</b><em data-quick-look></em></span>
+      <span><b>Terminal</b><em data-quick-terminal></em></span>
+      <span><b>Performance</b><em data-quick-performance></em></span>
+    </div>
+  `;
+  panel.querySelector(".quick-overview-subtitle").textContent = folder;
+  panel.querySelector("[data-quick-profile]").textContent = activeSettingsPresetLabel();
+  panel.querySelector("[data-quick-workspace]").textContent = workspace?.title || "No workspace";
+  panel.querySelector("[data-quick-panes]").textContent = `${terminalCount} term / ${browserCount} web`;
+  panel.querySelector("[data-quick-look]").textContent = `${optionLabel(themeOptions, state.settings.theme, "cmux")} / ${accentModeLabel()}`;
+  panel.querySelector("[data-quick-terminal]").textContent = `${optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono")} ${state.settings.terminalFontSize}px`;
+  panel.querySelector("[data-quick-performance]").textContent = performanceModeLabel();
+  return panel;
+}
+
+const quickSettingsShortcuts = [
+  ["workspace", "Workspace", "Rename, folders, colors.", workspaceCountLabel],
+  ["appearance", "Look", "Themes, colors, backgrounds.", () => appearanceBackgroundLabel(state.settings.backgroundImage)],
+  ["layout", "Layout", "Tabs, panes, chrome.", () => optionLabel(toolbarModeOptions, state.settings.toolbarMode, "Compact")],
+  ["terminal", "Terminal", "Font, cursor, shell.", () => optionLabel(terminalProfiles, state.settings.terminalProfile, "Auto")],
+  ["browser", "Browser", "Home page and history.", () => hostnameOf(state.settings.browserHomeUrl)],
+  ["performance", "Performance", "Lag tuning and diagnostics.", performanceModeLabel],
+  ["profiles", "Profiles", "Save and reuse setups.", () => `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
+  ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`]
+];
+
+function quickSettingsShortcutGrid() {
+  const grid = document.createElement("div");
+  grid.className = "quick-settings-shortcut-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick setup shortcuts customize workspace appearance look layout terminal browser performance profiles data");
+  for (const [category, label, body, meta] of quickSettingsShortcuts) {
+    const button = document.createElement("button");
+    button.className = "quick-settings-shortcut";
+    button.type = "button";
+    button.dataset.settingsSearch = normalizeSettingsQuery(`quick setup shortcut ${label} ${body} ${category}`);
+    button.innerHTML = `
+      <span class="quick-settings-shortcut-title"></span>
+      <span class="quick-settings-shortcut-body"></span>
+      <span class="quick-settings-shortcut-meta"></span>
+    `;
+    button.querySelector(".quick-settings-shortcut-title").textContent = label;
+    button.querySelector(".quick-settings-shortcut-body").textContent = body;
+    button.querySelector(".quick-settings-shortcut-meta").textContent = meta();
+    button.onclick = () => openSettingsCategory(category);
+    grid.append(button);
+  }
+  return grid;
 }
 
 function settingsMetricGrid(metrics, searchPrefix = "performance diagnostics metric") {
