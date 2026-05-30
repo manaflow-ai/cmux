@@ -1,0 +1,32 @@
+import { defaultSettings } from "./config.js";
+
+export function normalizeUrl(value, fallback = "https://example.com") {
+  let next = String(value || "").trim();
+  if (!next) next = fallback;
+  if (/^https?:\/\//i.test(next)) return next;
+  if (/^localhost(?::\d+)?(?:\/|$)/i.test(next) || /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:\/|$)/.test(next)) {
+    return `http://${next}`;
+  }
+  if (!/\s/.test(next) && next.includes(".")) return `https://${next}`;
+  next = `https://www.bing.com/search?q=${encodeURIComponent(next)}`;
+  return next;
+}
+
+export function hostnameOf(value) {
+  try {
+    return new URL(normalizeUrl(value)).hostname;
+  } catch {
+    return "Browser";
+  }
+}
+
+export function normalizeBrowserPageUrl(value) {
+  const url = normalizeUrl(value || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    return parsed.href.slice(0, 2048);
+  } catch {
+    return "";
+  }
+}

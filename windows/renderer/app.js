@@ -18,6 +18,11 @@ import {
   themeOptions
 } from "./config.js";
 import {
+  hostnameOf,
+  normalizeBrowserPageUrl,
+  normalizeUrl
+} from "./browser-utils.js";
+import {
   replaceChildrenIfChanged,
   setClassNameIfChanged,
   setDatasetIfChanged,
@@ -539,17 +544,6 @@ function clearRecentCommands() {
   saveRecentCommands();
   renderSettingsInspector();
   toast("Recent commands cleared.");
-}
-
-function normalizeBrowserPageUrl(value) {
-  const url = normalizeUrl(value || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
-  try {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) return "";
-    return parsed.href.slice(0, 2048);
-  } catch {
-    return "";
-  }
 }
 
 function loadRecentBrowserPages() {
@@ -2799,26 +2793,6 @@ function ensureBrowser(panel, body) {
   body.append(shell);
   state.browserViews.set(panel.id, { view, address, back, forward, reload, home });
   updateNavState();
-}
-
-function normalizeUrl(value, fallback = "https://example.com") {
-  let next = String(value || "").trim();
-  if (!next) next = fallback;
-  if (/^https?:\/\//i.test(next)) return next;
-  if (/^localhost(?::\d+)?(?:\/|$)/i.test(next) || /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:\/|$)/.test(next)) {
-    return `http://${next}`;
-  }
-  if (!/\s/.test(next) && next.includes(".")) return `https://${next}`;
-  next = `https://www.bing.com/search?q=${encodeURIComponent(next)}`;
-  return next;
-}
-
-function hostnameOf(value) {
-  try {
-    return new URL(normalizeUrl(value)).hostname;
-  } catch {
-    return "Browser";
-  }
 }
 
 function renderInspector() {
