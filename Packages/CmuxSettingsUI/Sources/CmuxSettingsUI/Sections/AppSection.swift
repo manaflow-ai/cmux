@@ -286,6 +286,7 @@ public struct AppSection: View {
             // Terminal Config (host action)
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:app:terminal-config",
                 String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
                 subtitle: String(localized: "settings.app.configWindow.subtitle", defaultValue: "Open the cmux terminal config and generated preview in one utility window."),
                 controlWidth: Self.columnWidth
@@ -406,6 +407,7 @@ public struct AppSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:app:desktop-notifications",
                 String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
                 subtitle: String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
             ) {

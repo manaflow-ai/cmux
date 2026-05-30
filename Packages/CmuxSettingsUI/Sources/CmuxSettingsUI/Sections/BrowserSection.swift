@@ -292,6 +292,7 @@ public struct BrowserSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:browser:history",
                 String(localized: "settings.browser.history", defaultValue: "Browsing History"),
                 subtitle: historySubtitle(count: historyCount)
             ) {
