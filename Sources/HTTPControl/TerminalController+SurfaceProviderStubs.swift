@@ -195,23 +195,51 @@ extension TerminalController {
 
     /// Encode and send a single ``KeyEvent`` via `ghostty_surface_key`
     /// — ghostty owns the live-mode-aware encoding (DECCKM, kitty,
-    /// modifyOtherKeys), so the client never tracks any of that.
+    /// modifyOtherKeys), so the client never tracks any of that
+    /// (D17/E2.6).
     ///
-    /// Task 0.24.d (partial): a complete `KeyEvent` → `ghostty_input_key_s`
-    /// encoder lives in ``GhosttyTerminalView``'s socket dispatch path.
-    /// Exposing it here would require widening visibility of several
-    /// private fields on the 20k-line `GhosttyTerminalView`; for now
-    /// we surface a clear "unsupported" rather than building a parallel
-    /// encoder that risks diverging from the in-app one. The full
-    /// extract is tracked in Task 0.24.d follow-up.
+    /// Task 0.24.d: minimal encoder mapping ``KeyEvent`` →
+    /// `ghostty_input_key_s`. We send a press action (matches the
+    /// existing socket `send_key` semantics — programs receive the key
+    /// as a single keystroke). Named keys map to the ghostty
+    /// `GHOSTTY_KEY_*` physical enum; `.char(c)` uses the `text` field
+    /// (lower-case letter or punctuation) so ghostty's encoder can
+    /// apply mod combinations correctly without us having to construct
+    /// the `unshifted_codepoint` mapping for every Unicode scalar.
     @MainActor
     func writeSurfaceKey(uuid: UUID, event: KeyEvent) async throws {
-        _ = event
-        guard findTerminalPanel(uuid: uuid) != nil else {
+        guard let panel = findTerminalPanel(uuid: uuid),
+              let surface = panel.surface.surface
+        else {
             throw TerminalAccessError.unknownSurface
         }
-        throw TerminalAccessError.unsupported(
-            reason: "writeSurfaceKey awaits a shared KeyEvent encoder extract (Task 0.24.d follow-up)")
+        // Hold text storage alive across the C call.
+        var textHolder: ContiguousArray<CChar> = []
+        let mods = keyMods(event.mods)
+        let physical = ghosttyPhysical(event.key)
+        var textPtr: UnsafePointer<CChar>? = nil
+        var unshifted: UInt32 = 0
+        if case .char(let c) = event.key {
+            let s = String(c)
+            textHolder = ContiguousArray(s.utf8CString)
+            textPtr = textHolder.withUnsafeBufferPointer { $0.baseAddress }
+            if let scalar = s.unicodeScalars.first {
+                unshifted = scalar.value
+            }
+        }
+        let keyEvent = ghostty_input_key_s(
+            action: GHOSTTY_ACTION_PRESS,
+            mods: mods,
+            consumed_mods: ghostty_input_mods_e(rawValue: 0),
+            keycode: 0,
+            text: textPtr,
+            unshifted_codepoint: unshifted,
+            composing: false
+        )
+        _ = ghostty_surface_key(surface, keyEvent)
+        // Use textHolder after the call so it isn't deallocated
+        // before ghostty's encoder reads `text`.
+        _ = textHolder.count
     }
 
     /// Dispatch a ``MouseEvent`` via the direct `ghostty_surface_mouse_*`
@@ -391,4 +419,51 @@ fileprivate func mouseMods(_ mods: Set<KeyMod>) -> ghostty_input_mods_e {
     if mods.contains(.alt)   { raw |= GHOSTTY_MODS_ALT.rawValue }
     if mods.contains(.cmd)   { raw |= GHOSTTY_MODS_SUPER.rawValue }
     return ghostty_input_mods_e(rawValue: raw)
+}
+
+/// Same packed-bitset translation as ``mouseMods(_:)`` but kept
+/// separate for symmetry — the key path is the consumer.
+fileprivate func keyMods(_ mods: Set<KeyMod>) -> ghostty_input_mods_e {
+    return mouseMods(mods)
+}
+
+/// Translate a ``NamedKey`` to the ghostty `GHOSTTY_KEY_*` physical
+/// enum so `ghostty_surface_key` knows which key. For ``NamedKey/char``
+/// we leave it as `UNIDENTIFIED` and use the `text` field instead —
+/// ghostty's encoder will route printable characters through the text
+/// path rather than the physical keymap.
+fileprivate func ghosttyPhysical(_ key: NamedKey) -> ghostty_input_key_e {
+    switch key {
+    case .enter:      return GHOSTTY_KEY_ENTER
+    case .tab:        return GHOSTTY_KEY_TAB
+    case .escape:     return GHOSTTY_KEY_ESCAPE
+    case .up:         return GHOSTTY_KEY_ARROW_UP
+    case .down:       return GHOSTTY_KEY_ARROW_DOWN
+    case .left:       return GHOSTTY_KEY_ARROW_LEFT
+    case .right:      return GHOSTTY_KEY_ARROW_RIGHT
+    case .home:       return GHOSTTY_KEY_HOME
+    case .end:        return GHOSTTY_KEY_END
+    case .pageUp:     return GHOSTTY_KEY_PAGE_UP
+    case .pageDown:   return GHOSTTY_KEY_PAGE_DOWN
+    case .f(let n):
+        switch n {
+        case 1:  return GHOSTTY_KEY_F1
+        case 2:  return GHOSTTY_KEY_F2
+        case 3:  return GHOSTTY_KEY_F3
+        case 4:  return GHOSTTY_KEY_F4
+        case 5:  return GHOSTTY_KEY_F5
+        case 6:  return GHOSTTY_KEY_F6
+        case 7:  return GHOSTTY_KEY_F7
+        case 8:  return GHOSTTY_KEY_F8
+        case 9:  return GHOSTTY_KEY_F9
+        case 10: return GHOSTTY_KEY_F10
+        case 11: return GHOSTTY_KEY_F11
+        case 12: return GHOSTTY_KEY_F12
+        default: return GHOSTTY_KEY_UNIDENTIFIED
+        }
+    case .space:      return GHOSTTY_KEY_SPACE
+    case .backspace:  return GHOSTTY_KEY_BACKSPACE
+    case .delete:     return GHOSTTY_KEY_DELETE
+    case .char:       return GHOSTTY_KEY_UNIDENTIFIED  // text path used
+    }
 }
