@@ -91,6 +91,8 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertTrue(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
             hasSidebarPayload: true,
             draggedWorkspaceId: adjacentId,
+            draggedWorkspaceGroupId: nil,
+            targetGroupId: UUID(),
             targetAnchorWorkspaceId: anchorId,
             tabIds: [anchorId, adjacentId, trailingId],
             pinnedTabIds: [],
@@ -107,6 +109,8 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertFalse(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
             hasSidebarPayload: true,
             draggedWorkspaceId: adjacentId,
+            draggedWorkspaceGroupId: nil,
+            targetGroupId: UUID(),
             targetAnchorWorkspaceId: anchorId,
             tabIds: [anchorId, adjacentId, trailingId],
             pinnedTabIds: [],
@@ -123,10 +127,31 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertFalse(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
             hasSidebarPayload: true,
             draggedWorkspaceId: adjacentId,
+            draggedWorkspaceGroupId: nil,
+            targetGroupId: UUID(),
             targetAnchorWorkspaceId: anchorId,
             tabIds: [anchorId, adjacentId, trailingId],
             pinnedTabIds: [],
             locationY: 12,
+            rowHeight: 24
+        ))
+    }
+
+    func testWorkspaceGroupHeaderEdgeDropConsumesSameGroupMember() {
+        let anchorId = UUID()
+        let memberId = UUID()
+        let otherTopLevelId = UUID()
+        let groupId = UUID()
+
+        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
+            hasSidebarPayload: true,
+            draggedWorkspaceId: memberId,
+            draggedWorkspaceGroupId: groupId,
+            targetGroupId: groupId,
+            targetAnchorWorkspaceId: anchorId,
+            tabIds: [anchorId, otherTopLevelId, memberId],
+            pinnedTabIds: [],
+            locationY: 2,
             rowHeight: 24
         ))
     }

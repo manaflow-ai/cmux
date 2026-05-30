@@ -335,6 +335,8 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
     static func shouldConsumeNoOpEdgeDrop(
         hasSidebarPayload: Bool,
         draggedWorkspaceId: UUID?,
+        draggedWorkspaceGroupId: UUID?,
+        targetGroupId: UUID,
         targetAnchorWorkspaceId: UUID,
         tabIds: [UUID],
         pinnedTabIds: Set<UUID>,
@@ -351,6 +353,9 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
                   rowHeight: rowHeight
               ) else {
             return false
+        }
+        if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
+            return true
         }
         return SidebarDropPlanner.indicator(
             draggedTabId: draggedWorkspaceId,
@@ -442,10 +447,13 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
 
     private func shouldConsumeGroupHeaderNoOpEdgeDrop(_ info: DropInfo) -> Bool {
         let height = targetRowHeight ?? 1
-        guard let draggedTabId = dragState.draggedTabId else { return false }
+        guard let draggedTabId = dragState.draggedTabId,
+              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }) else { return false }
         return SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
             hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
             draggedWorkspaceId: draggedTabId,
+            draggedWorkspaceGroupId: draggedTab.groupId,
+            targetGroupId: targetGroupId,
             targetAnchorWorkspaceId: targetAnchorWorkspaceId,
             tabIds: tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedTabId,
