@@ -8,6 +8,11 @@ public struct TextBoxSection: View {
     @State private var focusOnNewTerminals: DefaultsValueModel<Bool>
     @State private var maxLines: DefaultsValueModel<Int>
 
+    /// Creates the TextBox settings section.
+    ///
+    /// - Parameters:
+    ///   - defaultsStore: The store used to read and write TextBox settings.
+    ///   - catalog: The catalog that provides the TextBox-related setting keys.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _showOnNewTerminals = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showTextBoxOnNewTerminals))
         _focusOnNewTerminals = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.focusTextBoxOnNewTerminals))
