@@ -272,6 +272,10 @@
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000002 /* HTTPControlSettings.swift */; };
+		8E774000000000000000000B /* HTTPParseError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000A /* HTTPParseError.swift */; };
+		8E7740000000000000000009 /* HTTPRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000008 /* HTTPRequest.swift */; };
+		8E774000000000000000000D /* HTTPRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000C /* HTTPRequestParser.swift */; };
+		8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000E /* HTTPRequestParserTests.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
@@ -864,6 +868,10 @@
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		8E7740000000000000000002 /* HTTPControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlSettings.swift; sourceTree = "<group>"; };
+		8E774000000000000000000A /* HTTPParseError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPParseError.swift; sourceTree = "<group>"; };
+		8E7740000000000000000008 /* HTTPRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequest.swift; sourceTree = "<group>"; };
+		8E774000000000000000000C /* HTTPRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequestParser.swift; sourceTree = "<group>"; };
+		8E774000000000000000000E /* HTTPRequestParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequestParserTests.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
@@ -1209,7 +1217,19 @@
 			children = (
 				8E7740000000000000000004 /* AppSurfaceProvider.swift */,
 				8E7740000000000000000002 /* HTTPControlSettings.swift */,
+				8E774000000000000000000A /* HTTPParseError.swift */,
+				8E7740000000000000000008 /* HTTPRequest.swift */,
+				8E774000000000000000000C /* HTTPRequestParser.swift */,
 				8E7740000000000000000006 /* TerminalController+SurfaceProviderStubs.swift */,
+			);
+			name = HTTPControl;
+			path = HTTPControl;
+			sourceTree = "<group>";
+		};
+		8E7742000000000000000001 /* HTTPControl */ = {
+			isa = PBXGroup;
+			children = (
+				8E774000000000000000000E /* HTTPRequestParserTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -1780,6 +1800,7 @@
 				FE002002 /* FileExplorerStoreTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				8E7741000000000000000001 /* Fixtures */,
+				8E7742000000000000000001 /* HTTPControl */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -2229,6 +2250,9 @@
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */,
+				8E774000000000000000000B /* HTTPParseError.swift in Sources */,
+				8E7740000000000000000009 /* HTTPRequest.swift in Sources */,
+				8E774000000000000000000D /* HTTPRequestParser.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
@@ -2533,6 +2557,7 @@
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
+				8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
