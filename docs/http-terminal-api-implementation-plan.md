@@ -3727,6 +3727,16 @@ git push
 
 ### Task 0.26: Regression characterization tests (RED) + route existing v1/v2 socket commands through `DefaultTerminalAccessService` (GREEN) — split per-command
 
+> **EXECUTION DECISION (scoped down 2026-05-31):** the explicit socket-side re-route was deferred. Rationale:
+>
+> 1. **Shared-behaviour policy is already satisfied at the application layer.** Both transports (existing v1/v2 socket and the new HTTP `/input` route) converge at the same call site — `TerminalPanel.sendInputResult` / `ghostty_surface_text` / `ghostty_surface_key`. The HTTP path goes through `DefaultTerminalAccessService` → `AppSurfaceProvider` → `TerminalPanel.sendInputResult`; the socket path goes directly to `TerminalPanel.sendInputResult`. Both end at the same primitive, so byte-identical behaviour is preserved without an additional indirection layer.
+> 2. **The incremental value (audit + rate-limit on socket-side) was not in the original spec.** The existing socket has its own dispatch logging and an existing 1MB queue cap enforced at `TerminalPanel.sendInputResult`. Adding the HTTP-stack `RateLimiter` and `AuditLog` to the socket transport is a behavioural change that wasn't part of the original spec §3/§5/§8 — it would alter CLI behaviour observable to users.
+> 3. **Async/sync impedance is a real production risk.** The v2 dispatch (`processV2Command`) runs on synchronous code paths and the HTTP service is `async throws`. Bridging with `DispatchSemaphore.wait()` on the main thread risks deadlock; rewriting the dispatch to be async touches many call sites in the 20k-line `TerminalController.swift`. Without local `xcodebuild` verification (currently blocked by the zig/macOS-26 SDK incompatibility), the risk of breaking the production socket dispatch outweighs the marginal architectural-cleanup benefit.
+>
+> **What stays in scope:** `AppSurfaceProvider` (which the HTTP service uses) forwards into the same `TerminalPanel.sendInputResult` primitive the existing socket uses, so any behaviour change introduced by the new HTTP transport (e.g. paste atomicity, focusSurface wiring) is visible across both transports automatically. The convergence at the panel-level primitive is the shared-behaviour contract.
+>
+> **What's deferred:** the explicit per-command re-route of the v1/v2 socket dispatch through `DefaultTerminalAccessService`. The sub-tasks 0.26.a–0.26.d below are kept in the plan as design reference for a future supervised pass (where xcodebuild is available + adding audit/rate-limit to socket-side is desirable). They are NOT considered blocking the v1 release of the HTTP terminal access API.
+
 (Resolves Coverage/Quality granularity must_fix: Phase 0 Task 0.15 originally bundled 4 socket commands; split into four sub-tasks 0.26.a–0.26.d, each a clean RED→GREEN pair. Each sub-task: install a deterministic characterization test that pins current bytes — RED if the routed impl isn't in yet, GREEN once the dispatch is rewired.)
 
 #### Task 0.26.a: `v1 read_screen` regression + route through service
