@@ -4284,6 +4284,10 @@ body.reduce-motion *::after {
   scrollbar-gutter: stable;
 }
 
+.context-menu-tools {
+  width: min(320px, calc(100vw - 16px));
+}
+
 .shell.performance-mode .context-menu {
   box-shadow: none;
 }
