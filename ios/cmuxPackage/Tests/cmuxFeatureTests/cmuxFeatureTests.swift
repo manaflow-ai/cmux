@@ -2150,6 +2150,53 @@ import UIKit
 }
 
 @MainActor
+@Test func renderGridTerminalInputWaitsForLiveEventBeforeReplay() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = TerminalOutputSelfHealingRouter(renderGrid: true)
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    var deliveredText: [String] = []
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
+        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
+    }
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+    let afterFirstInput = await router.sentRequests()
+    #expect(afterFirstInput.filter { $0.method == "mobile.terminal.replay" }.count == 1)
+
+    await store.submitTerminalRawInput(Data("y".utf8), surfaceID: "live-terminal")
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+
+    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
+    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
+    #expect(deliveredText == [
+        oldGridText,
+        currentGridText,
+    ])
+}
+
+@MainActor
 @Test func terminalRenderGridEventsDriveMountedSink() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -2945,8 +2992,13 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 }
 
 private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
+    private let renderGrid: Bool
     private var requests: [RecordedRPCRequest] = []
     private var replayCount = 0
+
+    init(renderGrid: Bool = false) {
+        self.renderGrid = renderGrid
+    }
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
@@ -2964,6 +3016,8 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
                 title: "Live Workspace",
                 terminalID: "live-terminal"
             )
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: renderGrid)
         case "mobile.events.subscribe":
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":

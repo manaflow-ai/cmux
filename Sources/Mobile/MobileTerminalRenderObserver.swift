@@ -84,6 +84,11 @@ final class MobileTerminalRenderObserver {
     func noteTerminalBytes(surfaceID: UUID) {
         guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
         pendingSurfaceIDs.insert(surfaceID)
+        // The byte tee runs before Ghostty's VT parser consumes the bytes, and
+        // the hop back to the main actor can land after the current tick/frame
+        // notification already fired. Schedule a fresh Ghostty tick so every
+        // byte-backed pending surface gets one post-parser render-grid flush.
+        GhosttyApp.shared.scheduleTick()
     }
 
     deinit {

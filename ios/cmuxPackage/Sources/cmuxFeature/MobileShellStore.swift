@@ -481,6 +481,7 @@ public final class CMUXMobileShellStore {
     private var connectionGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
@@ -549,6 +550,7 @@ public final class CMUXMobileShellStore {
         self.connectionGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
+        self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalOutputTransport = .rawBytes
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
@@ -1345,6 +1347,7 @@ public final class CMUXMobileShellStore {
 
     private func resetTerminalOutputTracking() {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
+        pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
         terminalSubscriptionRefreshTask?.cancel()
@@ -1686,6 +1689,24 @@ public final class CMUXMobileShellStore {
         }
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
+        if terminalOutputTransport == .renderGrid,
+           terminalEventListenerTask != nil {
+            let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
+            pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
+            if let pendingSeq, localSeq < pendingSeq {
+                liveAnchormuxLog("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
+                mobileShellLog.info("terminal render-grid still behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) pendingSeq=\(pendingSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
+                resyncTerminalOutput(
+                    reason: "input_seq_still_behind",
+                    restartEventStream: true,
+                    surfaceIDs: [surfaceID]
+                )
+            } else {
+                liveAnchormuxLog("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
+                refreshTerminalEventSubscription(reason: "input_seq_wait")
+            }
+            return
+        }
         liveAnchormuxLog("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
         mobileShellLog.info("terminal output behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
         resyncTerminalOutput(
@@ -1698,6 +1719,11 @@ public final class CMUXMobileShellStore {
     private func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
         let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
+        if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
+           endSeq >= pendingSeq {
+            pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            liveAnchormuxLog("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
+        }
     }
 
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
@@ -1718,6 +1744,7 @@ public final class CMUXMobileShellStore {
     ) {
         terminalByteSinksBySurfaceID[surfaceID] = sink
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
@@ -1727,6 +1754,7 @@ public final class CMUXMobileShellStore {
     public func unregisterTerminalByteSink(surfaceID: String) {
         terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
