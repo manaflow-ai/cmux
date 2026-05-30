@@ -271,6 +271,8 @@
 		C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10001A1B2C3D4E5F719 /* grok */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
+		8E7740000000000000000015 /* HTTPAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000014 /* HTTPAuth.swift */; };
+		8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000016 /* HTTPAuthTests.swift */; };
 		8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000002 /* HTTPControlSettings.swift */; };
 		8E774000000000000000000B /* HTTPParseError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000A /* HTTPParseError.swift */; };
 		8E7740000000000000000009 /* HTTPRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000008 /* HTTPRequest.swift */; };
@@ -869,6 +871,8 @@
 		C1ADE10001A1B2C3D4E5F719 /* grok */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/grok; sourceTree = SOURCE_ROOT; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
+		8E7740000000000000000014 /* HTTPAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuth.swift; sourceTree = "<group>"; };
+		8E7740000000000000000016 /* HTTPAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuthTests.swift; sourceTree = "<group>"; };
 		8E7740000000000000000002 /* HTTPControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlSettings.swift; sourceTree = "<group>"; };
 		8E774000000000000000000A /* HTTPParseError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPParseError.swift; sourceTree = "<group>"; };
 		8E7740000000000000000008 /* HTTPRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequest.swift; sourceTree = "<group>"; };
@@ -1220,6 +1224,7 @@
 			isa = PBXGroup;
 			children = (
 				8E7740000000000000000004 /* AppSurfaceProvider.swift */,
+				8E7740000000000000000014 /* HTTPAuth.swift */,
 				8E7740000000000000000002 /* HTTPControlSettings.swift */,
 				8E774000000000000000000A /* HTTPParseError.swift */,
 				8E7740000000000000000008 /* HTTPRequest.swift */,
@@ -1234,6 +1239,7 @@
 		8E7742000000000000000001 /* HTTPControl */ = {
 			isa = PBXGroup;
 			children = (
+				8E7740000000000000000016 /* HTTPAuthTests.swift */,
 				8E774000000000000000000E /* HTTPRequestParserTests.swift */,
 				8E7740000000000000000012 /* JSONResponsesTests.swift */,
 			);
@@ -2255,6 +2261,7 @@
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
+				8E7740000000000000000015 /* HTTPAuth.swift in Sources */,
 				8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */,
 				8E774000000000000000000B /* HTTPParseError.swift in Sources */,
 				8E7740000000000000000009 /* HTTPRequest.swift in Sources */,
@@ -2564,6 +2571,7 @@
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
+				8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */,
 				8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				8E7740000000000000000013 /* JSONResponsesTests.swift in Sources */,
