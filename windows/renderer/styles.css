@@ -5061,7 +5061,8 @@ textarea.dialog-input {
   text-align: center;
 }
 
-.workspace-switch-hud {
+.workspace-switch-hud,
+.pane-switch-hud {
   position: fixed;
   left: 50%;
   top: calc(44px + var(--space-4));
@@ -5086,7 +5087,15 @@ textarea.dialog-input {
     transform var(--dur-fast) var(--ease-out);
 }
 
-.workspace-switch-hud.is-visible {
+.pane-switch-hud {
+  top: calc(44px + var(--space-4) + 68px);
+  width: min(360px, calc(100vw - 40px));
+  min-height: 52px;
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.workspace-switch-hud.is-visible,
+.pane-switch-hud.is-visible {
   opacity: 1;
   transform: translate(-50%, 0) scale(1);
 }
@@ -5126,7 +5135,8 @@ textarea.dialog-input {
   font-size: 11px;
 }
 
-.reduce-motion .workspace-switch-hud {
+.reduce-motion .workspace-switch-hud,
+.reduce-motion .pane-switch-hud {
   transition: opacity 80ms linear;
   transform: translate(-50%, 0);
 }
