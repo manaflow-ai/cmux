@@ -1382,6 +1382,7 @@ body.reduce-motion *::after {
 }
 
 .terminal-host {
+  container-type: inline-size;
   position: relative;
   width: 100%;
   height: 100%;
@@ -1403,6 +1404,7 @@ body.reduce-motion *::after {
   top: var(--space-2);
   right: var(--space-2);
   z-index: 12;
+  min-width: 0;
   width: min(420px, calc(100% - var(--space-4)));
   display: grid;
   grid-template-columns: minmax(120px, 1fr) auto 26px 26px 30px 26px;
@@ -1431,7 +1433,7 @@ body.reduce-motion *::after {
 }
 
 .terminal-search-status {
-  min-width: 64px;
+  min-width: 0;
   color: var(--color-faint);
   font: 11px/1 var(--font-mono);
   text-align: right;
@@ -1461,6 +1463,43 @@ body.reduce-motion *::after {
 
 .terminal-search-case {
   width: 30px;
+}
+
+@container (max-width: 340px) {
+  .terminal-search {
+    left: var(--space-2);
+    right: var(--space-2);
+    width: auto;
+    grid-template-columns: minmax(0, 1fr) 26px 26px 26px;
+  }
+
+  .terminal-search-status,
+  .terminal-search-case {
+    display: none;
+  }
+}
+
+@container (max-width: 190px) {
+  .terminal-search {
+    grid-template-columns: minmax(0, 1fr) 26px;
+  }
+
+  .terminal-search-prev,
+  .terminal-search-next {
+    display: none;
+  }
+}
+
+@container (max-width: 140px) {
+  .terminal-search {
+    left: var(--space-1);
+    right: var(--space-1);
+  }
+
+  .terminal-search-input {
+    padding-inline: var(--space-1);
+    font-size: 11px;
+  }
 }
 
 .browser-shell {
