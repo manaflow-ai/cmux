@@ -11148,8 +11148,8 @@ struct VerticalTabsSidebar: View {
 
         static func rowVerticalPadding(compact: Bool) -> CGFloat {
             let height = rowHeight(compact: compact)
-            precondition(iconSize <= height, "iconSize (\(iconSize)) must not exceed rowHeight (\(height))")
-            return (height - iconSize) / 2
+            assert(iconSize <= height, "iconSize (\(iconSize)) must not exceed rowHeight (\(height))")
+            return max(0, (height - iconSize) / 2)
         }
 
         static func rowCornerRadius(compact: Bool) -> CGFloat {

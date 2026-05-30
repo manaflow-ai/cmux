@@ -456,9 +456,9 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig, buttonCount: Int) -> CGFloat {
-        let buttonCount = CGFloat(max(0, buttonCount))
-        let gapCount = max(0, buttonCount - 1)
-        return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
+        let clampedButtonCount = CGFloat(max(0, buttonCount))
+        let gapCount = max(0, clampedButtonCount - 1)
+        return (clampedButtonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
     static func fittingConfig(
