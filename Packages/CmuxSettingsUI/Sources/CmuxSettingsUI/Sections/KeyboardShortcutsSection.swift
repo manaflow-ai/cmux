@@ -54,11 +54,21 @@ public struct KeyboardShortcutsSection: View {
                 // sit next to the unread navigation actions — matches
                 // legacy `KeyboardShortcutSettings.settingsVisibleActions`
                 // / `orderedSettingsVisibleActions`.
+                // ~166 recorder rows, each AppKit-backed — the one heavy
+                // list in Settings. The detail stack is eager (so every
+                // search anchor stays scroll-addressable), which would
+                // otherwise build all of these on window open and cost
+                // ~2s. These per-shortcut rows aren't search anchors (only
+                // the enclosing card is), so a LazyVStack here defers them
+                // until the section scrolls into view without affecting any
+                // scroll/highlight target.
                 let actions = Self.settingsVisibleActions
-                ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                    actionRow(action)
-                    if index < actions.count - 1 {
-                        SettingsCardDivider()
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(actions.enumerated()), id: \.element) { index, action in
+                        actionRow(action)
+                        if index < actions.count - 1 {
+                            SettingsCardDivider()
+                        }
                     }
                 }
             }
