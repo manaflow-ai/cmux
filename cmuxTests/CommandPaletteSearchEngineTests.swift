@@ -479,6 +479,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 searchableTexts: ["Fork Conversation to the Right", "Terminal", "fork", "right"]
             ),
             FixtureEntry(
+                id: "palette.forkAgentConversationNewTab",
+                rank: 2,
+                title: "Fork Conversation to New Tab",
+                searchableTexts: ["Fork Conversation to New Tab", "Terminal", "fork", "new", "tab"]
+            ),
+            FixtureEntry(
                 id: "palette.forkAgentConversationNewWorkspace",
                 rank: 1,
                 title: "Fork Conversation to New Workspace",
@@ -1005,6 +1011,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             "palette.forkAgentConversationLeft",
             "palette.forkAgentConversationTop",
             "palette.forkAgentConversationBottom",
+            "palette.forkAgentConversationNewTab",
             "palette.forkAgentConversationNewWorkspace"
         ]
 

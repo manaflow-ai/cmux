@@ -2505,6 +2505,7 @@ private struct MirrorTabItem: Codable {
     let isDirty: Bool
     let showsNotificationBadge: Bool
     let isLoading: Bool
+    let isAudioMuted: Bool
     let isPinned: Bool
 }
 
@@ -2528,6 +2529,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
             isDirty: false,
             showsNotificationBadge: false,
             isLoading: false,
+            isAudioMuted: false,
             isPinned: false
         ),
         sourcePaneId: UUID(),

@@ -45,7 +45,7 @@
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
-    "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve otomasyon için socket API.",
+    "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için <cliLink>CLI</cliLink>.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -495,7 +495,8 @@
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
-          "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle."
+          "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
+          "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder."
         },
         "terminal": {
           "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil."
@@ -672,7 +673,7 @@
       "metaTitle": "Klavye kısayolları"
     },
     "api": {
-      "title": "API Referansı",
+      "title": "CLI Referansı",
       "metaDescription": "cmux CLI ve Unix socket API referansı. Çalışma alanı yönetimi, bölünmüş paneller, girdi kontrolü, bildirimler, kenar çubuğu meta verileri, ortam değişkenleri ve algılama yöntemleri.",
       "intro": "cmux, programatik kontrol için hem bir CLI aracı hem de bir Unix soketi sağlar. Her komut her iki arayüz aracılığıyla kullanılabilir.",
       "socket": "Socket",
@@ -751,7 +752,7 @@
       "pythonClient": "Python istemcisi",
       "shellScript": "Shell betiği",
       "buildScriptNotification": "Bildirimli build betiği",
-      "metaTitle": "API referansı"
+      "metaTitle": "CLI Referansı"
     },
     "notifications": {
       "title": "Bildirimler",
@@ -894,7 +895,7 @@
       "authoringCallout": "Yeni bir yetenek eklerken <code>agents/openai.yaml</code> ekleyin ki installer net bir ad, kısa açıklama ve varsayılan prompt gösterebilsin.",
       "relatedTitle": "İlgili dokümanlar",
       "relatedBrowserAutomation": "Tarayıcı otomasyonu",
-      "relatedApi": "API Referansı",
+      "relatedApi": "CLI Referansı",
       "relatedCustomCommands": "Özel Komutlar"
     },
     "changelog": {
@@ -909,7 +910,7 @@
       "sessionRestore": "Oturum geri yükleme",
       "customCommands": "Özel Komutlar",
       "keyboardShortcuts": "Klavye Kısayolları",
-      "apiReference": "API Referansı",
+      "apiReference": "CLI Referansı",
       "browserAutomation": "Tarayıcı Otomasyonu",
       "skills": "Yetenekler",
       "notifications": "Bildirimler",

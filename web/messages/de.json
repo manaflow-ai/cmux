@@ -45,7 +45,7 @@
     "taglinePrefix": "Das Terminal für ",
     "typingCodingAgents": "Coding-Agenten",
     "typingMultitasking": "Multitasking",
-    "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine Socket-API für Automatisierung.",
+    "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine <cliLink>CLI</cliLink> für Programmierbarkeit.",
     "features": "Funktionen",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -495,7 +495,8 @@
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
-          "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden."
+          "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
+          "forkConversationDefaultDestination": "Standardziel für die primäre Fork Conversation-Aktion im Tab-Kontextmenü. Das Untermenü zeigt weiterhin alle Ziele."
         },
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick."
@@ -672,7 +673,7 @@
       "metaTitle": "Tastenkürzel"
     },
     "api": {
-      "title": "API-Referenz",
+      "title": "CLI-Referenz",
       "metaDescription": "cmux CLI und Unix-Socket-API-Referenz. Workspace-Verwaltung, geteilte Bereiche, Eingabesteuerung, Benachrichtigungen, Seitenleisten-Metadaten, Umgebungsvariablen und Erkennungsmethoden.",
       "intro": "cmux bietet sowohl ein CLI-Werkzeug als auch einen Unix-Socket für programmatische Steuerung. Jeder Befehl ist über beide Schnittstellen verfügbar.",
       "socket": "Socket",
@@ -751,7 +752,7 @@
       "pythonClient": "Python-Client",
       "shellScript": "Shell-Skript",
       "buildScriptNotification": "Build-Skript mit Benachrichtigung",
-      "metaTitle": "API-Referenz"
+      "metaTitle": "CLI-Referenz"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -894,7 +895,7 @@
       "authoringCallout": "Füge beim Hinzufügen eines neuen Skills <code>agents/openai.yaml</code> hinzu, damit der Installer einen klaren Namen, eine kurze Beschreibung und einen Standardprompt anzeigen kann.",
       "relatedTitle": "Verwandte Dokumentation",
       "relatedBrowserAutomation": "Browserautomatisierung",
-      "relatedApi": "API-Referenz",
+      "relatedApi": "CLI-Referenz",
       "relatedCustomCommands": "Benutzerdefinierte Befehle"
     },
     "changelog": {
@@ -909,7 +910,7 @@
       "sessionRestore": "Sitzungswiederherstellung",
       "customCommands": "Benutzerdefinierte Befehle",
       "keyboardShortcuts": "Tastaturkürzel",
-      "apiReference": "API-Referenz",
+      "apiReference": "CLI-Referenz",
       "browserAutomation": "Browser-Automatisierung",
       "skills": "Skills",
       "notifications": "Benachrichtigungen",

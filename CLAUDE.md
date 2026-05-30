@@ -281,6 +281,80 @@ Every `public` symbol in any new Swift package under `Packages/` is documented w
 
 This rule applies to all packages under `Packages/`. Code in the main app target is not retroactively required to be documented, but new `public` symbols added to packages must be.
 
+## Package design discipline
+
+These are the recurring design mistakes that have to be caught at the design step, not at code review:
+
+- **No shared-singleton accessors.** `static let standard` / `shared` / `default` on a package type that holds runtime state is a singleton-by-another-name. Construct the package type at the app's startup site and inject it. `static let` is fine for *declarations* — identifiers, schema entries, enum cases — but not for behavior.
+- **No namespace-enums.** `enum Foo { static func bar() }` (a no-case enum used as a namespace) is a fake namespace that fights the rest of the design (no instances, no DI, no test seam). Prefer a value-typed struct passed via constructor when the helper might gain configuration, or a file-scope `private func` for pure helpers internal to one file.
+- **No parallel hand-maintained registries.** When a list mirrors a set of declared items (e.g. `catalog.all` mirroring the catalog's stored properties), derive the list via `Mirror` reflection or a macro. Two sources of truth drift silently; the IDE doesn't tell you.
+- **Prefer compile-time invariants to runtime traps.** If the pattern is `guard ... else { assertionFailure(...); return default }` for a "programmer error" case, encode it in the type system (phantom types, separate concrete flavors). Runtime traps become silent fallbacks in release builds.
+- **File-scope `private func` is not `private static func`.** `private static` inside a type signals "this operation belongs to the type." File-scope `private func` signals "pure helper local to this file, unrelated to any type." Use the latter for recursive helpers that take a sliced view as input and never read host-type state.
+- **Nested types still count for the one-major-type-per-file rule.** A `private final class WatcherAttachment` inside `JSONConfigFileWatcher.swift` is a major type. Move it to its own file the moment it has a meaningful body.
+
+## Testability
+
+Every public type added to `Packages/` must be **testable from a test target** without launching the app target, without booting AppKit, and without depending on the user's filesystem or `UserDefaults.standard`. Production-grade designs surface a test seam at every boundary:
+
+- **No global state in package code.** Every public type that needs `UserDefaults`, `FileManager`, an on-disk path, an environment variable, or a clock takes it via initializer parameter. Tests pass a `UserDefaults(suiteName:)` scoped to the test, a temp directory URL, a fixed `Date`, etc.
+- **No reliance on `.shared` / `.standard`.** A public type that hardcodes `UserDefaults.standard` or `FileManager.default` inside its implementation cannot be tested without polluting the developer's actual settings. Inject these at the seam.
+- **Public APIs return values, not side effects, where possible.** A function that mutates global UserDefaults and returns `Void` is harder to test than one that returns the changed value and lets the caller persist. Prefer pure transformations + thin imperative layers.
+- **Asynchronous APIs surface their observation as `AsyncStream`.** Tests can iterate `AsyncStream` deterministically and assert the sequence of yielded values. Avoid `NotificationCenter`-only patterns where the test has to spin a runloop.
+- **Document the test pattern** alongside any non-trivial public surface. The package's `README.md` and any DocC catalog should show how to instantiate the type with test-friendly dependencies.
+
+If a design is hard to test, it is wrong. Reach for the constructor parameter list, not the test bench.
+
+## Modern Swift concurrency
+
+All new code in `Packages/` and any new files added to the app target use Swift 6 concurrency primitives: `actor`, `async`/`await`, `AsyncStream`/`AsyncSequence`, `@Observable`, `@MainActor`. Old primitives — locks, manual KVO, `@Published`, completion handlers, `DispatchQueue` used as a serial lock — are not allowed.
+
+If you find yourself reaching for a lock, the type is the wrong shape. Promote it to an `actor`.
+
+**Forbidden in new code (no exceptions without a written justification in the PR description):**
+
+- **Locks.** `NSLock`, `NSRecursiveLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `pthread_mutex_t`, `Synchronization.Mutex`, `DispatchSemaphore` used as a lock. Use `actor` isolation. Mutable shared state belongs in an actor; reads and writes are `async`.
+- **KVO via `NSObject` subclassing.** Any `class Foo: NSObject` whose purpose is to override `observeValue(forKeyPath:...)` or call `addObserver(_:forKeyPath:...)`. Replace with `NotificationCenter.default.notifications(named:)` `AsyncSequence`, or the `NSKeyValueObservation` token API at the seam only.
+- **`DispatchQueue` used as a synchronization primitive.** A `DispatchQueue(label:)` accessed via `queue.sync { ... }` to serialize mutable state is a lock with different syntax. Use an `actor`. Queues are fine for *event delivery* (e.g. a `DispatchSource` handler), not for protecting state.
+- **Combine for change propagation.** No `@Published`, no `ObservableObject`, no `PassthroughSubject`/`CurrentValueSubject`, no `AnyCancellable` for change observation. Use `@Observable` (Observation framework, Swift 5.9+) for SwiftUI state, or `AsyncStream`/`AsyncSequence` for cross-actor change propagation.
+- **Completion-handler APIs.** Authoring a new public API with a `(Result<T, Error>) -> Void` or `(T?, Error?) -> Void` callback is forbidden. Use `async throws -> T`. When wrapping a legacy callback at the boundary, use `withCheckedContinuation`/`withCheckedThrowingContinuation` and keep it confined to that one seam.
+- **`DispatchQueue.main.async { ... }`.** Annotate the destination with `@MainActor`. Call sites either `await` the main-isolated function or are themselves `@MainActor`.
+- **`Task.sleep` in app/runtime code.** Already forbidden by the cmuxterm-hq top-level rule against sleep-based timing. Allowed in tests only.
+
+**Required shape:**
+
+- Mutable shared state → `actor`. Reads/writes/reset are `async`. Observers receive `AsyncStream` returned by the actor.
+- SwiftUI view-render-friendly state → `@Observable @MainActor` view-model that subscribes to the actor's `AsyncStream` and projects snapshots. Don't read actor state synchronously from view code.
+- Cross-process / cross-thread invariants → expressed via actor isolation, not via locks or queues.
+- New public observable surfaces → `AsyncStream` or `AsyncSequence`. Not callbacks, not `@Published`, not raw `NotificationCenter` subscription.
+
+**Acceptable with a one-line justification comment on the declaration:**
+
+These low-level primitives have no async-native replacement. They must be hidden behind an `AsyncStream` or `actor` surface; callers never see them.
+
+- `DispatchSource.makeFileSystemObjectSource` for file watching (no Foundation async equivalent).
+- `DispatchSource.makeReadSource`/`makeWriteSource` for low-level socket I/O.
+- `NSKeyValueObservation` token (the closure-based API) when wrapping a Foundation/AppKit type that exposes change only via KVO.
+
+**`@unchecked Sendable` and `nonisolated(unsafe)`:**
+
+Both require a comment on the declaration explaining the safety argument. Examples that pass review:
+
+```swift
+// Wraps DispatchSourceFileSystemObject; every mutation happens on `queue`.
+private final class WatcherAttachment: @unchecked Sendable { ... }
+
+// UserDefaults is Apple-documented thread-safe; OK to read nonisolated.
+private nonisolated(unsafe) let defaults: UserDefaults
+```
+
+Without a justification comment, the diff is rejected. `@unchecked Sendable` on an entire actor or struct is almost always wrong; prefer `nonisolated(unsafe) let` on the single non-Sendable property.
+
+**Scope and enforcement:**
+
+- Applies to: every new file in `Packages/`, every new file in the app target, every meaningful rewrite of an existing Swift file.
+- Existing app target code may continue to use the old primitives until rewritten. Do not retrofit blindly.
+- Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `NSLock`/`NSRecursiveLock`/`@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`Task.sleep` outside tests in new code. Reject `@unchecked Sendable` or `nonisolated(unsafe)` without a justification comment.
+
 ## Test quality policy
 
 - Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
