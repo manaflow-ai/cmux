@@ -17,7 +17,7 @@ public enum CMUXSidebarXPCCodec {
     public static let maximumActionResultPayloadBytes = 8 * 1024
 
     public static func encodeSnapshot(_ snapshot: CMUXSidebarSnapshot) throws -> NSData {
-        try JSONEncoder().encode(snapshot) as NSData
+        try encode(snapshot, kind: "snapshot", maximumBytes: maximumSnapshotPayloadBytes)
     }
 
     public static func decodeSnapshot(_ payload: NSData) throws -> CMUXSidebarSnapshot {
@@ -26,7 +26,7 @@ public enum CMUXSidebarXPCCodec {
     }
 
     public static func encodeManifest(_ manifest: CMUXExtensionManifest) throws -> NSData {
-        try JSONEncoder().encode(manifest) as NSData
+        try encode(manifest, kind: "manifest", maximumBytes: maximumManifestPayloadBytes)
     }
 
     public static func decodeManifest(_ payload: NSData) throws -> CMUXExtensionManifest {
@@ -35,7 +35,7 @@ public enum CMUXSidebarXPCCodec {
     }
 
     public static func encodeAction(_ action: CMUXSidebarAction) throws -> NSData {
-        try JSONEncoder().encode(action) as NSData
+        try encode(action, kind: "action", maximumBytes: maximumActionPayloadBytes)
     }
 
     public static func decodeAction(_ payload: NSData) throws -> CMUXSidebarAction {
@@ -44,7 +44,7 @@ public enum CMUXSidebarXPCCodec {
     }
 
     public static func encodeActionResult(_ result: CMUXExtensionActionResult) throws -> NSData {
-        try JSONEncoder().encode(result) as NSData
+        try encode(result, kind: "actionResult", maximumBytes: maximumActionResultPayloadBytes)
     }
 
     public static func decodeActionResult(_ payload: NSData) throws -> CMUXExtensionActionResult {
@@ -60,5 +60,11 @@ public enum CMUXSidebarXPCCodec {
                 maximumBytes: maximumBytes
             )
         }
+    }
+
+    private static func encode<T: Encodable>(_ value: T, kind: String, maximumBytes: Int) throws -> NSData {
+        let payload = try JSONEncoder().encode(value) as NSData
+        try validatePayloadSize(payload, kind: kind, maximumBytes: maximumBytes)
+        return payload
     }
 }

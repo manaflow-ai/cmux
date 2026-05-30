@@ -239,6 +239,80 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testSidebarXPCCodecRejectsOversizedSnapshotOnEncodeAndDecode() {
+        let oversizedTitle = String(repeating: "x", count: CMUXSidebarXPCCodec.maximumSnapshotPayloadBytes)
+        let snapshot = CMUXSidebarSnapshot(
+            sequence: 46,
+            selectedWorkspaceID: nil,
+            workspaces: [
+                CMUXSidebarWorkspace(id: UUID(), title: oversizedTitle),
+            ]
+        )
+
+        do {
+            _ = try CMUXSidebarXPCCodec.encodeSnapshot(snapshot)
+            Issue.record("Expected oversized snapshot payload to be rejected on encode")
+        } catch {
+            if case let CMUXExtensionValidationError.payloadTooLarge(kind, actualBytes, maximumBytes) = error {
+                #expect(kind == "snapshot")
+                #expect(actualBytes > maximumBytes)
+                #expect(maximumBytes == CMUXSidebarXPCCodec.maximumSnapshotPayloadBytes)
+            } else {
+                Issue.record("Unexpected error: \(error)")
+            }
+        }
+
+        let payload = Data(repeating: 0x20, count: CMUXSidebarXPCCodec.maximumSnapshotPayloadBytes + 1) as NSData
+        do {
+            _ = try CMUXSidebarXPCCodec.decodeSnapshot(payload)
+            Issue.record("Expected oversized snapshot payload to be rejected on decode")
+        } catch {
+            #expect(
+                error as? CMUXExtensionValidationError == .payloadTooLarge(
+                    kind: "snapshot",
+                    actualBytes: payload.length,
+                    maximumBytes: CMUXSidebarXPCCodec.maximumSnapshotPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
+    func testSidebarXPCCodecRejectsOversizedActionResultOnEncodeAndDecode() {
+        let result = CMUXExtensionActionResult(
+            accepted: false,
+            message: String(repeating: "x", count: CMUXSidebarXPCCodec.maximumActionResultPayloadBytes)
+        )
+
+        do {
+            _ = try CMUXSidebarXPCCodec.encodeActionResult(result)
+            Issue.record("Expected oversized action result payload to be rejected on encode")
+        } catch {
+            if case let CMUXExtensionValidationError.payloadTooLarge(kind, actualBytes, maximumBytes) = error {
+                #expect(kind == "actionResult")
+                #expect(actualBytes > maximumBytes)
+                #expect(maximumBytes == CMUXSidebarXPCCodec.maximumActionResultPayloadBytes)
+            } else {
+                Issue.record("Unexpected error: \(error)")
+            }
+        }
+
+        let payload = Data(repeating: 0x20, count: CMUXSidebarXPCCodec.maximumActionResultPayloadBytes + 1) as NSData
+        do {
+            _ = try CMUXSidebarXPCCodec.decodeActionResult(payload)
+            Issue.record("Expected oversized action result payload to be rejected on decode")
+        } catch {
+            #expect(
+                error as? CMUXExtensionValidationError == .payloadTooLarge(
+                    kind: "actionResult",
+                    actualBytes: payload.length,
+                    maximumBytes: CMUXSidebarXPCCodec.maximumActionResultPayloadBytes
+                )
+            )
+        }
+    }
+
+    @Test
     func testManifestValidationRejectsUnsupportedAPIVersion() {
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",
