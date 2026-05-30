@@ -19,6 +19,7 @@ const defaultPipeName = process.platform === "win32"
   ? "\\\\.\\pipe\\cmux-windows"
   : path.join(os.tmpdir(), "cmux-windows.sock");
 const defaultBrowserHomeUrl = "https://www.google.com";
+const terminalMetadataBroadcastDelayMs = 160;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -326,7 +327,7 @@ class TerminalProcess {
       const nextTitle = cleanTerminalTitle(titleMatch[1]);
       if (nextTitle && this.panel.title !== nextTitle) {
         this.panel.title = nextTitle;
-        this.panel.runtime.persistAndBroadcast();
+        this.panel.runtime.scheduleTerminalMetadataBroadcast();
       }
     }
     const lower = data.toLowerCase();
@@ -336,9 +337,12 @@ class TerminalProcess {
       lower.includes("permission") ||
       lower.includes("approve")
     ) {
-      this.panel.needsAttention = true;
-      this.panel.notificationText = data.replace(/\s+/g, " ").trim().slice(0, 160);
-      this.panel.runtime.broadcastState();
+      const notificationText = data.replace(/\s+/g, " ").trim().slice(0, 160);
+      if (!this.panel.needsAttention || this.panel.notificationText !== notificationText) {
+        this.panel.needsAttention = true;
+        this.panel.notificationText = notificationText;
+        this.panel.runtime.broadcastState();
+      }
     }
     const payload = JSON.stringify({ type: "output", data });
     for (const client of this.clients) {
@@ -388,6 +392,7 @@ class CmuxWindowsRuntime {
     this.wss = new WebSocketServer({ noServer: true });
     this.eventSockets = new Set();
     this.terminals = new Map();
+    this.terminalMetadataTimer = null;
     this.state = this.loadSession();
   }
 
@@ -788,8 +793,20 @@ class CmuxWindowsRuntime {
   }
 
   persistAndBroadcast() {
+    if (this.terminalMetadataTimer) {
+      clearTimeout(this.terminalMetadataTimer);
+      this.terminalMetadataTimer = null;
+    }
     this.persistSession();
     this.broadcastState();
+  }
+
+  scheduleTerminalMetadataBroadcast() {
+    if (this.terminalMetadataTimer) clearTimeout(this.terminalMetadataTimer);
+    this.terminalMetadataTimer = setTimeout(() => {
+      this.terminalMetadataTimer = null;
+      this.persistAndBroadcast();
+    }, terminalMetadataBroadcastDelayMs);
   }
 
   broadcastState() {
@@ -1101,6 +1118,10 @@ class CmuxWindowsRuntime {
   }
 
   close() {
+    if (this.terminalMetadataTimer) {
+      clearTimeout(this.terminalMetadataTimer);
+      this.terminalMetadataTimer = null;
+    }
     for (const terminal of this.terminals.values()) terminal.close();
     this.terminals.clear();
     for (const socket of this.eventSockets) socket.close();
