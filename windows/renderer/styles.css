@@ -391,7 +391,6 @@ body.reduce-motion *::after {
 .browser-go,
 .browser-nav,
 .settings-action,
-.settings-nav-button,
 .settings-preset,
 .quick-settings-shortcut,
 .actions-group-card,
@@ -483,10 +482,11 @@ body.reduce-motion *::after {
 .saved-color-input:focus-visible,
 .dialog-button:focus-visible,
 .dialog-input:focus-visible,
+.setting-control:focus-visible,
+.setting-select:focus-visible,
 .palette-input:focus-visible,
 .sidebar-action:focus-visible,
 .settings-action:focus-visible,
-.settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
 .quick-settings-shortcut:focus-visible,
 .actions-group-card:focus-visible,
@@ -518,7 +518,6 @@ body.reduce-motion *::after {
 .dialog-button:active,
 .sidebar-action:active,
 .settings-action:active,
-.settings-nav-button:active,
 .settings-preset:active,
 .quick-settings-shortcut:active,
 .actions-group-card:active,
@@ -1855,47 +1854,31 @@ body.reduce-motion *::after {
   margin-bottom: var(--space-4);
 }
 
-.settings-nav {
+.settings-page-switcher {
   position: sticky;
   top: 38px;
   z-index: 2;
-  display: flex;
-  flex-wrap: nowrap;
-  gap: var(--space-1);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
-  margin: 0 calc(var(--space-1) * -1);
-  padding: 0 var(--space-1) var(--space-2);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity;
-  scrollbar-width: none;
+  padding-bottom: var(--space-2);
   background: var(--color-rail);
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
-  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 24px), transparent 100%);
 }
 
-.settings-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.settings-nav-button {
-  flex: 0 0 auto;
+.settings-page-label {
   min-width: 0;
-  height: 28px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-1);
-  background: var(--color-pane);
-  color: var(--color-muted);
-  font-size: 12px;
-  scroll-snap-align: start;
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
-.settings-nav-button:hover,
-.settings-nav-button.is-active {
-  border-color: var(--color-line-strong);
-  background: var(--color-pane-active);
-  color: var(--color-text);
+.settings-page-select {
+  width: 100%;
+  background: var(--color-pane);
 }
 
 .settings-section-title {

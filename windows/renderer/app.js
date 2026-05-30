@@ -3962,41 +3962,27 @@ function scheduleSettingsSearchFocus() {
 
 function settingsCategoryNav() {
   const nav = document.createElement("div");
-  nav.className = "settings-nav";
-  attachSettingsNavWheel(nav);
+  nav.className = "settings-page-switcher";
+  const labelText = document.createElement("span");
+  labelText.className = "settings-page-label";
+  labelText.textContent = "Page";
+  const select = document.createElement("select");
+  select.className = "setting-select settings-page-select";
+  select.setAttribute("aria-label", "Settings page");
   for (const [id, label] of settingsCategories) {
-    const button = document.createElement("button");
-    button.className = `settings-nav-button${state.settingsCategory === id ? " is-active" : ""}`;
-    button.type = "button";
-    button.textContent = label;
-    button.onclick = () => {
-      state.settingsCategory = id;
-      renderSettingsInspector();
-    };
-    nav.append(button);
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = label;
+    select.append(option);
   }
-  requestAnimationFrame(() => scrollActiveSettingsNavIntoView(nav));
+  select.value = state.settingsCategory;
+  select.onchange = () => {
+    state.settingsCategory = select.value;
+    state.settingsQuery = "";
+    renderSettingsInspector();
+  };
+  nav.append(labelText, select);
   return nav;
-}
-
-function attachSettingsNavWheel(nav) {
-  nav.addEventListener("wheel", (event) => {
-    if (event.ctrlKey || nav.scrollWidth <= nav.clientWidth) return;
-    const horizontalDelta = event.deltaX || event.deltaY;
-    if (!horizontalDelta) return;
-    event.preventDefault();
-    nav.scrollLeft += horizontalDelta;
-  }, { passive: false });
-}
-
-function scrollActiveSettingsNavIntoView(root = elements.inspectorBody) {
-  const activeButton = root?.querySelector?.(".settings-nav-button.is-active");
-  if (!activeButton) return;
-  activeButton.scrollIntoView({
-    block: "nearest",
-    inline: "center",
-    behavior: document.body.classList.contains("reduce-motion") ? "auto" : "smooth"
-  });
 }
 
 function settingsCategoryLabel(id) {
