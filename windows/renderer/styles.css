@@ -1320,6 +1320,10 @@ body.reduce-motion *::after {
   --pane-drop-top: 0px;
 }
 
+.shell.pane-header-compact .pane {
+  grid-template-rows: 20px minmax(0, 1fr);
+}
+
 .shell.pane-header-compact .pane-header {
   gap: 4px;
   padding: 0 5px;
@@ -1348,6 +1352,14 @@ body.reduce-motion *::after {
   width: 20px;
   height: 18px;
   font-size: 10px;
+}
+
+.shell.pane-header-hidden .pane {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell.pane-header-hidden .pane-header {
+  display: none;
 }
 
 .pane.is-browser .font-down,
