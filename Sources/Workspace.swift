@@ -11599,19 +11599,28 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
-    func updatePanelDirectory(panelId: UUID, directory: String) {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
+    func updatePanelDirectory(
+        panelId: UUID,
+        directory: String,
+        preserveExactDirectory: Bool = false
+    ) {
+        let resolvedDirectory: String
+        if preserveExactDirectory {
+            resolvedDirectory = directory
+        } else {
+            resolvedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !resolvedDirectory.isEmpty else { return }
+        if panelDirectories[panelId] != resolvedDirectory {
+            panelDirectories[panelId] = resolvedDirectory
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
+            if surfaceTabBarDirectory != resolvedDirectory {
+                surfaceTabBarDirectory = resolvedDirectory
             }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
+            if currentDirectory != resolvedDirectory {
+                currentDirectory = resolvedDirectory
             }
         }
     }
@@ -13429,17 +13438,23 @@ final class Workspace: Identifiable, ObservableObject {
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
+        let remoteInitialWorkingDirectory = remoteTerminalStartupCommand == nil ? nil : splitWorkingDirectory
+        let localWorkingDirectory = remoteTerminalStartupCommand == nil ? splitWorkingDirectory : nil
+        var effectiveStartupEnvironment = startupEnvironment
+        if let remoteInitialWorkingDirectory {
+            effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
+        }
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -13568,18 +13583,30 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedWorkingDirectory = (trimmedWorkingDirectory?.isEmpty == false) ? trimmedWorkingDirectory : nil
+        var effectiveStartupEnvironment = startupEnvironment
+        let localWorkingDirectory: String?
+        if remoteTerminalStartupCommand != nil {
+            localWorkingDirectory = nil
+            if let requestedWorkingDirectory {
+                effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = requestedWorkingDirectory
+            }
+        } else {
+            localWorkingDirectory = requestedWorkingDirectory
+        }
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
