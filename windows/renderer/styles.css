@@ -2556,14 +2556,18 @@ button {
 .context-menu {
   position: fixed;
   z-index: 120;
-  width: 230px;
+  width: min(252px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
   display: grid;
   gap: var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-2);
   border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-2);
   background: var(--color-rail);
   box-shadow: 0 18px 48px oklch(0% 0 0 / 42%);
+  scrollbar-gutter: stable;
 }
 
 .shell.performance-mode .context-menu {
@@ -2608,6 +2612,7 @@ button {
 }
 
 .context-action {
+  min-width: 0;
   height: 28px;
   display: flex;
   align-items: center;
@@ -2618,6 +2623,9 @@ button {
   background: transparent;
   color: var(--color-text);
   text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .context-action:hover {

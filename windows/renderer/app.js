@@ -4654,6 +4654,7 @@ function showPanelContextMenu(event, panel) {
   event.preventDefault();
   event.stopPropagation();
   const menu = ensureContextMenu();
+  menu.className = "context-menu";
   const found = findPanelState(panel.id);
   if (!found) return;
   const index = found.workspace.panels.findIndex((candidate) => candidate.id === panel.id);
@@ -4701,17 +4702,14 @@ function showPanelContextMenu(event, panel) {
   const clear = contextMenuButton("Clear color", () => updatePanel(panel.id, { color: "" }), !panel.color);
   const customColor = contextColorPicker(panel.color, (color) => updatePanel(panel.id, { color }));
   menu.replaceChildren(title, actions, colorTitle, colors, customColor, clear);
-  menu.hidden = false;
-  const x = Math.min(event.clientX, window.innerWidth - 238);
-  const y = Math.min(event.clientY, window.innerHeight - 306);
-  menu.style.left = `${Math.max(8, x)}px`;
-  menu.style.top = `${Math.max(8, y)}px`;
+  showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
 function showWorkspaceContextMenu(event, workspace) {
   event.preventDefault();
   event.stopPropagation();
   const menu = ensureContextMenu();
+  menu.className = "context-menu";
   const isActive = workspace.id === state.data?.activeWorkspaceId;
   const title = document.createElement("div");
   title.className = "context-title";
@@ -4748,76 +4746,122 @@ function showWorkspaceContextMenu(event, workspace) {
   }
   const customColor = contextColorPicker(workspace.color, (color) => setWorkspaceColor(color, workspace.id));
   menu.replaceChildren(title, meta, actions, colors, customColor);
-  menu.hidden = false;
-  const x = Math.min(event.clientX, window.innerWidth - 238);
-  const y = Math.min(event.clientY, window.innerHeight - 326);
-  menu.style.left = `${Math.max(8, x)}px`;
-  menu.style.top = `${Math.max(8, y)}px`;
+  showContextMenuAt(menu, event.clientX, event.clientY);
 }
 
 function showToolbarMenu(event) {
   event.preventDefault();
   event.stopPropagation();
   const menu = ensureContextMenu();
+  menu.className = "context-menu context-menu-tools";
   const panel = activePanel();
+  const workspace = activeWorkspace();
+  const multiPane = Boolean(panel && workspace?.panels.length > 1);
+  const multiWorkspace = (state.data?.workspaces.length || 0) > 1;
+  const terminalActive = panel?.type === "terminal";
+  const latestBrowserPage = state.recentBrowserPages[0] || "";
   const title = document.createElement("div");
   title.className = "context-title";
-  title.textContent = activeWorkspace()?.title || "Workspace tools";
-  const actions = document.createElement("div");
-  actions.className = "context-actions";
-  actions.append(
-    contextMenuButton("Split down", () => createPanel("terminal", "down")),
-    contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
-    contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
-    contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
-    contextMenuButton("Next pane", () => cycleActivePane(1), !panel || activeWorkspace()?.panels.length <= 1),
-    contextMenuButton("Previous pane", () => cycleActivePane(-1), !panel || activeWorkspace()?.panels.length <= 1),
-    contextMenuButton("Next workspace", () => cycleWorkspace(1), (state.data?.workspaces.length || 0) <= 1),
-    contextMenuButton("Previous workspace", () => cycleWorkspace(-1), (state.data?.workspaces.length || 0) <= 1),
-    contextMenuButton("Run command...", promptRunTerminalCommand, panel?.type !== "terminal"),
-    contextMenuButton("Git status", () => runTerminalCommandSnippet("gitStatus"), panel?.type !== "terminal"),
-    contextMenuButton("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), panel?.type !== "terminal"),
-    contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
-    contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !panel || activeWorkspace()?.panels.length <= 1),
-    contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !panel || activeWorkspace()?.panels.length <= 1),
-    contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !panel || activeWorkspace()?.panels.length <= 1),
-    contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
-    contextMenuButton("Rename workspace", renameActiveWorkspace),
-    contextMenuButton("Change workspace color", cycleWorkspaceColor),
-    contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !activeWorkspace()),
-    contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
-    contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
-    contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel),
-    contextMenuButton("Find in terminal", openTerminalSearch, panel?.type !== "terminal"),
-    contextMenuButton("Find next", findNextInTerminal, panel?.type !== "terminal"),
-    contextMenuButton("Copy terminal selection", copyActiveTerminalSelection, panel?.type !== "terminal"),
-    contextMenuButton("Paste to terminal", pasteClipboardToTerminal, panel?.type !== "terminal"),
-    contextMenuButton("Clear active terminal", clearActiveTerminal, panel?.type !== "terminal"),
-    contextMenuButton("Restart terminal", restartActiveTerminal, panel?.type !== "terminal"),
-    contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
-    contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux")),
-    contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
-    contextMenuButton("Tune performance now", () => tunePerformanceNow()),
-    contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
-    contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
-    contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
-    contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
-    contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
-    contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
-    contextMenuButton("Background settings", () => openSettingsCategory("appearance")),
-    contextMenuButton("Save current background", () => upsertSavedBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
-    contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints")),
-    contextMenuButton("Notifications", () => openInspector("notifications")),
-    contextMenuButton("Session tools", () => openInspector("session")),
-    contextMenuButton("Reset session", resetSession, false, "danger")
+  title.textContent = workspace?.title || "Workspace tools";
+  menu.replaceChildren(
+    title,
+    contextMenuSectionTitle("Pane"),
+    contextMenuActionGroup(
+      contextMenuButton("Split right", () => createPanel("terminal", "right")),
+      contextMenuButton("Split down", () => createPanel("terminal", "down")),
+      contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
+      contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
+      contextMenuButton(state.zoomedPanelId ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
+      contextMenuButton("Next pane", () => cycleActivePane(1), !multiPane),
+      contextMenuButton("Previous pane", () => cycleActivePane(-1), !multiPane)
+    ),
+    contextMenuSectionTitle("Layout"),
+    contextMenuActionGroup(
+      contextMenuButton("Reset split layout", resetActivePaneLayout, !multiPane),
+      contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !multiPane),
+      contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
+      contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !multiPane),
+      contextMenuButton("Close other panes", () => closeOtherPanes(), !multiPane, "danger")
+    ),
+    contextMenuSectionTitle("Terminal"),
+    contextMenuActionGroup(
+      contextMenuButton("Run command...", promptRunTerminalCommand, !terminalActive),
+      contextMenuButton("Git status", () => runTerminalCommandSnippet("gitStatus"), !terminalActive),
+      contextMenuButton("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), !terminalActive),
+      contextMenuButton("Find in terminal", openTerminalSearch, !terminalActive),
+      contextMenuButton("Find next", findNextInTerminal, !terminalActive),
+      contextMenuButton("Copy terminal selection", copyActiveTerminalSelection, !terminalActive),
+      contextMenuButton("Paste to terminal", pasteClipboardToTerminal, !terminalActive),
+      contextMenuButton("Clear active terminal", clearActiveTerminal, !terminalActive),
+      contextMenuButton("Restart terminal", restartActiveTerminal, !terminalActive),
+      contextMenuButton("Terminal settings", () => openSettingsCategory("terminal")),
+      contextMenuButton("Reset terminal colors", () => applyTerminalColorPresetById("cmux"))
+    ),
+    contextMenuSectionTitle("Browser"),
+    contextMenuActionGroup(
+      contextMenuButton("Open browser", () => openBrowserPrompt(workspace?.id)),
+      contextMenuButton("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace),
+      contextMenuButton(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace),
+      contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
+    ),
+    contextMenuSectionTitle("Workspace"),
+    contextMenuActionGroup(
+      contextMenuButton("Next workspace", () => cycleWorkspace(1), !multiWorkspace),
+      contextMenuButton("Previous workspace", () => cycleWorkspace(-1), !multiWorkspace),
+      contextMenuButton("Rename workspace", renameActiveWorkspace),
+      contextMenuButton("Change workspace color", cycleWorkspaceColor),
+      contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !workspace),
+      contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !workspace?.cwd),
+      contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
+      contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel)
+    ),
+    contextMenuSectionTitle("Settings"),
+    contextMenuActionGroup(
+      contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
+      contextMenuButton("Tune performance now", () => tunePerformanceNow()),
+      contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
+      contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
+      contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
+      contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
+      contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
+      contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
+      contextMenuButton("Background settings", () => openSettingsCategory("appearance")),
+      contextMenuButton("Save current background", () => upsertSavedBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
+      contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints"))
+    ),
+    contextMenuSectionTitle("Session"),
+    contextMenuActionGroup(
+      contextMenuButton("Notifications", () => openInspector("notifications")),
+      contextMenuButton("Session tools", () => openInspector("session")),
+      contextMenuButton("Reset session", resetSession, false, "danger")
+    )
   );
-  menu.replaceChildren(title, actions);
-  menu.hidden = false;
   const rect = event.currentTarget.getBoundingClientRect();
-  const x = Math.min(rect.left, window.innerWidth - 238);
-  const y = Math.min(rect.bottom + 6, window.innerHeight - 288);
-  menu.style.left = `${Math.max(8, x)}px`;
-  menu.style.top = `${Math.max(8, y)}px`;
+  showContextMenuAt(menu, rect.left, rect.bottom + 6);
+}
+
+function showContextMenuAt(menu, preferredX, preferredY) {
+  menu.hidden = false;
+  const margin = 8;
+  const rect = menu.getBoundingClientRect();
+  const x = Math.min(preferredX, window.innerWidth - rect.width - margin);
+  const y = Math.min(preferredY, window.innerHeight - rect.height - margin);
+  menu.style.left = `${Math.max(margin, x)}px`;
+  menu.style.top = `${Math.max(margin, y)}px`;
+}
+
+function contextMenuSectionTitle(label) {
+  const title = document.createElement("div");
+  title.className = "context-section-title";
+  title.textContent = label;
+  return title;
+}
+
+function contextMenuActionGroup(...actions) {
+  const group = document.createElement("div");
+  group.className = "context-actions";
+  group.append(...actions);
+  return group;
 }
 
 function contextMenuButton(label, action, disabled = false, tone = "") {
