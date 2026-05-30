@@ -20,6 +20,7 @@ const defaultPipeName = process.platform === "win32"
   : path.join(os.tmpdir(), "cmux-windows.sock");
 const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
+const terminalPrewarmDelayMs = 60;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -142,14 +143,38 @@ function executableExists(candidate) {
   let exists = false;
   if (candidate.includes("\\") || candidate.includes("/") || path.isAbsolute(candidate)) {
     exists = fs.existsSync(candidate);
+  } else if (process.platform === "win32") {
+    exists = windowsExecutableOnPath(candidate);
   } else {
-    const probe = process.platform === "win32"
-      ? spawnSync("where.exe", [candidate], { stdio: "ignore", windowsHide: true })
-      : spawnSync("command", ["-v", candidate], { shell: true, stdio: "ignore" });
+    const probe = spawnSync("command", ["-v", candidate], { shell: true, stdio: "ignore" });
     exists = probe.status === 0;
   }
   executableExistsCache.set(cacheKey, exists);
   return exists;
+}
+
+function windowsExecutableOnPath(candidate) {
+  const pathext = (process.env.PATHEXT || process.env.Pathext || ".COM;.EXE;.BAT;.CMD")
+    .split(";")
+    .map((ext) => ext.trim().toLowerCase())
+    .filter(Boolean);
+  const names = path.extname(candidate)
+    ? [candidate]
+    : pathext.map((ext) => `${candidate}${ext}`);
+  const pathEntries = (process.env.PATH || process.env.Path || "")
+    .split(path.delimiter)
+    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+  for (const entry of pathEntries) {
+    for (const name of names) {
+      try {
+        if (fs.existsSync(path.join(entry, name))) return true;
+      } catch {
+        // Ignore malformed PATH entries.
+      }
+    }
+  }
+  return false;
 }
 
 function shellCandidates(profile, customShell) {
@@ -355,7 +380,9 @@ class TerminalProcess {
       this.ptyProcess.write(data);
       return;
     }
-    if (this.child?.stdin.writable) this.child.stdin.write(data);
+    if (this.child?.stdin.writable) {
+      this.child.stdin.write(data);
+    }
   }
 
   resize(cols, rows) {
@@ -392,7 +419,9 @@ class CmuxWindowsRuntime {
     this.wss = new WebSocketServer({ noServer: true });
     this.eventSockets = new Set();
     this.terminals = new Map();
+    this.pendingTerminalPrewarms = new Map();
     this.terminalMetadataTimer = null;
+    this.closed = false;
     this.state = this.loadSession();
   }
 
@@ -579,6 +608,30 @@ class CmuxWindowsRuntime {
     return terminal;
   }
 
+  hasRendererEventSocket() {
+    for (const socket of this.eventSockets) {
+      if (socket.readyState === WebSocket.OPEN) return true;
+    }
+    return false;
+  }
+
+  scheduleTerminalPrewarm(panel) {
+    if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
+    if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
+    const timer = setTimeout(() => {
+      this.pendingTerminalPrewarms.delete(panel.id);
+      if (this.closed || !this.hasRendererEventSocket()) return;
+      const found = this.findPanel(panel.id);
+      if (!found || found.panel.type !== "terminal" || this.terminals.has(panel.id)) return;
+      try {
+        this.ensureTerminalProcess(found.panel);
+      } catch (error) {
+        console.error(`terminal prewarm failed: ${error.message}`);
+      }
+    }, terminalPrewarmDelayMs);
+    this.pendingTerminalPrewarms.set(panel.id, timer);
+  }
+
   createWorkspace(title) {
     const workspace = this.newWorkspace(title || `Workspace ${this.state.workspaces.length + 1}`);
     workspace.activePanelId = workspace.panels[0]?.id || null;
@@ -613,6 +666,7 @@ class CmuxWindowsRuntime {
       workspace.splitDirection = options.direction;
     }
     this.persistAndBroadcast();
+    this.scheduleTerminalPrewarm(panel);
     return panel;
   }
 
@@ -1117,10 +1171,13 @@ class CmuxWindowsRuntime {
   }
 
   close() {
+    this.closed = true;
     if (this.terminalMetadataTimer) {
       clearTimeout(this.terminalMetadataTimer);
       this.terminalMetadataTimer = null;
     }
+    for (const timer of this.pendingTerminalPrewarms.values()) clearTimeout(timer);
+    this.pendingTerminalPrewarms.clear();
     for (const terminal of this.terminals.values()) terminal.close();
     this.terminals.clear();
     for (const socket of this.eventSockets) socket.close();
