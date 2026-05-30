@@ -199,13 +199,12 @@ fn main() -> anyhow::Result<()> {
             SurfaceCommands::SendText { text, surface } => {
                 // Unescape \n sequences
                 let unescaped = text.replace("\\n", "\n");
-                (
-                    "surface.send_input",
-                    serde_json::json!({
-                        "input": unescaped,
-                        "surface": surface,
-                    }),
-                )
+                let mut params = serde_json::Map::new();
+                params.insert("input".to_string(), Value::String(unescaped));
+                if let Some(surface) = surface {
+                    params.insert("surface".to_string(), Value::String(surface.to_string()));
+                }
+                ("surface.send_input", Value::Object(params))
             }
         },
 
@@ -221,16 +220,19 @@ fn main() -> anyhow::Result<()> {
             workspace,
             surface,
             no_desktop,
-        } => (
-            "notification.create",
-            serde_json::json!({
-                "title": title,
-                "body": body,
-                "workspace": workspace,
-                "surface": surface,
-                "send_desktop": !no_desktop,
-            }),
-        ),
+        } => {
+            let mut params = serde_json::Map::new();
+            params.insert("title".to_string(), Value::String(title.to_string()));
+            params.insert("body".to_string(), Value::String(body.to_string()));
+            if let Some(workspace) = workspace {
+                params.insert("workspace".to_string(), Value::String(workspace.to_string()));
+            }
+            if let Some(surface) = surface {
+                params.insert("surface".to_string(), Value::String(surface.to_string()));
+            }
+            params.insert("send_desktop".to_string(), Value::Bool(!no_desktop));
+            ("notification.create", Value::Object(params))
+        }
     };
 
     let response = send_request(&cli.socket, method, params)?;
