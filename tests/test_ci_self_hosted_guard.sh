@@ -134,6 +134,39 @@ check_no_xctest_quarantines() {
   echo "PASS: workflows do not hide XCTest coverage with -skip-testing"
 }
 
+check_ui_regression_budget() {
+  local timeout_minutes
+  timeout_minutes="$(
+    awk '
+      /^  ui-regressions:/ { in_job=1; next }
+      in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+      in_job && /timeout-minutes:/ { print $2; exit }
+    ' "$CI_FILE"
+  )"
+
+  if [ -z "$timeout_minutes" ] || [ "$timeout_minutes" -lt 40 ]; then
+    echo "FAIL: ui-regressions must keep enough job time for a cold build-for-testing plus both UI regressions"
+    exit 1
+  fi
+
+  if ! grep -Fq 'path: ~/Library/Developer/Xcode/DerivedData/cmux-ui-regressions' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must cache its explicit DerivedData path"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw += 1 }
+    END { exit(saw >= 3 ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must use its explicit DerivedData path for build-for-testing and both test-without-building runs"
+    exit 1
+  fi
+
+  echo "PASS: ui-regressions keeps enough time and cached DerivedData for both UI regressions"
+}
+
 check_zig_release_build_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -169,6 +202,7 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_no_xctest_quarantines
+check_ui_regression_budget
 check_zig_release_build_runner "$CI_FILE" "release-build"
 check_zig_release_build_runner "$NIGHTLY_FILE" "build-sign-notarize-nightly"
 check_zig_release_build_runner "$RELEASE_FILE" "build-sign-notarize"
