@@ -3770,7 +3770,7 @@ function maybeTriggerPerformanceGuard(reason) {
 }
 
 function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) {
-  updateSettings({
+  const changed = updateSettings({
     performanceMode: true,
     adaptivePerformance: true,
     reduceMotion: true,
@@ -3781,6 +3781,10 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000)
   });
+  if (!changed) {
+    toast(automatic ? "Performance guard already tuned." : "Performance tune already active.");
+    return;
+  }
   if (state.inspectorMode === "settings" && state.settingsCategory === "performance") {
     renderSettingsInspector();
   }
@@ -6402,7 +6406,11 @@ const workspaceChromeSettings = [
 function resetWorkspaceChrome() {
   const updates = {};
   for (const key of workspaceChromeSettings) updates[key] = defaultSettings[key];
-  updateSettings(updates, { immediate: true });
+  const changed = updateSettings(updates, { immediate: true });
+  if (!changed) {
+    toast("Workspace chrome already reset.");
+    return;
+  }
   if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
     renderSettingsInspector();
   }
