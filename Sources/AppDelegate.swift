@@ -11424,10 +11424,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.apply(to: window)
     }
 
-    func updateTitlebarAccessorySidebarTrailingEdge(_ edge: CGFloat, for window: NSWindow) {
-        titlebarAccessoryController.updateSidebarTrailingEdge(edge, for: window)
-    }
-
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
