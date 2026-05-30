@@ -11031,6 +11031,8 @@ struct VerticalTabsSidebar: View {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
+        case .agentSession:
+            return .agentSession
         case .project:
             return .project
         }
