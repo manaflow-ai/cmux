@@ -26,6 +26,7 @@ export const defaultSettings = {
   terminalLineHeight: 1.22,
   terminalPadding: 8,
   terminalScrollback: 12000,
+  terminalPauseInactiveOutput: true,
   terminalCursorStyle: "bar",
   terminalCursorBlink: true,
   terminalBackground: "",
@@ -346,6 +347,7 @@ export const settingsPresets = [
       terminalLineHeight: 1.22,
       terminalPadding: 8,
       terminalScrollback: 12000,
+      terminalPauseInactiveOutput: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -380,6 +382,7 @@ export const settingsPresets = [
       terminalLineHeight: 1.18,
       terminalPadding: 6,
       terminalScrollback: 10000,
+      terminalPauseInactiveOutput: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -414,6 +417,7 @@ export const settingsPresets = [
       terminalLineHeight: 1.16,
       terminalPadding: 4,
       terminalScrollback: 6000,
+      terminalPauseInactiveOutput: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""
@@ -448,6 +452,7 @@ export const settingsPresets = [
       terminalLineHeight: 1.24,
       terminalPadding: 10,
       terminalScrollback: 12000,
+      terminalPauseInactiveOutput: true,
       terminalBackground: "",
       terminalForeground: "",
       terminalCursorColor: ""

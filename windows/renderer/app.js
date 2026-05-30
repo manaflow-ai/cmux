@@ -109,6 +109,7 @@ const terminalSettingsPreviewKeys = new Set([
   "terminalLineHeight",
   "terminalPadding",
   "terminalScrollback",
+  "terminalPauseInactiveOutput",
   "terminalCursorStyle",
   "terminalCursorBlink",
   "terminalBackground",
@@ -326,7 +327,8 @@ const state = {
     maxQueued: 0,
     writtenBytes: 0,
     chunks: 0,
-    lastChunk: 0
+    lastChunk: 0,
+    pausedFlushes: 0
   },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
@@ -461,6 +463,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.performanceMode = Boolean(next.performanceMode);
   next.adaptivePerformance = next.adaptivePerformance !== false;
   next.reduceMotion = Boolean(next.reduceMotion);
+  next.terminalPauseInactiveOutput = next.terminalPauseInactiveOutput !== false;
   next.terminalCursorBlink = next.terminalCursorBlink !== false;
   next.terminalBackground = normalizeTerminalColor(next.terminalBackground);
   next.terminalForeground = normalizeTerminalColor(next.terminalForeground);
@@ -1110,6 +1113,7 @@ function settingsProfileSummary(settings) {
     normalized.density,
     toolbar,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
+    normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
     `${normalized.terminalFontSize}px`
   ].join(" / ");
 }
@@ -1458,6 +1462,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
     scheduleBrowserSettingsPreviewRefresh();
+  }
+  if (changedKeys.includes("terminalPauseInactiveOutput") || changedKeys.includes("performanceMode")) {
+    resumeTerminalOutputAfterActivityChange();
   }
   if (changedKeys.includes("browserSuspendInactive")) {
     updateBrowserPaneActivity(visiblePanePanelIds());
@@ -2559,6 +2566,7 @@ function renderPanes(workspace) {
   const node = renderPaneTreeNode(tree, workspace, panelById, visiblePanels.length);
   replaceChildrenIfChanged(elements.paneGrid, node ? [node] : []);
   updateBrowserPaneActivity(panelIds);
+  resumeTerminalOutputAfterActivityChange(panelIds);
   requestAnimationFrame(() => {
     for (const panel of visiblePanels) {
       const terminal = state.terminals.get(panel.id);
@@ -3362,7 +3370,7 @@ function enqueueTerminalOutput(session, data) {
   if (state.terminalOutputStats.currentQueued >= terminalOutputBacklogThreshold) {
     maybeTriggerPerformanceGuard("terminal output backlog");
   }
-  scheduleTerminalOutputFlush(session);
+  if (!terminalOutputShouldPause(session)) scheduleTerminalOutputFlush(session);
 }
 
 function scheduleTerminalOutputFlush(session) {
@@ -3374,6 +3382,10 @@ function scheduleTerminalOutputFlush(session) {
 function flushTerminalOutput(session) {
   session.scheduled = false;
   if (session.disposed || !session.queue) return;
+  if (terminalOutputShouldPause(session)) {
+    state.terminalOutputStats.pausedFlushes += 1;
+    return;
+  }
   const chunkSize = terminalOutputChunkSizeFor(session);
   const chunk = session.queue.length > chunkSize ? session.queue.slice(0, chunkSize) : session.queue;
   session.queue = session.queue.slice(chunk.length);
@@ -3393,6 +3405,31 @@ function terminalOutputChunkSizeFor(session) {
     return terminalOutputPerformanceChunkSize;
   }
   return terminalOutputChunkSize;
+}
+
+function terminalOutputPausesInactive() {
+  return state.settings.terminalPauseInactiveOutput !== false || state.settings.performanceMode;
+}
+
+function terminalOutputShouldPause(session) {
+  return terminalOutputPausesInactive() && !isTerminalHostVisible(session);
+}
+
+function resumeTerminalOutputAfterActivityChange(visiblePanelIds = visiblePanePanelIds()) {
+  const pauseInactive = terminalOutputPausesInactive();
+  for (const session of state.terminals.values()) {
+    if (session.disposed || !session.queue) continue;
+    if (!pauseInactive || visiblePanelIds.has(session.panelId)) scheduleTerminalOutputFlush(session);
+  }
+  updateTerminalOutputBacklog();
+}
+
+function pausedTerminalOutputCount() {
+  let count = 0;
+  for (const session of state.terminals.values()) {
+    if (!session.disposed && session.queue && terminalOutputShouldPause(session)) count += 1;
+  }
+  return count;
 }
 
 function totalTerminalOutputQueue() {
@@ -4085,6 +4122,7 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
+    performanceSection.append(settingRow("Pause inactive output", toggleInput(state.settings.terminalPauseInactiveOutput, (checked) => updateSettings({ terminalPauseInactiveOutput: checked })), false, "terminal output pause inactive hidden background lag smooth performance"));
     const scrollbackRange = document.createElement("input");
     scrollbackRange.className = "setting-control";
     scrollbackRange.type = "range";
@@ -5054,6 +5092,7 @@ function performanceMetrics() {
   const terminalCount = panels.filter((panel) => panel.type === "terminal").length;
   const browserCount = panels.filter((panel) => panel.type === "browser").length;
   updateTerminalOutputBacklog();
+  const pausedTerminals = pausedTerminalOutputCount();
   return [
     ["Render avg", formatMs(state.renderStats.avgMs)],
     ["Last render", formatMs(state.renderStats.lastMs)],
@@ -5064,6 +5103,8 @@ function performanceMetrics() {
     ["Output backlog", formatBytes(state.terminalOutputStats.currentQueued)],
     ["Output max", formatBytes(state.terminalOutputStats.maxQueued)],
     ["Output chunks", String(state.terminalOutputStats.chunks)],
+    ["Paused output", String(pausedTerminals)],
+    ["Pause hits", String(state.terminalOutputStats.pausedFlushes)],
     ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
     ["Panes", String(panels.length)],
@@ -5287,6 +5328,7 @@ function performanceDiagnosticsPayload() {
       performanceMode: state.settings.performanceMode,
       adaptivePerformance: state.settings.adaptivePerformance,
       reduceMotion: state.settings.reduceMotion,
+      terminalPauseInactiveOutput: state.settings.terminalPauseInactiveOutput,
       background: state.settings.backgroundImage
         ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
         : "none",
@@ -5548,7 +5590,8 @@ function resetRenderStats() {
     maxQueued: totalTerminalOutputQueue(),
     writtenBytes: 0,
     chunks: 0,
-    lastChunk: 0
+    lastChunk: 0,
+    pausedFlushes: 0
   };
   state.performanceGuardTriggered = false;
   state.performanceGuardReason = "";
@@ -5575,6 +5618,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
+    terminalPauseInactiveOutput: true,
     browserSuspendInactive: true
   });
   if (!changed) {
