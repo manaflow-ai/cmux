@@ -7899,24 +7899,25 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
+        let keepsPersistentRemoteSurfaceOpen =
+            tab.remoteConfiguration?.preserveAfterTerminalExit == true &&
+            tab.isRemoteTerminalSurface(surfaceId)
         let handlesRemoteExitThroughWorkspace =
             tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
-        let keepsPersistentRemoteWorkspaceOpen =
-            handlesRemoteExitThroughWorkspace && tab.remoteConfiguration?.preserveAfterTerminalExit == true
 
 #if DEBUG
         cmuxDebugLog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
             "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(handlesRemoteExitThroughWorkspace ? 1 : 0) " +
-            "keepPersistentRemote=\(keepsPersistentRemoteWorkspaceOpen ? 1 : 0)"
+            "keepPersistentRemote=\(keepsPersistentRemoteSurfaceOpen ? 1 : 0)"
         )
 #endif
 
         // A persistent SSH workspace must never silently replace a failed remote attach with
         // a local login shell. Keep the exited surface visible so the user can see the error
         // and retry instead of making a detached remote workspace look local after relaunch.
-        if keepsPersistentRemoteWorkspaceOpen {
+        if keepsPersistentRemoteSurfaceOpen {
             tab.markPersistentRemotePTYAttachFailed(surfaceId: surfaceId)
             return
         }
