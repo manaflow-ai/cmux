@@ -333,3 +333,52 @@ These files change frequently upstream; be careful when rebasing the fork:
     `write_pty`.
 
 If you resolve a conflict, update this doc with what changed.
+
+---
+
+## Pending: cmux HTTP terminal access API patches (not yet integrated)
+
+A separate fork branch on `lxohi/ghostty` (since this user doesn't have push to
+`manaflow-ai/ghostty`) contains the C ABI + stub Zig impls for the two ghostty
+patches the HTTP terminal access API needs. They are NOT yet integrated into
+the parent submodule pointer; the existing pinned SHA `176bd550f` + its
+matching prebuilt xcframework remain authoritative for the cmux app build.
+
+- Fork branch: <https://github.com/lxohi/ghostty/tree/cmux/cell-grid-export-and-output-tee>
+- Patches (commits on that branch):
+  - **Cell-grid export** (cmux plan Task 1.5 ABI + Task 1.6 impl): adds
+    `ghostty_surface_read_cells` / `ghostty_cell_grid_free` with the full
+    4-valued WIDE enum (NARROW/WIDE/SPACER_TAIL/SPACER_HEAD), underline kind
+    + color, per-call hyperlink URI table, top-level `semantic_available`.
+    Header is shipped in this branch; the Zig file currently contains a
+    minimal stub that returns failure so the xcframework can be regenerated
+    with the new symbols present. The real direct-page-walk implementation is
+    tracked as cmux plan Task 1.6 (untested locally because zig 0.15.2 and
+    0.16 both hit HTTP 400 from `deps.files.ghostty.org`'s fetcher on this
+    machine; `curl` against the same URL returns 200).
+  - **PTY output tee** (cmux plan Tasks 2.1-2.2): adds
+    `ghostty_surface_set_output_tee` — a non-blocking callback invoked under
+    `renderer_state.mutex` on the io-reader thread, per the §9.1 backpressure
+    contract. Header + stub Zig included; the Termio integration that
+    actually invokes the callback under the existing lock is tracked as
+    cmux plan Task 2.2.
+
+To finish integration (out of scope for the unsupervised assistant session
+that produced these stubs):
+
+1. Resolve the zig deps-fetch issue (different machine, or pre-populate
+   `~/.cache/zig/p/` with the required tarballs).
+2. Implement the direct-page-walk in `ghostty/src/apprt/embedded.zig`
+   (cmux plan Task 1.6 has the full Zig code) and the Termio tee invocation
+   (cmux plan Task 2.2 has the full Zig code).
+3. Run `cd ghostty && zig build -Demit-xcframework=true
+   -Dxcframework-target=universal -Doptimize=ReleaseFast` to regenerate the
+   xcframework with real symbols.
+4. Update `scripts/ghosttykit-checksums.txt` with the new prebuilt SHA-256.
+5. Bump the parent submodule pointer to the fork-branch HEAD.
+6. Flip `AppSurfaceProvider.readCells` from `throws .unsupported` to the
+   real bridge call (cmux plan Task 1.9 + 1.22b ScreenRegionReader
+   retirement).
+7. Wire `OutputTee.swift` (already exists in cmux as Phase 2 stub) to
+   `ghostty_surface_set_output_tee` and enable the raw-mode subscription
+   (cmux plan Tasks 2.13-2.17).
