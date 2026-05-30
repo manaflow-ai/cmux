@@ -27072,24 +27072,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
-        func shouldSuppressGenericFeedTelemetry() -> Bool {
-            guard def.name == "hermes-agent",
-                  let event = input.object.flatMap({
-                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-                  }) ?? input.rawObject.flatMap({
-                      firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
-                  })
-            else {
-                return false
-            }
-            return def.feedHookEvents.contains(event)
-        }
         func rawAgentHookEventName() -> String? {
             input.object.flatMap {
                 firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
             } ?? input.rawObject.flatMap {
                 firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
             }
+        }
+        func shouldSuppressGenericFeedTelemetry() -> Bool {
+            guard def.name == "hermes-agent",
+                  let event = rawAgentHookEventName()
+            else {
+                return false
+            }
+            return def.feedHookEvents.contains(event)
         }
         func sessionEndIsTurnBoundary() -> Bool {
             if def.name == "grok" || def.name == "antigravity" {
