@@ -14,6 +14,7 @@ struct ShortcutEventFocusContextCache {
 extension KeyboardShortcutSettings.Action {
     enum ShortcutContext: Equatable {
         case application
+        case mainWorkspace
         case nonBrowserPanel
         case browserPanel
         case rightSidebarFocus
@@ -26,6 +27,8 @@ extension KeyboardShortcutSettings.Action {
             switch self {
             case .application:
                 return true
+            case .mainWorkspace:
+                return !rightSidebarFocused
             case .nonBrowserPanel:
                 return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
@@ -43,6 +46,12 @@ extension KeyboardShortcutSettings.Action {
             if self == .application || other == .application {
                 return true
             }
+            if self == .mainWorkspace {
+                return other != .rightSidebarFocus
+            }
+            if other == .mainWorkspace {
+                return self != .rightSidebarFocus
+            }
             return self == other
         }
     }
@@ -51,6 +60,17 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
+        case .selectSurfaceByNumber,
+             .selectSurface1,
+             .selectSurface2,
+             .selectSurface3,
+             .selectSurface4,
+             .selectSurface5,
+             .selectSurface6,
+             .selectSurface7,
+             .selectSurface8,
+             .selectSurface9:
+            return .mainWorkspace
         case .renameTab, .renameWorkspace:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,

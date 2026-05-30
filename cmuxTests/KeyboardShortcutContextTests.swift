@@ -137,6 +137,17 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
     }
 
+    func testSurfaceSelectionContextAvoidsRightSidebarModeConflicts() {
+        let context = KeyboardShortcutSettings.Action.selectSurface1.shortcutContext
+
+        XCTAssertEqual(context, .mainWorkspace)
+        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: false))
+        XCTAssertTrue(context.isAvailable(focusedBrowserPanel: true, rightSidebarFocused: false))
+        XCTAssertFalse(context.isAvailable(focusedBrowserPanel: false, rightSidebarFocused: true))
+        XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext))
+        XCTAssertTrue(context.overlaps(KeyboardShortcutSettings.Action.browserReload.shortcutContext))
+    }
+
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
