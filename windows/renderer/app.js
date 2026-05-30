@@ -15,6 +15,11 @@ import {
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
+const workspaceColorOptions = [...new Set([
+  ...accentOptions,
+  "oklch(62% 0.22 255)",
+  "oklch(76% 0.15 82)"
+])];
 const TerminalConstructor = window.Terminal;
 const FitAddonConstructor = window.FitAddon?.FitAddon;
 const WebLinksAddonConstructor = window.WebLinksAddon?.WebLinksAddon;
@@ -34,10 +39,13 @@ const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
 const recentCommandsStorageKey = "cmux.recentTerminalCommands";
 const customCommandSnippetsStorageKey = "cmux.customTerminalCommandSnippets";
 const savedSettingsProfilesStorageKey = "cmux.savedSettingsProfiles";
+const workspaceBlueprintsStorageKey = "cmux.workspaceBlueprints";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
 const customCommandSnippetsLimit = 20;
 const savedSettingsProfilesLimit = 12;
+const workspaceBlueprintsLimit = 12;
+const workspaceBlueprintPanelLimit = 8;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -90,6 +98,7 @@ const state = {
   recentCommands: loadRecentCommands(),
   customCommandSnippets: loadCustomCommandSnippets(),
   savedSettingsProfiles: loadSavedSettingsProfiles(),
+  workspaceBlueprints: loadWorkspaceBlueprints(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -555,6 +564,102 @@ function settingsProfileSummary(settings) {
   ].join(" / ");
 }
 
+function normalizeBlueprintLabel(label) {
+  return String(label || "").replace(/\s+/g, " ").trim().slice(0, 56);
+}
+
+function normalizeBlueprintColor(value) {
+  const color = String(value || "").trim();
+  return isAllowedUiColor(color, workspaceColorOptions) ? color : "";
+}
+
+function createWorkspaceBlueprintId() {
+  return `blueprint_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeBlueprintPanel(panel = {}) {
+  const type = panel.type === "browser" ? "browser" : "terminal";
+  const title = String(panel.title || (type === "browser" ? "Browser" : "Terminal")).trim().slice(0, 80);
+  const color = normalizeBlueprintColor(panel.color);
+  const shellProfile = terminalProfiles.some(([id]) => id === panel.shellProfile) ? panel.shellProfile : defaultSettings.terminalProfile;
+  return {
+    type,
+    title,
+    color,
+    cwd: String(panel.cwd || "").trim().slice(0, 512),
+    shellProfile,
+    shellPath: String(panel.shellPath || "").trim().slice(0, 512),
+    url: type === "browser" ? normalizeUrl(panel.url || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl) : "",
+    weight: normalizePaneWeight(panel.weight) || paneLayoutScale
+  };
+}
+
+function normalizeWorkspaceBlueprint(entry) {
+  const label = normalizeBlueprintLabel(entry?.label);
+  if (!label) return null;
+  const panels = Array.isArray(entry?.panels)
+    ? entry.panels.map(normalizeBlueprintPanel).filter(Boolean).slice(0, workspaceBlueprintPanelLimit)
+    : [];
+  if (panels.length === 0) return null;
+  const id = /^[a-z0-9_-]+$/i.test(entry?.id || "") ? entry.id : createWorkspaceBlueprintId();
+  return {
+    id,
+    label,
+    splitDirection: entry?.splitDirection === "down" ? "down" : "right",
+    color: normalizeBlueprintColor(entry?.color),
+    cwd: String(entry?.cwd || "").trim().slice(0, 512),
+    panels,
+    createdAt: Number(entry?.createdAt) || Date.now()
+  };
+}
+
+function loadWorkspaceBlueprints() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(workspaceBlueprintsStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const blueprints = [];
+    const seenIds = new Set();
+    for (const entry of parsed) {
+      const blueprint = normalizeWorkspaceBlueprint(entry);
+      if (!blueprint) continue;
+      if (seenIds.has(blueprint.id)) blueprint.id = createWorkspaceBlueprintId();
+      seenIds.add(blueprint.id);
+      blueprints.push(blueprint);
+      if (blueprints.length >= workspaceBlueprintsLimit) break;
+    }
+    return blueprints;
+  } catch {
+    return [];
+  }
+}
+
+function saveWorkspaceBlueprints() {
+  localStorage.setItem(workspaceBlueprintsStorageKey, JSON.stringify(state.workspaceBlueprints));
+}
+
+function upsertWorkspaceBlueprint(blueprint) {
+  const normalized = normalizeWorkspaceBlueprint(blueprint);
+  if (!normalized) return null;
+  const replacing = state.workspaceBlueprints.some((candidate) => candidate.id === normalized.id);
+  if (!replacing && state.workspaceBlueprints.length >= workspaceBlueprintsLimit) {
+    toast(`Blueprint limit is ${workspaceBlueprintsLimit}. Delete one first.`);
+    return null;
+  }
+  state.workspaceBlueprints = [
+    normalized,
+    ...state.workspaceBlueprints.filter((candidate) => candidate.id !== normalized.id)
+  ];
+  saveWorkspaceBlueprints();
+  return state.workspaceBlueprints[0];
+}
+
+function workspaceBlueprintSummary(blueprint) {
+  const terminals = blueprint.panels.filter((panel) => panel.type === "terminal").length;
+  const browsers = blueprint.panels.filter((panel) => panel.type === "browser").length;
+  const direction = blueprint.splitDirection === "down" ? "stacked" : "side-by-side";
+  return `${terminals} terminal${terminals === 1 ? "" : "s"} / ${browsers} browser${browsers === 1 ? "" : "s"} / ${direction}`;
+}
+
 function settingsRenderSignature(settings = state.settings) {
   return [
     settings.theme,
@@ -894,6 +999,8 @@ const commands = [
   { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
   { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
   { id: "workspace.starterDevTrio", label: "Add Dev Trio Starter", shortcut: "", run: () => applyWorkspaceStarter("devTrio") },
+  { id: "workspace.saveBlueprint", label: "Save Workspace Blueprint", shortcut: "", run: () => saveCurrentWorkspaceBlueprint() },
+  { id: "settings.blueprints", label: "Open Workspace Blueprints", shortcut: "", run: () => openSettingsCategory("blueprints") },
   { id: "workspace.close", label: "Close Workspace", shortcut: "", run: () => closeActiveWorkspace() },
   { id: "terminal.new", label: "New Terminal", shortcut: "Ctrl+T", run: () => createPanel("terminal", "right") },
   { id: "terminal.splitRight", label: "Split Terminal Right", shortcut: "", run: () => createPanel("terminal", "right") },
@@ -2235,6 +2342,12 @@ function renderSettingsInspector() {
     nodes.push(profilesSection);
   }
 
+  if (shouldBuildSection("blueprints")) {
+    const blueprintsSection = settingsSection("Workspace blueprints", "saved workspace blueprint layout pane template terminal browser split apply new save rename delete");
+    blueprintsSection.append(workspaceBlueprintsPanel());
+    nodes.push(blueprintsSection);
+  }
+
   if (shouldBuildSection("workspace")) {
     const workspaceSection = settingsSection("Workspace");
     const titleInput = document.createElement("input");
@@ -3471,6 +3584,222 @@ async function deleteSavedSettingsProfile(profileId) {
   toast("Settings profile deleted.");
 }
 
+function workspaceBlueprintsPanel() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "workspace-blueprint-list";
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("workspace blueprints saved layout pane template terminal browser split apply new save rename delete");
+
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Saved blueprints";
+  const save = settingsActionButton("Save", saveCurrentWorkspaceBlueprint, "", "save current workspace blueprint layout");
+  save.disabled = state.workspaceBlueprints.length >= workspaceBlueprintsLimit || (activeWorkspace()?.panels.length || 0) === 0;
+  header.append(title, save);
+  wrapper.append(header);
+
+  if (state.workspaceBlueprints.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Save a workspace pane setup, then recreate it later as a new workspace or add it to the current one.";
+    wrapper.append(empty);
+  } else {
+    for (const blueprint of state.workspaceBlueprints) {
+      wrapper.append(workspaceBlueprintCard(blueprint));
+    }
+  }
+
+  const starterTitle = document.createElement("div");
+  starterTitle.className = "command-snippet-group-title";
+  starterTitle.textContent = "Starter layouts";
+  wrapper.append(starterTitle, workspaceStarterGrid());
+  return wrapper;
+}
+
+function workspaceBlueprintCard(blueprint) {
+  const card = document.createElement("div");
+  card.className = "recent-folder-card workspace-blueprint-card";
+  card.dataset.settingsSearch = normalizeSettingsQuery(`workspace blueprint saved layout pane template ${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`);
+
+  const text = document.createElement("div");
+  text.className = "recent-folder-text";
+  const name = document.createElement("div");
+  name.className = "recent-folder-name";
+  name.textContent = blueprint.label;
+  name.title = blueprint.label;
+  const summary = document.createElement("div");
+  summary.className = "recent-folder-path workspace-blueprint-summary";
+  summary.textContent = workspaceBlueprintSummary(blueprint);
+  summary.title = summary.textContent;
+  text.append(name, summary);
+
+  const actions = document.createElement("div");
+  actions.className = "recent-folder-actions workspace-blueprint-actions";
+  actions.append(
+    settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", `new workspace from blueprint ${blueprint.label}`),
+    settingsActionButton("Add", () => applyWorkspaceBlueprint(blueprint.id), "", `add apply workspace blueprint ${blueprint.label}`),
+    settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", `rename workspace blueprint ${blueprint.label}`),
+    settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", `delete workspace blueprint ${blueprint.label}`)
+  );
+  card.append(text, actions);
+  return card;
+}
+
+function currentWorkspaceBlueprintSnapshot(label) {
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length === 0) return null;
+  const direction = paneLayoutDirection(workspace);
+  if (!state.zoomedPanelId && workspace.id === state.data?.activeWorkspaceId) {
+    persistPaneLayoutFromGrid(direction);
+  }
+  const equalWeight = Math.round(paneLayoutScale / Math.max(1, workspace.panels.length));
+  return normalizeWorkspaceBlueprint({
+    id: createWorkspaceBlueprintId(),
+    label,
+    splitDirection: direction,
+    color: workspace.color || "",
+    cwd: workspace.cwd || "",
+    panels: workspace.panels.slice(0, workspaceBlueprintPanelLimit).map((panel) => ({
+      type: panel.type,
+      title: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
+      color: panel.color || "",
+      cwd: panel.cwd || workspace.cwd || "",
+      shellProfile: panel.shellProfile || state.settings.terminalProfile,
+      shellPath: panel.shellPath || "",
+      url: panel.url || state.settings.browserHomeUrl,
+      weight: storedPaneWeight(panel.id, direction) || equalWeight
+    }))
+  });
+}
+
+async function saveCurrentWorkspaceBlueprint() {
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length === 0) {
+    toast("Open panes before saving a blueprint.");
+    return;
+  }
+  const label = await showTextDialog({
+    title: "Save workspace blueprint",
+    message: "Save the current pane mix, order, colors, and split direction.",
+    value: defaultWorkspaceBlueprintName(workspace),
+    placeholder: "Dev workspace",
+    confirmLabel: "Save"
+  });
+  if (!label) return;
+  const saved = upsertWorkspaceBlueprint(currentWorkspaceBlueprintSnapshot(label));
+  if (!saved) return;
+  renderSettingsInspector();
+  toast("Workspace blueprint saved.");
+}
+
+function defaultWorkspaceBlueprintName(workspace = activeWorkspace()) {
+  const base = `${workspace?.title || "Workspace"} layout`;
+  if (!state.workspaceBlueprints.some((blueprint) => blueprint.label.toLowerCase() === base.toLowerCase())) {
+    return base;
+  }
+  for (let index = 2; index <= workspaceBlueprintsLimit + 1; index += 1) {
+    const label = `${base} ${index}`;
+    if (!state.workspaceBlueprints.some((blueprint) => blueprint.label.toLowerCase() === label.toLowerCase())) {
+      return label;
+    }
+  }
+  return base;
+}
+
+async function createWorkspaceFromBlueprint(blueprintId) {
+  const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
+  if (!blueprint) return;
+  const workspace = await createWorkspace({
+    title: blueprint.label,
+    cwd: blueprint.cwd || activeWorkspace()?.cwd
+  });
+  const createdWorkspace = state.data?.workspaces.find((candidate) => candidate.id === workspace.id);
+  const defaultPanels = createdWorkspace?.panels.map((panel) => panel.id) || [];
+  for (const panelId of defaultPanels) {
+    await api(`/api/panels/${panelId}`, { method: "DELETE" });
+  }
+  await applyWorkspaceBlueprint(blueprintId, workspace.id, { newWorkspace: true });
+}
+
+async function applyWorkspaceBlueprint(blueprintId, workspaceId = activeWorkspace()?.id, options = {}) {
+  const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!blueprint || !workspace) {
+    toast("No workspace available.");
+    return;
+  }
+  clearPaneLayoutsForWorkspace(workspace);
+  try {
+    const createdPanels = [];
+    for (const panel of blueprint.panels) {
+      const created = await createPanel(panel.type, blueprint.splitDirection, {
+        workspaceId: workspace.id,
+        focus: false,
+        reconcile: false,
+        title: panel.title,
+        color: panel.color,
+        cwd: panel.cwd || blueprint.cwd || workspace.cwd,
+        shellProfile: panel.shellProfile,
+        shellPath: panel.shellPath,
+        url: panel.url
+      });
+      if (created?.id) createdPanels.push({ id: created.id, weight: panel.weight });
+    }
+    for (const created of createdPanels) {
+      setStoredPaneWeight(created.id, blueprint.splitDirection, created.weight);
+    }
+    savePaneLayouts();
+    await api(`/api/workspaces/${workspace.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        color: blueprint.color || workspace.color,
+        cwd: blueprint.cwd || workspace.cwd
+      })
+    });
+    await loadState();
+    if (workspace.id !== state.data?.activeWorkspaceId) await focusWorkspace(workspace.id);
+    toast(options.newWorkspace ? `${blueprint.label} workspace created.` : `${blueprint.label} added.`);
+  } catch {
+    await loadState();
+    toast("Workspace blueprint could not be applied.");
+  }
+}
+
+async function renameWorkspaceBlueprint(blueprintId) {
+  const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
+  if (!blueprint) return;
+  const label = await showTextDialog({
+    title: "Rename workspace blueprint",
+    value: blueprint.label,
+    placeholder: "Blueprint name",
+    confirmLabel: "Rename"
+  });
+  if (!label) return;
+  const renamed = upsertWorkspaceBlueprint({
+    ...blueprint,
+    label,
+    createdAt: blueprint.createdAt
+  });
+  if (!renamed) return;
+  renderSettingsInspector();
+  toast("Workspace blueprint renamed.");
+}
+
+async function deleteWorkspaceBlueprint(blueprintId) {
+  const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
+  if (!blueprint) return;
+  if (!await showConfirmDialog({
+    title: "Delete blueprint",
+    message: `Delete "${blueprint.label}"?`,
+    confirmLabel: "Delete",
+    danger: true
+  })) return;
+  state.workspaceBlueprints = state.workspaceBlueprints.filter((candidate) => candidate.id !== blueprintId);
+  saveWorkspaceBlueprints();
+  renderSettingsInspector();
+  toast("Workspace blueprint deleted.");
+}
+
 function ensureContextMenu() {
   if (state.contextMenu) return state.contextMenu;
   const menu = document.createElement("div");
@@ -3617,6 +3946,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !activeWorkspace()),
     contextMenuButton("Open workspace folder", () => openWorkspaceFolder(), !activeWorkspace()?.cwd),
     contextMenuButton("New workspace from folder", () => createWorkspaceFromFolder()),
+    contextMenuButton("Save workspace blueprint", saveCurrentWorkspaceBlueprint, !panel),
     contextMenuButton("Find in terminal", openTerminalSearch, panel?.type !== "terminal"),
     contextMenuButton("Find next", findNextInTerminal, panel?.type !== "terminal"),
     contextMenuButton("Copy terminal selection", copyActiveTerminalSelection, panel?.type !== "terminal"),
@@ -3628,6 +3958,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
     contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
     contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
+    contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
     contextMenuButton("Reset session", resetSession, false, "danger")
@@ -4099,6 +4430,16 @@ function paletteEntries() {
       shortcut: "Profile",
       search: normalizeSettingsQuery(`settings profile preset saved apply ${profile.label} ${settingsProfileSummary(profile.settings)}`),
       run: () => applySavedSettingsProfile(profile.id)
+    });
+  }
+  for (const blueprint of state.workspaceBlueprints) {
+    entries.push({
+      id: `workspaceBlueprint.${blueprint.id}`,
+      label: `Blueprint: ${blueprint.label}`,
+      meta: workspaceBlueprintSummary(blueprint),
+      shortcut: "Blueprint",
+      search: normalizeSettingsQuery(`workspace blueprint layout template new add apply ${blueprint.label} ${workspaceBlueprintSummary(blueprint)}`),
+      run: () => createWorkspaceFromBlueprint(blueprint.id)
     });
   }
   for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
@@ -4831,10 +5172,11 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 
 async function exportSettings() {
   const payload = JSON.stringify({
-    version: 3,
+    version: 4,
     settings: state.settings,
     commandSnippets: state.customCommandSnippets,
-    settingsProfiles: state.savedSettingsProfiles
+    settingsProfiles: state.savedSettingsProfiles,
+    workspaceBlueprints: state.workspaceBlueprints
   }, null, 2);
   if (await writeClipboardText(payload)) {
     toast("Settings copied to clipboard.");
@@ -4891,6 +5233,19 @@ async function importSettings() {
         state.savedSettingsProfiles.push(profile);
       }
       saveSavedSettingsProfiles();
+    }
+    if (Array.isArray(parsed?.workspaceBlueprints)) {
+      state.workspaceBlueprints = [];
+      const seenBlueprintIds = new Set();
+      for (const entry of parsed.workspaceBlueprints) {
+        if (state.workspaceBlueprints.length >= workspaceBlueprintsLimit) break;
+        const blueprint = normalizeWorkspaceBlueprint(entry);
+        if (!blueprint) continue;
+        if (seenBlueprintIds.has(blueprint.id)) blueprint.id = createWorkspaceBlueprintId();
+        seenBlueprintIds.add(blueprint.id);
+        state.workspaceBlueprints.push(blueprint);
+      }
+      saveWorkspaceBlueprints();
     }
     saveSettings();
     applySettings();

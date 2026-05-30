@@ -91,6 +91,7 @@ function buildMenu() {
       submenu: [
         { label: "New Workspace", accelerator: "Ctrl+N", click: () => mainWindow?.webContents.send("cmux-command", "workspace.new") },
         { label: "Rename Workspace", click: () => mainWindow?.webContents.send("cmux-command", "workspace.rename") },
+        { label: "Workspace Blueprints", click: () => mainWindow?.webContents.send("cmux-command", "settings.blueprints") },
         { label: "New Terminal", accelerator: "Ctrl+T", click: () => mainWindow?.webContents.send("cmux-command", "terminal.new") },
         { label: "Run Command in Active Terminal", accelerator: "Ctrl+Shift+Enter", click: () => mainWindow?.webContents.send("cmux-command", "terminal.runCommand") },
         { label: "Reopen Closed Pane", accelerator: "Ctrl+Shift+T", click: () => mainWindow?.webContents.send("cmux-command", "terminal.reopenClosed") },

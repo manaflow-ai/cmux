@@ -245,6 +245,7 @@ export const settingsPresets = [
 export const settingsCategories = [
   ["quick", "Quick"],
   ["profiles", "Profiles"],
+  ["blueprints", "Blueprints"],
   ["workspace", "Workspace"],
   ["appearance", "Look"],
   ["browser", "Browser"],
