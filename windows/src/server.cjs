@@ -4,6 +4,7 @@ const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const { fileURLToPath } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { WebSocketServer } = require("ws");
 
@@ -32,6 +33,16 @@ const workspaceColors = [
   "oklch(66% 0.13 175)",
   "oklch(86% 0.11 70)"
 ];
+
+const localImageContentTypes = new Map([
+  [".avif", "image/avif"],
+  [".bmp", "image/bmp"],
+  [".gif", "image/gif"],
+  [".jpeg", "image/jpeg"],
+  [".jpg", "image/jpeg"],
+  [".png", "image/png"],
+  [".webp", "image/webp"]
+]);
 
 function isSafeColorValue(value) {
   const color = String(value || "").trim();
@@ -74,6 +85,20 @@ function readBody(request) {
     });
     request.on("error", reject);
   });
+}
+
+function localImagePathFromUrl(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    if (parsed.protocol !== "file:") return "";
+    const filePath = path.resolve(fileURLToPath(parsed));
+    const ext = path.extname(filePath).toLowerCase();
+    if (!localImageContentTypes.has(ext)) return "";
+    const stat = fs.statSync(filePath);
+    return stat.isFile() ? filePath : "";
+  } catch {
+    return "";
+  }
 }
 
 const shellProfileIds = new Set(["auto", "pwsh", "powershell", "cmd", "wsl", "git-bash", "custom"]);
@@ -823,6 +848,41 @@ class CmuxWindowsRuntime {
     });
   }
 
+  serveLocalImage(request, response, url) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.writeHead(405);
+      response.end("Method not allowed");
+      return;
+    }
+    const filePath = localImagePathFromUrl(url.searchParams.get("url"));
+    if (!filePath) {
+      response.writeHead(404);
+      response.end("Not found");
+      return;
+    }
+    const contentType = localImageContentTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
+    fs.stat(filePath, (statError, stat) => {
+      if (statError || !stat.isFile()) {
+        response.writeHead(404);
+        response.end("Not found");
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": contentType,
+        "content-length": stat.size,
+        "cache-control": "private, max-age=60"
+      });
+      if (request.method === "HEAD") {
+        response.end();
+        return;
+      }
+      fs.createReadStream(filePath).on("error", () => {
+        if (!response.headersSent) response.writeHead(500);
+        response.end();
+      }).pipe(response);
+    });
+  }
+
   vendorFile(pathname) {
     const root = path.join(__dirname, "..", "node_modules");
     const files = {
@@ -879,6 +939,8 @@ class CmuxWindowsRuntime {
         const url = new URL(request.url, "http://127.0.0.1");
         if (url.pathname.startsWith("/api/")) {
           this.handleApi(request, response, url);
+        } else if (url.pathname === "/_cmux/local-image") {
+          this.serveLocalImage(request, response, url);
         } else {
           this.serveStatic(request, response, url);
         }

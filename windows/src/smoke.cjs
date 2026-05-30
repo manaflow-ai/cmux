@@ -2,6 +2,7 @@ const net = require("node:net");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const { createCmuxWindowsRuntime } = require("./server.cjs");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}-`));
@@ -82,6 +83,16 @@ function pipeRoundTrip(command) {
     body: JSON.stringify({ url: "https://example.org" })
   });
   assert(browserUpdateResponse.ok, "browser update failed");
+
+  const pngPath = path.join(dataDir, "background.png");
+  fs.writeFileSync(pngPath, Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+    "base64"
+  ));
+  const imageResponse = await fetch(`${info.url}_cmux/local-image?url=${encodeURIComponent(pathToFileURL(pngPath).href)}`);
+  assert(imageResponse.ok, "local background image endpoint failed");
+  assert((imageResponse.headers.get("content-type") || "").startsWith("image/png"), "local image endpoint should serve png content type");
+  assert((await imageResponse.arrayBuffer()).byteLength > 0, "local image endpoint should return bytes");
 
   const missingFocusResponse = await fetch(`${info.url}api/panels/missing/focus`, {
     method: "POST"

@@ -410,12 +410,18 @@ function isCustomBackgroundImage(value) {
   return Boolean(url && !url.startsWith("preset:"));
 }
 
+function backgroundImageUrl(value) {
+  const url = normalizedImageUrl(value);
+  if (/^file:/i.test(url)) return `/_cmux/local-image?url=${encodeURIComponent(url)}`;
+  return url;
+}
+
 function backgroundCss(value) {
   const normalized = normalizeBackgroundValue(value);
   if (!normalized) return "none";
   const preset = backgroundPresetMap.get(normalized);
   if (preset) return preset.css;
-  const url = normalizedImageUrl(normalized);
+  const url = backgroundImageUrl(normalized);
   return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
 }
 
