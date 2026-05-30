@@ -13,13 +13,16 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
         fileprivate var currentKey: HostConfigurationKey?
         private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
         private let onDeactivation: (@MainActor (Error?) -> Void)?
+        private let onTeardown: (@MainActor () -> Void)?
 
         fileprivate init(
             onConnection: (@MainActor (NSXPCConnection) -> Void)?,
-            onDeactivation: (@MainActor (Error?) -> Void)?
+            onDeactivation: (@MainActor (Error?) -> Void)?,
+            onTeardown: (@MainActor () -> Void)?
         ) {
             self.onConnection = onConnection
             self.onDeactivation = onDeactivation
+            self.onTeardown = onTeardown
         }
 
         public func hostViewControllerDidActivate(_ viewController: EXHostViewController) {
@@ -34,6 +37,11 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
         public func hostViewControllerWillDeactivate(_ viewController: EXHostViewController, error: (any Error)?) {
             onDeactivation?(error)
         }
+
+        @MainActor
+        fileprivate func teardown() {
+            onTeardown?()
+        }
     }
 
     fileprivate struct HostConfigurationKey: Equatable {
@@ -45,6 +53,7 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
     private let sceneID: String
     private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
     private let onDeactivation: (@MainActor (Error?) -> Void)?
+    private let onTeardown: (@MainActor () -> Void)?
 
     /// Creates a sidebar extension host view.
     /// - Parameters:
@@ -54,18 +63,20 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
         identity: AppExtensionIdentity,
         sceneID: String = CMUXSidebarExtensionPoint.defaultSceneID,
         onConnection: (@MainActor (NSXPCConnection) -> Void)? = nil,
-        onDeactivation: (@MainActor (Error?) -> Void)? = nil
+        onDeactivation: (@MainActor (Error?) -> Void)? = nil,
+        onTeardown: (@MainActor () -> Void)? = nil
     ) {
         self.identity = identity
         self.sceneID = sceneID
         self.onConnection = onConnection
         self.onDeactivation = onDeactivation
+        self.onTeardown = onTeardown
     }
 
     /// Creates the configuration-tracking coordinator.
     /// - Returns: Coordinator for the hosted extension configuration.
     public func makeCoordinator() -> Coordinator {
-        Coordinator(onConnection: onConnection, onDeactivation: onDeactivation)
+        Coordinator(onConnection: onConnection, onDeactivation: onDeactivation, onTeardown: onTeardown)
     }
 
     /// Creates the ExtensionKit host view controller.
@@ -96,6 +107,7 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
     }
 
     public static func dismantleNSViewController(_ viewController: EXHostViewController, coordinator: Coordinator) {
+        coordinator.teardown()
         coordinator.currentKey = nil
         viewController.delegate = nil
         viewController.configuration = nil

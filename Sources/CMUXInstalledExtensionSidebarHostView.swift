@@ -159,6 +159,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 self.identity = nil
                             }
                             errorText = error?.localizedDescription
+                        },
+                        onTeardown: {
+                            xpcHost.invalidate()
                         }
                     )
                     .id(identity.bundleIdentifier)
@@ -211,6 +214,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         .onChange(of: snapshotProvider().sequence) { _, _ in
             xpcHost.sendSnapshotDidChange()
+        }
+        .onDisappear {
+            xpcHost.invalidate()
         }
     }
 
