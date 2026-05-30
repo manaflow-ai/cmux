@@ -320,6 +320,7 @@ button {
 .settings-action,
 .settings-nav-button,
 .settings-preset,
+.pane-layout-preset,
 .terminal-color-preset,
 .saved-color-swatch,
 .saved-background-preview,
@@ -410,6 +411,7 @@ button {
 .settings-action:focus-visible,
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
+.pane-layout-preset:focus-visible,
 .terminal-color-preset:focus-visible,
 .saved-color-swatch:focus-visible,
 .saved-background-preview:focus-visible,
@@ -437,6 +439,7 @@ button {
 .settings-action:active,
 .settings-nav-button:active,
 .settings-preset:active,
+.pane-layout-preset:active,
 .terminal-color-preset:active,
 .saved-color-swatch:active,
 .saved-background-preview:active,
@@ -2041,6 +2044,55 @@ button {
 }
 
 .settings-preset-body {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.pane-layout-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.pane-layout-preset {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.pane-layout-preset:hover:not(:disabled) {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.pane-layout-preset:disabled {
+  opacity: .46;
+  cursor: default;
+}
+
+.pane-layout-preset-title,
+.pane-layout-preset-body {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pane-layout-preset-title {
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.pane-layout-preset-body {
   color: var(--color-muted);
   font-size: 11px;
   line-height: 1.25;

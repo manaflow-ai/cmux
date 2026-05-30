@@ -88,6 +88,44 @@ const workspaceStarters = [
   }
 ];
 
+const paneLayoutPresets = [
+  {
+    id: "equal",
+    label: "Equal",
+    body: "Even sizes in the current split direction.",
+    mode: "equal",
+    direction: ""
+  },
+  {
+    id: "sideBySide",
+    label: "Side by side",
+    body: "Equal columns for comparing panes.",
+    mode: "equal",
+    direction: "right"
+  },
+  {
+    id: "stacked",
+    label: "Stacked",
+    body: "Equal rows for logs and output.",
+    mode: "equal",
+    direction: "down"
+  },
+  {
+    id: "activeWide",
+    label: "Active wide",
+    body: "Give the active pane more width.",
+    mode: "active",
+    direction: "right"
+  },
+  {
+    id: "activeTall",
+    label: "Active tall",
+    body: "Give the active pane more height.",
+    mode: "active",
+    direction: "down"
+  }
+];
+
 const builtInTerminalCommandSnippets = [
   { id: "listFiles", label: "List Workspace Files", command: "dir" },
   { id: "gitStatus", label: "Git Status", command: "git status" },
@@ -1282,6 +1320,11 @@ const commands = [
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
   { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
+  { id: "layout.equalPanes", label: "Equalize Panes", shortcut: "", run: () => applyPaneLayoutPreset("equal") },
+  { id: "layout.sideBySide", label: "Layout Panes Side by Side", shortcut: "", run: () => applyPaneLayoutPreset("sideBySide") },
+  { id: "layout.stacked", label: "Stack Panes Vertically", shortcut: "", run: () => applyPaneLayoutPreset("stacked") },
+  { id: "layout.activeWide", label: "Make Active Pane Wide", shortcut: "", run: () => applyPaneLayoutPreset("activeWide") },
+  { id: "layout.activeTall", label: "Make Active Pane Tall", shortcut: "", run: () => applyPaneLayoutPreset("activeTall") },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserPrompt() },
@@ -2853,6 +2896,7 @@ function renderSettingsInspector() {
     layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal");
     layoutActions.append(settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"));
     layoutSection.append(layoutActions);
+    layoutSection.append(settingRow("Pane presets", paneLayoutPresetGrid(), true, "split layout pane presets side by side stacked active wide tall equal"));
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
@@ -3290,6 +3334,27 @@ function settingsMetricGrid(metrics) {
   return grid;
 }
 
+function paneLayoutPresetGrid() {
+  const workspace = activeWorkspace();
+  const disabled = !workspace || workspace.panels.length <= 1;
+  const grid = document.createElement("div");
+  grid.className = "pane-layout-preset-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("split layout pane presets side by side stacked active wide tall equal");
+  for (const preset of paneLayoutPresets) {
+    const button = document.createElement("button");
+    button.className = "pane-layout-preset";
+    button.type = "button";
+    button.disabled = disabled;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`split layout pane preset ${preset.label} ${preset.body}`);
+    button.innerHTML = `<span class="pane-layout-preset-title"></span><span class="pane-layout-preset-body"></span>`;
+    button.querySelector(".pane-layout-preset-title").textContent = preset.label;
+    button.querySelector(".pane-layout-preset-body").textContent = preset.body;
+    button.onclick = () => applyPaneLayoutPreset(preset.id);
+    grid.append(button);
+  }
+  return grid;
+}
+
 function resetRenderStats() {
   state.renderStats = {
     count: 0,
@@ -3344,6 +3409,7 @@ function commandGroupLabel(command) {
   if (command.id.startsWith("settings.")) return "Settings";
   if (command.id.startsWith("notifications.")) return "Notifications";
   if (command.id.startsWith("session.")) return "Session";
+  if (command.id.startsWith("layout.")) return "Layout";
   if (command.id.startsWith("sidebar.")) return "Layout";
   return "Tools";
 }
@@ -4529,6 +4595,9 @@ function showToolbarMenu(event) {
     contextMenuButton("Git status", () => runTerminalCommandSnippet("gitStatus"), panel?.type !== "terminal"),
     contextMenuButton("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), panel?.type !== "terminal"),
     contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
+    contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !panel || activeWorkspace()?.panels.length <= 1),
+    contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !panel || activeWorkspace()?.panels.length <= 1),
+    contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
     contextMenuButton("Change workspace color", cycleWorkspaceColor),
@@ -5667,6 +5736,60 @@ function resetActivePaneLayout() {
     }
   });
   toast("Split layout reset.");
+}
+
+function paneLayoutPresetWeights(panels, activePanelId, mode) {
+  if (panels.length <= 1) return new Map();
+  if (mode !== "active") {
+    const equalWeight = Math.round(paneLayoutScale / panels.length);
+    return new Map(panels.map((panel) => [panel.id, equalWeight]));
+  }
+  const activeWeight = panels.length === 2 ? 680 : 600;
+  const remaining = Math.max(1, paneLayoutScale - activeWeight);
+  const otherPanels = panels.filter((panel) => panel.id !== activePanelId);
+  const otherWeight = Math.max(1, Math.floor(remaining / Math.max(1, otherPanels.length)));
+  let assignedOther = 0;
+  const weights = new Map();
+  for (const panel of panels) {
+    if (panel.id === activePanelId) {
+      weights.set(panel.id, activeWeight);
+    } else {
+      const isLastOther = assignedOther === otherPanels.length - 1;
+      weights.set(panel.id, isLastOther ? Math.max(1, remaining - otherWeight * assignedOther) : otherWeight);
+      assignedOther += 1;
+    }
+  }
+  return weights;
+}
+
+async function applyPaneLayoutPreset(presetId) {
+  const preset = paneLayoutPresets.find((candidate) => candidate.id === presetId);
+  const workspace = activeWorkspace();
+  const active = activePanel();
+  if (!preset || !workspace || workspace.panels.length <= 1 || !active) {
+    toast("Open another pane to use layout presets.");
+    return false;
+  }
+  const direction = preset.direction || paneLayoutDirection(workspace);
+  state.zoomedPanelId = null;
+  if (paneLayoutDirection(workspace) !== direction) {
+    await updatePanel(active.id, { direction });
+  }
+  const nextWorkspace = activeWorkspace() || workspace;
+  const weights = paneLayoutPresetWeights(nextWorkspace.panels, active.id, preset.mode);
+  for (const [panelId, weight] of weights) setStoredPaneWeight(panelId, direction, weight);
+  savePaneLayouts();
+  render();
+  requestAnimationFrame(() => {
+    renderPaneLayoutStylesForWeights(weights);
+    clearVisiblePaneInlineFlex();
+    for (const panel of nextWorkspace.panels) {
+      const terminal = state.terminals.get(panel.id);
+      if (terminal) scheduleFitTerminal(terminal, true);
+    }
+  });
+  toast(`${preset.label} layout applied.`);
+  return true;
 }
 
 function changeTerminalFontSize(delta) {
