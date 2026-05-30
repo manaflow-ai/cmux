@@ -319,6 +319,7 @@ const state = {
   scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
+  workspaceSwitchHudTimer: 0,
   settingsSaveTimer: 0,
   settingsSavePending: false,
   terminalAppearanceFrame: 0,
@@ -390,6 +391,7 @@ const elements = {
   palette: document.getElementById("palette"),
   paletteInput: document.getElementById("paletteInput"),
   paletteList: document.getElementById("paletteList"),
+  workspaceSwitchHud: document.getElementById("workspaceSwitchHud"),
   toastRegion: document.getElementById("toastRegion"),
   maximizeWindowButton: document.getElementById("maximizeWindowButton")
 };
@@ -2476,6 +2478,29 @@ function defaultStatusSummary(workspace = activeWorkspace(), options = {}) {
   ];
   if (attentionCount > 0) parts.push(`${attentionCount} attention`);
   return parts.join(" · ");
+}
+
+function showWorkspaceSwitchHud(workspace) {
+  if (!workspace || !elements.workspaceSwitchHud) return;
+  const workspaces = state.data?.workspaces || [];
+  const index = Math.max(0, workspaces.findIndex((candidate) => candidate.id === workspace.id));
+  const panelCount = workspace.panels?.length || 0;
+  const meta = [
+    workspace.cwdShort || workspace.cwd || "no directory",
+    panelCount ? `${panelCount} pane${panelCount === 1 ? "" : "s"}` : "home"
+  ].filter(Boolean).join(" · ");
+  elements.workspaceSwitchHud.style.setProperty("--workspace-hud-color", workspace.color || state.data?.palette?.[0] || state.settings.accent);
+  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-index"), `${index + 1} / ${Math.max(1, workspaces.length)}`);
+  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-title"), workspace.title || `Workspace ${index + 1}`);
+  setTextIfChanged(elements.workspaceSwitchHud.querySelector(".workspace-switch-meta"), meta);
+  elements.workspaceSwitchHud.classList.add("is-visible");
+  elements.workspaceSwitchHud.setAttribute("aria-hidden", "false");
+  if (state.workspaceSwitchHudTimer) clearTimeout(state.workspaceSwitchHudTimer);
+  state.workspaceSwitchHudTimer = setTimeout(() => {
+    state.workspaceSwitchHudTimer = 0;
+    elements.workspaceSwitchHud.classList.remove("is-visible");
+    elements.workspaceSwitchHud.setAttribute("aria-hidden", "true");
+  }, 900);
 }
 
 function updateRuntimeStatusLabels() {
@@ -9346,6 +9371,7 @@ function moveWorkspaceRelative(workspaceId, targetWorkspaceId, placement) {
 async function focusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
+  const switchingWorkspace = state.data?.activeWorkspaceId !== workspaceId;
   const previousPanelId = workspace.activePanelId;
   const focusablePanel = workspace.panels.find((panel) => panel.id === workspace.activePanelId && !isPanelMinimized(panel))
     || firstUnminimizedPanel(workspace)
@@ -9361,6 +9387,7 @@ async function focusWorkspace(workspaceId) {
     return;
   }
   optimisticFocusWorkspace(workspaceId);
+  if (switchingWorkspace) showWorkspaceSwitchHud(workspace);
   queueFocusSync({ type: "workspace", workspaceId });
   focusTerminalSession(focusablePanel?.id);
 }

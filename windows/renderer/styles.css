@@ -5061,6 +5061,76 @@ textarea.dialog-input {
   text-align: center;
 }
 
+.workspace-switch-hud {
+  position: fixed;
+  left: 50%;
+  top: calc(44px + var(--space-4));
+  z-index: 90;
+  width: min(420px, calc(100vw - 40px));
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-rail) 94%, transparent);
+  padding: var(--space-2) var(--space-3);
+  box-shadow: 0 16px 60px oklch(5% 0.01 105 / 42%);
+  color: var(--color-text);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -8px) scale(.98);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.workspace-switch-hud.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.workspace-switch-index {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  height: 34px;
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--workspace-hud-color, var(--color-accent)) 22%, var(--color-pane) 78%);
+  color: var(--color-text);
+  font: 11px/1 var(--font-mono);
+}
+
+.workspace-switch-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.workspace-switch-title,
+.workspace-switch-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspace-switch-title {
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.workspace-switch-meta {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.reduce-motion .workspace-switch-hud {
+  transition: opacity 80ms linear;
+  transform: translate(-50%, 0);
+}
+
 .toast-region {
   position: fixed;
   right: var(--space-4);
