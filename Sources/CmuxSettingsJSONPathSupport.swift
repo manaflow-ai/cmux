@@ -33,6 +33,11 @@ enum SidebarWorkspaceTitleWrapSettings {
     }
 }
 
+enum RunningAgentsSidebarPanelSettings {
+    static let key = "sidebarShowRunningAgentsPanel"
+    static let defaultVisible = false
+}
+
 extension SidebarWorkspaceDetailDefaults {
     static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
         if defaults.object(forKey: key) == nil {
@@ -118,6 +123,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        "sidebar.showRunningAgentsPanel",
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",

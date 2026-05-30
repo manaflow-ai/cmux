@@ -662,6 +662,30 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "showRunningAgentsPanel",
+                settingsKey: "sidebar.showRunningAgentsPanel",
+                title: {
+                    String(
+                        localized: "settings.app.showRunningAgentsPanel",
+                        defaultValue: "Show Running Agents Panel"
+                    )
+                },
+                sectionTitle: sidebar,
+                keywords: [
+                    "sidebar.showRunningAgentsPanel",
+                    "sidebar",
+                    "agents",
+                    "running",
+                    "status",
+                    "workspace",
+                    "pane",
+                    "claude",
+                    "codex",
+                ],
+                defaultValue: RunningAgentsSidebarPanelSettings.defaultVisible,
+                defaultsKey: RunningAgentsSidebarPanelSettings.key
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarDock",
                 settingsKey: "betaFeatures.dock",
                 title: {

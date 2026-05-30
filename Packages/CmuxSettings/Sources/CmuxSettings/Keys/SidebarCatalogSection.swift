@@ -116,6 +116,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    public let showRunningAgentsPanel = DefaultsKey<Bool>(
+        id: "sidebar.showRunningAgentsPanel",
+        defaultValue: false,
+        userDefaultsKey: "sidebarShowRunningAgentsPanel"
+    )
+
     public let activeTabIndicatorStyle = DefaultsKey<String>(
         id: "sidebar.activeTabIndicatorStyle",
         defaultValue: "leftRail",

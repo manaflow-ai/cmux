@@ -73,6 +73,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
+| `sidebar.showRunningAgentsPanel` | boolean | `false` | Show a panel listing running agents across workspaces. |
 
 ## workspaceColors
 

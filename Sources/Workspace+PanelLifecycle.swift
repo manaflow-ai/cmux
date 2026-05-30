@@ -142,6 +142,26 @@ extension Workspace {
         }
     }
 
+    func sidebarVisibleStructuredAgentStatusEntriesByPanel() -> [UUID: [SidebarStatusEntry]] {
+        var entriesByPanelId: [UUID: [SidebarStatusEntry]] = [:]
+        for (key, panelId) in agentPIDPanelIdsByKey
+        where panels[panelId] != nil {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+                  let entry = statusEntries[statusKey] else {
+                continue
+            }
+            entriesByPanelId[panelId, default: []].append(entry)
+        }
+
+        return entriesByPanelId.compactMapValues { entries in
+            guard let winningEntry = entries.max(by: { isSidebarStatusEntryLessCurrent($0, than: $1) }) else {
+                return nil
+            }
+            return [winningEntry]
+        }
+    }
+
     private func shouldDisplaySidebarStatusEntry(
         _ entry: SidebarStatusEntry,
         visibleStructuredStatusKeys: Set<String>

@@ -368,6 +368,10 @@
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
+		9E7121019E7121019E712101 /* RunningAgentSidebarItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7121029E7121029E712102 /* RunningAgentSidebarItem.swift */; };
+		9E7121039E7121039E712103 /* RunningAgentsSidebarModelBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7121049E7121049E712104 /* RunningAgentsSidebarModelBuilder.swift */; };
+		9E7121079E7121079E712107 /* RunningAgentsSidebarModelBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7121089E7121089E712108 /* RunningAgentsSidebarModelBuilderTests.swift */; };
+		9E7121059E7121059E712105 /* RunningAgentsSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7121069E7121069E712106 /* RunningAgentsSidebarPanel.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
@@ -981,6 +985,10 @@
 		F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevSessionIndexTests.swift; sourceTree = "<group>"; };
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
+		9E7121029E7121029E712102 /* RunningAgentSidebarItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningAgentSidebarItem.swift; sourceTree = "<group>"; };
+		9E7121049E7121049E712104 /* RunningAgentsSidebarModelBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningAgentsSidebarModelBuilder.swift; sourceTree = "<group>"; };
+		9E7121089E7121089E712108 /* RunningAgentsSidebarModelBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningAgentsSidebarModelBuilderTests.swift; sourceTree = "<group>"; };
+		9E7121069E7121069E712106 /* RunningAgentsSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningAgentsSidebarPanel.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
@@ -1372,6 +1380,9 @@
 				B37A00000000000000000008 /* SettingsCardNote.swift */,
 				C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 				A5001012 /* ContentView.swift */,
+				9E7121029E7121029E712102 /* RunningAgentSidebarItem.swift */,
+				9E7121049E7121049E712104 /* RunningAgentsSidebarModelBuilder.swift */,
+				9E7121069E7121069E712106 /* RunningAgentsSidebarPanel.swift */,
 				E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
 				E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
@@ -1804,6 +1815,7 @@
 				C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
+				9E7121089E7121089E712108 /* RunningAgentsSidebarModelBuilderTests.swift */,
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
@@ -2352,6 +2364,9 @@
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
+				9E7121019E7121019E712101 /* RunningAgentSidebarItem.swift in Sources */,
+				9E7121039E7121039E712103 /* RunningAgentsSidebarModelBuilder.swift in Sources */,
+				9E7121059E7121059E712105 /* RunningAgentsSidebarPanel.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
@@ -2654,6 +2669,7 @@
 				F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */,
 					F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
+				9E7121079E7121079E712107 /* RunningAgentsSidebarModelBuilderTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,

@@ -10021,7 +10021,7 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDs: [String: pid_t] = [:]
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    @Published var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -10076,6 +10076,7 @@ final class Workspace: Identifiable, ObservableObject {
                 .eraseToAnyPublisher(),
             sidebarObservationSignal($panelDirectories),
             sidebarObservationSignal($statusEntries),
+            sidebarObservationSignal($agentLifecycleStatesByPanelId),
             sidebarObservationSignal($metadataBlocks),
             sidebarObservationSignal($logEntries),
             sidebarObservationSignal($progress),

@@ -681,6 +681,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "showRunningAgentsPanel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a sidebar panel listing running agents across workspaces."
         }
       }
     },

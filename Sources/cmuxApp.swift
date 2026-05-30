@@ -5392,6 +5392,8 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = SidebarWorkspaceDetailDefaults.showLog
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = SidebarWorkspaceDetailDefaults.showProgress
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = SidebarWorkspaceDetailDefaults.showCustomMetadata
+    @AppStorage(RunningAgentsSidebarPanelSettings.key)
+    private var sidebarShowRunningAgentsPanel = RunningAgentsSidebarPanelSettings.defaultVisible
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
@@ -7222,6 +7224,18 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.showRunningAgentsPanel"),
+                            String(localized: "settings.app.showRunningAgentsPanel", defaultValue: "Show Running Agents Panel"),
+                            subtitle: String(localized: "settings.app.showRunningAgentsPanel.subtitle", defaultValue: "List live agent sessions below the workspace list and jump directly to their pane.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowRunningAgentsPanel)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
                     }
 
                     BetaFeaturesSettingsView(
@@ -8309,6 +8323,7 @@ struct SettingsView: View {
         sidebarShowLog = SidebarWorkspaceDetailDefaults.showLog
         sidebarShowProgress = SidebarWorkspaceDetailDefaults.showProgress
         sidebarShowMetadata = SidebarWorkspaceDetailDefaults.showCustomMetadata
+        sidebarShowRunningAgentsPanel = RunningAgentsSidebarPanelSettings.defaultVisible
         sidebarTintHex = SidebarTintDefaults.hex
         sidebarTintHexLight = nil
         sidebarTintHexDark = nil

@@ -10101,6 +10101,7 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var runningAgentsPanelUpdateToken: UInt64 = 0
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -10113,6 +10114,8 @@ struct VerticalTabsSidebar: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @AppStorage(RunningAgentsSidebarPanelSettings.key)
+    private var runningAgentsPanelVisible = RunningAgentsSidebarPanelSettings.defaultVisible
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10122,6 +10125,7 @@ struct VerticalTabsSidebar: View {
 
     private let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
+    private static let runningAgentsPanelObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
@@ -10558,6 +10562,13 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
+                .onReceive(
+                    runningAgentsPanelObservationPublisher(renderContext: renderContext)
+                        .receive(on: RunLoop.main)
+                        .debounce(for: Self.runningAgentsPanelObservationCoalesceInterval, scheduler: RunLoop.main)
+                ) { _ in
+                    refreshRunningAgentsPanel()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip
@@ -10734,6 +10745,55 @@ struct VerticalTabsSidebar: View {
 
     private func refreshExtensionSidebarSnapshot() {
         extensionSidebarUpdateToken &+= 1
+    }
+
+    private func refreshRunningAgentsPanel() {
+        runningAgentsPanelUpdateToken &+= 1
+    }
+
+    private func runningAgentsPanelObservationPublisher(
+        renderContext: WorkspaceListRenderContext
+    ) -> AnyPublisher<Void, Never> {
+        let publishers = renderContext.tabs.flatMap { workspace in
+            [
+                workspace.sidebarImmediateObservationPublisher,
+                workspace.sidebarObservationPublisher,
+            ]
+        }
+        guard !publishers.isEmpty else {
+            return Empty<Void, Never>().eraseToAnyPublisher()
+        }
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }
+
+    private func runningAgentSidebarItems(
+        renderContext: WorkspaceListRenderContext
+    ) -> [RunningAgentSidebarItem] {
+        guard runningAgentsPanelVisible else { return [] }
+        let _ = runningAgentsPanelUpdateToken
+        let builder = RunningAgentsSidebarModelBuilder { workspaceId, surfaceId in
+            latestRunningAgentNotificationText(workspaceId: workspaceId, surfaceId: surfaceId)
+        }
+        return builder.items(for: renderContext.tabs)
+    }
+
+    private func latestRunningAgentNotificationText(workspaceId: UUID, surfaceId: UUID) -> String? {
+        guard let notification = notificationStore.notifications(forTabId: workspaceId, surfaceId: surfaceId).first else {
+            return nil
+        }
+        let text = notification.body.isEmpty ? notification.title : notification.body
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func activateRunningAgentSidebarItem(_ item: RunningAgentSidebarItem) {
+        guard tabManager.focusTabFromNotification(item.tabId, surfaceId: item.surfaceId) else {
+            NSSound.beep()
+            return
+        }
+        selection = .tabs
+        selectedTabIds = [item.workspaceId]
+        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == item.workspaceId }
     }
 
     private func extensionSidebarImmediateObservationPublisher(
@@ -11397,8 +11457,17 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         minHeight: CGFloat
     ) -> some View {
-        VStack(spacing: 0) {
+        let runningAgentItems = runningAgentSidebarItems(renderContext: renderContext)
+        return VStack(spacing: 0) {
             workspaceRows(renderContext: renderContext)
+
+            if !runningAgentItems.isEmpty {
+                RunningAgentsSidebarPanel(
+                    rows: runningAgentItems,
+                    onActivate: activateRunningAgentSidebarItem
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
             SidebarEmptyArea(
                 rowSpacing: tabRowSpacing,

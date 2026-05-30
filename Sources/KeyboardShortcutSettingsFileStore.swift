@@ -629,6 +629,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showCustomMetadata"]) {
             snapshot.managedUserDefaults["sidebarShowStatusPills"] = .bool(value)
         }
+        if let value = jsonBool(section["showRunningAgentsPanel"]) {
+            snapshot.managedUserDefaults[RunningAgentsSidebarPanelSettings.key] = .bool(value)
+        }
     }
 
     private func parseWorkspaceColorsSection(
