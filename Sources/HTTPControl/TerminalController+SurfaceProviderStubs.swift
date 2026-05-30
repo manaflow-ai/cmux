@@ -123,43 +123,118 @@ extension TerminalController {
         throw TerminalAccessError.unknownSurface
     }
 
-    /// Enqueue raw UTF-8 bytes onto the surface's PTY.
+    /// Enqueue raw UTF-8 bytes onto the surface's PTY via the existing
+    /// `TerminalSurface.sendInputResult` path (handles surface-not-yet-ready
+    /// by queueing into the 1MB input buffer, then writes via
+    /// `ghostty_surface_text` once the live surface is up).
     ///
-    /// Phase 0 stub throws ``TerminalAccessError/unknownSurface``.
-    /// Task 0.24.d replaces this with the real impl extracted from
-    /// `case "surface.send_text"`.
+    /// Task 0.24.d: real impl. Find the panel by surface UUID via the
+    /// same cross-workspace walk that ``v2EnumerateSurfaceInfos`` uses,
+    /// then delegate to the established socket-write path so behaviour
+    /// is byte-identical to `case "surface.send_text"`.
+    @MainActor
     func writeSurfaceText(uuid: UUID, bytes: Data) async throws {
-        throw TerminalAccessError.unknownSurface
+        guard let panel = findTerminalPanel(uuid: uuid) else {
+            throw TerminalAccessError.unknownSurface
+        }
+        // Bytes are already UTF-8 (the service layer encodes
+        // `InputPayload.text` via .utf8 / passes raw payload bytes for
+        // `.raw`). Decode lossy-ish — control bytes are passed through
+        // verbatim, which is what the existing socket dispatch does.
+        let text = String(decoding: bytes, as: UTF8.self)
+        let result = panel.sendInputResult(text)
+        switch result {
+        case .sent, .queued, .focused:
+            return
+        case .inputQueueFull:
+            throw TerminalAccessError.payloadTooLarge
+        case .surfaceUnavailable:
+            throw TerminalAccessError.unknownSurface
+        }
     }
 
-    /// Encode and send a single ``KeyEvent`` via the existing
-    /// `sendKeyToPanel` path.
+    /// Encode and send a single ``KeyEvent`` via `ghostty_surface_key`
+    /// — ghostty owns the live-mode-aware encoding (DECCKM, kitty,
+    /// modifyOtherKeys), so the client never tracks any of that.
     ///
-    /// Phase 0 stub throws ``TerminalAccessError/unknownSurface``.
-    /// Task 0.24.d replaces this with the real impl extracted from
-    /// `case "surface.send_key"`.
+    /// Task 0.24.d (partial): a complete `KeyEvent` → `ghostty_input_key_s`
+    /// encoder lives in ``GhosttyTerminalView``'s socket dispatch path.
+    /// Exposing it here would require widening visibility of several
+    /// private fields on the 20k-line `GhosttyTerminalView`; for now
+    /// we surface a clear "unsupported" rather than building a parallel
+    /// encoder that risks diverging from the in-app one. The full
+    /// extract is tracked in Task 0.24.d follow-up.
+    @MainActor
     func writeSurfaceKey(uuid: UUID, event: KeyEvent) async throws {
-        throw TerminalAccessError.unknownSurface
+        _ = event
+        guard findTerminalPanel(uuid: uuid) != nil else {
+            throw TerminalAccessError.unknownSurface
+        }
+        throw TerminalAccessError.unsupported(
+            reason: "writeSurfaceKey awaits a shared KeyEvent encoder extract (Task 0.24.d follow-up)")
     }
 
-    /// Dispatch a ``MouseEvent`` via the direct
-    /// `ghostty_surface_mouse_*` C entrypoints (D16 — never through a
-    /// synthesized `NSEvent`).
+    /// Dispatch a ``MouseEvent`` via the direct `ghostty_surface_mouse_*`
+    /// C entrypoints — D16 forbids routing through a synthesized
+    /// `NSEvent` because the AppKit hit-test path is gated for typing
+    /// latency.
     ///
-    /// Phase 0 stub throws ``TerminalAccessError/unknownSurface``.
-    /// Task 0.24.e replaces this with the real impl.
+    /// Task 0.24.e: real impl for press/release/move/scroll.
+    @MainActor
     func writeSurfaceMouse(uuid: UUID, event: MouseEvent) async throws {
-        throw TerminalAccessError.unknownSurface
+        guard let panel = findTerminalPanel(uuid: uuid),
+              let surface = panel.surface.surface
+        else {
+            throw TerminalAccessError.unknownSurface
+        }
+        let mods = mouseMods(event.mods)
+        switch event.action {
+        case .press:
+            _ = ghostty_surface_mouse_button(
+                surface,
+                GHOSTTY_MOUSE_PRESS,
+                cMouseButton(event.button),
+                mods
+            )
+        case .release:
+            _ = ghostty_surface_mouse_button(
+                surface,
+                GHOSTTY_MOUSE_RELEASE,
+                cMouseButton(event.button),
+                mods
+            )
+        case .move:
+            ghostty_surface_mouse_pos(surface, Double(event.x), Double(event.y))
+        case .scroll:
+            // The scroll-mods integer encoding lives in ghostty's
+            // input/mouse.zig as a packed struct; cmux currently has no
+            // mapping for synthetic scroll mods from a semantic
+            // MouseEvent. Send a plain wheel tick.
+            let scrollMods: ghostty_input_scroll_mods_t = 0
+            ghostty_surface_mouse_scroll(
+                surface,
+                0,
+                Double(event.scrollDy),
+                scrollMods
+            )
+        }
     }
 
-    /// Notify the surface that focus was gained or lost, without
-    /// changing macOS app focus (socket-focus policy).
+    /// Notify the surface that focus was gained or lost, **without**
+    /// changing macOS app focus (socket focus policy: non-focus-intent
+    /// commands preserve the user's current key window).
     ///
-    /// Phase 0 stub throws ``TerminalAccessError/unknownSurface``.
-    /// Task 0.24.e replaces this with the real impl that calls
-    /// `ghostty_surface_set_focus` directly.
+    /// Task 0.24.e: calls ``ghostty_surface_set_focus`` directly
+    /// (mirroring `GhosttyTerminalView`'s suppressed-onFocus path) so
+    /// no `NSEvent.becomeFirstResponder` is synthesised.
+    @MainActor
     func setSurfaceFocus(uuid: UUID, gained: Bool) async throws {
-        throw TerminalAccessError.unknownSurface
+        guard let panel = findTerminalPanel(uuid: uuid),
+              let surface = panel.surface.surface
+        else {
+            throw TerminalAccessError.unknownSurface
+        }
+        ghostty_surface_set_focus(surface, gained)
     }
 
     /// Remaining bytes that may be enqueued onto the per-surface
@@ -232,4 +307,44 @@ extension TerminalController {
             semanticAvailable: false
         )
     }
+
+    /// Cross-workspace lookup of a ``TerminalPanel`` by its surface
+    /// UUID. Mirrors the same `AppDelegate.shared.mainWindowContexts`
+    /// walk that ``v2EnumerateSurfaceInfos`` uses, just searching
+    /// instead of enumerating.
+    @MainActor
+    fileprivate func findTerminalPanel(uuid: UUID) -> TerminalPanel? {
+        guard let app = AppDelegate.shared else { return nil }
+        for context in app.mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                if let panel = workspace.terminalPanel(for: uuid) {
+                    return panel
+                }
+            }
+        }
+        return nil
+    }
+}
+
+/// Map ``MouseButton`` (none = unknown / move-only event) to the C
+/// `ghostty_input_mouse_button_e` enum used by `ghostty_surface_mouse_button`.
+fileprivate func cMouseButton(_ button: MouseButton?) -> ghostty_input_mouse_button_e {
+    switch button {
+    case .left:   return GHOSTTY_MOUSE_LEFT
+    case .right:  return GHOSTTY_MOUSE_RIGHT
+    case .middle: return GHOSTTY_MOUSE_MIDDLE
+    case nil:     return GHOSTTY_MOUSE_UNKNOWN
+    }
+}
+
+/// Translate the cmux ``KeyMod`` set into the ghostty
+/// `ghostty_input_mods_e` packed bitset that
+/// `ghostty_surface_mouse_button` expects.
+fileprivate func mouseMods(_ mods: Set<KeyMod>) -> ghostty_input_mods_e {
+    var raw: UInt32 = 0
+    if mods.contains(.shift) { raw |= GHOSTTY_MODS_SHIFT.rawValue }
+    if mods.contains(.ctrl)  { raw |= GHOSTTY_MODS_CTRL.rawValue }
+    if mods.contains(.alt)   { raw |= GHOSTTY_MODS_ALT.rawValue }
+    if mods.contains(.cmd)   { raw |= GHOSTTY_MODS_SUPER.rawValue }
+    return ghostty_input_mods_e(rawValue: raw)
 }
