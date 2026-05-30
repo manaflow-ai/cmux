@@ -725,8 +725,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         XCTAssertFalse(allCommands.isEmpty)
         XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("cmux-antigravity-hook-v2") },
-            "Expected Antigravity hooks to use the pinned dispatch path, saw \(allCommands)"
+            allCommands.allSatisfy { $0.contains(#"cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}""#) },
+            "Expected Antigravity hooks to use the shared bundled CLI dispatch path, saw \(allCommands)"
+        )
+        XCTAssertTrue(
+            allCommands.allSatisfy { $0.contains("command -v cmux") },
+            "Expected Antigravity hooks to fall back to the PATH cmux, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("cmux-antigravity-hook-v2") },
+            "Antigravity hooks should not use the old pinned dispatch marker, saw \(allCommands)"
         )
         XCTAssertFalse(
             allCommands.contains { $0.contains("'\(root.path)'") || $0.contains("\"\(root.path)\"") },
@@ -2262,6 +2270,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
             "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"
         )
+        XCTAssertTrue(
+            allCommands.allSatisfy { $0.contains("command -v cmux") },
+            "Expected Grok hooks to fall back to the PATH cmux, saw \(allCommands)"
+        )
         XCTAssertFalse(
             allCommands.contains { $0.contains("$CMUX_") },
             "Grok treats $VAR references as required hook environment, so installed commands must avoid CMUX variable interpolation. Saw \(allCommands)"
@@ -2272,25 +2284,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testGrokHookInstallPinsInstallingCLIAndSocketWithoutCMUXInterpolation() throws {
+    func testGrokHookInstallUsesSimplePathDispatchWithoutSurfaceGate() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-grok-hook-pin-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-grok-hook-simple-dispatch-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let pinnedCLI = root.appendingPathComponent("cmux pinned dev cli", isDirectory: false)
-        try "#!/bin/sh\nexit 0\n".write(to: pinnedCLI, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
+        let bundledCLI = root.appendingPathComponent("cmux bundled dev cli", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: bundledCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledCLI.path)
 
-        let socketPath = "/tmp/cmux-debug-grok-pin.sock"
+        let socketPath = "/tmp/cmux-debug-grok-shared.sock"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "grok", "install", "--yes"],
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
+                "CMUX_BUNDLED_CLI_PATH": bundledCLI.path,
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
@@ -2315,20 +2327,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         XCTAssertFalse(allCommands.isEmpty)
         XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("cmux-grok-hook-v2") },
-            "Expected installed Grok hooks to carry the owned-hook marker, saw \(allCommands)"
+            allCommands.allSatisfy { $0.contains("command -v cmux") },
+            "Expected installed Grok hooks to use the simple PATH cmux dispatch, saw \(allCommands)"
         )
-        XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") },
-            "Expected installed Grok hooks to pin the installing CLI path, saw \(allCommands)"
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("cmux-grok-hook-v2") },
+            "Grok hooks should not use the old pinned dispatch marker, saw \(allCommands)"
         )
-        XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") },
-            "Expected installed Grok hooks to pin the installing socket path, saw \(allCommands)"
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("'\(bundledCLI.path)'") || $0.contains("\"\(bundledCLI.path)\"") },
+            "Grok hooks should not embed the installing CLI path, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("--socket '\(socketPath)'") || $0.contains("--socket \"\(socketPath)\"") },
+            "Grok hooks should not embed the installing socket path, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
+            "Grok hooks must still dispatch when Grok does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
         XCTAssertFalse(
             allCommands.contains { $0.contains("$CMUX_") },
-            "Grok hook commands must not depend on CMUX environment interpolation, saw \(allCommands)"
+            "Grok hooks must avoid CMUX variable interpolation, saw \(allCommands)"
         )
     }
 
