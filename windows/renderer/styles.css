@@ -351,6 +351,7 @@ body.reduce-motion *::after {
 .settings-nav-button,
 .settings-preset,
 .quick-settings-shortcut,
+.data-storage-row,
 .browser-home-preset,
 .pane-layout-preset,
 .terminal-color-preset,
@@ -444,6 +445,7 @@ body.reduce-motion *::after {
 .settings-nav-button:focus-visible,
 .settings-preset:focus-visible,
 .quick-settings-shortcut:focus-visible,
+.data-storage-row:focus-visible,
 .browser-home-preset:focus-visible,
 .pane-layout-preset:focus-visible,
 .terminal-color-preset:focus-visible,
@@ -474,6 +476,7 @@ body.reduce-motion *::after {
 .settings-nav-button:active,
 .settings-preset:active,
 .quick-settings-shortcut:active,
+.data-storage-row:active,
 .browser-home-preset:active,
 .pane-layout-preset:active,
 .terminal-color-preset:active,
@@ -2948,6 +2951,165 @@ body.reduce-motion *::after {
   font: 10px/1 var(--font-mono);
 }
 
+.data-settings-overview {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.data-overview-heading {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.data-overview-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.data-overview-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-faint);
+  font: 10px/1.2 var(--font-mono);
+}
+
+.data-overview-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.data-overview-grid span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.data-overview-grid b,
+.data-overview-grid em,
+.data-storage-total,
+.data-storage-row-label,
+.data-storage-row-key,
+.data-storage-row-count,
+.data-storage-row-bytes {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.data-overview-grid b {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.data-overview-grid em {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+.data-storage-breakdown {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.data-storage-total {
+  justify-self: end;
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+}
+
+.data-storage-list {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.data-storage-row {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px 68px;
+  grid-template-rows: 1fr 4px;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.data-storage-row:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+}
+
+.data-storage-row-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.data-storage-row-label {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.data-storage-row-key {
+  color: var(--color-faint);
+  font: 10px/1.2 var(--font-mono);
+}
+
+.data-storage-row-count {
+  justify-self: end;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.data-storage-row-bytes {
+  justify-self: end;
+  color: var(--color-text);
+  font: 11px/1 var(--font-mono);
+}
+
+.data-storage-row-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in oklch, var(--color-text) 9%, transparent);
+}
+
+.data-storage-row-bar::before {
+  content: "";
+  display: block;
+  width: var(--data-storage-fill);
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in oklch, var(--color-accent) 68%, var(--color-line) 32%);
+}
+
 .command-snippet-group-title {
   padding-top: var(--space-1);
   color: var(--color-muted);
@@ -4279,13 +4441,22 @@ textarea.dialog-input {
   .browser-home-preset-grid,
   .browser-preview-meta,
   .quick-overview-grid,
-  .quick-settings-shortcut-grid {
+  .quick-settings-shortcut-grid,
+  .data-overview-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .browser-preview-address {
     grid-template-columns: minmax(0, 1fr);
     align-content: center;
+  }
+
+  .data-storage-row {
+    grid-template-columns: minmax(0, 1fr) 60px;
+  }
+
+  .data-storage-row-count {
+    display: none;
   }
 }
 

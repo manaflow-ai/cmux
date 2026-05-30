@@ -3448,7 +3448,9 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("data")) {
     const actionsSection = settingsSection("Settings data");
+    actionsSection.append(dataSettingsOverviewPanel());
     actionsSection.append(settingsMetricGrid(settingsDataMetrics(), "data storage local settings metric"));
+    actionsSection.append(dataStorageBreakdownPanel());
     const actions = document.createElement("div");
     actions.className = "settings-actions";
     const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages history");
@@ -4199,29 +4201,124 @@ function storageEntryBytes(key) {
   return storageStringBytes(localStorageString(key));
 }
 
-function settingsDataMetrics() {
-  const storageEntries = [
-    ["settings", "Settings", "cmux.settings"],
-    ["terminalFontSize", "Terminal font", "cmux.terminalFontSize"],
-    ["paneLayout", "Pane layouts", paneLayoutStorageKey],
-    ["recentFolders", "Recent folders", recentFoldersStorageKey],
-    ["recentCommands", "Recent commands", recentCommandsStorageKey],
-    ["recentBrowserPages", "Recent pages", recentBrowserPagesStorageKey],
-    ["commandSnippets", "Command snippets", customCommandSnippetsStorageKey],
-    ["settingsProfiles", "Profiles", savedSettingsProfilesStorageKey],
-    ["workspaceBlueprints", "Blueprints", workspaceBlueprintsStorageKey],
-    ["customColors", "Saved colors", customColorPaletteStorageKey],
-    ["savedBackgrounds", "Backgrounds", savedBackgroundImagesStorageKey]
-  ];
-  const totalBytes = storageEntries.reduce((sum, [, , key]) => sum + storageEntryBytes(key), 0);
-  const recentItems = state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length;
-  const savedItems = state.customCommandSnippets.length
+function recentDataItemCount() {
+  return state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length;
+}
+
+function savedDataItemCount() {
+  return state.customCommandSnippets.length
     + state.savedSettingsProfiles.length
     + state.workspaceBlueprints.length
     + state.customColorPalette.length
     + state.savedBackgroundImages.length;
+}
+
+function dataStorageEntries() {
+  const entries = [
+    {
+      id: "settings",
+      label: "Settings",
+      key: "cmux.settings",
+      count: "Current",
+      category: "quick",
+      terms: "preferences setup customize"
+    },
+    {
+      id: "terminalFontSize",
+      label: "Terminal font",
+      key: "cmux.terminalFontSize",
+      count: `${state.settings.terminalFontSize}px`,
+      category: "terminal",
+      terms: "terminal font size legacy"
+    },
+    {
+      id: "paneLayout",
+      label: "Pane layouts",
+      key: paneLayoutStorageKey,
+      count: String(state.paneLayouts.size),
+      category: "layout",
+      terms: "split layout pane size"
+    },
+    {
+      id: "recentFolders",
+      label: "Recent folders",
+      key: recentFoldersStorageKey,
+      count: `${state.recentFolders.length}/${recentFoldersLimit}`,
+      category: "workspace",
+      terms: "workspace folder history"
+    },
+    {
+      id: "recentCommands",
+      label: "Recent commands",
+      key: recentCommandsStorageKey,
+      count: `${state.recentCommands.length}/${recentCommandsLimit}`,
+      category: "commands",
+      terms: "terminal command history"
+    },
+    {
+      id: "recentBrowserPages",
+      label: "Recent pages",
+      key: recentBrowserPagesStorageKey,
+      count: `${state.recentBrowserPages.length}/${recentBrowserPagesLimit}`,
+      category: "browser",
+      terms: "browser web page history"
+    },
+    {
+      id: "commandSnippets",
+      label: "Command snippets",
+      key: customCommandSnippetsStorageKey,
+      count: `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`,
+      category: "commands",
+      terms: "saved terminal snippets git github gh cli"
+    },
+    {
+      id: "settingsProfiles",
+      label: "Profiles",
+      key: savedSettingsProfilesStorageKey,
+      count: `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`,
+      category: "profiles",
+      terms: "saved settings profile"
+    },
+    {
+      id: "workspaceBlueprints",
+      label: "Blueprints",
+      key: workspaceBlueprintsStorageKey,
+      count: `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`,
+      category: "blueprints",
+      terms: "workspace layout template"
+    },
+    {
+      id: "customColors",
+      label: "Saved colors",
+      key: customColorPaletteStorageKey,
+      count: `${state.customColorPalette.length}/${customColorPaletteLimit}`,
+      category: "appearance",
+      terms: "color palette accent workspace pane"
+    },
+    {
+      id: "savedBackgrounds",
+      label: "Backgrounds",
+      key: savedBackgroundImagesStorageKey,
+      count: `${state.savedBackgroundImages.length}/${savedBackgroundImagesLimit}`,
+      category: "appearance",
+      terms: "background image wallpaper"
+    }
+  ];
+  return entries.map((entry) => ({
+    ...entry,
+    bytes: storageEntryBytes(entry.key)
+  }));
+}
+
+function totalDataStorageBytes() {
+  return dataStorageEntries().reduce((sum, entry) => sum + entry.bytes, 0);
+}
+
+function settingsDataMetrics() {
+  const recentItems = recentDataItemCount();
+  const savedItems = savedDataItemCount();
   return [
-    ["Local data", formatBytes(totalBytes)],
+    ["Local data", formatBytes(totalDataStorageBytes())],
     ["Recent items", String(recentItems)],
     ["Saved items", String(savedItems)],
     ["Recent folders", `${state.recentFolders.length}/${recentFoldersLimit}`],
@@ -4414,6 +4511,73 @@ function quickSettingsShortcutGrid() {
     grid.append(button);
   }
   return grid;
+}
+
+function dataSettingsOverviewPanel() {
+  const panel = document.createElement("div");
+  panel.className = "data-settings-overview";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved cleanup reset local settings");
+  panel.innerHTML = `
+    <div class="data-overview-heading">
+      <span class="data-overview-title">Local data</span>
+      <span class="data-overview-subtitle">cmux Windows</span>
+    </div>
+    <div class="data-overview-grid">
+      <span><b>Storage</b><em data-data-overview-storage></em></span>
+      <span><b>Saved</b><em data-data-overview-saved></em></span>
+      <span><b>Recent</b><em data-data-overview-recent></em></span>
+      <span><b>Layouts</b><em data-data-overview-layouts></em></span>
+    </div>
+  `;
+  panel.querySelector("[data-data-overview-storage]").textContent = formatBytes(totalDataStorageBytes());
+  panel.querySelector("[data-data-overview-saved]").textContent = String(savedDataItemCount());
+  panel.querySelector("[data-data-overview-recent]").textContent = String(recentDataItemCount());
+  panel.querySelector("[data-data-overview-layouts]").textContent = String(state.paneLayouts.size);
+  return panel;
+}
+
+function dataStorageBreakdownPanel() {
+  const entries = dataStorageEntries();
+  const maxBytes = Math.max(1, ...entries.map((entry) => entry.bytes));
+  const panel = document.createElement("div");
+  panel.className = "data-storage-breakdown";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("data storage breakdown local settings bytes saved recent export import cleanup");
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Storage breakdown";
+  const total = document.createElement("span");
+  total.className = "data-storage-total";
+  total.textContent = formatBytes(entries.reduce((sum, entry) => sum + entry.bytes, 0));
+  header.append(title, total);
+  panel.append(header);
+
+  const list = document.createElement("div");
+  list.className = "data-storage-list";
+  for (const entry of entries) {
+    const row = document.createElement("button");
+    row.className = "data-storage-row";
+    row.type = "button";
+    row.dataset.settingsSearch = normalizeSettingsQuery(`data storage ${entry.label} ${entry.key} ${entry.count} ${entry.terms}`);
+    row.style.setProperty("--data-storage-fill", `${Math.max(3, Math.round((entry.bytes / maxBytes) * 100))}%`);
+    row.innerHTML = `
+      <span class="data-storage-row-text">
+        <span class="data-storage-row-label"></span>
+        <span class="data-storage-row-key"></span>
+      </span>
+      <span class="data-storage-row-count"></span>
+      <span class="data-storage-row-bytes"></span>
+      <span class="data-storage-row-bar" aria-hidden="true"></span>
+    `;
+    row.querySelector(".data-storage-row-label").textContent = entry.label;
+    row.querySelector(".data-storage-row-key").textContent = entry.key;
+    row.querySelector(".data-storage-row-count").textContent = entry.count;
+    row.querySelector(".data-storage-row-bytes").textContent = formatBytes(entry.bytes);
+    row.onclick = () => openSettingsCategory(entry.category);
+    list.append(row);
+  }
+  panel.append(list);
+  return panel;
 }
 
 function settingsMetricGrid(metrics, searchPrefix = "performance diagnostics metric") {
