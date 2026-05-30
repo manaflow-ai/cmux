@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Regression: `new-workspace --command` should execute without selecting the workspace."""
+"""Regression: new workspace commands should execute without selecting the workspace."""
 
 from __future__ import annotations
 
 import glob
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -77,15 +79,35 @@ def _run_cli(cli: str, args: list[str]) -> tuple[subprocess.CompletedProcess[str
     return proc, elapsed
 
 
+def _wait_for_marker(marker: Path, token: str, timeout_s: float = 12.0) -> str:
+    observed = ""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if marker.exists():
+            try:
+                observed = marker.read_text(encoding="utf-8").strip()
+            except OSError:
+                observed = ""
+            if observed == token:
+                break
+        time.sleep(0.05)
+
+    _must(marker.exists(), f"Command marker file was not created: {marker}")
+    _must(observed == token, f"Queued command did not execute as expected: expected={token!r} observed={observed!r}")
+    return observed
+
+
 def main() -> int:
     cli = _find_cli_binary()
     marker = Path(tempfile.gettempdir()) / f"cmux_new_workspace_command_{os.getpid()}.txt"
+    layout_left_marker = Path(tempfile.gettempdir()) / f"cmux_new_workspace_layout_left_{os.getpid()}.txt"
+    layout_right_marker = Path(tempfile.gettempdir()) / f"cmux_new_workspace_layout_right_{os.getpid()}.txt"
     created_ws_id: str | None = None
+    created_layout_ws_id: str | None = None
 
-    try:
-        marker.unlink(missing_ok=True)
-    except OSError:
-        pass
+    for path in (marker, layout_left_marker, layout_right_marker):
+        with suppress(OSError):
+            path.unlink(missing_ok=True)
 
     with cmux(SOCKET_PATH) as c:
         try:
@@ -111,34 +133,82 @@ def main() -> int:
             # Creation with --command should not steal focus.
             _must(c.current_workspace() == baseline_ws_id, "new-workspace --command should preserve selected workspace")
 
-            observed = ""
-            deadline = time.time() + 12.0
-            while time.time() < deadline:
-                if marker.exists():
-                    try:
-                        observed = marker.read_text(encoding="utf-8").strip()
-                    except OSError:
-                        observed = ""
-                    if observed:
-                        break
-                time.sleep(0.05)
-
-            _must(marker.exists(), f"Command marker file was not created: {marker}")
-            _must(observed == token, f"Queued command did not execute as expected: expected={token!r} observed={observed!r}")
+            _wait_for_marker(marker, token)
             _must(c.current_workspace() == baseline_ws_id, "Command execution should not switch selected workspace")
+
+            layout_left_token = f"layout-left-{os.getpid()}-{int(time.time() * 1000)}"
+            layout_right_token = f"layout-right-{os.getpid()}-{int(time.time() * 1000)}"
+            layout = {
+                "direction": "horizontal",
+                "split": 0.5,
+                "children": [
+                    {
+                        "pane": {
+                            "surfaces": [
+                                {
+                                    "type": "terminal",
+                                    "command": f"echo {layout_left_token} > {layout_left_marker}",
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "pane": {
+                            "surfaces": [
+                                {
+                                    "type": "terminal",
+                                    "command": f"echo {layout_right_token} > {layout_right_marker}",
+                                }
+                            ]
+                        }
+                    },
+                ],
+            }
+            proc, elapsed = _run_cli(
+                cli,
+                [
+                    "new-workspace",
+                    "--name",
+                    "command-layout-queue",
+                    "--cwd",
+                    tempfile.gettempdir(),
+                    "--layout",
+                    json.dumps(layout, separators=(",", ":")),
+                ],
+            )
+            combined = f"{proc.stdout}\n{proc.stderr}".strip()
+            _must(proc.returncode == 0, f"CLI layout create failed ({proc.returncode}): {combined}")
+            layout_quick_return_timeout = _float_env("NEW_WORKSPACE_LAYOUT_TIMEOUT", 5.0)
+            _must(
+                elapsed < layout_quick_return_timeout,
+                (
+                    "new-workspace --layout should return quickly, "
+                    f"took {elapsed:.2f}s (threshold {layout_quick_return_timeout:.1f}s)"
+                ),
+            )
+
+            output = (proc.stdout or "").strip()
+            _must(output.startswith("OK "), f"Expected OK response for layout create, got: {output!r}")
+            created_layout_ws_id = output[3:].strip()
+            _must(bool(created_layout_ws_id), f"Missing layout workspace id in output: {output!r}")
+            _must(c.current_workspace() == baseline_ws_id, "new-workspace --layout should preserve selected workspace")
+
+            _wait_for_marker(layout_left_marker, layout_left_token)
+            _wait_for_marker(layout_right_marker, layout_right_token)
+            _must(c.current_workspace() == baseline_ws_id, "Layout command execution should not switch selected workspace")
         finally:
-            if created_ws_id:
-                try:
+            with suppress(Exception):
+                if created_layout_ws_id:
+                    c.close_workspace(created_layout_ws_id)
+            with suppress(Exception):
+                if created_ws_id:
                     c.close_workspace(created_ws_id)
-                except Exception:
-                    pass
 
-    try:
-        marker.unlink(missing_ok=True)
-    except OSError:
-        pass
+    for path in (marker, layout_left_marker, layout_right_marker):
+        with suppress(OSError):
+            path.unlink(missing_ok=True)
 
-    print("PASS: new-workspace --command executes without opening the created workspace")
+    print("PASS: new-workspace --command and --layout commands execute without opening the created workspace")
     return 0
 
 
