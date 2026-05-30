@@ -281,6 +281,8 @@
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
+		8E7740000000000000000011 /* JSONResponses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000010 /* JSONResponses.swift */; };
+		8E7740000000000000000013 /* JSONResponsesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000012 /* JSONResponsesTests.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
@@ -876,6 +878,8 @@
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
+		8E7740000000000000000010 /* JSONResponses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONResponses.swift; sourceTree = "<group>"; };
+		8E7740000000000000000012 /* JSONResponsesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONResponsesTests.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
@@ -1220,6 +1224,7 @@
 				8E774000000000000000000A /* HTTPParseError.swift */,
 				8E7740000000000000000008 /* HTTPRequest.swift */,
 				8E774000000000000000000C /* HTTPRequestParser.swift */,
+				8E7740000000000000000010 /* JSONResponses.swift */,
 				8E7740000000000000000006 /* TerminalController+SurfaceProviderStubs.swift */,
 			);
 			name = HTTPControl;
@@ -1230,6 +1235,7 @@
 			isa = PBXGroup;
 			children = (
 				8E774000000000000000000E /* HTTPRequestParserTests.swift */,
+				8E7740000000000000000012 /* JSONResponsesTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -2255,6 +2261,7 @@
 				8E774000000000000000000D /* HTTPRequestParser.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
+				8E7740000000000000000011 /* JSONResponses.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
@@ -2559,6 +2566,7 @@
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
+				8E7740000000000000000013 /* JSONResponsesTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
 				C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */,
