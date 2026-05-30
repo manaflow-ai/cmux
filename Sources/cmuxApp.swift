@@ -360,6 +360,11 @@ struct cmuxApp: App {
                     appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
                 }
 
+                Button("Toggle Selected Workspace Paper Layout") {
+                    activeTabManager.selectedWorkspace?.togglePaperLayoutModeForDebug()
+                }
+                .disabled(activeTabManager.selectedWorkspace == nil)
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Background Debug…") {

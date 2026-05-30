@@ -9655,6 +9655,21 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+#if DEBUG
+    func togglePaperLayoutModeForDebug() {
+        switch layoutMode {
+        case .bonsplit:
+            layoutMode = .paper
+            _ = ensurePaperLayoutState()
+        case .paper:
+            layoutMode = .bonsplit
+        }
+        cmuxDebugLog(
+            "paper.layout.toggle workspace=\(id.uuidString.prefix(5)) mode=\(layoutMode.rawValue)"
+        )
+    }
+#endif
+
     func representativePanelIdForWorkspaceManualUnread() -> UUID? {
         if let focusedPanelId, panels[focusedPanelId] != nil {
             return focusedPanelId
