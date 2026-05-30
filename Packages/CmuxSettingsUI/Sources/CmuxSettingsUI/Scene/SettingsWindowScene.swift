@@ -416,34 +416,32 @@ public struct SettingsWindowRoot: View {
         // scroll on the next runloop tick, after the target realizes,
         // makes the section header reliably land at the top. Both passes
         // are generation-guarded so a newer navigation still wins.
-        let scroll = {
-            // Scroll to exactly one target. A section hit pins the section
-            // header to the top; a row hit centers that row. They must NOT
-            // both run: issuing scrollTo(section, .top) and then
-            // scrollTo(row, .center) in the same tick is ambiguous — the
-            // section-top scroll can win, leaving a row deep in a long
-            // section (e.g. Gemini CLI Integration near the bottom of
-            // Automation) off-screen below the header. Pick one.
-            if anchorID == sectionID {
-                proxy.scrollTo(sectionID, anchor: .top)
-            } else {
-                proxy.scrollTo(anchorID, anchor: .center)
-            }
-        }
-        // Justification for DispatchQueue.main.async over @MainActor/Task
-        // (package concurrency rule): this is runloop-tick sequencing, not
-        // thread hopping — SettingsWindowRoot is already @MainActor. We need
-        // a layout pass to occur *between* the two scrollTo calls so the
-        // LazyVStack realizes the off-screen target before the second,
-        // landing pass. `Task { @MainActor in await Task.yield() }` does not
-        // guarantee a layout pass between yields, so there is no async-native
-        // replacement that preserves this timing; the main runloop hop does.
+        // Two-tick scroll, and the order matters. In the detail `LazyVStack`
+        // only realized sections register their `.id`s, so `scrollTo` to a
+        // row inside an off-screen section (e.g. a row deep in Automation
+        // while the view sits at the top) finds no id and silently no-ops,
+        // leaving the user stranded at the top. So: tick 1 scrolls to the
+        // SECTION (its body is an eager `Group`, so realizing the section
+        // registers every row's id); tick 2 — after that layout pass — then
+        // scrolls to the specific row (now resolvable) and centers it, or
+        // for a section hit re-pins the header to the top.
+        //
+        // DispatchQueue.main.async (vs @MainActor/Task) is deliberate
+        // runloop-tick sequencing — SettingsWindowRoot is already
+        // @MainActor; we need a layout pass *between* the two scrolls, which
+        // `Task.yield()` does not guarantee, so there's no async-native
+        // equivalent. Both ticks are generation-guarded so a newer
+        // navigation still wins.
         DispatchQueue.main.async {
             guard navigationGeneration == settingsNavigationGeneration else { return }
-            scroll()
+            proxy.scrollTo(sectionID, anchor: .top)
             DispatchQueue.main.async {
                 guard navigationGeneration == settingsNavigationGeneration else { return }
-                scroll()
+                if anchorID == sectionID {
+                    proxy.scrollTo(sectionID, anchor: .top)
+                } else {
+                    proxy.scrollTo(anchorID, anchor: .center)
+                }
             }
         }
     }
