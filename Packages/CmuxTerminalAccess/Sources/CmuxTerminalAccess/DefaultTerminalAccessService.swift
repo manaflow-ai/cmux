@@ -290,19 +290,112 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         )
     }
 
-    /// Placeholder for the cells subscription. The real
-    /// ``SnapshotPoller``-backed body is wired in Task 2.18 below; this
-    /// skeleton returns a subscription that never yields so the path
-    /// compiles before the poller wiring lands.
+    /// Open a ``StreamMode/cells`` subscription backed by
+    /// ``SnapshotPoller`` (D8).
+    ///
+    /// The poller calls
+    /// ``SurfaceProvider/readCells(surface:region:)`` every
+    /// ``cellsTickRate`` ticks, hashes the resulting ``CellGrid`` with
+    /// ``CellGridDigest`` (FNV-1a over codepoints + cursor) and emits
+    /// only when the digest changes. Each emit appends one
+    /// ``OutputEvent/cellsSnapshot(_:seq:)`` into a per-subscriber
+    /// ``EventRing`` (capacity 256) and drains everything newer than
+    /// the caller's `lastEventID` into `onEvent`.
+    ///
+    /// Cancellation stops the poller and releases the per-surface
+    /// ``StreamCap`` slot; an audit `streamClose` entry is recorded
+    /// fire-and-forget per E2.
+    ///
+    /// - Note: the poller is intentionally polling-based, not a third
+    ///   ghostty patch (plan §15 open question).
     private func openCellsSubscription(
         info: SurfaceInfo,
         options: StreamSubscriptionOptions,
         capToken: StreamCap.Token,
         onEvent: @escaping @Sendable (OutputEvent) -> Void
     ) async throws -> OutputSubscription {
+        let ring = EventRing(capacity: 256)
+        let surface = info
+        let provider = self.provider
+
+        // Track the highest seq delivered to `onEvent` so each drain
+        // returns only newly-appended entries. Start at the caller's
+        // `lastEventID` so resumes do not re-emit already-acknowledged
+        // events (D6). When the requested id is below the ring's oldest
+        // seq, the HTTP layer will additionally write the synthetic
+        // `: gap` SSE comment (Task 2.24).
+        let lastDeliveredLock = NSLock()
+        nonisolated(unsafe) var lastDelivered: UInt64 = options.lastEventID ?? 0
+
+        let poller = SnapshotPoller(
+            interval: max(0.001, 1.0 / cellsTickRate),
+            clock: SystemMonotonicClock(),
+            read: {
+                try await provider.readCells(surface: surface, region: .viewport)
+            },
+            emit: { grid in
+                _ = ring.append(.cellsSnapshot(grid, seq: 0))
+                lastDeliveredLock.lock()
+                let after = lastDelivered
+                lastDeliveredLock.unlock()
+                for (s, ev) in ring.drain(after: after) {
+                    onEvent(ev)
+                    lastDeliveredLock.lock()
+                    lastDelivered = s
+                    lastDeliveredLock.unlock()
+                }
+            }
+        )
+
+        // Audit open (E2 — async non-throwing) before the timer fires
+        // so the close entry never appears before the open entry.
+        await audit.record(
+            AuditEntry(
+                timestamp: Date(),
+                surface: options.handle,
+                kind: .streamOpen,
+                byteCount: 0,
+                detail: ["mode": "cells", "tickRate": "\(cellsTickRate)"]
+            )
+        )
+
+        // Drive the poller from a wall-clock GCD timer. The actor-based
+        // tick() is non-reentrant; if a previous tick is still running
+        // we silently coalesce — that's the right behavior for D8 where
+        // a slow read should not pile up backlog ticks.
+        let label = "cmux.stream.cells.\(UUID().uuidString)"
+        let timerQueue = DispatchQueue(label: label, qos: .utility)
+        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
+        let intervalMs = max(5, Int(1000.0 / cellsTickRate))
+        timer.schedule(
+            deadline: .now() + .milliseconds(intervalMs),
+            repeating: .milliseconds(intervalMs)
+        )
+        timer.setEventHandler { [poller] in
+            Task { try? await poller.tick() }
+        }
+        timer.resume()
+
+        let audit = self.audit
         return OutputSubscription(
-            id: UUID(), handle: options.handle, mode: .cells,
-            onCancel: { capToken.release() }
+            id: UUID(),
+            handle: options.handle,
+            mode: .cells,
+            onCancel: {
+                timer.cancel()
+                capToken.release()
+                Task { @Sendable in
+                    await audit.record(
+                        AuditEntry(
+                            timestamp: Date(),
+                            surface: options.handle,
+                            kind: .streamClose,
+                            byteCount: 0,
+                            detail: ["mode": "cells"]
+                        )
+                    )
+                }
+            }
         )
     }
 
