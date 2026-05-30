@@ -2340,6 +2340,201 @@ body.reduce-motion *::after {
   font-size: 12px;
 }
 
+.workspace-settings-preview {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.workspace-preview-frame {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 44px 32px 28px minmax(66px, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: var(--color-canvas);
+}
+
+.workspace-preview-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  column-gap: var(--space-2);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-line);
+  background: color-mix(in oklch, var(--workspace-preview-color) 12%, var(--color-rail) 88%);
+}
+
+.workspace-preview-color {
+  grid-row: 1 / -1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--workspace-preview-color);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--workspace-preview-color) 22%, transparent);
+}
+
+.workspace-preview-title,
+.workspace-preview-count,
+.workspace-preview-folder,
+.workspace-preview-heading,
+.workspace-preview-subheading,
+.workspace-preview-tab,
+.workspace-preview-pane-title,
+.workspace-preview-line,
+.workspace-preview-meta b,
+.workspace-preview-meta em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspace-preview-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.workspace-preview-count {
+  justify-self: end;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.workspace-preview-folder {
+  grid-column: 2 / -1;
+  color: var(--color-faint);
+  font: 10px/1.2 var(--font-mono);
+}
+
+.workspace-preview-topbar {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  align-content: center;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-chrome);
+}
+
+.workspace-preview-heading {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 740;
+}
+
+.workspace-preview-subheading {
+  color: var(--color-faint);
+  font: 10px/1.15 var(--font-mono);
+}
+
+.workspace-preview-tabs {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr .58fr 24px;
+  align-items: end;
+  gap: 5px;
+  padding: 5px 8px 0;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-chrome);
+}
+
+.workspace-preview-tab {
+  height: 20px;
+  padding: 4px 7px 0;
+  border: 1px solid var(--color-line);
+  border-bottom: 0;
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  background: var(--color-pane);
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.workspace-preview-tab.active {
+  border-color: color-mix(in oklch, var(--workspace-preview-pane-color) 58%, var(--color-line) 42%);
+  background: color-mix(in oklch, var(--workspace-preview-pane-color) 15%, var(--color-pane) 85%);
+  color: var(--color-text);
+}
+
+.workspace-preview-tab.plus {
+  padding: 0;
+  background: color-mix(in oklch, var(--color-text) 8%, transparent);
+}
+
+.workspace-preview-pane {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 18px 1fr 1fr;
+  gap: 6px;
+  margin: 8px;
+  padding: 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-terminal-gutter);
+}
+
+.workspace-preview-pane-title,
+.workspace-preview-line {
+  display: block;
+  border-radius: var(--radius-1);
+}
+
+.workspace-preview-pane-title {
+  background: color-mix(in oklch, var(--workspace-preview-pane-color) 18%, var(--color-pane) 82%);
+  color: var(--color-muted);
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+.workspace-preview-line {
+  height: 10px;
+  background: color-mix(in oklch, var(--color-text) 18%, transparent);
+}
+
+.workspace-preview-line.short {
+  width: 62%;
+}
+
+.workspace-preview-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.workspace-preview-meta span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.workspace-preview-meta b,
+.workspace-preview-meta em {
+  font-style: normal;
+}
+
+.workspace-preview-meta b {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.workspace-preview-meta em {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
 .recent-folder-list {
   display: grid;
   gap: var(--space-2);

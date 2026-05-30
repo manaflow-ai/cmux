@@ -3006,6 +3006,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("workspace")) {
     const workspaceSection = settingsSection("Workspace");
+    workspaceSection.append(workspaceSettingsPreviewPanel(workspace));
     const titleInput = document.createElement("input");
     titleInput.className = "setting-control";
     titleInput.value = workspace?.title || "";
@@ -3803,6 +3804,75 @@ function refreshLayoutSettingsPreview() {
   const preview = elements.inspectorBody.querySelector(".layout-settings-preview");
   if (preview) preview.replaceWith(layoutSettingsPreviewPanel());
   if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
+}
+
+function workspacePanelSummary(workspace) {
+  const terminalCount = workspace?.terminalCount || 0;
+  const browserCount = workspace?.browserCount || 0;
+  const parts = [];
+  if (terminalCount) parts.push(`${terminalCount} terminal${terminalCount === 1 ? "" : "s"}`);
+  if (browserCount) parts.push(`${browserCount} browser${browserCount === 1 ? "" : "s"}`);
+  return parts.join(" / ") || "No panes";
+}
+
+function workspaceSettingsPreviewPanel(workspace) {
+  const active = workspace?.panels.find((panel) => panel.id === workspace.activePanelId) || workspace?.panels[0];
+  const color = workspace?.color || state.data?.palette?.[0] || state.settings.accent;
+  const title = workspace?.title || "Workspace";
+  const folder = workspace?.cwdShort || workspace?.cwd || "No folder";
+  const panelSummary = workspacePanelSummary(workspace);
+  const activeLabel = active ? panelDisplayTitle(active, true) : "No active pane";
+  const panelType = active?.type === "browser" ? "Browser" : "Terminal";
+  const panelPath = active?.type === "browser" ? hostnameOf(active.url) : active?.cwdShort || folder;
+  const panelColor = active?.color || color;
+  const preview = document.createElement("div");
+  preview.className = "workspace-settings-preview";
+  preview.dataset.settingsSearch = normalizeSettingsQuery("workspace preview name rename folder directory color tab pane active terminal browser");
+  preview.style.setProperty("--workspace-preview-color", color);
+  preview.style.setProperty("--workspace-preview-pane-color", panelColor);
+  preview.innerHTML = `
+    <div class="workspace-preview-frame" aria-hidden="true">
+      <div class="workspace-preview-row">
+        <span class="workspace-preview-color"></span>
+        <span class="workspace-preview-title"></span>
+        <span class="workspace-preview-count"></span>
+        <span class="workspace-preview-folder"></span>
+      </div>
+      <div class="workspace-preview-topbar">
+        <span class="workspace-preview-heading"></span>
+        <span class="workspace-preview-subheading"></span>
+      </div>
+      <div class="workspace-preview-tabs">
+        <span class="workspace-preview-tab active"></span>
+        <span class="workspace-preview-tab muted"></span>
+        <span class="workspace-preview-tab plus"></span>
+      </div>
+      <div class="workspace-preview-pane">
+        <span class="workspace-preview-pane-title"></span>
+        <span class="workspace-preview-line"></span>
+        <span class="workspace-preview-line short"></span>
+      </div>
+    </div>
+    <div class="workspace-preview-meta">
+      <span><b>Name</b><em data-workspace-preview-name></em></span>
+      <span><b>Folder</b><em data-workspace-preview-folder></em></span>
+      <span><b>Panes</b><em data-workspace-preview-panes></em></span>
+      <span><b>Active</b><em data-workspace-preview-active></em></span>
+    </div>
+  `;
+  preview.querySelector(".workspace-preview-title").textContent = title;
+  preview.querySelector(".workspace-preview-count").textContent = panelSummary;
+  preview.querySelector(".workspace-preview-folder").textContent = folder;
+  preview.querySelector(".workspace-preview-heading").textContent = title;
+  preview.querySelector(".workspace-preview-subheading").textContent = folder;
+  preview.querySelector(".workspace-preview-tab.active").textContent = activeLabel;
+  preview.querySelector(".workspace-preview-tab.muted").textContent = panelType;
+  preview.querySelector(".workspace-preview-pane-title").textContent = activeLabel;
+  preview.querySelector("[data-workspace-preview-name]").textContent = title;
+  preview.querySelector("[data-workspace-preview-folder]").textContent = folder;
+  preview.querySelector("[data-workspace-preview-panes]").textContent = panelSummary;
+  preview.querySelector("[data-workspace-preview-active]").textContent = active ? `${panelType} / ${panelPath}` : "None";
+  return preview;
 }
 
 function settingsSection(title, searchTerms = "") {
