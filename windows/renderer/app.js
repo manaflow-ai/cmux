@@ -142,6 +142,7 @@ const initialSettings = loadSettings();
 
 const state = {
   data: null,
+  dataSignature: "",
   sidebarCollapsed: false,
   inspectorMode: null,
   terminals: new Map(),
@@ -182,6 +183,7 @@ const state = {
     avgMs: 0,
     maxMs: 0,
     slowCount: 0,
+    skippedRenders: 0,
     guardActivations: 0
   },
   terminalOutputStats: {
@@ -1395,8 +1397,7 @@ function api(path, options = {}) {
 }
 
 async function loadState() {
-  state.data = await api("/api/state");
-  render();
+  setAppState(await api("/api/state"));
 }
 
 function connectEvents() {
@@ -1404,12 +1405,32 @@ function connectEvents() {
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "state") {
-      const previous = state.data;
-      state.data = message.state;
-      scheduleRender(previous);
+      setAppState(message.state, { previousState: state.data, schedule: true });
     }
   });
   socket.addEventListener("close", () => setTimeout(connectEvents, 800));
+}
+
+function appStateSignature(data) {
+  try {
+    return JSON.stringify(data || null);
+  } catch {
+    return "";
+  }
+}
+
+function setAppState(nextData, { previousState = state.data, schedule = false } = {}) {
+  const nextSignature = appStateSignature(nextData);
+  if (nextSignature && nextSignature === state.dataSignature) {
+    state.data = nextData;
+    state.renderStats.skippedRenders += 1;
+    return false;
+  }
+  state.data = nextData;
+  state.dataSignature = nextSignature;
+  if (schedule) scheduleRender(previousState);
+  else render(previousState);
+  return true;
 }
 
 function scheduleRender(previousState = null) {
@@ -1425,6 +1446,7 @@ function scheduleRender(previousState = null) {
 
 function render(previousState) {
   if (!state.data) return;
+  state.dataSignature = appStateSignature(state.data);
   if (state.resizing) {
     state.pendingRender = true;
     state.pendingRenderPrevious ||= previousState || null;
@@ -3303,6 +3325,7 @@ function performanceMetrics() {
     ["Last render", formatMs(state.renderStats.lastMs)],
     ["Max render", formatMs(state.renderStats.maxMs)],
     ["Slow renders", String(state.renderStats.slowCount)],
+    ["Skipped renders", String(state.renderStats.skippedRenders)],
     ["Output backlog", formatBytes(state.terminalOutputStats.currentQueued)],
     ["Output max", formatBytes(state.terminalOutputStats.maxQueued)],
     ["Output chunks", String(state.terminalOutputStats.chunks)],
@@ -3362,6 +3385,7 @@ function resetRenderStats() {
     avgMs: 0,
     maxMs: 0,
     slowCount: 0,
+    skippedRenders: 0,
     guardActivations: 0
   };
   state.terminalOutputStats = {
