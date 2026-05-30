@@ -2748,13 +2748,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     private func browserWebExtensionSigningDescription(for trust: BrowserWebExtensionSourceTrust) -> String {
         let signer = trust.appExtension.displayName
-        let teamID = trust.appExtension.teamID?.isEmpty == false
-            ? trust.appExtension.teamID!
-            : String(localized: "browser.extensions.signature.noTeam", defaultValue: "No team ID")
         return String(
-            format: String(localized: "browser.extensions.install.signedBy", defaultValue: "Signed by: %@ (Team ID: %@)"),
-            signer,
-            teamID
+            format: String(localized: "browser.extensions.install.signedBy", defaultValue: "Signed by: %@"),
+            signer
         )
     }
 
