@@ -829,6 +829,64 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/4591:
+    /// the Antigravity hook is installed globally in
+    /// `~/.gemini/config/hooks.json`, so its PreToolUse hook fires for
+    /// every `agy` run — including when `agy` runs *outside* a cmux
+    /// terminal (no CMUX_SURFACE_ID / CMUX_WORKSPACE_ID). In that case the
+    /// `cmux hooks feed ...` invocation hits the no-cmux-target guard,
+    /// which historically printed `{}`. Antigravity parses `{}` into a
+    /// PreToolHookResult whose `allow_tool` defaults to `false`, so every
+    /// tool call is denied with "Tool call denied by
+    /// jsonhook__cmux_PreToolUse_0_0". The guard must fail open with
+    /// `{"allow_tool":true}` for Antigravity PreToolUse while leaving the
+    /// `{}` no-op intact for every other agent/event.
+    func testAntigravityPreToolUseHookFailsOpenOutsideCmuxTerminal() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-no-terminal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // No CMUX_SURFACE_ID / CMUX_WORKSPACE_ID and no --socket: the CLI
+        // cannot reach a cmux target, exactly like `agy` running in a plain
+        // terminal after `cmux hooks antigravity install`.
+        let noTargetEnvironment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let input = #"{"hook_event_name":"PreToolUse","toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "antigravity", "--event", "PreToolUse"],
+            environment: noTargetEnvironment,
+            standardInput: input,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        try assertAntigravityAllowToolOutput(result.stdout)
+
+        // The fail-open must stay scoped to the Antigravity PreToolUse
+        // permission gate: PostToolUse (a non-gate event) must keep the
+        // `{}` no-op so we don't fabricate hook results for other events.
+        let postToolResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "antigravity", "--event", "PostToolUse"],
+            environment: noTargetEnvironment,
+            standardInput: #"{"hook_event_name":"PostToolUse","toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(postToolResult.timedOut, postToolResult.stderr)
+        XCTAssertEqual(postToolResult.status, 0, postToolResult.stderr)
+        XCTAssertEqual(
+            postToolResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "{}",
+            "Non-gate Antigravity events must keep the {} no-op, saw \(postToolResult.stdout)"
+        )
+    }
+
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")
