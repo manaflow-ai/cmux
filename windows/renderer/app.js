@@ -6339,6 +6339,7 @@ function ensureContextMenu() {
 function hideContextMenu() {
   if (!state.contextMenu) return;
   state.contextMenu.hidden = true;
+  state.contextMenu.scrollTop = 0;
   state.contextMenu.replaceChildren();
 }
 
@@ -6538,6 +6539,7 @@ function showToolbarMenu(event) {
 
 function showContextMenuAt(menu, preferredX, preferredY) {
   menu.hidden = false;
+  menu.scrollTop = 0;
   const margin = 8;
   const rect = menu.getBoundingClientRect();
   const x = Math.min(preferredX, window.innerWidth - rect.width - margin);
