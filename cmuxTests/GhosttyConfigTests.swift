@@ -2747,9 +2747,25 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         XCTAssertNil(stack.pop())
     }
 
-    private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
+    func testRemoveSnapshotsDropsOnlyEntriesForGivenWorkspaceId() {
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        stack.push(makeSnapshot(index: 1, workspaceId: workspaceA))
+        stack.push(makeSnapshot(index: 2, workspaceId: workspaceB))
+        stack.push(makeSnapshot(index: 3, workspaceId: workspaceA))
+        stack.push(makeSnapshot(index: 4, workspaceId: workspaceB))
+
+        stack.removeSnapshots(forWorkspaceId: workspaceA)
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 4)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 2)
+        XCTAssertNil(stack.pop())
+    }
+
+    private func makeSnapshot(index: Int, workspaceId: UUID = UUID()) -> ClosedBrowserPanelRestoreSnapshot {
         ClosedBrowserPanelRestoreSnapshot(
-            workspaceId: UUID(),
+            workspaceId: workspaceId,
             url: URL(string: "https://example.com/\(index)"),
             profileID: nil,
             originalPaneId: UUID(),

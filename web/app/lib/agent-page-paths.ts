@@ -60,7 +60,7 @@ export const agentReadablePages = [
   { path: "/docs/custom-commands", title: "Custom Commands" },
   { path: "/docs/dock", title: "Dock" },
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },
-  { path: "/docs/api", title: "API Reference" },
+  { path: "/docs/api", title: "CLI Reference" },
   { path: "/docs/browser-automation", title: "Browser Automation" },
   { path: "/docs/skills", title: "Skills" },
   { path: "/docs/notifications", title: "Notifications" },
