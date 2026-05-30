@@ -47,6 +47,28 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testHostedExtensionSidebarUsesWiderMinimumWidth() {
+        XCTAssertEqual(
+            ContentView.effectiveMinimumSidebarWidth(
+                configuredMinimum: 216,
+                titlebarControlsMinimum: 224,
+                selectedExtensionSidebarProviderId: CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+            ),
+            CMUXInstalledExtensionSidebarHostView.minimumSidebarWidth,
+            accuracy: 0.001
+        )
+
+        XCTAssertEqual(
+            ContentView.effectiveMinimumSidebarWidth(
+                configuredMinimum: 216,
+                titlebarControlsMinimum: 224,
+                selectedExtensionSidebarProviderId: CmuxExtensionSidebarSelection.defaultProviderId
+            ),
+            224,
+            accuracy: 0.001
+        )
+    }
+
     func testSessionPersistenceReadsConfiguredMinimumSidebarWidth() {
         let suiteName = "SidebarWidthPolicyTests.minimumSidebarWidth.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

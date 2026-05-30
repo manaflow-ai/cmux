@@ -132,6 +132,8 @@ private struct CMUXSidebarExtensionLimitedChoiceStore {
 }
 
 struct CMUXInstalledExtensionSidebarHostView: View {
+    static let minimumSidebarWidth: CGFloat = 300
+
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
