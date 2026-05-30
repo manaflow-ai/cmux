@@ -609,6 +609,32 @@ function clearRecentBrowserPages() {
   toast("Recent browser pages cleared.");
 }
 
+function hasRecentActivity() {
+  return Boolean(state.recentFolders.length || state.recentCommands.length || state.recentBrowserPages.length);
+}
+
+async function clearRecentActivity() {
+  if (!hasRecentActivity()) {
+    toast("Recent activity is already clear.");
+    return false;
+  }
+  if (!await showConfirmDialog({
+    title: "Clear recent activity",
+    message: "Remove recent folders, terminal commands, and browser pages. Saved profiles, snippets, backgrounds, colors, and blueprints stay.",
+    confirmLabel: "Clear",
+    danger: true
+  })) return false;
+  state.recentFolders = [];
+  state.recentCommands = [];
+  state.recentBrowserPages = [];
+  saveRecentFolders();
+  saveRecentCommands();
+  saveRecentBrowserPages();
+  renderSettingsInspector();
+  toast("Recent activity cleared.");
+  return true;
+}
+
 function normalizeSnippetLabel(label, command = "") {
   const value = String(label || "").replace(/\s+/g, " ").trim();
   if (value) return value.slice(0, 56);
@@ -1459,6 +1485,7 @@ const commands = [
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
   { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
+  { id: "settings.clearRecentActivity", label: "Clear Recent Activity", shortcut: "", run: () => clearRecentActivity() },
   { id: "settings.terminal", label: "Open Terminal Settings", shortcut: "", run: () => openSettingsCategory("terminal") },
   { id: "settings.terminalColors", label: "Reset Terminal Colors", shortcut: "", run: () => applyTerminalColorPresetById("cmux") },
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
@@ -3348,9 +3375,12 @@ function renderSettingsInspector(options = {}) {
     const actionsSection = settingsSection("Settings data");
     const actions = document.createElement("div");
     actions.className = "settings-actions";
+    const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages history");
+    clearRecent.disabled = !hasRecentActivity();
     actions.append(
       settingsActionButton("Export", exportSettings),
       settingsActionButton("Import", importSettings),
+      clearRecent,
       settingsActionButton("Reset", resetSettings, "danger")
     );
     actionsSection.append(actions);
@@ -3605,7 +3635,7 @@ const settingsCategorySearchAliases = new Map([
   ["commands", "commands snippets shell gh github cli"],
   ["profiles", "profiles preset saved settings"],
   ["blueprints", "blueprints workspace layout template"],
-  ["data", "data import export reset recent history"]
+  ["data", "data import export reset recent history clear activity"]
 ]);
 
 function uniqueSearchTokens(tokens) {
@@ -5199,6 +5229,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
       contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
+      contextMenuButton("Clear recent activity", clearRecentActivity, !hasRecentActivity(), "danger"),
       contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
       contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance")),
