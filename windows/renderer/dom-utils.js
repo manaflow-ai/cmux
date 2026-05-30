@@ -28,6 +28,14 @@ export function setClassNameIfChanged(node, value) {
   return true;
 }
 
+export function toggleClassIfChanged(node, className, enabled) {
+  if (!node) return false;
+  const shouldEnable = Boolean(enabled);
+  if (node.classList.contains(className) === shouldEnable) return false;
+  node.classList.toggle(className, shouldEnable);
+  return true;
+}
+
 export function setDatasetIfChanged(node, key, value) {
   if (!node) return false;
   const next = String(value ?? "");

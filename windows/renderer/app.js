@@ -23,7 +23,8 @@ import {
   setDatasetIfChanged,
   setStylePropertyIfChanged,
   setTextIfChanged,
-  setTitleIfChanged
+  setTitleIfChanged,
+  toggleClassIfChanged
 } from "./dom-utils.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
@@ -1064,22 +1065,22 @@ function applySettings() {
   elements.shell.style.setProperty("--surface-tab-min", `${tabMetrics.min}px`);
   elements.shell.style.setProperty("--surface-tab-basis", `${tabMetrics.basis}px`);
   elements.shell.style.setProperty("--surface-tab-max", `${tabMetrics.max}px`);
-  elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
-  elements.shell.classList.toggle("pane-header-compact", state.settings.paneHeaderMode === "compact");
-  elements.shell.classList.toggle("pane-header-full", state.settings.paneHeaderMode === "full");
-  elements.shell.classList.toggle("pane-header-hidden", state.settings.paneHeaderMode === "hidden");
-  elements.shell.classList.toggle("workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
-  elements.shell.classList.toggle("workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
-  elements.shell.classList.toggle("workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
-  elements.shell.classList.toggle("toolbar-compact", state.settings.toolbarMode === "compact");
-  elements.shell.classList.toggle("toolbar-standard", state.settings.toolbarMode === "standard");
-  elements.shell.classList.toggle("toolbar-expanded", state.settings.toolbarMode === "expanded");
-  elements.shell.classList.toggle("hide-tabs", !state.settings.showTabs);
-  elements.shell.classList.toggle("hide-status", !state.settings.showStatusbar);
-  elements.shell.classList.toggle("show-advanced", state.settings.showAdvanced);
-  elements.shell.classList.toggle("performance-mode", state.settings.performanceMode);
+  toggleClassIfChanged(elements.shell, "density-compact", state.settings.density === "compact");
+  toggleClassIfChanged(elements.shell, "pane-header-compact", state.settings.paneHeaderMode === "compact");
+  toggleClassIfChanged(elements.shell, "pane-header-full", state.settings.paneHeaderMode === "full");
+  toggleClassIfChanged(elements.shell, "pane-header-hidden", state.settings.paneHeaderMode === "hidden");
+  toggleClassIfChanged(elements.shell, "workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
+  toggleClassIfChanged(elements.shell, "workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
+  toggleClassIfChanged(elements.shell, "workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
+  toggleClassIfChanged(elements.shell, "toolbar-compact", state.settings.toolbarMode === "compact");
+  toggleClassIfChanged(elements.shell, "toolbar-standard", state.settings.toolbarMode === "standard");
+  toggleClassIfChanged(elements.shell, "toolbar-expanded", state.settings.toolbarMode === "expanded");
+  toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
+  toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
+  toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
+  toggleClassIfChanged(elements.shell, "performance-mode", state.settings.performanceMode);
   const css = backgroundCss(state.settings.backgroundImage);
-  elements.shell.classList.toggle("has-background", css !== "none");
+  toggleClassIfChanged(elements.shell, "has-background", css !== "none");
   elements.shell.style.setProperty("--background-image", css);
   elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
   return true;
@@ -1572,12 +1573,12 @@ function render(previousState) {
     panelCount,
     zoomedPanel
   }));
-  elements.statusSummary.classList.toggle("is-busy", Boolean(operationLabel));
+  toggleClassIfChanged(elements.statusSummary, "is-busy", Boolean(operationLabel));
   updateRuntimeStatusLabels();
 
-  elements.shell.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
-  elements.shell.classList.toggle("inspector-open", Boolean(state.inspectorMode));
-  elements.shell.classList.toggle("pane-zoomed", Boolean(zoomedPanel));
+  toggleClassIfChanged(elements.shell, "sidebar-collapsed", state.sidebarCollapsed);
+  toggleClassIfChanged(elements.shell, "inspector-open", Boolean(state.inspectorMode));
+  toggleClassIfChanged(elements.shell, "pane-zoomed", Boolean(zoomedPanel));
   applySettings();
   renderWorkspaces();
   renderSurfaceTabs(workspace);
@@ -1664,8 +1665,8 @@ function updateRuntimeStatusLabels() {
 function updateOperationChrome() {
   const label = currentUiOperationLabel();
   const creatingPane = hasUiOperationKind("create-panel");
-  elements.shell.classList.toggle("operation-pending", Boolean(label));
-  elements.statusSummary.classList.toggle("is-busy", Boolean(label));
+  toggleClassIfChanged(elements.shell, "operation-pending", Boolean(label));
+  toggleClassIfChanged(elements.statusSummary, "is-busy", Boolean(label));
   setTextIfChanged(elements.statusSummary, label || defaultStatusSummary());
   for (const id of ["newTerminalButton", "splitRightButton", "splitDownButton", "newBrowserButton"]) {
     const button = document.getElementById(id);
@@ -1872,14 +1873,14 @@ function renderPanes(workspace) {
     replaceChildrenIfChanged(elements.paneGrid, []);
     return;
   }
-  elements.paneGrid.classList.toggle("direction-down", workspace.splitDirection === "down");
+  toggleClassIfChanged(elements.paneGrid, "direction-down", workspace.splitDirection === "down");
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
   const visiblePanels = zoomedPanel ? [zoomedPanel] : panels;
   const layoutDirection = paneLayoutDirection(workspace);
   const layoutWeights = storedPaneWeightsForPanels(visiblePanels, layoutDirection, zoomedPanel);
   if (visiblePanels.length <= 1) elements.paneLayoutStyle.textContent = "";
   else if (layoutWeights) renderPaneLayoutStylesForWeights(layoutWeights);
-  elements.paneGrid.classList.toggle("is-zoomed", Boolean(zoomedPanel));
+  toggleClassIfChanged(elements.paneGrid, "is-zoomed", Boolean(zoomedPanel));
   const panelIds = new Set(visiblePanels.map((panel) => panel.id));
   const livePanelIds = allPanelIds();
   for (const child of [...elements.paneGrid.children]) {
@@ -1903,11 +1904,11 @@ function renderPanes(workspace) {
     nodes.push(pane);
     setDatasetIfChanged(pane, "panelId", panel.id);
     setStylePropertyIfChanged(pane, "--panel-color", panel.color || workspace.color || "var(--color-accent)");
-    pane.classList.toggle("is-active", panel.id === workspace.activePanelId);
-    pane.classList.toggle("is-zoomed", panel.id === state.zoomedPanelId);
-    pane.classList.toggle("has-attention", panel.needsAttention);
-    pane.classList.toggle("is-browser", panel.type === "browser");
-    pane.classList.toggle("is-terminal", panel.type === "terminal");
+    toggleClassIfChanged(pane, "is-active", panel.id === workspace.activePanelId);
+    toggleClassIfChanged(pane, "is-zoomed", panel.id === state.zoomedPanelId);
+    toggleClassIfChanged(pane, "has-attention", panel.needsAttention);
+    toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
+    toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
     if (visiblePanels.length <= 1) clearPaneFlex(pane);
     setTextIfChanged(pane.querySelector(".pane-type"), panel.type === "browser" ? "web" : "term");
     const title = panelDisplayTitle(panel, false);
