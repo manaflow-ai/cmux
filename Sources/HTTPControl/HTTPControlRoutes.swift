@@ -34,6 +34,48 @@ enum HTTPControlRoutes {
         }
     }
 
+    /// Registers `POST /v1/surfaces/{id}/input` (Task 1.16).
+    ///
+    /// Decodes the JSON body via ``InputRequestDecoder`` and delegates
+    /// to ``CmuxTerminalAccess/TerminalAccessService/writeInput(_:)``.
+    /// `allowRaw` is consulted on every request so settings flips take
+    /// effect immediately.
+    static func registerInputWrite(
+        into table: inout RouteTable,
+        service: any TerminalAccessService,
+        allowRaw: @escaping @Sendable () -> Bool
+    ) {
+        table.register(method: "POST", pattern: "/v1/surfaces/*/input") { req in
+            let segs = req.path.split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+            guard segs.count == 4,
+                  segs[0] == "v1",
+                  segs[1] == "surfaces",
+                  segs[3] == "input"
+            else {
+                return JSONResponses.error(.badRequest(reason: "bad path"))
+            }
+            guard let handle = SurfaceHandle.parse(segs[2]) else {
+                return JSONResponses.error(.unknownSurface)
+            }
+            do {
+                let request = try InputRequestDecoder.decode(
+                    handle: handle,
+                    body: req.body,
+                    allowRaw: allowRaw()
+                )
+                try await service.writeInput(request)
+                return JSONResponses.json(200, ["ok": true])
+            } catch let e as TerminalAccessError {
+                return JSONResponses.error(e)
+            } catch {
+                return JSONResponses.error(
+                    .badRequest(reason: String(describing: error))
+                )
+            }
+        }
+    }
+
     /// Registers `GET /v1/surfaces/{id}/screen` (Task 1.14).
     ///
     /// Parses `format`, `region`, `wrap`, `trim` query parameters,
