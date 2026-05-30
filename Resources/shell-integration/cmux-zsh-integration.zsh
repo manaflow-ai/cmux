@@ -671,6 +671,8 @@ _cmux_report_command_start() {
     if [[ -n "$cmd" ]]; then
         local qcmd="${cmd//\\/\\\\}"
         qcmd="${qcmd//\"/\\\"}"
+        qcmd="${qcmd//$'\n'/\\n}"
+        qcmd="${qcmd//$'\r'/\\r}"
         payload+=$'\n'"report_foreground_command \"${qcmd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --seq=$_CMUX_SHELL_ACTIVITY_SEQ"
     fi
     _cmux_send_bg "$payload"
