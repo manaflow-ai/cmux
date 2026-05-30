@@ -183,6 +183,19 @@ struct SettingsRowAnchorResolutionTests {
     /// guards the class of bug where a curated entry's synonyms carried
     /// several sub-paths (e.g. agentHibernation.enabled/idleSeconds/...)
     /// so every sub-row collided on one anchor.
+    /// The DEBUG `:all` sentinel surfaces every indexed entry so the
+    /// full search → scroll → highlight path can be walked row by row.
+    @Test
+    func debugSentinelReturnsEveryEntry() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let all = index.match(":all")
+        #expect(all.count == index.entries.count)
+        #expect(Set(all.map(\.id)) == Set(index.entries.map(\.id)))
+        // A normal query is still filtered, so the sentinel isn't just
+        // "everything always".
+        #expect(index.match("copy on select").count < index.entries.count)
+    }
+
     @Test
     func rowAnchorsAreUniqueAcrossRows() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())

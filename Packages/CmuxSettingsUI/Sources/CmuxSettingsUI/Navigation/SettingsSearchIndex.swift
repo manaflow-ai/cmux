@@ -131,6 +131,16 @@ public struct SettingsSearchIndex: Sendable {
     }
 
     public func match(_ query: String) -> [Entry] {
+        #if DEBUG
+        // Debug-only escape hatch: typing the sentinel surfaces *every*
+        // indexed entry (sections + settings) at once, so search/scroll/
+        // highlight can be walked end to end by tapping each result. The
+        // raw query is compared before tokenization so the sentinel's
+        // punctuation isn't stripped. Compiled out of Release builds.
+        if Self.normalize(query).trimmingCharacters(in: .whitespacesAndNewlines) == Self.debugShowAllQuery {
+            return entries
+        }
+        #endif
         let tokens = Self.tokens(in: query)
         if tokens.isEmpty {
             return entries.filter { if case .section = $0.kind { return true } else { return false } }
@@ -139,6 +149,13 @@ public struct SettingsSearchIndex: Sendable {
             tokens.allSatisfy { entry.normalizedSearchText.contains($0) }
         }
     }
+
+    #if DEBUG
+    /// Sentinel search query that, in DEBUG builds only, makes
+    /// ``match(_:)`` return every indexed entry so the full search →
+    /// scroll → highlight path can be exercised one row at a time.
+    static let debugShowAllQuery = ":all"
+    #endif
 
     private static func normalize(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
