@@ -58,6 +58,7 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
@@ -65,10 +66,21 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "copyOnSelect": true,
+  //   "autoResumeAgentSessions": true,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
+  //   "defaultSearchEngine": "kagi",
+  //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
+  //   "customSearchEngineName": "My Search",
+  //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },

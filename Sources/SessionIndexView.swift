@@ -281,9 +281,20 @@ private struct GroupingButton: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 10, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.secondaryIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
@@ -2538,6 +2549,7 @@ private struct MirrorTabItem: Codable {
     let isDirty: Bool
     let showsNotificationBadge: Bool
     let isLoading: Bool
+    let isAudioMuted: Bool
     let isPinned: Bool
 }
 
@@ -2561,6 +2573,7 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
             isDirty: false,
             showsNotificationBadge: false,
             isLoading: false,
+            isAudioMuted: false,
             isPinned: false
         ),
         sourcePaneId: UUID(),

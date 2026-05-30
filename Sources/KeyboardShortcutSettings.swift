@@ -96,6 +96,8 @@ enum KeyboardShortcutSettings {
         case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
+        case focusHistoryBack
+        case focusHistoryForward
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
@@ -103,9 +105,13 @@ enum KeyboardShortcutSettings {
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
+        case groupSelectedWorkspaces
+        case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
+        case focusTextBoxInput
+        case attachTextBoxFile
 
         // Panes / splits
         case focusLeft
@@ -156,7 +162,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
-            case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Reopen Previous Session")
+            case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
             case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette: Next")
@@ -179,6 +185,8 @@ enum KeyboardShortcutSettings {
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
+            case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
+            case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
@@ -186,9 +194,13 @@ enum KeyboardShortcutSettings {
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
-            case .reopenClosedBrowserPanel: return String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel")
+            case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
+            case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
+            case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
+            case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
+            case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -302,6 +314,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+            case .focusHistoryBack:
+                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
+            case .focusHistoryForward:
+                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
@@ -314,6 +330,20 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
+            case .groupSelectedWorkspaces:
+                // Cmd+Shift+G is the user-natural mnemonic. It collides with
+                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
+                // returns false (lets the event propagate) whenever there are
+                // no eligible workspaces to group — so React Grab still
+                // fires in browser/terminal contexts where this shortcut
+                // wouldn't have done anything anyway.
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .toggleFocusedWorkspaceGroupCollapsed:
+                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
+                // used by other group ops, with "." as the collapse
+                // mnemonic. No-ops gracefully when the focused workspace
+                // isn't in a group.
+                return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
@@ -343,6 +373,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .focusTextBoxInput:
+                return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
+            case .attachTextBoxFile:
+                return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
@@ -872,6 +906,8 @@ enum KeyboardShortcutSettings {
     static func selectSurfaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectSurfaceByNumber) }
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
     static func selectWorkspaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectWorkspaceByNumber) }
+    static func focusTextBoxInputShortcut() -> StoredShortcut { shortcut(for: .focusTextBoxInput) }
+    static func attachTextBoxFileShortcut() -> StoredShortcut { shortcut(for: .attachTextBoxFile) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
@@ -1513,18 +1549,25 @@ struct ShortcutStroke: Equatable, Hashable {
 
         let hasEventChars = !(eventCharacter?.isEmpty ?? true)
         let eventCharsAreASCII = eventCharacter?.allSatisfy(\.isASCII) ?? true
+        let eventCharsArePrintableASCII = eventCharacter?.unicodeScalars.allSatisfy { scalar in
+            scalar.isASCII && !CharacterSet.controlCharacters.contains(scalar)
+        } ?? true
         let shortcutKeyIsDigit = shortcutKey.count == 1 && shortcutKey.first?.isNumber == true
+        let shortcutKeyIsLetter = shortcutKey.count == 1 && shortcutKey.first?.isLetter == true
+        let eventCharacterIsLetterOrNumber = eventCharacter?.count == 1 &&
+            (eventCharacter?.first?.isLetter == true || eventCharacter?.first?.isNumber == true)
+        let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
+            hasEventChars &&
+            eventCharsArePrintableASCII &&
+            (!flags.contains(.control) || !shortcutKeyIsLetter) &&
+            (shortcutKeyIsLetter || eventCharacterIsLetterOrNumber)
         if shortcutKeyIsDigit,
            hasEventChars,
            eventCharsAreASCII,
            Self.digitForNumberKeyCode(keyCode) == nil {
             return false
         }
-        if hasEventChars,
-           eventCharsAreASCII,
-           flags.contains(.command),
-           !flags.contains(.control),
-           Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
+        if commandPrintableCharacterShouldBlockFallback {
             return false
         }
 

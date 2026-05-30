@@ -80,6 +80,13 @@ enum CLISocketPathSource {
 }
 
 enum CLISocketPathResolver {
+    enum SocketPathEntry {
+        case missing
+        case socket(ownerUserID: uid_t)
+        case other(ownerUserID: uid_t)
+        case inaccessible(errnoCode: Int32)
+    }
+
     private static let appSupportDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
@@ -109,12 +116,25 @@ enum CLISocketPathResolver {
         return stablePath ?? legacyDefaultSocketPath
     }
 
+    private static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        stableSocketDirectoryURL()?
+            .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
+            .path ?? legacyUserScopedStableSocketPath(currentUserID: currentUserID)
+    }
+
+    private static func legacyUserScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        "/tmp/cmux-\(currentUserID).sock"
+    }
+
     static func isImplicitDefaultPath(
         _ path: String,
         bundleIdentifier: String? = currentAppBundleIdentifier(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment).contains(path)
+        containsPath(
+            knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment),
+            path
+        )
     }
 
     static func resolve(
@@ -122,13 +142,19 @@ enum CLISocketPathResolver {
         source: CLISocketPathSource,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = currentAppBundleIdentifier(),
-        warningSink: ((String) -> Void)? = nil
+        warningSink: ((String) -> Void)? = nil,
+        currentUserID: uid_t = getuid(),
+        inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
     ) -> String {
         if source == .explicitFlag {
             return requestedPath
         }
 
-        let environmentRequestedPathReachable = source == .environment && canConnect(to: requestedPath)
+        let environmentRequestedPathReachable = source == .environment && canConnect(
+            to: requestedPath,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        )
         if environmentRequestedPathReachable {
             return requestedPath
         }
@@ -136,7 +162,9 @@ enum CLISocketPathResolver {
         let resolved = resolveFromCandidateChain(
             requestedPath: requestedPath,
             environment: environment,
-            bundleIdentifier: bundleIdentifier
+            bundleIdentifier: bundleIdentifier,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
         )
         if source == .environment, !environmentRequestedPathReachable {
             emitEnvironmentSocketFallbackWarning(
@@ -151,8 +179,16 @@ enum CLISocketPathResolver {
     private static func resolveFromCandidateChain(
         requestedPath: String,
         environment: [String: String],
-        bundleIdentifier: String?
+        bundleIdentifier: String?,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
     ) -> String {
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
+        if case .stable = variant,
+           canConnect(to: requestedPath, currentUserID: currentUserID, inspectSocketPathEntry: inspectSocketPathEntry) {
+            return requestedPath
+        }
+
         let candidates = dedupe(candidatePaths(
             requestedPath: requestedPath,
             environment: environment,
@@ -160,16 +196,24 @@ enum CLISocketPathResolver {
         ))
 
         // Prefer sockets that are currently accepting connections.
-        for candidate in candidates where canConnect(to: candidate) {
-            return candidate
+        for path in candidates where canConnect(
+            to: path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) {
+            return path
         }
 
         // If the listener is still starting, prefer existing socket files.
-        for candidate in candidates where isSocketFile(candidate) {
-            return candidate
+        for path in candidates where isOwnedSocketFile(
+            path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) {
+            return path
         }
 
-        return requestedPath
+        return candidates.first ?? requestedPath
     }
 
     private static func candidatePaths(
@@ -212,7 +256,8 @@ enum CLISocketPathResolver {
         case .stable:
             return true
         case .nightly, .staging, .dev:
-            return requestedPath == defaultPath || !stableImplicitDefaultPaths().contains(requestedPath)
+            return pathsMatch(requestedPath, defaultPath)
+                || !containsPath(stableImplicitDefaultPaths(), requestedPath)
         }
     }
 
@@ -272,7 +317,7 @@ enum CLISocketPathResolver {
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if allKnownDefaultSocketPaths().contains(path) {
+                if isKnownDefaultSocketPath(path) {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -285,12 +330,49 @@ enum CLISocketPathResolver {
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
-        var st = stat()
-        return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
+        if case .socket = inspectSocketPathEntry(path) {
+            return true
+        }
+        return false
     }
 
-    private static func canConnect(to path: String) -> Bool {
-        guard isSocketFile(path) else { return false }
+    private static func isOwnedSocketFile(
+        _ path: String,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> Bool {
+        if case .socket(let ownerUserID) = inspectSocketPathEntry(path) {
+            return ownerUserID == currentUserID
+        }
+        return false
+    }
+
+    private static func inspectSocketPathEntry(_ path: String) -> SocketPathEntry {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            if errno == ENOENT {
+                return .missing
+            }
+            return .inaccessible(errnoCode: errno)
+        }
+        if (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) {
+            return .socket(ownerUserID: st.st_uid)
+        }
+        return .other(ownerUserID: st.st_uid)
+    }
+
+    private static func canConnect(
+        to path: String,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> Bool {
+        guard isOwnedSocketFile(
+            path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) else {
+            return false
+        }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { Darwin.close(fd) }
@@ -344,9 +426,13 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        dedupe(
-            [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
-                + stableImplicitDefaultPaths()
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
+        let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
+        if case .stable = variant {
+            return stableImplicitDefaultPaths()
+        }
+        return dedupe(
+            [defaultPath] + stableImplicitDefaultPaths()
         )
     }
 
@@ -354,6 +440,8 @@ enum CLISocketPathResolver {
         dedupe([
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
+            userScopedStableSocketPath(),
+            legacyUserScopedStableSocketPath(),
         ])
     }
 
@@ -361,10 +449,47 @@ enum CLISocketPathResolver {
         Set(dedupe([
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
+            userScopedStableSocketPath(),
+            legacyUserScopedStableSocketPath(),
             fallbackSocketPath,
             nightlySocketPath,
             stagingSocketPath,
         ]))
+    }
+
+    private static func isKnownDefaultSocketPath(_ path: String) -> Bool {
+        containsPath(Array(allKnownDefaultSocketPaths()), path)
+    }
+
+    private static func containsPath(_ paths: [String], _ path: String) -> Bool {
+        paths.contains { pathsMatch($0, path) }
+    }
+
+    private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsForms = pathComparisonForms(lhs)
+        let rhsForms = pathComparisonForms(rhs)
+        return lhsForms.contains { lhsForm in
+            rhsForms.contains { rhsForm in
+                lhsForm == rhsForm
+                    || lhsForm.caseInsensitiveCompare(rhsForm) == .orderedSame
+            }
+        }
+    }
+
+    private static func pathComparisonForms(_ path: String) -> [String] {
+        let baseForms = [
+            (path as NSString).standardizingPath,
+            (path as NSString).resolvingSymlinksInPath,
+        ]
+        var forms = baseForms
+        for form in baseForms {
+            if form.hasPrefix("/private/tmp/") {
+                forms.append("/tmp/" + String(form.dropFirst("/private/tmp/".count)))
+            } else if form.hasPrefix("/tmp/") {
+                forms.append("/private/tmp/" + String(form.dropFirst("/tmp/".count)))
+            }
+        }
+        return dedupe(forms)
     }
 
     private static func lastSocketPathFiles(

@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
+                    "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
@@ -71,8 +72,10 @@ extension CmuxSettingsFileStore {
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
-                    "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
+                    "confirmQuit": QuitWarningSettings.defaultConfirmQuitMode.rawValue,
                     "warnBeforeClosingTab": CloseTabWarningSettings.defaultWarnBeforeClosingTab,
+                    "warnBeforeClosingTabXButton": CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton,
+                    "hideTabCloseButton": CloseTabWarningSettings.defaultHideTabCloseButton,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
                 ],
@@ -80,7 +83,14 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
+                    "agentHibernation": [
+                        "enabled": AgentHibernationSettings.defaultEnabled,
+                        "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
+                        "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
+                    ],
+                    "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],
             ],
@@ -100,8 +110,11 @@ extension CmuxSettingsFileStore {
             [
                 "sidebar": [
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
+                    "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
+                    "stackBranchDirectory": SidebarBranchDirectoryStackedSettings.defaultStacked,
+                    "pathLastSegmentOnly": SidebarPathLastSegmentSettings.defaultLastSegmentOnly,
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,
@@ -152,6 +165,8 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
+                    "customSearchEngineName": BrowserSearchSettings.defaultCustomSearchEngineName,
+                    "customSearchEngineURLTemplate": BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,

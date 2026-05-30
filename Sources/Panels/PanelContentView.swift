@@ -15,8 +15,11 @@ struct PanelContentView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
+    let terminalAgentContext: String
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
@@ -40,7 +43,10 @@ struct PanelContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
+                    terminalAgentContext: terminalAgentContext,
                     onFocus: onFocus,
+                    onResumeAgentHibernation: onResumeAgentHibernation,
+                    onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
             }
@@ -87,6 +93,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .project:
+            if let projectPanel = panel as? ProjectPanel {
+                ProjectPanelView(
+                    panel: projectPanel,
+                    isFocused: isFocused,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -104,7 +118,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool:
+        case .markdown, .filePreview, .rightSidebarTool, .project:
             return true
         case .terminal, .browser:
             return false
