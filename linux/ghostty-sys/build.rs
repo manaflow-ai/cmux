@@ -53,6 +53,30 @@ fn main() {
         panic!("zig build failed with status: {}", status);
     }
 
+    // Newer upstream Ghostty installs the embedded `app-runtime=none` library as
+    // `ghostty-internal.{so,a}` instead of `libghostty.{so,a}` (its SONAME is
+    // still `libghostty.so`). Materialize the historical `libghostty.*` names so
+    // the `-lghostty` link and runtime SONAME lookup below keep working across
+    // both old and new Ghostty.
+    let install_lib_dir = install_dir.join("lib");
+    for (renamed, legacy) in [
+        ("ghostty-internal.so", "libghostty.so"),
+        ("ghostty-internal.a", "libghostty.a"),
+    ] {
+        let renamed_path = install_lib_dir.join(renamed);
+        let legacy_path = install_lib_dir.join(legacy);
+        if renamed_path.exists() && !legacy_path.exists() {
+            fs::copy(&renamed_path, &legacy_path).unwrap_or_else(|error| {
+                panic!(
+                    "failed to alias {} to {}: {}",
+                    renamed_path.display(),
+                    legacy_path.display(),
+                    error
+                )
+            });
+        }
+    }
+
     // `app-runtime=none` does not install resources, so generate the
     // Ghostty terminfo bundle ourselves for embedded hosts.
     let share_dir = install_dir.join("share");
