@@ -149,6 +149,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             errorText = error?.localizedDescription
                         }
                     )
+                        .id(identity.bundleIdentifier)
                         .accessibilityIdentifier("CMUXExtensionSidebarHostView")
                         .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : SidebarWorkspaceScrollInsets.workspaceList.top)
                 }
@@ -393,7 +394,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func applyModernExtensionState(_ state: AppExtensionPoint.Monitor.State) {
         disabledExtensionCount = state.disabledCount
         unapprovedExtensionCount = state.unapprovedCount
-        applyEnabledExtensionIdentities(state.identities)
+        let unavailableCount = state.disabledCount + state.unapprovedCount
+        let enabledIdentities = unavailableCount >= state.identities.count ? [] : state.identities
+        applyEnabledExtensionIdentities(enabledIdentities)
     }
 
     @available(macOS 26.0, *)

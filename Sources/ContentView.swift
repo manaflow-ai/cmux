@@ -9948,6 +9948,7 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 
     @objc func manageExtensions(_ sender: NSMenuItem) {
         guard let anchorView = sender.representedObject as? NSView else { return }
+        CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarSelection.hostedExtensionsProviderId)
         CMUXSidebarExtensionBrowserPresenter.present(
             from: anchorView,
             title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
