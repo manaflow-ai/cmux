@@ -56,14 +56,19 @@ select_zig_for_target() {
   fi
 
   local -a candidates=()
+  # Prefer Apple Silicon Homebrew Zig on macOS runners. Some CI shells expose
+  # /usr/local/bin first or run under Rosetta, but the x86_64 Zig link path can
+  # fail against newer macOS SDKs while arm64 Zig cross-compiles both slices.
+  candidates+=("/opt/homebrew/bin/zig")
   local path_zig=""
   path_zig="$(command -v zig 2>/dev/null || true)"
   [[ -n "$path_zig" ]] && candidates+=("$path_zig")
-  candidates+=("/opt/homebrew/bin/zig" "/usr/local/bin/zig")
+  candidates+=("/usr/local/bin/zig")
 
   local fallback=""
   local host_match=""
   local desired_match=""
+  local apple_silicon_match=""
   local seen=" "
   local candidate=""
   local canonical=""
@@ -75,6 +80,9 @@ select_zig_for_target() {
     seen="${seen}${canonical} "
     [[ -z "$fallback" ]] && fallback="$canonical"
     arch="$(zig_binary_arch "$canonical")"
+    if [[ -z "$apple_silicon_match" && "$arch" == "arm64" ]]; then
+      apple_silicon_match="$canonical"
+    fi
     if [[ -n "$host_arch" && -z "$host_match" && "$arch" == "$host_arch" ]]; then
       host_match="$canonical"
     fi
@@ -83,16 +91,20 @@ select_zig_for_target() {
     fi
   done
 
-  # Prefer a host-native Zig and let Zig cross-compile non-host targets. On
-  # macOS 26, running x86_64 Zig under Rosetta can fail to link libSystem while
-  # the arm64 Zig cross-link path succeeds for the x86_64 helper slice.
-  if [[ -n "$host_match" ]]; then
-    echo "$host_match"
+  # Prefer the arm64 Zig when it exists because it can cross-compile the x86_64
+  # helper slice and avoids Rosetta linker failures on macOS CI runners.
+  if [[ -n "$apple_silicon_match" ]]; then
+    echo "$apple_silicon_match"
     return 0
   fi
 
   if [[ -n "$desired_match" ]]; then
     echo "$desired_match"
+    return 0
+  fi
+
+  if [[ -n "$host_match" ]]; then
+    echo "$host_match"
     return 0
   fi
 
