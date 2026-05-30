@@ -131,7 +131,8 @@ const layoutSettingsPreviewKeys = new Set([
 ]);
 const browserSettingsPreviewKeys = new Set([
   "browserHomeUrl",
-  "externalBrowserProfileId"
+  "externalBrowserProfileId",
+  "browserSuspendInactive"
 ]);
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
@@ -329,8 +330,7 @@ const state = {
   },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
-  terminalWheelZoomAt: 0,
-  terminalWheelZoomRemainder: 0,
+  terminalWheelZoomState: new Map(),
   appliedSettingsSignature: "",
   settings: initialSettings,
   settingsCategory: "quick",
@@ -453,6 +453,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.backgroundImage = normalizeBackgroundValue(next.backgroundImage);
   next.browserHomeUrl = normalizeUrl(next.browserHomeUrl || defaultSettings.browserHomeUrl, defaultSettings.browserHomeUrl);
   next.externalBrowserProfileId = String(next.externalBrowserProfileId || defaultSettings.externalBrowserProfileId).trim().slice(0, 120) || "system";
+  next.browserSuspendInactive = next.browserSuspendInactive !== false;
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
@@ -1458,6 +1459,9 @@ function updateSettings(updates, options = {}) {
   if (changedKeys.some((key) => browserSettingsPreviewKeys.has(key))) {
     scheduleBrowserSettingsPreviewRefresh();
   }
+  if (changedKeys.includes("browserSuspendInactive")) {
+    updateBrowserPaneActivity(visiblePanePanelIds());
+  }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
   }
@@ -1977,6 +1981,10 @@ function allPanels() {
 
 function allPanelIds() {
   return new Set(allPanels().map((panel) => panel.id));
+}
+
+function visiblePanePanelIds() {
+  return new Set([...elements.paneGrid.querySelectorAll(".pane[data-panel-id]")].map((pane) => pane.dataset.panelId));
 }
 
 function findPanelState(panelId) {
@@ -2524,6 +2532,7 @@ function renderPanes(workspace) {
       if (child.classList.contains("pane")) child.remove();
     }
     replaceChildrenIfChanged(elements.paneGrid, []);
+    updateBrowserPaneActivity(new Set());
     return;
   }
   toggleClassIfChanged(elements.paneGrid, "direction-down", false);
@@ -2541,6 +2550,7 @@ function renderPanes(workspace) {
   }
   if (panels.length === 0) {
     renderEmptyWorkspace(workspace);
+    updateBrowserPaneActivity(new Set());
     return;
   }
 
@@ -2548,6 +2558,7 @@ function renderPanes(workspace) {
   const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
   const node = renderPaneTreeNode(tree, workspace, panelById, visiblePanels.length);
   replaceChildrenIfChanged(elements.paneGrid, node ? [node] : []);
+  updateBrowserPaneActivity(panelIds);
   requestAnimationFrame(() => {
     for (const panel of visiblePanels) {
       const terminal = state.terminals.get(panel.id);
@@ -2937,11 +2948,11 @@ function createPane(panel) {
   };
   pane.querySelector(".font-down").onclick = (event) => {
     event.stopPropagation();
-    changeTerminalFontSize(-1);
+    changePaneTerminalFontSize(pane.dataset.panelId, -1);
   };
   pane.querySelector(".font-up").onclick = (event) => {
     event.stopPropagation();
-    changeTerminalFontSize(1);
+    changePaneTerminalFontSize(pane.dataset.panelId, 1);
   };
   pane.querySelector(".restart").onclick = (event) => {
     event.stopPropagation();
@@ -3083,6 +3094,7 @@ function clearAllDropTargets() {
 
 function cleanupPanel(panelId) {
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
+  state.terminalWheelZoomState.delete(panelId);
   const terminal = state.terminals.get(panelId);
   if (terminal) {
     terminal.disposed = true;
@@ -3452,6 +3464,46 @@ function isTerminalHostVisible(session) {
   );
 }
 
+function setBrowserAudioMuted(view, muted) {
+  if (typeof view?.setAudioMuted !== "function") return;
+  try {
+    if (typeof view.isAudioMuted === "function" && view.isAudioMuted() === muted) return;
+    view.setAudioMuted(muted);
+  } catch {
+    // Webview audio controls are best-effort and unavailable in iframe fallback.
+  }
+}
+
+function stopBrowserLoading(view) {
+  try {
+    if (typeof view?.isLoading === "function" && !view.isLoading()) return;
+    if (typeof view?.stop === "function") view.stop();
+  } catch {
+    // The pane may be detached while workspaces are switching.
+  }
+}
+
+function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
+  for (const [panelId, session] of state.browserViews.entries()) {
+    const visible = visiblePanelIds.has(panelId);
+    if (session.visible === visible && session.suspendInactive === state.settings.browserSuspendInactive) continue;
+    session.visible = visible;
+    session.suspendInactive = state.settings.browserSuspendInactive;
+    session.shell?.classList.toggle("is-browser-suspended", !visible && state.settings.browserSuspendInactive);
+    setBrowserAudioMuted(session.view, !visible && state.settings.browserSuspendInactive);
+    if (!visible && state.settings.browserSuspendInactive) stopBrowserLoading(session.view);
+  }
+}
+
+function terminalWheelZoomStateFor(panelId) {
+  let zoomState = state.terminalWheelZoomState.get(panelId);
+  if (!zoomState) {
+    zoomState = { at: 0, remainder: 0 };
+    state.terminalWheelZoomState.set(panelId, zoomState);
+  }
+  return zoomState;
+}
+
 function ensureBrowser(panel, body) {
   if (state.browserViews.has(panel.id)) return;
   body.replaceChildren();
@@ -3513,10 +3565,21 @@ function ensureBrowser(panel, body) {
   view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
+  let loadingStatusTimer = 0;
 
   const setStatus = (message = "") => {
+    if (loadingStatusTimer) {
+      clearTimeout(loadingStatusTimer);
+      loadingStatusTimer = 0;
+    }
     status.textContent = message;
     status.classList.toggle("is-visible", Boolean(message));
+    if (message === "Loading") {
+      loadingStatusTimer = setTimeout(() => {
+        loadingStatusTimer = 0;
+        if (status.textContent === "Loading") setStatus("");
+      }, 4500);
+    }
   };
 
   const updateNavState = () => {
@@ -3596,8 +3659,18 @@ function ensureBrowser(panel, body) {
     setStatus("");
     updateNavState();
   });
+  view.addEventListener("did-finish-load", () => {
+    setStatus("");
+    updateNavState();
+  });
+  view.addEventListener("did-frame-finish-load", () => {
+    if (webviewReady) setStatus("");
+  });
   view.addEventListener("did-fail-load", (event) => {
-    if (event.errorCode === -3) return;
+    if (event.errorCode === -3) {
+      setStatus("");
+      return;
+    }
     setStatus("Could not load here. Use Open.");
     updateNavState();
   });
@@ -3610,7 +3683,7 @@ function ensureBrowser(panel, body) {
 
   shell.append(bar, status, view);
   body.append(shell);
-  state.browserViews.set(panel.id, { view, address, back, forward, reload, home });
+  state.browserViews.set(panel.id, { shell, view, address, back, forward, reload, home, visible: true, suspendInactive: state.settings.browserSuspendInactive });
   updateNavState();
 }
 
@@ -3841,6 +3914,12 @@ function renderSettingsInspector(options = {}) {
       : "system";
     profileSelect.onchange = () => updateSettings({ externalBrowserProfileId: profileSelect.value });
     browserSection.append(settingRow("Open external in", profileSelect, false, "browser chrome edge brave profile system external open"));
+    browserSection.append(settingRow(
+      "Suspend inactive panes",
+      toggleInput(state.settings.browserSuspendInactive, (checked) => updateSettings({ browserSuspendInactive: checked })),
+      false,
+      "browser performance suspend inactive background webview mute loading lag"
+    ));
     const homeActions = document.createElement("div");
     homeActions.className = "settings-actions";
     homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave");
@@ -5495,7 +5574,8 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     toolbarMode: "compact",
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
-    terminalScrollback: Math.min(state.settings.terminalScrollback, 6000)
+    terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
+    browserSuspendInactive: true
   });
   if (!changed) {
     toast(automatic ? "Performance guard already tuned." : "Performance tune already active.");
@@ -8371,29 +8451,31 @@ function normalizedWheelZoomDelta(event) {
 
 function handleTerminalWheelZoom(event) {
   if (!event.ctrlKey) return;
+  const panelId = event.currentTarget?.closest?.(".pane")?.dataset?.panelId || "";
+  const panel = panelId ? findPanelState(panelId)?.panel : activePanel();
+  if (panel?.type !== "terminal") return;
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation?.();
   const delta = normalizedWheelZoomDelta(event);
   if (!Number.isFinite(delta) || delta === 0) return;
   const now = performance.now();
-  if (now - state.terminalWheelZoomAt > terminalWheelZoomIdleResetMs) {
-    state.terminalWheelZoomRemainder = 0;
+  const zoomState = terminalWheelZoomStateFor(panel.id);
+  if (now - zoomState.at > terminalWheelZoomIdleResetMs) {
+    zoomState.remainder = 0;
   }
-  state.terminalWheelZoomAt = now;
-  if (state.terminalWheelZoomRemainder && Math.sign(state.terminalWheelZoomRemainder) !== Math.sign(delta)) {
-    state.terminalWheelZoomRemainder = 0;
+  zoomState.at = now;
+  if (zoomState.remainder && Math.sign(zoomState.remainder) !== Math.sign(delta)) {
+    zoomState.remainder = 0;
   }
-  state.terminalWheelZoomRemainder += delta;
+  zoomState.remainder += delta;
   const steps = Math.min(
     terminalWheelZoomMaxSteps,
-    Math.trunc(Math.abs(state.terminalWheelZoomRemainder) / terminalWheelZoomThreshold)
+    Math.trunc(Math.abs(zoomState.remainder) / terminalWheelZoomThreshold)
   );
   if (!steps) return;
-  const direction = state.terminalWheelZoomRemainder < 0 ? 1 : -1;
-  state.terminalWheelZoomRemainder -= Math.sign(state.terminalWheelZoomRemainder) * terminalWheelZoomThreshold * steps;
-  const panelId = event.currentTarget?.closest?.(".pane")?.dataset?.panelId || "";
-  const panel = panelId ? findPanelState(panelId)?.panel : activePanel();
+  const direction = zoomState.remainder < 0 ? 1 : -1;
+  zoomState.remainder -= Math.sign(zoomState.remainder) * terminalWheelZoomThreshold * steps;
   changeTerminalFontSize(direction * steps, { panel, toast: false });
 }
 
@@ -8619,6 +8701,13 @@ function changeTerminalFontSize(delta, options = {}) {
   queueTerminalFontSizeSync(panel.id, nextSize);
   if (options.toast !== false) toast(`Pane text ${nextSize}px`);
   return true;
+}
+
+function changePaneTerminalFontSize(panelId, delta) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "terminal") return false;
+  focusPanel(panelId);
+  return changeTerminalFontSize(delta, { panel: found.panel });
 }
 
 async function writeClipboardText(text) {

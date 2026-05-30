@@ -5,6 +5,7 @@ export const defaultSettings = {
   backgroundOpacity: 16,
   browserHomeUrl: "https://www.google.com",
   externalBrowserProfileId: "system",
+  browserSuspendInactive: true,
   density: "comfortable",
   paneHeaderMode: "compact",
   sidebarDetailMode: "compact",
