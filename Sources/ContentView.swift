@@ -2350,20 +2350,18 @@ struct ContentView: View {
                     fullscreenControls
                 }
 
-                if !sidebarState.isVisible {
-                    // Draggable folder icon + focused command name
-                    if let directory = focusedDirectory {
-                        DetachedFolderDragIcon(directory: directory)
-                            .frame(width: 16, height: 16)
-                            .padding(.leading, -6)
-                    }
-
-                    Text(titlebarText)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                        .lineLimit(1)
-                        .allowsHitTesting(false)
+                // Draggable folder icon + focused command name
+                if let directory = focusedDirectory {
+                    DetachedFolderDragIcon(directory: directory)
+                        .frame(width: 16, height: 16)
+                        .padding(.leading, -6)
                 }
+
+                Text(titlebarText)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                    .lineLimit(1)
+                    .allowsHitTesting(false)
 
                 Spacer()
 
