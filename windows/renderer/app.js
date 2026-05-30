@@ -80,6 +80,20 @@ const terminalSettingsPreviewKeys = new Set([
   "terminalForeground",
   "terminalCursorColor"
 ]);
+const layoutSettingsPreviewKeys = new Set([
+  "density",
+  "paneHeaderMode",
+  "sidebarDetailMode",
+  "sidebarFooterMode",
+  "toolbarMode",
+  "tabSize",
+  "titleDetailMode",
+  "showTabs",
+  "showStatusbar",
+  "sidebarWidth",
+  "inspectorWidth",
+  "performanceMode"
+]);
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
   activeMatchBackground: "#9d6b20",
@@ -233,6 +247,7 @@ const state = {
   terminalAppearanceFrame: 0,
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
+  layoutSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
   renderStats: {
     count: 0,
@@ -1182,6 +1197,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => terminalSettingsPreviewKeys.has(key))) {
     scheduleTerminalSettingsPreviewRefresh();
+  }
+  if (changedKeys.some((key) => layoutSettingsPreviewKeys.has(key))) {
+    scheduleLayoutSettingsPreviewRefresh();
   }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
@@ -3109,6 +3127,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("layout")) {
     const layoutSection = settingsSection("Layout");
+    layoutSection.append(layoutSettingsPreviewPanel());
     const densitySelect = document.createElement("select");
     densitySelect.className = "setting-select";
     for (const value of ["comfortable", "compact"]) {
@@ -3710,6 +3729,80 @@ function themeChoiceGrid() {
     grid.append(button);
   }
   return grid;
+}
+
+function layoutSettingsPreviewPanel() {
+  const settings = state.settings;
+  const panel = document.createElement("div");
+  panel.className = [
+    "layout-settings-preview",
+    `density-${settings.density}`,
+    `pane-header-${settings.paneHeaderMode}`,
+    `toolbar-${settings.toolbarMode}`,
+    `tab-size-${settings.tabSize}`,
+    settings.showTabs ? "show-tabs" : "hide-tabs",
+    settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
+    settings.performanceMode ? "performance-preview" : ""
+  ].filter(Boolean).join(" ");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel");
+  panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
+  panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
+  panel.innerHTML = `
+    <div class="layout-preview-frame" aria-hidden="true">
+      <div class="layout-preview-sidebar">
+        <span class="layout-preview-brand"></span>
+        <span class="layout-preview-workspace active"></span>
+        <span class="layout-preview-workspace"></span>
+        <span class="layout-preview-footer"></span>
+      </div>
+      <div class="layout-preview-main">
+        <div class="layout-preview-topbar">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="layout-preview-tabs">
+          <span class="active"></span><span></span><span class="plus"></span>
+        </div>
+        <div class="layout-preview-pane">
+          <span class="layout-preview-pane-header"></span>
+          <span class="layout-preview-terminal-line"></span>
+          <span class="layout-preview-terminal-line short"></span>
+        </div>
+        <div class="layout-preview-status"></div>
+      </div>
+      <div class="layout-preview-inspector">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="layout-preview-meta">
+      <span><b>Toolbar</b><em data-layout-preview-toolbar></em></span>
+      <span><b>Tabs</b><em data-layout-preview-tabs></em></span>
+      <span><b>Header</b><em data-layout-preview-header></em></span>
+      <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
+      <span><b>Settings</b><em data-layout-preview-settings></em></span>
+      <span><b>Status</b><em data-layout-preview-status></em></span>
+    </div>
+  `;
+  panel.querySelector("[data-layout-preview-toolbar]").textContent = optionLabel(toolbarModeOptions, settings.toolbarMode, settings.toolbarMode);
+  panel.querySelector("[data-layout-preview-tabs]").textContent = settings.showTabs ? optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize) : "Hidden";
+  panel.querySelector("[data-layout-preview-header]").textContent = optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
+  panel.querySelector("[data-layout-preview-sidebar]").textContent = `${settings.sidebarWidth}px`;
+  panel.querySelector("[data-layout-preview-settings]").textContent = `${settings.inspectorWidth}px`;
+  panel.querySelector("[data-layout-preview-status]").textContent = settings.showStatusbar ? "On" : "Off";
+  return panel;
+}
+
+function scheduleLayoutSettingsPreviewRefresh() {
+  if (state.layoutSettingsPreviewFrame) return;
+  state.layoutSettingsPreviewFrame = requestAnimationFrame(() => {
+    state.layoutSettingsPreviewFrame = 0;
+    refreshLayoutSettingsPreview();
+  });
+}
+
+function refreshLayoutSettingsPreview() {
+  const preview = elements.inspectorBody.querySelector(".layout-settings-preview");
+  if (preview) preview.replaceWith(layoutSettingsPreviewPanel());
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
 function settingsSection(title, searchTerms = "") {
