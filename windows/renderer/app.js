@@ -1416,6 +1416,7 @@ const commands = [
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
   { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
+  { id: "layout.resetChrome", label: "Reset Workspace Chrome", shortcut: "", run: () => resetWorkspaceChrome() },
   { id: "layout.equalPanes", label: "Equalize Panes", shortcut: "", run: () => applyPaneLayoutPreset("equal") },
   { id: "layout.sideBySide", label: "Layout Panes Side by Side", shortcut: "", run: () => applyPaneLayoutPreset("sideBySide") },
   { id: "layout.stacked", label: "Stack Panes Vertically", shortcut: "", run: () => applyPaneLayoutPreset("stacked") },
@@ -3116,8 +3117,11 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(inspectorWidthRow);
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal");
-    layoutActions.append(settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"));
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar inspector tabs status header title");
+    layoutActions.append(
+      settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"),
+      settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar inspector tabs status header title reset")
+    );
     layoutSection.append(layoutActions);
     layoutSection.append(settingRow("Pane presets", paneLayoutPresetGrid(), true, "split layout pane presets side by side stacked active wide tall equal"));
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
@@ -4998,6 +5002,7 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Layout"),
     contextMenuActionGroup(
       contextMenuButton("Reset split layout", resetActivePaneLayout, !multiPane),
+      contextMenuButton("Reset workspace chrome", resetWorkspaceChrome),
       contextMenuButton("Equalize panes", () => applyPaneLayoutPreset("equal"), !multiPane),
       contextMenuButton("Active pane wide", () => applyPaneLayoutPreset("activeWide"), !multiPane),
       contextMenuButton("Active pane tall", () => applyPaneLayoutPreset("activeTall"), !multiPane),
@@ -6328,6 +6333,29 @@ function clearTerminalPanel(panel = activePanel()) {
 
 function clearActiveTerminal() {
   clearTerminalPanel();
+}
+
+const workspaceChromeSettings = [
+  "density",
+  "paneHeaderMode",
+  "sidebarDetailMode",
+  "toolbarMode",
+  "tabSize",
+  "titleDetailMode",
+  "showTabs",
+  "showStatusbar",
+  "sidebarWidth",
+  "inspectorWidth"
+];
+
+function resetWorkspaceChrome() {
+  const updates = {};
+  for (const key of workspaceChromeSettings) updates[key] = defaultSettings[key];
+  updateSettings(updates, { immediate: true });
+  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
+    renderSettingsInspector();
+  }
+  toast("Workspace chrome reset.");
 }
 
 function resetActivePaneLayout() {
