@@ -204,12 +204,128 @@ entry includes timestamp, surface handle, action kind, byte count, and
 the request id used to correlate with the HTTP listener log. The path
 is configurable in Settings → HTTP Control.
 
-## Streaming (Phase 2)
+## Streaming: `GET /v1/surfaces/{id}/stream`
 
-SSE on `GET /v1/surfaces/{id}/stream?mode=raw|cells`. Cells streaming
-is a full-snapshot stream (no diff in v1; design §15 #2 deferred to
-v2). See Phase 2 docs for `Last-Event-ID` resume semantics and the
-seq-jump gap signal.
+Server-Sent Events. Two modes:
+
+| `?mode=` | Frame                                                                                |
+|----------|--------------------------------------------------------------------------------------|
+| `raw`    | `event: output` with `data: {"bytes_base64":"..."}` (live PTY bytes)                 |
+| `cells`  | `event: screen` with `data: <CellGrid JSON>` (full snapshots; v1 has no diff stream) |
+
+> Status: `mode=cells` is wired end-to-end. `mode=raw` is gated behind
+> the upcoming ghostty PTY-tee patch (see design §15 #1) and currently
+> returns HTTP 415 `unsupported_media_type` with reason
+> `raw_stream_unavailable`.
+
+### Authentication
+
+Requires `Authorization: Bearer <token>`. The browser's native
+`EventSource` does NOT support custom headers, so you cannot use it.
+Use `fetch` with a streaming `ReadableStream`:
+
+```js
+async function subscribe(surfaceId, token, port, onEvent) {
+  const res = await fetch(
+    `http://127.0.0.1:${port}/v1/surfaces/${surfaceId}/stream?mode=cells`,
+    { headers: {
+        'Authorization': `Bearer ${token}`,
+        'Last-Event-ID': sessionStorage.getItem('cmux.lastId') ?? '',
+      } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder('utf-8');
+  let buf = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+      if (frame.startsWith(': ')) continue;   // heartbeat or gap comment
+      let id, event = 'message', data = '';
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('id: '))         id    = Number(line.slice(4));
+        else if (line.startsWith('event: ')) event = line.slice(7);
+        else if (line.startsWith('data: '))  data  = line.slice(6);
+      }
+      if (id !== undefined) sessionStorage.setItem('cmux.lastId', String(id));
+      onEvent({ id, event, data: data ? JSON.parse(data) : null });
+      if (event === 'end') return;
+    }
+  }
+}
+```
+
+### Frame shapes
+
+```
+id: 42
+event: output
+data: {"bytes_base64":"aGVsbG8="}
+
+id: 7
+event: screen
+data: { "format":"cells", "cols":80, "rows":24, "alt_screen":false,
+        "title":"zsh", "cursor":{...}, "rows_data":[...] }
+
+event: end
+data: {}
+
+: ping
+
+: gap from=100 to=256
+```
+
+### Backpressure (§9.1)
+
+The PTY tee that feeds `mode=raw` runs under Ghostty's renderer lock on
+the io-reader thread. The server:
+
+- never blocks the producer; the per-subscriber **event** ring is
+  bounded (default 1024 events for raw, 256 for cells)
+- drops oldest events on overflow; the next event's `id:` JUMPS,
+  which is the signal that data was dropped (clients should re-fetch
+  `GET /screen?format=cells` to resync)
+- writes to the network on a separate dispatch queue
+- emits a `: ping` heartbeat every 20s (configurable) so dead peers
+  are detected
+- caps concurrent streams per surface (default 8; extras get HTTP 503)
+
+`mode=cells` is throttled by a server-side snapshot poller (default
+5 Hz, configurable) that only emits when the cell grid's content
+digest changes — idle surfaces produce zero traffic between
+heartbeats.
+
+### Resuming with `Last-Event-ID`
+
+Send the last id you saw in the `Last-Event-ID` header. If the
+requested id is still in the ring you resume from the next event. If
+the requested id is below the ring's oldest, the server emits one
+comment line `: gap from=<requested> to=<oldest>` and resumes from the
+ring's oldest event. There is **no** separate `event: gap` frame in
+v1 — the `id:` JUMP (or the synthetic comment on resume) is the only
+gap signal.
+
+### Stream end
+
+When the underlying surface closes (or the token rotates), the server
+sends `event: end` and closes the connection cleanly. Treat this as a
+permanent terminal signal — do not auto-reconnect without rechecking
+the token.
+
+### Out of scope for v1
+
+- Sixel / DCS / Kitty-image protocol: `mode=raw` carries these as
+  opaque bytes (the bracketed sequences are part of the byte stream);
+  `mode=cells` silently drops them (a CellGrid snapshot has no image
+  cells in v1). See spec §15 for the v2 plan.
+- Cell-level diff streaming: v1 only ships full snapshots throttled
+  via the time-tick poller (see spec §9.1 / §15 open question).
+- Live "dirty notifier" push from ghostty: v1 polls at a configurable
+  tick rate and hashes the cell grid; a true push notifier may land
+  in v2 (would require a third ghostty patch we did not authorize).
 
 ## Configuration
 
