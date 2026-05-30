@@ -409,13 +409,11 @@ jobs:
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
-    # mints a new cache key with no restore-keys fallback) forces a full
-    # cmux build whose Swift codegen alone runs ~18-20 min, so 20 was right at
-    # the edge and got guillotined mid-build (the post-cache step never ran, so
-    # the cache stayed cold and every retry timed out the same way). 35 gives a
-    # cold build enough room to finish and populate the cache.
-    timeout-minutes: 35
+    # A merged main branch can invalidate the exact DerivedData key and force a
+    # full cmux build before the warning, startup, and lag regressions can run.
+    # Keep this budget aligned with the full tests job so a cold build can still
+    # finish and populate the next cache.
+    timeout-minutes: 75
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -482,6 +480,9 @@ jobs:
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-*
           key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-build-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
