@@ -277,6 +277,7 @@
 		8E774000000000000000001B /* HostAllowlistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000001A /* HostAllowlistTests.swift */; };
 		8E7740000000000000000015 /* HTTPAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000014 /* HTTPAuth.swift */; };
 		8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000016 /* HTTPAuthTests.swift */; };
+		8E774300000000000000001B /* HTTPControlRateKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000001C /* HTTPControlRateKeys.swift */; };
 		8E774300000000000000000D /* HTTPControlRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000000C /* HTTPControlRoutes.swift */; };
 		8E7743000000000000000019 /* HTTPControlScreenRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000001A /* HTTPControlScreenRouteTests.swift */; };
 		8E7743000000000000000007 /* HTTPControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000006 /* HTTPControlServer.swift */; };
@@ -891,6 +892,7 @@
 		8E774000000000000000001A /* HostAllowlistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAllowlistTests.swift; sourceTree = "<group>"; };
 		8E7740000000000000000014 /* HTTPAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuth.swift; sourceTree = "<group>"; };
 		8E7740000000000000000016 /* HTTPAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuthTests.swift; sourceTree = "<group>"; };
+		8E774300000000000000001C /* HTTPControlRateKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlRateKeys.swift; sourceTree = "<group>"; };
 		8E774300000000000000000C /* HTTPControlRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlRoutes.swift; sourceTree = "<group>"; };
 		8E774300000000000000001A /* HTTPControlScreenRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlScreenRouteTests.swift; sourceTree = "<group>"; };
 		8E7743000000000000000006 /* HTTPControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlServer.swift; sourceTree = "<group>"; };
@@ -1256,6 +1258,7 @@
 				8E7740000000000000000018 /* HostAllowlist.swift */,
 				8E7740000000000000000014 /* HTTPAuth.swift */,
 				8E774300000000000000000C /* HTTPControlRoutes.swift */,
+				8E774300000000000000001C /* HTTPControlRateKeys.swift */,
 				8E7743000000000000000006 /* HTTPControlServer.swift */,
 				8E7740000000000000000002 /* HTTPControlSettings.swift */,
 				8E774000000000000000000A /* HTTPParseError.swift */,
@@ -2315,6 +2318,7 @@
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				8E7740000000000000000019 /* HostAllowlist.swift in Sources */,
 				8E7740000000000000000015 /* HTTPAuth.swift in Sources */,
+				8E774300000000000000001B /* HTTPControlRateKeys.swift in Sources */,
 				8E774300000000000000000D /* HTTPControlRoutes.swift in Sources */,
 				8E7743000000000000000007 /* HTTPControlServer.swift in Sources */,
 				8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */,

@@ -126,8 +126,13 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         guard let info = try await provider.resolve(request.handle) else {
             throw TerminalAccessError.unknownSurface
         }
-        // E16 — rate-limit per surface before any side effect.
-        try await rateLimiter.acquire(key: "surface:\(info.uuid.uuidString)#write")
+        // E16 — rate-limit per surface before any side effect. The
+        // key format matches `HTTPControlRateKeys.write(for:)` in the
+        // app target so wire-side audit tooling can join across both
+        // sides without an extra mapping layer.
+        try await rateLimiter.acquire(
+            key: "surface:\(request.handle.stringValue)#write"
+        )
         // D17 — explicit focus opt-in fires BEFORE the payload dispatches.
         if request.focusSurface {
             try await provider.setFocus(surface: info, gained: true)
