@@ -43,6 +43,23 @@ import {
   paneLayoutPercentFromWeights,
   paneLayoutWeightsByActivePercent
 } from "./layout-utils.js";
+import {
+  appendPaneTreeLeaf,
+  buildActivePanePresetTree,
+  buildPaneTreeFromPanelIds,
+  equalizePaneTree,
+  insertPanelAtLeaf,
+  loadPaneTreeLayouts,
+  normalizePaneTree,
+  paneTreeDirection,
+  paneTreeLeaf,
+  paneTreeLeafIds,
+  paneTreeRatio,
+  paneTreeSplitForPanel,
+  removePanelFromPaneTree,
+  savePaneTreeLayouts,
+  updatePaneTreeSplit
+} from "./pane-tree.js";
 import { canLoadImage } from "./image-utils.js";
 import {
   safeReleasePointerCapture,
@@ -123,7 +140,6 @@ const terminalSearchDecorations = {
   activeMatchBorder: "#ffd166"
 };
 const paneLayoutStorageKey = "cmux.paneLayout";
-const paneTreeLayoutsStorageKey = "cmux.paneTreeLayouts";
 const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
 const recentCommandsStorageKey = "cmux.recentTerminalCommands";
 const recentBrowserPagesStorageKey = "cmux.recentBrowserPages";
@@ -143,8 +159,6 @@ const customColorPaletteLimit = 18;
 const savedBackgroundImagesLimit = 12;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
-const paneTreeRatioMin = 0.05;
-const paneTreeRatioMax = 0.95;
 const paneResizeMinWidth = 32;
 const paneResizeMinHeight = 28;
 const settingsSaveDelay = 140;
@@ -1391,120 +1405,6 @@ function savePaneLayouts() {
   localStorage.setItem(paneLayoutStorageKey, JSON.stringify(payload));
 }
 
-function createPaneSplitId() {
-  return `split_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function paneTreeDirection(value) {
-  return value === "down" ? "down" : "right";
-}
-
-function paneTreeRatio(value) {
-  const ratio = Number(value);
-  return Math.min(paneTreeRatioMax, Math.max(paneTreeRatioMin, Number.isFinite(ratio) ? ratio : 0.5));
-}
-
-function paneTreeLeaf(panelId) {
-  return { type: "pane", panelId: String(panelId || "") };
-}
-
-function paneTreeSplit(direction, first, second, ratio = 0.5, splitId = createPaneSplitId()) {
-  return {
-    type: "split",
-    id: /^[a-z0-9_-]+$/i.test(splitId || "") ? splitId : createPaneSplitId(),
-    direction: paneTreeDirection(direction),
-    ratio: paneTreeRatio(ratio),
-    first,
-    second
-  };
-}
-
-function clonePaneTree(node) {
-  if (!node || typeof node !== "object") return null;
-  if (node.type === "pane") return paneTreeLeaf(node.panelId);
-  if (node.type === "split") {
-    const first = clonePaneTree(node.first);
-    const second = clonePaneTree(node.second);
-    if (!first) return second;
-    if (!second) return first;
-    return paneTreeSplit(node.direction, first, second, node.ratio, node.id);
-  }
-  return null;
-}
-
-function normalizePaneTree(node, allowedPanelIds, seenPanelIds = new Set()) {
-  if (!node || typeof node !== "object") return null;
-  if (node.type === "pane") {
-    const panelId = String(node.panelId || "");
-    if (!allowedPanelIds.has(panelId) || seenPanelIds.has(panelId)) return null;
-    seenPanelIds.add(panelId);
-    return paneTreeLeaf(panelId);
-  }
-  if (node.type !== "split") return null;
-  const first = normalizePaneTree(node.first, allowedPanelIds, seenPanelIds);
-  const second = normalizePaneTree(node.second, allowedPanelIds, seenPanelIds);
-  if (!first) return second;
-  if (!second) return first;
-  return paneTreeSplit(node.direction, first, second, node.ratio, node.id);
-}
-
-function paneTreeLeafIds(node, ids = []) {
-  if (!node) return ids;
-  if (node.type === "pane") {
-    if (node.panelId) ids.push(node.panelId);
-    return ids;
-  }
-  paneTreeLeafIds(node.first, ids);
-  paneTreeLeafIds(node.second, ids);
-  return ids;
-}
-
-function paneTreeLeafCount(node) {
-  return paneTreeLeafIds(node).length;
-}
-
-function appendPaneTreeLeaf(tree, panelId, direction) {
-  const leaf = paneTreeLeaf(panelId);
-  if (!tree) return leaf;
-  const existingCount = Math.max(1, paneTreeLeafCount(tree));
-  return paneTreeSplit(direction, tree, leaf, existingCount / (existingCount + 1));
-}
-
-function buildPaneTreeFromPanelIds(panelIds, direction) {
-  let tree = null;
-  for (const panelId of panelIds) tree = appendPaneTreeLeaf(tree, panelId, direction);
-  return tree;
-}
-
-function loadPaneTreeLayouts() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(paneTreeLayoutsStorageKey) || "{}");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
-    const entries = [];
-    for (const [workspaceId, tree] of Object.entries(parsed)) {
-      const normalized = clonePaneTree(tree);
-      if (workspaceId && normalized) entries.push([workspaceId, normalized]);
-    }
-    return new Map(entries);
-  } catch {
-    return new Map();
-  }
-}
-
-function savePaneTreeLayouts() {
-  if (!state.paneTrees || state.paneTrees.size === 0) {
-    localStorage.removeItem(paneTreeLayoutsStorageKey);
-    return;
-  }
-  const payload = {};
-  for (const [workspaceId, tree] of state.paneTrees.entries()) {
-    const normalized = clonePaneTree(tree);
-    if (workspaceId && normalized) payload[workspaceId] = normalized;
-  }
-  if (Object.keys(payload).length === 0) localStorage.removeItem(paneTreeLayoutsStorageKey);
-  else localStorage.setItem(paneTreeLayoutsStorageKey, JSON.stringify(payload));
-}
-
 function cleanupPaneTrees() {
   const liveWorkspaceIds = new Set((state.data?.workspaces || []).map((workspace) => workspace.id));
   let changed = false;
@@ -1514,7 +1414,7 @@ function cleanupPaneTrees() {
       changed = true;
     }
   }
-  if (changed) savePaneTreeLayouts();
+  if (changed) savePaneTreeLayouts(state.paneTrees);
 }
 
 function paneTreeForWorkspace(workspace, panels = workspace?.panels || []) {
@@ -1534,45 +1434,9 @@ function paneTreeForWorkspace(workspace, panels = workspace?.panels || []) {
   if (!tree) tree = buildPaneTreeFromPanelIds(panelIds, paneLayoutDirection(workspace));
   if (JSON.stringify(tree || null) !== before) {
     state.paneTrees.set(workspace.id, tree);
-    savePaneTreeLayouts();
+    savePaneTreeLayouts(state.paneTrees);
   }
   return tree;
-}
-
-function removePanelFromPaneTree(tree, panelId) {
-  if (!tree) return null;
-  const remaining = new Set(paneTreeLeafIds(tree).filter((candidate) => candidate !== panelId));
-  return normalizePaneTree(tree, remaining);
-}
-
-function insertPanelAtLeaf(node, anchorPanelId, panelId, direction, placement = "after") {
-  if (!node) return { node: paneTreeLeaf(panelId), inserted: true };
-  if (node.type === "pane") {
-    if (node.panelId !== anchorPanelId) return { node, inserted: false };
-    const anchor = paneTreeLeaf(anchorPanelId);
-    const inserted = paneTreeLeaf(panelId);
-    return {
-      node: placement === "before"
-        ? paneTreeSplit(direction, inserted, anchor)
-        : paneTreeSplit(direction, anchor, inserted),
-      inserted: true
-    };
-  }
-  const first = insertPanelAtLeaf(node.first, anchorPanelId, panelId, direction, placement);
-  if (first.inserted) {
-    return {
-      node: paneTreeSplit(node.direction, first.node, node.second, node.ratio, node.id),
-      inserted: true
-    };
-  }
-  const second = insertPanelAtLeaf(node.second, anchorPanelId, panelId, direction, placement);
-  if (second.inserted) {
-    return {
-      node: paneTreeSplit(node.direction, node.first, second.node, node.ratio, node.id),
-      inserted: true
-    };
-  }
-  return { node, inserted: false };
 }
 
 function insertPanelInPaneTree(workspaceId, anchorPanelId, panelId, direction, placement = "after") {
@@ -1585,7 +1449,7 @@ function insertPanelInPaneTree(workspaceId, anchorPanelId, panelId, direction, p
     : { node: appendPaneTreeLeaf(tree, panelId, direction), inserted: true };
   tree = inserted.inserted ? inserted.node : appendPaneTreeLeaf(tree, panelId, direction);
   state.paneTrees.set(workspaceId, tree);
-  savePaneTreeLayouts();
+  savePaneTreeLayouts(state.paneTrees);
 }
 
 function removePanelFromAllPaneTrees(panelId) {
@@ -1598,56 +1462,7 @@ function removePanelFromAllPaneTrees(panelId) {
     if (next) state.paneTrees.set(workspaceId, next);
     else state.paneTrees.delete(workspaceId);
   }
-  if (changed) savePaneTreeLayouts();
-}
-
-function paneTreeContainsPanel(node, panelId) {
-  if (!node) return false;
-  if (node.type === "pane") return node.panelId === panelId;
-  return paneTreeContainsPanel(node.first, panelId) || paneTreeContainsPanel(node.second, panelId);
-}
-
-function paneTreeSplitForPanel(node, panelId) {
-  if (!node || node.type !== "split") return null;
-  const firstResult = paneTreeSplitForPanel(node.first, panelId);
-  if (firstResult) return firstResult;
-  const secondResult = paneTreeSplitForPanel(node.second, panelId);
-  if (secondResult) return secondResult;
-  if (paneTreeContainsPanel(node.first, panelId)) return { split: node, activeInFirst: true };
-  if (paneTreeContainsPanel(node.second, panelId)) return { split: node, activeInFirst: false };
-  return null;
-}
-
-function updatePaneTreeSplit(node, splitId, updater) {
-  if (!node || node.type !== "split") return node;
-  const first = updatePaneTreeSplit(node.first, splitId, updater);
-  const second = updatePaneTreeSplit(node.second, splitId, updater);
-  const next = paneTreeSplit(node.direction, first, second, node.ratio, node.id);
-  return node.id === splitId ? updater(next) : next;
-}
-
-function paneTreeSpanCount(node, direction) {
-  if (!node || node.type === "pane") return 1;
-  if (node.direction !== direction) return 1;
-  return paneTreeSpanCount(node.first, direction) + paneTreeSpanCount(node.second, direction);
-}
-
-function equalizePaneTree(node) {
-  if (!node || node.type === "pane") return node;
-  const first = equalizePaneTree(node.first);
-  const second = equalizePaneTree(node.second);
-  const firstSpan = paneTreeSpanCount(first, node.direction);
-  const secondSpan = paneTreeSpanCount(second, node.direction);
-  return paneTreeSplit(node.direction, first, second, firstSpan / Math.max(1, firstSpan + secondSpan), node.id);
-}
-
-function buildActivePanePresetTree(panels, activePanelId, direction, percent) {
-  const active = panels.find((panel) => panel.id === activePanelId) || panels[0];
-  if (!active) return null;
-  const others = panels.filter((panel) => panel.id !== active.id).map((panel) => panel.id);
-  if (others.length === 0) return paneTreeLeaf(active.id);
-  const otherTree = buildPaneTreeFromPanelIds(others, direction === "down" ? "right" : "down");
-  return paneTreeSplit(direction, paneTreeLeaf(active.id), otherTree, clampPaneLayoutPercent(percent) / 100);
+  if (changed) savePaneTreeLayouts(state.paneTrees);
 }
 
 function paneLayoutDirection(workspace) {
@@ -1766,7 +1581,7 @@ function clearPaneLayoutsForWorkspace(workspace) {
     if (state.paneLayouts.delete(panel.id)) changed = true;
   }
   if (changed) savePaneLayouts();
-  if (state.paneTrees.delete(workspace.id)) savePaneTreeLayouts();
+  if (state.paneTrees.delete(workspace.id)) savePaneTreeLayouts(state.paneTrees);
   clearVisiblePaneFlex();
 }
 
@@ -1838,7 +1653,7 @@ function applyActivePaneLayoutPercent(percent, options = {}) {
       ...split,
       ratio
     })));
-    savePaneTreeLayouts();
+    savePaneTreeLayouts(state.paneTrees);
     if (state.zoomedPanelId) state.zoomedPanelId = null;
     render();
     requestAnimationFrame(() => {
@@ -2869,7 +2684,7 @@ function finishPaneResize(event) {
         ...split,
         ratio
       })));
-      savePaneTreeLayouts();
+      savePaneTreeLayouts(state.paneTrees);
     }
   } else {
     persistPaneLayoutFromGrid(direction);
@@ -3009,11 +2824,11 @@ function createPane(panel) {
   });
   pane.querySelector(".split-right").onclick = (event) => {
     event.stopPropagation();
-    createPanel("terminal", "right");
+    splitPanelFromPaneId(pane.dataset.panelId, "right");
   };
   pane.querySelector(".split-down").onclick = (event) => {
     event.stopPropagation();
-    createPanel("terminal", "down");
+    splitPanelFromPaneId(pane.dataset.panelId, "down");
   };
   pane.querySelector(".zoom").onclick = (event) => {
     event.stopPropagation();
@@ -3062,6 +2877,12 @@ function paneDropPosition(event, pane) {
   const rect = pane.getBoundingClientRect();
   const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
   const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
+  const horizontalEdge = Math.min(0.5, Math.max(80 / Math.max(1, rect.width), 0.25));
+  const verticalEdge = Math.min(0.5, Math.max(80 / Math.max(1, rect.height), 0.25));
+  if (x < horizontalEdge) return "left";
+  if (x > 1 - horizontalEdge) return "right";
+  if (y < verticalEdge) return "top";
+  if (y > 1 - verticalEdge) return "bottom";
   const horizontalBias = Math.abs(x - 0.5);
   const verticalBias = Math.abs(y - 0.5);
   if (verticalBias > horizontalBias) return y < 0.5 ? "top" : "bottom";
@@ -6781,6 +6602,9 @@ function showPanelContextMenu(event, panel) {
   actions.append(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
+    contextMenuButton("Split right", () => splitPanel(panel, "right")),
+    contextMenuButton("Split down", () => splitPanel(panel, "down")),
+    contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
     contextMenuButton("Find", () => openTerminalSearch(panel), !isTerminal),
     contextMenuButton("Find next", () => findNextInTerminal(panel), !isTerminal),
     contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
@@ -7256,13 +7080,28 @@ async function renamePanel(panel) {
   updatePanel(panel.id, { title });
 }
 
+function splitPanel(panel, direction, type = "terminal", options = {}) {
+  const found = findPanelState(panel?.id);
+  if (!found) return null;
+  return createPanel(type, direction, {
+    ...options,
+    workspaceId: found.workspace.id,
+    anchorPanelId: panel.id
+  });
+}
+
+function splitPanelFromPaneId(panelId, direction, type = "terminal", options = {}) {
+  const found = findPanelState(panelId);
+  if (!found) return null;
+  return splitPanel(found.panel, direction, type, options);
+}
+
 function duplicatePanel(panel) {
   if (panel.type === "browser") {
-    createPanel("browser", "right", { workspaceId: panel.workspaceId, url: panel.url || state.settings.browserHomeUrl });
+    splitPanel(panel, "right", "browser", { url: panel.url || state.settings.browserHomeUrl });
     return;
   }
-  createPanel("terminal", "right", {
-    workspaceId: panel.workspaceId,
+  splitPanel(panel, "right", "terminal", {
     shellProfile: panel.shellProfile || state.settings.terminalProfile,
     shellPath: panel.shellPath || state.settings.terminalCustomShell
   });
@@ -7275,6 +7114,15 @@ function duplicateActivePanel() {
     return;
   }
   duplicatePanel(panel);
+}
+
+function promptPanelLayoutPercent(panel) {
+  const found = findPanelState(panel?.id);
+  if (!found) return false;
+  state.data.activeWorkspaceId = found.workspace.id;
+  found.workspace.activePanelId = panel.id;
+  render();
+  return promptActivePaneLayoutPercent();
 }
 
 function movePanelLeft(workspace, index) {
@@ -8366,7 +8214,7 @@ function resetActivePaneLayout() {
     return;
   }
   state.paneTrees.set(workspace.id, equalizePaneTree(paneTreeForWorkspace(workspace)));
-  savePaneTreeLayouts();
+  savePaneTreeLayouts(state.paneTrees);
   for (const panel of workspace.panels) state.paneLayouts.delete(panel.id);
   savePaneLayouts();
   render();
@@ -8402,7 +8250,7 @@ async function applyPaneLayoutPreset(presetId) {
     tree = buildPaneTreeFromPanelIds(nextWorkspace.panels.map((panel) => panel.id), direction);
   }
   state.paneTrees.set(nextWorkspace.id, tree);
-  savePaneTreeLayouts();
+  savePaneTreeLayouts(state.paneTrees);
   render();
   requestAnimationFrame(() => {
     for (const panel of nextWorkspace.panels) {
