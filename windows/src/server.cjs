@@ -235,6 +235,44 @@ function workspaceTitle(value, fallback = "Workspace") {
   return (title || fallback).slice(0, 80);
 }
 
+function generatedWorkspaceTitleFromUsed(baseTitle = "Workspace", usedTitles = new Set()) {
+  const base = workspaceTitle(baseTitle);
+  const generatedMatch = base.match(/^Workspace(?:\s+(\d+))?$/i);
+  if (generatedMatch) {
+    const startIndex = Math.max(1, Number(generatedMatch[1] || 1) || 1);
+    for (let index = startIndex; index < 10000; index += 1) {
+      const candidate = `Workspace ${index}`;
+      if (!usedTitles.has(normalizedTitleKey(candidate))) return candidate;
+    }
+  }
+  if (!usedTitles.has(normalizedTitleKey(base))) return base;
+  const truncatedBase = base.slice(0, 74).trim() || "Workspace";
+  for (let index = 2; index < 10000; index += 1) {
+    const candidate = `${truncatedBase} ${index}`.slice(0, 80);
+    if (!usedTitles.has(normalizedTitleKey(candidate))) return candidate;
+  }
+  return `${truncatedBase} ${Date.now().toString(36)}`.slice(0, 80);
+}
+
+function repairWorkspaceTitles(workspaces) {
+  const usedTitles = new Set();
+  for (const workspace of workspaces) {
+    const title = workspaceTitle(workspace.title);
+    const key = normalizedTitleKey(title);
+    const generatedTitle = /^workspace(?:\s+\d+)?$/i.test(title);
+    if (!usedTitles.has(key)) {
+      workspace.title = title;
+      usedTitles.add(key);
+      continue;
+    }
+    if (!generatedTitle) continue;
+    const repairedTitle = generatedWorkspaceTitleFromUsed(title, usedTitles);
+    workspace.title = repairedTitle;
+    usedTitles.add(normalizedTitleKey(repairedTitle));
+  }
+  return workspaces;
+}
+
 function cleanTerminalTitleSegment(segment) {
   const raw = String(segment || "").trim();
   if (!raw) return "";
@@ -431,7 +469,9 @@ class CmuxWindowsRuntime {
     this.pendingTerminalPrewarms = new Map();
     this.terminalMetadataTimer = null;
     this.closed = false;
+    this.sessionRepaired = false;
     this.state = this.loadSession();
+    if (this.sessionRepaired) this.persistSession();
   }
 
   get ptyAvailable() {
@@ -442,26 +482,30 @@ class CmuxWindowsRuntime {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.sessionFile, "utf8"));
       if (Array.isArray(parsed.workspaces) && parsed.workspaces.length > 0) {
+        const titleSignatureBefore = parsed.workspaces.map((workspace) => workspaceTitle(workspace.title)).join("\0");
+        const workspaces = repairWorkspaceTitles(parsed.workspaces.map((workspace) => ({
+          ...workspace,
+          color: workspace.color || workspaceColors[0],
+          cwd: sanitizeDirectoryPath(workspace.cwd),
+          panels: Array.isArray(workspace.panels) && workspace.panels.length > 0
+            ? workspace.panels.map((panel) => ({
+              ...panel,
+              color: panel.color || "",
+              cwd: sanitizeDirectoryPath(panel.cwd || workspace.cwd),
+              shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
+              shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
+              terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
+              runtime: this,
+              needsAttention: false,
+              notificationText: ""
+            }))
+            : []
+        })));
+        const titleSignatureAfter = workspaces.map((workspace) => workspace.title).join("\0");
+        this.sessionRepaired = titleSignatureBefore !== titleSignatureAfter;
         return {
           activeWorkspaceId: parsed.activeWorkspaceId || parsed.workspaces[0].id,
-          workspaces: parsed.workspaces.map((workspace) => ({
-            ...workspace,
-            color: workspace.color || workspaceColors[0],
-            cwd: sanitizeDirectoryPath(workspace.cwd),
-            panels: Array.isArray(workspace.panels) && workspace.panels.length > 0
-              ? workspace.panels.map((panel) => ({
-                ...panel,
-                color: panel.color || "",
-                cwd: sanitizeDirectoryPath(panel.cwd || workspace.cwd),
-                shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
-                shellPath: panel.type === "terminal" ? sanitizeShellPath(panel.shellPath) : "",
-                terminalFontSize: panel.type === "terminal" ? sanitizeTerminalFontSize(panel.terminalFontSize, 0) : 0,
-                runtime: this,
-                needsAttention: false,
-                notificationText: ""
-              }))
-              : []
-          }))
+          workspaces
         };
       }
     } catch {
@@ -524,21 +568,8 @@ class CmuxWindowsRuntime {
   }
 
   generatedWorkspaceTitle(baseTitle = "Workspace") {
-    const base = workspaceTitle(baseTitle);
     const existing = new Set(this.state.workspaces.map((workspace) => normalizedTitleKey(workspace.title)));
-    if (base === "Workspace") {
-      for (let index = 1; index < 10000; index += 1) {
-        const candidate = `Workspace ${index}`;
-        if (!existing.has(normalizedTitleKey(candidate))) return candidate;
-      }
-    }
-    if (!existing.has(normalizedTitleKey(base))) return base;
-    const truncatedBase = base.slice(0, 74).trim() || "Workspace";
-    for (let index = 2; index < 10000; index += 1) {
-      const candidate = `${truncatedBase} ${index}`.slice(0, 80);
-      if (!existing.has(normalizedTitleKey(candidate))) return candidate;
-    }
-    return `${truncatedBase} ${Date.now().toString(36)}`.slice(0, 80);
+    return generatedWorkspaceTitleFromUsed(baseTitle, existing);
   }
 
   newPanel(type, workspaceId, options = {}) {

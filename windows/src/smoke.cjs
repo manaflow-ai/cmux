@@ -52,6 +52,35 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
 }
 
 (async () => {
+  const repairDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-repair-${process.pid}-`));
+  const repairPipeName = process.platform === "win32"
+    ? `\\\\.\\pipe\\cmux-windows-repair-${process.pid}`
+    : path.join(os.tmpdir(), `cmux-windows-repair-${process.pid}.sock`);
+  fs.writeFileSync(path.join(repairDataDir, "session.json"), JSON.stringify({
+    activeWorkspaceId: "repair-1",
+    workspaces: [
+      { id: "repair-1", title: "Workspace 4", cwd: process.cwd(), activePanelId: null, splitDirection: "right", panels: [] },
+      { id: "repair-2", title: "Workspace 4", cwd: process.cwd(), activePanelId: null, splitDirection: "right", panels: [] },
+      { id: "repair-3", title: "Workspace 6", cwd: process.cwd(), activePanelId: null, splitDirection: "right", panels: [] },
+      { id: "repair-4", title: "Workspace 6", cwd: process.cwd(), activePanelId: null, splitDirection: "right", panels: [] },
+      { id: "repair-5", title: "Project", cwd: process.cwd(), activePanelId: null, splitDirection: "right", panels: [] },
+      { id: "repair-6", title: "Project", cwd: process.cwd(), activePanelId: null, splitDirection: "right", panels: [] }
+    ]
+  }));
+  const repairRuntime = createCmuxWindowsRuntime({
+    dataDir: repairDataDir,
+    pipeName: repairPipeName
+  });
+  const repairedTitles = repairRuntime.serializedState().workspaces.map((workspace) => workspace.title);
+  assert(repairedTitles[0] === "Workspace 4", "first generated workspace title should be preserved");
+  assert(repairedTitles[1] === "Workspace 5", "duplicate generated workspace title should be repaired");
+  assert(repairedTitles[2] === "Workspace 6", "next generated workspace title should be preserved");
+  assert(repairedTitles[3] === "Workspace 7", "second duplicate generated workspace title should be repaired");
+  assert(repairedTitles[4] === "Project" && repairedTitles[5] === "Project", "custom duplicate workspace titles should be preserved");
+  const persistedRepaired = JSON.parse(fs.readFileSync(path.join(repairDataDir, "session.json"), "utf8"));
+  assert(persistedRepaired.workspaces[1].title === "Workspace 5", "repaired generated titles should be persisted");
+  repairRuntime.close();
+
   const runtime = createCmuxWindowsRuntime({
     dataDir,
     pipeName
