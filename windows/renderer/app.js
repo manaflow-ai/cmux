@@ -3952,7 +3952,7 @@ function renderSettingsChrome(host) {
       state.settingsQuery = query;
       const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
       if (wasSearching !== isSearching) {
-        renderSettingsInspector();
+        renderSettingsInspector({ resetScroll: true });
         scheduleSettingsSearchFocus();
       } else {
         renderSettingsChrome(host);
@@ -3961,7 +3961,7 @@ function renderSettingsChrome(host) {
     },
     onClear: () => {
       state.settingsQuery = "";
-      renderSettingsInspector();
+      renderSettingsInspector({ resetScroll: true });
       scheduleSettingsSearchFocus();
     }
   });
@@ -3980,7 +3980,7 @@ function settingsSearch() {
     state.settingsQuery = input.value;
     const isSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
     if (wasSearching !== isSearching) {
-      renderSettingsInspector();
+      renderSettingsInspector({ resetScroll: true });
       restoreSettingsSearchFocus();
       return;
     }
@@ -3994,7 +3994,7 @@ function settingsSearch() {
   clear.disabled = !state.settingsQuery;
   clear.onclick = () => {
     state.settingsQuery = "";
-    renderSettingsInspector();
+    renderSettingsInspector({ resetScroll: true });
     restoreSettingsSearchFocus();
   };
   wrapper.append(input, clear);
