@@ -133,11 +133,19 @@ enum SettingsWindowPresenter {
 #endif
 
     private static func existingWindow() -> NSWindow? {
-        if let settingsWindow, settingsWindow.isVisible || settingsWindow.isMiniaturized {
+        // Return the settings window whenever it still exists, even if it
+        // is currently ordered out (closed). SwiftUI's single `Window`
+        // scene does not destroy the window on close — it just hides it
+        // (isVisible == false) — and `openWindow(id:)` then no-ops because
+        // the scene still owns that window. So filtering by visibility here
+        // made every reopen-after-close fall through to a dead `openWindow`
+        // call and the window never came back. Reusing the hidden window
+        // lets `show()` re-front it via `makeKeyAndOrderFront`.
+        if let settingsWindow {
             return settingsWindow
         }
         return NSApp.windows.first {
-            $0.identifier?.rawValue == windowIdentifier && ($0.isVisible || $0.isMiniaturized)
+            $0.identifier?.rawValue == windowIdentifier
         }
     }
 

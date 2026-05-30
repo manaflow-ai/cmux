@@ -14,7 +14,7 @@ public struct BetaFeaturesSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"))
+            SettingsSectionHeader(String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"), section: .betaFeatures)
             SettingsCard {
                 BetaFeaturesWarningNote(
                     String(localized: "settings.betaFeatures.warning", defaultValue: "Dock is unstable and may change or break. Enable it only when you are testing it.")
@@ -29,6 +29,7 @@ public struct BetaFeaturesSection: View {
     private var dockRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:dock",
             String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
             subtitle: dock.current
                 ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls.")
