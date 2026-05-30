@@ -871,9 +871,6 @@ struct PaperCanvasWorkspaceView: View {
                 x: pane.frame.minX - viewportOrigin.x + (pane.frame.width / 2),
                 y: pane.frame.minY - viewportOrigin.y + (pane.frame.height / 2)
             )
-            .onTapGesture {
-                workspace.focusPanel(panel.id)
-            }
         } else {
             EmptyPanelView(workspace: workspace, paneId: paneId)
                 .frame(width: pane.frame.width, height: pane.frame.height)

@@ -9478,6 +9478,49 @@ struct PaperLayoutState: Codable, Equatable, Sendable {
         viewportOrigin = PaperPoint(x: frame.minX, y: frame.minY)
         return pane
     }
+
+    @discardableResult
+    mutating func mirrorBonsplitSplit(
+        sourcePane: PaperPane,
+        newPaneId: PaneID,
+        tabId: UUID,
+        orientation: SplitOrientation,
+        gap: CGFloat = 24
+    ) -> PaperPane {
+        let sourceFrame = sourcePane.frame
+        let frame: PaperRect
+        switch orientation {
+        case .horizontal:
+            frame = PaperRect(
+                x: sourceFrame.maxX + gap,
+                y: sourceFrame.minY,
+                width: sourceFrame.width,
+                height: sourceFrame.height
+            )
+        case .vertical:
+            frame = PaperRect(
+                x: sourceFrame.minX,
+                y: sourceFrame.maxY + gap,
+                width: sourceFrame.width,
+                height: sourceFrame.height
+            )
+        }
+
+        let pane = PaperPane(
+            id: newPaneId.id,
+            frame: frame,
+            tabIds: [tabId],
+            selectedTabId: tabId
+        )
+        if let index = panes.firstIndex(where: { $0.id == newPaneId.id }) {
+            panes[index] = pane
+        } else {
+            panes.append(pane)
+        }
+        focusedPaneId = pane.id
+        viewportOrigin = PaperPoint(x: frame.minX, y: frame.minY)
+        return pane
+    }
 }
 
 struct PaperPane: Codable, Equatable, Identifiable, Sendable {
@@ -9557,6 +9600,7 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
     @Published var layoutMode: WorkspaceLayoutMode = .bonsplit
     @Published var paperLayoutState: PaperLayoutState?
+    private var isRunningBonsplitLifecycleForPaperSplit = false
 
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
@@ -9598,6 +9642,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
         if layoutMode == .paper,
+           !isRunningBonsplitLifecycleForPaperSplit,
            let tabId = paperLayoutState?.focusedPane?.selectedTabId {
             return panelIdFromSurfaceId(TabID(uuid: tabId))
         }
@@ -13112,139 +13157,6 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
-    @discardableResult
-    func splitPaperPane(orientation: SplitOrientation) -> TerminalPanel? {
-        guard let panelId = focusedPanelId else { return nil }
-        return splitPaperPane(from: panelId, orientation: orientation)
-    }
-
-    @discardableResult
-    private func splitPaperPane(
-        from panelId: UUID,
-        orientation: SplitOrientation,
-        workingDirectory: String? = nil,
-        initialCommand: String? = nil,
-        tmuxStartCommand: String? = nil,
-        startupEnvironment: [String: String] = [:],
-        remotePTYSessionID: String? = nil,
-        focus: Bool = true
-    ) -> TerminalPanel? {
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        guard var paperState = ensurePaperLayoutState(),
-              paperState.pane(containingTabId: sourceTabId.uuid) != nil else {
-            return nil
-        }
-        paperState.focusPane(containingTabId: sourceTabId.uuid)
-        guard let sourcePaperPane = paperState.focusedPane else { return nil }
-
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId)
-        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
-        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
-
-        let splitWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
-
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: startupEnvironment
-        )
-        configureTerminalPanel(newPanel)
-        panels[newPanel.id] = newPanel
-        panelTitles[newPanel.id] = newPanel.displayTitle
-        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
-        if let normalizedRemotePTYSessionID {
-            remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
-        }
-        if tracksRemoteTerminalSurface {
-            trackRemoteTerminalSurface(newPanel.id)
-        }
-        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
-
-        let newTab = Bonsplit.Tab(
-            title: newPanel.displayTitle,
-            icon: newPanel.displayIcon,
-            kind: SurfaceKind.terminal,
-            isDirty: newPanel.isDirty,
-            isPinned: false
-        )
-        surfaceIdToPanelId[newTab.id] = newPanel.id
-
-        guard let newPaperPane = paperState.insertPaneBesideFocused(
-            id: UUID(),
-            tabId: newTab.id.uuid,
-            orientation: orientation
-        ) else {
-            panels.removeValue(forKey: newPanel.id)
-            panelTitles.removeValue(forKey: newPanel.id)
-            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            if tracksRemoteTerminalSurface {
-                untrackRemoteTerminalSurface(newPanel.id)
-            }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
-            return nil
-        }
-        paperLayoutState = paperState
-
-        publishCmuxSplitCreated(
-            PaneID(id: newPaperPane.id),
-            sourcePaneId: PaneID(id: sourcePaperPane.id),
-            orientation: orientation,
-            surfaceId: newPanel.id,
-            kind: "terminal",
-            origin: "paper_terminal_split",
-            focused: focus
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "paper.split.created workspace=\(id.uuidString.prefix(5)) " +
-            "sourcePane=\(sourcePaperPane.id.uuidString.prefix(5)) " +
-            "newPane=\(newPaperPane.id.uuidString.prefix(5)) orientation=\(orientation.rawValue)"
-        )
-#endif
-
-        if focus {
-            focusPanel(newPanel.id)
-        }
-        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: id,
-            panelId: newPanel.id,
-            reason: "paperSplitCreate"
-        )
-
-        return newPanel
-    }
-
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -13267,19 +13179,6 @@ final class Workspace: Identifiable, ObservableObject {
             "transport=\(splitTransport) stage=start elapsedMs=0.00"
         )
 #endif
-        if layoutMode == .paper {
-            return splitPaperPane(
-                from: panelId,
-                orientation: orientation,
-                workingDirectory: workingDirectory,
-                initialCommand: initialCommand,
-                tmuxStartCommand: tmuxStartCommand,
-                startupEnvironment: startupEnvironment,
-                remotePTYSessionID: remotePTYSessionID,
-                focus: focus
-            )
-        }
-
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -13292,6 +13191,23 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
+
+        let shouldMirrorPaperSplit = layoutMode == .paper
+        var paperSplitSourcePane: PaperPane?
+        if shouldMirrorPaperSplit {
+            guard var paperState = ensurePaperLayoutState() else { return nil }
+            paperState.focusPane(containingTabId: sourceTabId.uuid)
+            guard let sourcePane = paperState.pane(containingTabId: sourceTabId.uuid) else { return nil }
+            paperLayoutState = paperState
+            paperSplitSourcePane = sourcePane
+            isRunningBonsplitLifecycleForPaperSplit = true
+        }
+        defer {
+            if shouldMirrorPaperSplit {
+                isRunningBonsplitLifecycleForPaperSplit = false
+            }
+        }
+
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
@@ -13405,6 +13321,35 @@ final class Workspace: Identifiable, ObservableObject {
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
+
+        if shouldMirrorPaperSplit,
+           let paperSplitSourcePane {
+            var paperState = paperLayoutState ?? PaperLayoutState(
+                panes: [paperSplitSourcePane],
+                focusedPaneId: paperSplitSourcePane.id,
+                viewportOrigin: PaperPoint(x: paperSplitSourcePane.frame.minX, y: paperSplitSourcePane.frame.minY)
+            )
+            let newPaperPane = paperState.mirrorBonsplitSplit(
+                sourcePane: paperSplitSourcePane,
+                newPaneId: newPaneId,
+                tabId: newTab.id.uuid,
+                orientation: orientation
+            )
+            paperLayoutState = paperState
+#if DEBUG
+            cmuxDebugLog(
+                "paper.split.mirrored workspace=\(id.uuidString.prefix(5)) " +
+                "sourcePane=\(paperSplitSourcePane.id.uuidString.prefix(5)) " +
+                "bonsplitSourcePane=\(paneId.id.uuidString.prefix(5)) " +
+                "newPane=\(newPaneId.id.uuidString.prefix(5)) orientation=\(orientation.rawValue) " +
+                "sourceFrame=(\(paperSplitSourcePane.frame.x),\(paperSplitSourcePane.frame.y)," +
+                "\(paperSplitSourcePane.frame.width),\(paperSplitSourcePane.frame.height)) " +
+                "newFrame=(\(newPaperPane.frame.x),\(newPaperPane.frame.y)," +
+                "\(newPaperPane.frame.width),\(newPaperPane.frame.height)) " +
+                "viewport=(\(paperState.viewportOrigin.x),\(paperState.viewportOrigin.y))"
+            )
+#endif
+        }
 
 #if DEBUG
         cmuxDebugLog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
@@ -15002,7 +14947,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-        if layoutMode == .paper {
+        if layoutMode == .paper, !isRunningBonsplitLifecycleForPaperSplit {
             let previouslyFocusedPanelId = focusedPanelId
             focusPaperPanel(tabId: tabId, panelId: panelId)
             if previouslyFocusedPanelId != panelId {
