@@ -2,6 +2,16 @@ import AppKit
 import Carbon.HIToolbox
 
 extension GhosttyNSView {
+    enum NonInlineIMECompositionState: Equatable {
+        case inactive
+        case active(inputSourceId: String)
+
+        func isActive(for inputSourceId: String?) -> Bool {
+            guard case let .active(activeInputSourceId) = self else { return false }
+            return activeInputSourceId == inputSourceId
+        }
+    }
+
     // Issue #4093 is specifically Korean 2-Set. Other Korean layouts should be
     // validated separately before this allow-list is broadened.
     private static let korean2SetInputSourceIDs: Set<String> = [
@@ -73,6 +83,49 @@ extension GhosttyNSView {
         return shouldKeepIMECompositionCommandInsideTextInput(event)
     }
 
+    /// Returns a suppression decision for input methods, such as RIME/Squirrel
+    /// with no-inline preedit, that keep composition in their own candidate panel
+    /// without updating the client's marked-text state.
+    func shouldSuppressGhosttyKeyForwardingForNonInlineIMEHandling(
+        before: (text: String, selection: NSRange),
+        after: (text: String, selection: NSRange),
+        accumulatedText: [String],
+        event: NSEvent? = nil,
+        inputSourceId: String? = nil,
+        compositionState: NonInlineIMECompositionState
+    ) -> (suppress: Bool, compositionState: NonInlineIMECompositionState) {
+        guard let event,
+              let inputSourceId,
+              isInputMethodSource(inputSourceId) else {
+            return (false, .inactive)
+        }
+
+        guard before.text.isEmpty, after.text.isEmpty else {
+            return (false, .inactive)
+        }
+
+        guard accumulatedText.isEmpty else {
+            return (false, .inactive)
+        }
+
+        if compositionState.isActive(for: inputSourceId) {
+            if shouldKeepIMECompositionCommandInsideTextInput(event)
+                || shouldKeepNonInlineIMETextKeyInsideTextInput(event) {
+                return (
+                    true,
+                    isIMECompositionCancelCommand(event) ? .inactive : .active(inputSourceId: inputSourceId)
+                )
+            }
+            return (false, .inactive)
+        }
+
+        if shouldStartNonInlineIMEComposition(event) {
+            return (true, .active(inputSourceId: inputSourceId))
+        }
+
+        return (false, .inactive)
+    }
+
     private func shouldForwardKoreanMarkedSelectionArrowToTerminal(
         event: NSEvent?,
         inputSourceId: String?
@@ -87,6 +140,36 @@ extension GhosttyNSView {
         default:
             return false
         }
+    }
+
+    private func shouldStartNonInlineIMEComposition(_ event: NSEvent) -> Bool {
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
+        guard let text = event.characters, !text.isEmpty else { return false }
+        return text.unicodeScalars.contains(where: isNonInlineIMECompositionStartScalar)
+    }
+
+    private func shouldKeepNonInlineIMETextKeyInsideTextInput(_ event: NSEvent) -> Bool {
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
+        guard let text = event.characters, !text.isEmpty else { return false }
+        return text.unicodeScalars.contains(where: isNonInlineIMETextInputScalar)
+    }
+
+    private func isNonInlineIMECompositionStartScalar(_ scalar: UnicodeScalar) -> Bool {
+        CharacterSet.letters.contains(scalar)
+            || isBopomofoPreeditScalar(scalar)
+    }
+
+    private func isNonInlineIMETextInputScalar(_ scalar: UnicodeScalar) -> Bool {
+        guard scalar.value >= 0x20,
+              scalar.value != 0x7F,
+              !(0xF700...0xF8FF).contains(scalar.value) else {
+            return false
+        }
+        return true
+    }
+
+    private func isIMECompositionCancelCommand(_ event: NSEvent) -> Bool {
+        Int(event.keyCode) == kVK_Escape
     }
 
     private func isKorean2SetInputSource(_ inputSourceId: String?) -> Bool {
