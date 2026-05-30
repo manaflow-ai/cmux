@@ -47,6 +47,44 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testSidebarSnapshotFilteringRemovesUngrantedScopeData() throws {
+        let workspaceID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let snapshot = CMUXSidebarSnapshot(
+            sequence: 44,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CMUXSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Build",
+                    detail: "Running tests",
+                    isPinned: true,
+                    rootPath: "/Users/example/secret",
+                    projectRootPath: "/Users/example/secret",
+                    gitBranch: "feature/sidebar",
+                    unreadCount: 2,
+                    latestNotification: "Private notification",
+                    listeningPorts: [3000, 5173],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"]
+                ),
+            ]
+        )
+
+        let filtered = snapshot.filtered(for: [CMUXExtensionScope.workspaceMetadata])
+        let workspace = try #require(filtered.workspaces.first)
+
+        #expect(workspace.id == workspaceID)
+        #expect(workspace.title == "Build")
+        #expect(workspace.detail == "Running tests")
+        #expect(workspace.gitBranch == "feature/sidebar")
+        #expect(workspace.unreadCount == 2)
+        #expect(workspace.rootPath == nil)
+        #expect(workspace.projectRootPath == nil)
+        #expect(workspace.latestNotification == nil)
+        #expect(workspace.listeningPorts.isEmpty)
+        #expect(workspace.pullRequestURLs.isEmpty)
+    }
+
+    @Test
     func testSidebarXPCCodecRoundTripsSnapshotActionAndResult() throws {
         let workspaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
         let snapshot = CMUXSidebarSnapshot(
@@ -72,6 +110,16 @@ struct CMUXExtensionKitTests {
             try CMUXSidebarXPCCodec.encodeSnapshot(snapshot)
         )
         #expect(decodedSnapshot == snapshot)
+
+        let manifest = CMUXExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            requestedScopes: [.workspaceMetadata, .networkPorts]
+        )
+        let decodedManifest = try CMUXSidebarXPCCodec.decodeManifest(
+            try CMUXSidebarXPCCodec.encodeManifest(manifest)
+        )
+        #expect(decodedManifest == manifest)
 
         let action = CMUXSidebarAction.selectWorkspace(workspaceID)
         let decodedAction = try CMUXSidebarXPCCodec.decodeAction(

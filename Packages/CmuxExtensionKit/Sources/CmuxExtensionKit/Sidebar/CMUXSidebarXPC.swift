@@ -6,6 +6,7 @@ import Foundation
 }
 
 @objc public protocol CMUXSidebarExtensionXPC: NSObjectProtocol {
+    @objc optional func requestExtensionManifest(reply: @escaping (NSData?, NSString?) -> Void)
     func sidebarSnapshotDidChange(_ payload: NSData)
 }
 
@@ -16,6 +17,14 @@ public enum CMUXSidebarXPCCodec {
 
     public static func decodeSnapshot(_ payload: NSData) throws -> CMUXSidebarSnapshot {
         try JSONDecoder().decode(CMUXSidebarSnapshot.self, from: payload as Data)
+    }
+
+    public static func encodeManifest(_ manifest: CMUXExtensionManifest) throws -> NSData {
+        try JSONEncoder().encode(manifest) as NSData
+    }
+
+    public static func decodeManifest(_ payload: NSData) throws -> CMUXExtensionManifest {
+        try JSONDecoder().decode(CMUXExtensionManifest.self, from: payload as Data)
     }
 
     public static func encodeAction(_ action: CMUXSidebarAction) throws -> NSData {

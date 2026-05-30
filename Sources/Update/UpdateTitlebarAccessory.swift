@@ -899,7 +899,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.sidebarProvider",
-                accessibilityLabel: String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar"),
+                accessibilityLabel: String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar"),
                 action: {
                     guard let anchorView = viewModel.sidebarProviderAnchorView else { return }
                     onShowSidebarProviderMenu(anchorView)
@@ -914,7 +914,7 @@ struct TitlebarControlsView: View {
                 )
             }
             .background(TitlebarControlAnchorView { viewModel.sidebarProviderAnchorView = $0 })
-            .safeHelp(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar"))
+            .safeHelp(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar"))
 
             TitlebarControlButton(
                 config: config,

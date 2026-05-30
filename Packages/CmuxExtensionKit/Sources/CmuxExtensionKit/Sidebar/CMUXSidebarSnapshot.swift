@@ -20,4 +20,15 @@ public struct CMUXSidebarSnapshot: Codable, Equatable, Sendable {
         self.selectedWorkspaceID = selectedWorkspaceID
         self.workspaces = workspaces
     }
+
+    public func filtered(for scopes: some Sequence<CMUXExtensionScope>) -> CMUXSidebarSnapshot {
+        let scopeSet = Set(scopes)
+        return CMUXSidebarSnapshot(
+            apiVersion: apiVersion,
+            sequence: sequence,
+            windowID: windowID,
+            selectedWorkspaceID: selectedWorkspaceID,
+            workspaces: workspaces.map { $0.filtered(for: scopeSet) }
+        )
+    }
 }

@@ -95,6 +95,12 @@ public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
         )
     }
 
+    public static func dismantleNSViewController(_ viewController: EXHostViewController, coordinator: Coordinator) {
+        coordinator.currentKey = nil
+        viewController.delegate = nil
+        viewController.configuration = nil
+    }
+
     private var configurationKey: HostConfigurationKey {
         HostConfigurationKey(bundleIdentifier: identity.bundleIdentifier, sceneID: sceneID)
     }

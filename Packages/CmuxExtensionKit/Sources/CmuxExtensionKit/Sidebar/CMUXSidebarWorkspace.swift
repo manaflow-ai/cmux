@@ -38,4 +38,21 @@ public struct CMUXSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
         self.listeningPorts = listeningPorts
         self.pullRequestURLs = pullRequestURLs
     }
+
+    public func filtered(for scopes: some Sequence<CMUXExtensionScope>) -> CMUXSidebarWorkspace {
+        let scopeSet = Set(scopes)
+        return CMUXSidebarWorkspace(
+            id: id,
+            title: title,
+            detail: detail,
+            isPinned: isPinned,
+            rootPath: scopeSet.contains(.workspacePaths) ? rootPath : nil,
+            projectRootPath: scopeSet.contains(.workspacePaths) ? projectRootPath : nil,
+            gitBranch: gitBranch,
+            unreadCount: unreadCount,
+            latestNotification: scopeSet.contains(.notifications) ? latestNotification : nil,
+            listeningPorts: scopeSet.contains(.networkPorts) ? listeningPorts : [],
+            pullRequestURLs: scopeSet.contains(.pullRequests) ? pullRequestURLs : []
+        )
+    }
 }

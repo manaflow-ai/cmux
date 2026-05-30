@@ -811,7 +811,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         case .toggleSidebar:
             return String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")
         case .sidebarProvider:
-            return String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar")
+            return String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")
         case .showNotifications:
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:

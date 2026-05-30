@@ -6694,7 +6694,7 @@ struct ContentView: View {
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
                     title: constant(String.localizedStringWithFormat(titleFormat, title)),
-                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Sidebar")),
+                    subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
                     keywords: ["sidebar", "switch", "extension", title.lowercased()]
                 )
             )
@@ -9867,11 +9867,11 @@ enum CmuxExtensionSidebarSelection {
         id: hostedExtensionsProviderId,
         title: CmuxExtensionLocalizedText(
             key: "sidebar.provider.extensions.title",
-            defaultValue: "CMUX Extensions"
+            defaultValue: "Extension Sidebar"
         ),
         subtitle: CmuxExtensionLocalizedText(
             key: "sidebar.provider.extensions.subtitle",
-            defaultValue: "ExtensionKit"
+            defaultValue: "Custom sidebar"
         ),
         systemImageName: "puzzlepiece.extension",
         isHostProvided: true
@@ -9922,7 +9922,7 @@ enum CmuxExtensionSidebarSelection {
         }
         menu.addItem(.separator())
         let manageItem = NSMenuItem(
-            title: String(localized: "sidebar.extensions.manage", defaultValue: "Manage Extensions"),
+            title: String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
             action: #selector(CmuxExtensionSidebarMenuTarget.manageExtensions(_:)),
             keyEquivalent: ""
         )
@@ -10640,7 +10640,10 @@ struct VerticalTabsSidebar: View {
         if selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
-                actionHandler: { handleCMUXSidebarExtensionAction($0) }
+                actionHandler: { handleCMUXSidebarExtensionAction($0) },
+                onUseDefaultSidebar: {
+                    CmuxExtensionSidebarSelection.setProviderId(CmuxExtensionSidebarProviderID.defaultWorkspaces)
+                }
             )
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in

@@ -17,8 +17,20 @@ struct ContentView: View {
                 .font(.title2.weight(.semibold))
             Text(String(
                 localized: "sampleSidebarApp.detail",
-                defaultValue: "Keep this app installed, then open cmux, use the sidebar puzzle button, choose Manage Extensions, enable this extension, and choose the extension sidebar."
+                defaultValue: "Keep this app installed. In cmux, click the puzzle button, choose Manage Sidebar Extensions..., enable CMUX Sample Sidebar Extension, choose Extension Sidebar, and confirm Workspace Signals appears."
             ))
+            .foregroundStyle(.secondary)
+            Text(String(
+                localized: "sampleSidebarApp.identifier",
+                defaultValue: "Extension ID: co.manaflow.CMUXExtKitSampleSidebarApp.Extension"
+            ))
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(.secondary)
+            Text(String(
+                localized: "sampleSidebarApp.scopes",
+                defaultValue: "Requests workspace metadata, paths, notifications, ports, and pull request links."
+            ))
+            .font(.caption)
             .foregroundStyle(.secondary)
         }
         .padding(24)

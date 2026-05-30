@@ -9,6 +9,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     var snapshotProvider: @MainActor () -> CMUXSidebarSnapshot
     var actionHandler: @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
+    var onUseDefaultSidebar: @MainActor () -> Void = {}
 
     @State private var identity: AppExtensionIdentity?
     @State private var enabledIdentities: [AppExtensionIdentity] = []
@@ -36,7 +37,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     },
                     onDeactivation: { error in
                         xpcHost.invalidate()
-                        self.identity = nil
+                        if self.identity?.bundleIdentifier == identity.bundleIdentifier {
+                            self.identity = nil
+                        }
                         errorText = error?.localizedDescription
                     }
                 )
@@ -85,8 +88,17 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             }
                         } label: {
                             Label(
-                                String(localized: "sidebar.extensions.manage", defaultValue: "Manage Extensions"),
+                                String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
                                 systemImage: "puzzlepiece.extension"
+                            )
+                        }
+                        .controlSize(.small)
+                        Button {
+                            onUseDefaultSidebar()
+                        } label: {
+                            Label(
+                                String(localized: "sidebar.extensions.useDefault", defaultValue: "Use Workspace Sidebar"),
+                                systemImage: "sidebar.left"
                             )
                         }
                         .controlSize(.small)
@@ -174,17 +186,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         if #available(macOS 26.0, *) {
             let extensionPoint = try AppExtensionPoint(identifier: staticExtensionPointIdentifier)
             let monitor = try await AppExtensionPoint.Monitor(appExtensionPoint: extensionPoint)
-            observeModernExtensionMonitor(monitor)
-            let identityTask = Task { @MainActor in
-                try? await observeIdentitySequence(extensionPointIdentifier: extensionPointIdentifier)
-            }
-            defer {
-                identityTask.cancel()
-            }
-            while !Task.isCancelled {
-                await waitForModernExtensionMonitorChange(monitor)
-                observeModernExtensionMonitor(monitor)
-            }
+            await observeModernExtensionMonitor(monitor)
             return
         }
 
@@ -200,11 +202,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 guard let availability = await availabilityUpdates.next() else { break }
                 disabledExtensionCount = availability.disabledCount
                 unapprovedExtensionCount = availability.unapprovedCount
-                if let currentIdentities = try? await loadCurrentExtensionIdentities(
-                    extensionPointIdentifier: extensionPointIdentifier
-                ) {
-                    applyEnabledExtensionIdentities(currentIdentities)
-                }
             }
         }
         defer {
@@ -214,12 +211,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             guard let update = await identities.next() else { break }
             applyEnabledExtensionIdentities(update)
         }
-    }
-
-    private func loadCurrentExtensionIdentities(extensionPointIdentifier: String) async throws -> [AppExtensionIdentity] {
-        var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
-            .makeAsyncIterator()
-        return await identities.next() ?? []
     }
 
     private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
@@ -251,27 +242,31 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     @available(macOS 26.0, *)
-    private func observeModernExtensionMonitor(_ monitor: AppExtensionPoint.Monitor) {
-        let state = monitor.state
+    private func applyModernExtensionState(_ state: AppExtensionPoint.Monitor.State) {
         disabledExtensionCount = state.disabledCount
         unapprovedExtensionCount = state.unapprovedCount
         applyEnabledExtensionIdentities(state.identities)
     }
 
     @available(macOS 26.0, *)
-    private func waitForModernExtensionMonitorChange(_ monitor: AppExtensionPoint.Monitor) async {
-        let continuationBox = MonitorContinuationBox()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                continuationBox.set(continuation)
-                withObservationTracking {
-                    _ = monitor.state
-                } onChange: {
-                    continuationBox.resume()
+    private func observeModernExtensionMonitor(_ monitor: AppExtensionPoint.Monitor) async {
+        while !Task.isCancelled {
+            let continuationBox = MonitorContinuationBox()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    continuationBox.set(continuation)
+                    withObservationTracking {
+                        applyModernExtensionState(monitor.state)
+                    } onChange: {
+                        continuationBox.resume()
+                    }
                 }
+            } onCancel: {
+                continuationBox.cancel()
             }
-        } onCancel: {
-            continuationBox.cancel()
+            if Task.isCancelled {
+                break
+            }
         }
     }
 }
@@ -312,11 +307,15 @@ private final class MonitorContinuationBox: @unchecked Sendable {
 
 @MainActor
 private final class CMUXSidebarExtensionHostXPC {
+    private static let fallbackScopes: Set<CMUXExtensionScope> = [.workspaceMetadata]
+
     private var connection: NSXPCConnection?
     private var extensionProxy: CMUXSidebarExtensionXPC?
     private var exportedObject: CMUXSidebarHostXPCObject?
     private var snapshotProvider: (() -> CMUXSidebarSnapshot)?
     private var actionHandler: ((CMUXSidebarAction) -> CMUXExtensionActionResult)?
+    private var allowedScopes = fallbackScopes
+    private var connectionGeneration: UInt64 = 0
 
     func update(
         snapshotProvider: @escaping @MainActor () -> CMUXSidebarSnapshot,
@@ -324,8 +323,8 @@ private final class CMUXSidebarExtensionHostXPC {
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
-        exportedObject?.snapshotProvider = snapshotProvider
         exportedObject?.actionHandler = actionHandler
+        updateExportedSnapshotFilter()
     }
 
     func attach(
@@ -334,36 +333,42 @@ private final class CMUXSidebarExtensionHostXPC {
         actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
     ) {
         invalidate()
+        connectionGeneration += 1
+        let generation = connectionGeneration
         let exportedObject = CMUXSidebarHostXPCObject(
-            snapshotProvider: snapshotProvider,
-            actionHandler: actionHandler
+            snapshotProvider: { snapshotProvider().filtered(for: Self.fallbackScopes) },
+            actionHandler: actionHandler,
+            isCurrentGeneration: { [weak self] in
+                self?.connectionGeneration == generation
+            }
         )
         connection.exportedInterface = NSXPCInterface(with: CMUXSidebarHostXPC.self)
         connection.exportedObject = exportedObject
         connection.remoteObjectInterface = NSXPCInterface(with: CMUXSidebarExtensionXPC.self)
-        connection.invalidationHandler = { [weak self] in
+        connection.invalidationHandler = { [weak self, generation] in
             Task { @MainActor in
-                self?.clearConnection()
+                self?.clearConnection(ifCurrentGeneration: generation)
             }
         }
-        connection.interruptionHandler = { [weak self] in
+        connection.interruptionHandler = { [weak self, generation] in
             Task { @MainActor in
-                self?.clearProxy()
+                self?.clearProxy(ifCurrentGeneration: generation)
             }
         }
         self.exportedObject = exportedObject
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
         self.connection = connection
+        self.allowedScopes = Self.fallbackScopes
         self.extensionProxy = connection.remoteObjectProxy as? CMUXSidebarExtensionXPC
         connection.resume()
-        sendSnapshotDidChange()
+        requestManifestThenSendInitialSnapshot(generation: generation)
     }
 
     func sendSnapshotDidChange() {
         guard let extensionProxy, let snapshotProvider else { return }
         do {
-            extensionProxy.sidebarSnapshotDidChange(try CMUXSidebarXPCCodec.encodeSnapshot(snapshotProvider()))
+            extensionProxy.sidebarSnapshotDidChange(try CMUXSidebarXPCCodec.encodeSnapshot(filteredSnapshot(from: snapshotProvider)))
         } catch {
 #if DEBUG
             cmuxDebugLog("extension.sidebar.xpc.snapshot.encode.failed error=\(error.localizedDescription)")
@@ -372,36 +377,97 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     func invalidate() {
+        let generation = connectionGeneration
         connection?.invalidate()
-        clearConnection()
+        clearConnection(ifCurrentGeneration: generation)
     }
 
-    private func clearProxy() {
+    private func clearProxy(ifCurrentGeneration generation: UInt64) {
+        guard connectionGeneration == generation else { return }
         extensionProxy = nil
     }
 
-    private func clearConnection() {
+    private func clearConnection(ifCurrentGeneration generation: UInt64) {
+        guard connectionGeneration == generation else { return }
         connection = nil
         extensionProxy = nil
         exportedObject = nil
+        allowedScopes = Self.fallbackScopes
+    }
+
+    private func requestManifestThenSendInitialSnapshot(generation: UInt64) {
+        guard let extensionProxy,
+              let requestExtensionManifest = extensionProxy.requestExtensionManifest else {
+            updateExportedSnapshotFilter()
+            sendSnapshotDidChange()
+            return
+        }
+        requestExtensionManifest { [weak self] payload, error in
+            Task { @MainActor [generation] in
+                guard let self else { return }
+                guard self.connectionGeneration == generation else { return }
+                if let payload {
+                    do {
+                        let manifest = try CMUXSidebarXPCCodec.decodeManifest(payload)
+                        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+                        self.allowedScopes = Set(manifest.requestedScopes)
+                    } catch {
+                        self.allowedScopes = Self.fallbackScopes
+#if DEBUG
+                        cmuxDebugLog("extension.sidebar.manifest.invalid error=\(error.localizedDescription)")
+#endif
+                    }
+                } else {
+                    self.allowedScopes = Self.fallbackScopes
+                    if let error {
+#if DEBUG
+                        cmuxDebugLog("extension.sidebar.manifest.failed error=\(error)")
+#endif
+                    }
+                }
+                self.updateExportedSnapshotFilter()
+                self.sendSnapshotDidChange()
+            }
+        }
+    }
+
+    private func filteredSnapshot(from snapshotProvider: () -> CMUXSidebarSnapshot) -> CMUXSidebarSnapshot {
+        snapshotProvider().filtered(for: allowedScopes)
+    }
+
+    private func updateExportedSnapshotFilter() {
+        guard let snapshotProvider else { return }
+        exportedObject?.snapshotProvider = { [weak self] in
+            guard let self else {
+                return snapshotProvider().filtered(for: Self.fallbackScopes)
+            }
+            return filteredSnapshot(from: snapshotProvider)
+        }
     }
 }
 
 private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
     @MainActor var snapshotProvider: () -> CMUXSidebarSnapshot
     @MainActor var actionHandler: (CMUXSidebarAction) -> CMUXExtensionActionResult
+    @MainActor var isCurrentGeneration: () -> Bool
 
     @MainActor
     init(
         snapshotProvider: @escaping @MainActor () -> CMUXSidebarSnapshot,
-        actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
+        actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult,
+        isCurrentGeneration: @escaping @MainActor () -> Bool
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
+        self.isCurrentGeneration = isCurrentGeneration
     }
 
     func requestSidebarSnapshot(reply: @escaping (NSData?, NSString?) -> Void) {
         Task { @MainActor in
+            guard isCurrentGeneration() else {
+                reply(nil, String(localized: "sidebar.extensions.action.staleConnection", defaultValue: "Extension connection is no longer active") as NSString)
+                return
+            }
             do {
                 reply(try CMUXSidebarXPCCodec.encodeSnapshot(snapshotProvider()), nil)
             } catch {
@@ -412,6 +478,10 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
 
     func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void) {
         Task { @MainActor in
+            guard isCurrentGeneration() else {
+                reply(nil, String(localized: "sidebar.extensions.action.staleConnection", defaultValue: "Extension connection is no longer active") as NSString)
+                return
+            }
             do {
                 let action = try CMUXSidebarXPCCodec.decodeAction(payload)
                 let result = actionHandler(action)
