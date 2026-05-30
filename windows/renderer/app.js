@@ -2,6 +2,7 @@ import {
   accentOptions,
   backgroundPresets,
   defaultSettings,
+  paneHeaderOptions,
   settingsCategories,
   settingsPresets,
   sidebarDetailOptions,
@@ -297,6 +298,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
+  if (!paneHeaderOptions.some(([id]) => id === next.paneHeaderMode)) next.paneHeaderMode = defaultSettings.paneHeaderMode;
   if (!sidebarDetailOptions.some(([id]) => id === next.sidebarDetailMode)) next.sidebarDetailMode = defaultSettings.sidebarDetailMode;
   if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
@@ -958,6 +960,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.showStatusbar,
     settings.showAdvanced,
     settings.performanceMode,
+    settings.paneHeaderMode,
     settings.sidebarDetailMode,
     settings.sidebarWidth,
     settings.inspectorWidth,
@@ -983,6 +986,9 @@ function applySettings() {
   elements.shell.style.setProperty("--surface-tab-basis", `${tabMetrics.basis}px`);
   elements.shell.style.setProperty("--surface-tab-max", `${tabMetrics.max}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
+  elements.shell.classList.toggle("pane-header-compact", state.settings.paneHeaderMode === "compact");
+  elements.shell.classList.toggle("pane-header-full", state.settings.paneHeaderMode === "full");
+  elements.shell.classList.toggle("pane-header-hidden", state.settings.paneHeaderMode === "hidden");
   elements.shell.classList.toggle("workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
   elements.shell.classList.toggle("workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
   elements.shell.classList.toggle("workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
@@ -2860,6 +2866,17 @@ function renderSettingsInspector() {
     densitySelect.value = state.settings.density;
     densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
     layoutSection.append(settingRow("Density", densitySelect));
+    const paneHeaderSelect = document.createElement("select");
+    paneHeaderSelect.className = "setting-select";
+    for (const [value, label] of paneHeaderOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      paneHeaderSelect.append(option);
+    }
+    paneHeaderSelect.value = state.settings.paneHeaderMode;
+    paneHeaderSelect.onchange = () => updateSettings({ paneHeaderMode: paneHeaderSelect.value });
+    layoutSection.append(settingRow("Pane headers", paneHeaderSelect, false, "terminal pane header chrome compact hidden content only toolbar"));
     const sidebarDetailSelect = document.createElement("select");
     sidebarDetailSelect.className = "setting-select";
     for (const [value, label] of sidebarDetailOptions) {

@@ -211,6 +211,18 @@ button {
   grid-template-rows: 28px minmax(0, 1fr);
 }
 
+.shell.pane-header-compact .pane {
+  grid-template-rows: 24px minmax(0, 1fr);
+}
+
+.shell.pane-header-hidden .pane {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell.pane-header-hidden .pane-header {
+  display: none;
+}
+
 .shell.hide-status .statusbar {
   display: none;
 }
@@ -1057,17 +1069,17 @@ button {
 }
 
 .pane.is-drop-target[data-drop-position="left"]::after {
-  inset: 31px 50% 0 0;
+  inset: var(--pane-drop-top, 31px) 50% 0 0;
   border-left-width: 3px;
 }
 
 .pane.is-drop-target[data-drop-position="right"]::after {
-  inset: 31px 0 0 50%;
+  inset: var(--pane-drop-top, 31px) 0 0 50%;
   border-right-width: 3px;
 }
 
 .pane.is-drop-target[data-drop-position="top"]::after {
-  inset: 31px 0 50% 0;
+  inset: var(--pane-drop-top, 31px) 0 50% 0;
   border-top-width: 3px;
 }
 
@@ -1133,6 +1145,42 @@ button {
   border-color: color-mix(in oklch, var(--color-danger) 72%, var(--color-line) 28%);
   background: color-mix(in oklch, var(--color-danger) 28%, var(--color-pane-active) 72%);
   color: var(--color-text);
+}
+
+.shell.pane-header-compact {
+  --pane-drop-top: 24px;
+}
+
+.shell.pane-header-hidden {
+  --pane-drop-top: 0px;
+}
+
+.shell.pane-header-compact .pane-header {
+  gap: 6px;
+  padding: 0 6px;
+}
+
+.shell.pane-header-compact .pane-grip {
+  width: 10px;
+  font-size: 10px;
+}
+
+.shell.pane-header-compact .pane-type {
+  display: none;
+}
+
+.shell.pane-header-compact .pane-title {
+  font-size: 11px;
+}
+
+.shell.pane-header-compact .pane-toolbar {
+  gap: 3px;
+}
+
+.shell.pane-header-compact .pane-tool {
+  width: 22px;
+  height: 20px;
+  font-size: 11px;
 }
 
 .pane.is-browser .font-down,

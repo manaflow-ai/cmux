@@ -5,6 +5,7 @@ export const defaultSettings = {
   backgroundOpacity: 16,
   browserHomeUrl: "https://www.bing.com",
   density: "comfortable",
+  paneHeaderMode: "compact",
   sidebarDetailMode: "compact",
   toolbarMode: "compact",
   tabSize: "balanced",
@@ -120,6 +121,12 @@ export const sidebarDetailOptions = [
   ["detailed", "Full details"]
 ];
 
+export const paneHeaderOptions = [
+  ["compact", "Compact"],
+  ["full", "Full"],
+  ["hidden", "Content only"]
+];
+
 export const tabSizeOptions = [
   ["compact", "Compact"],
   ["balanced", "Balanced"],
@@ -216,6 +223,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 16,
       density: "comfortable",
+      paneHeaderMode: "compact",
       sidebarDetailMode: "compact",
       toolbarMode: "compact",
       tabSize: "balanced",
@@ -247,6 +255,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 10,
       density: "compact",
+      paneHeaderMode: "hidden",
       sidebarDetailMode: "compact",
       toolbarMode: "compact",
       tabSize: "balanced",
@@ -278,6 +287,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 0,
       density: "compact",
+      paneHeaderMode: "hidden",
       sidebarDetailMode: "compact",
       toolbarMode: "compact",
       tabSize: "compact",
@@ -309,6 +319,7 @@ export const settingsPresets = [
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 24,
       density: "comfortable",
+      paneHeaderMode: "full",
       sidebarDetailMode: "detailed",
       toolbarMode: "standard",
       tabSize: "roomy",
