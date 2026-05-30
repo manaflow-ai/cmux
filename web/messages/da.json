@@ -499,7 +499,9 @@
           "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik."
+          "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik.",
+          "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
@@ -920,7 +922,8 @@
       "changelog": "Ændringslog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1057,21 @@
       "daemonSession": "Sessionsledelse",
       "daemonSessionHow": "Vedvarer sessioner på tværs af genforbindelser, koordinerer PTY-størrelsen på tværs af flere vedhæftede filer",
       "daemonPath": "Den binære dæmon er gemt på ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote på fjernværten og verificeret mod et SHA-256-manifest, der er indlejret i appen."
+    },
+    "textBox": {
+      "title": "TextBox (beta)",
+      "metaTitle": "TextBox (beta)",
+      "metaDescription": "Konfigurer cmux' beta-TextBox-input for nye terminalfaner, splits og arbejdsområder.",
+      "intro": "TextBox er cmux' rige terminalinputflade til at skrive prompts, før de sendes til en terminal.",
+      "betaCallout": "TextBox er en beta-funktion. Standarder og adfærd kan ændre sig under test.",
+      "defaultsTitle": "Standarder",
+      "defaultsDesc": "TextBox-indstillingerne findes under Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals åbner nye arbejdsområder, terminalfaner og terminalsplits med TextBox synlig, mens fokus bliver i terminalen.",
+      "focusSetting": "Focus TextBox on New Terminals placerer tastaturfokus i TextBox. Fokus viser også TextBox.",
+      "maxLinesSetting": "TextBox Max Lines begrænser TextBox-højden, før indholdet ruller.",
+      "configTitle": "cmux.json",
+      "configDesc": "Sæt de samme standarder i ~/.config/cmux/cmux.json under terminal:",
+      "focusNote": "Gendannede sessioner bevarer deres gemte TextBox-synlighed og fokusstatus. Disse standarder gælder kun for nyoprettede terminalflader."
     }
   },
   "legal": {

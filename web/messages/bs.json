@@ -499,7 +499,9 @@
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
         "terminal": {
-          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom."
+          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
+          "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
@@ -920,7 +922,8 @@
       "changelog": "Zapisnik promjena",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (Beta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1057,21 @@
       "daemonSession": "Upravljanje sesijama",
       "daemonSessionHow": "Zadržava sesije preko ponovnog povezivanja, koordinira promjenu veličine PTY-a u više priloga",
       "daemonPath": "Daemon binarni fajl je pohranjen na ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote na udaljenom hostu i provjeren prema SHA-256 manifestu ugrađenom u aplikaciju."
+    },
+    "textBox": {
+      "title": "TextBox (Beta)",
+      "metaTitle": "TextBox (Beta)",
+      "metaDescription": "Podesite cmux beta TextBox unos za nove terminalske tabove, podjele i radne prostore.",
+      "intro": "TextBox je cmuxova bogata terminalska površina za unos, za sastavljanje promptova prije slanja u terminal.",
+      "betaCallout": "TextBox je beta funkcija. Zadane vrijednosti i ponašanje mogu se promijeniti tokom testiranja.",
+      "defaultsTitle": "Zadane vrijednosti",
+      "defaultsDesc": "TextBox postavke su u Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals otvara nove radne prostore, terminalske tabove i podjele s vidljivim TextBoxom, dok fokus ostaje u terminalu.",
+      "focusSetting": "Focus TextBox on New Terminals postavlja fokus tastature u TextBox. Fokusiranje također prikazuje TextBox.",
+      "maxLinesSetting": "TextBox Max Lines ograničava visinu TextBoxa prije nego što se sadržaj počne skrolati.",
+      "configTitle": "cmux.json",
+      "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
+      "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
     }
   },
   "legal": {

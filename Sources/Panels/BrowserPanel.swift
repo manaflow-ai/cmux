@@ -3293,6 +3293,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published download state for browser downloads (navigation + context menu).
     @Published private(set) var isDownloading: Bool = false
 
+    /// Per-pane browser audio mute intent. BrowserPanel owns this so the state
+    /// survives WKWebView replacement and can be applied to each new page.
+    @Published private(set) var isMuted: Bool = false
+
     /// Published can go back state
     @Published private(set) var canGoBack: Bool = false
 
@@ -3472,6 +3476,21 @@ final class BrowserPanel: Panel, ObservableObject {
 
     var currentBrowserThemeMode: BrowserThemeMode {
         browserThemeMode
+    }
+
+    @discardableResult
+    private func applyMuteState(_ muted: Bool? = nil, to webView: WKWebView, reason: String) -> Bool {
+        let targetMuted = muted ?? isMuted
+        let applied = webView.cmuxSetPageAudioMuted(targetMuted)
+#if DEBUG
+        if !applied {
+            cmuxDebugLog(
+                "browser.audioMute.applyUnavailable panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) muted=\(targetMuted ? 1 : 0)"
+            )
+        }
+#endif
+        return applied
     }
 
     func noteWebViewVisibility(
@@ -3991,6 +4010,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        applyMuteState(to: webView, reason: "bindWebView")
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4002,6 +4022,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
+                self.applyMuteState(to: webView, reason: "navigationStart")
             }
         }
         navigationDelegate.didCommit = { [weak self] webView in
@@ -4009,6 +4030,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
+                self.applyMuteState(to: webView, reason: "navigationCommit")
             }
         }
         navigationDelegate.didFinish = { [weak self] webView in
@@ -4016,6 +4038,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
+                self.applyMuteState(to: webView, reason: "navigationFinish")
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
@@ -4035,6 +4058,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
                 self.faviconPNGData = nil
                 self.lastFaviconURLString = nil
+                self.applyMuteState(to: failedWebView, reason: "navigationFail")
                 // Keep find-in-page open and clear stale counters on failed loads.
                 self.restoreFindStateAfterNavigation(replaySearch: false)
             }
@@ -4713,6 +4737,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
+        setMuted(snapshot.isMuted)
         setOmnibarVisible(snapshot.omnibarVisible ?? true)
 
         restoreSessionNavigationHistory(
@@ -5960,6 +5985,20 @@ extension BrowserPanel {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+    }
+
+    @discardableResult
+    func setMuted(_ muted: Bool) -> Bool {
+        let applied = applyMuteState(muted, to: webView, reason: "setMuted")
+        if applied, isMuted != muted {
+            isMuted = muted
+        }
+        return applied
+    }
+
+    @discardableResult
+    func toggleMute() -> Bool {
+        setMuted(!isMuted)
     }
 
     /// Go back in history

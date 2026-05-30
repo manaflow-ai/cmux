@@ -390,6 +390,18 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "showTextBoxOnNewTerminals": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.showTextBoxOnNewTerminals",
+          "description": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits."
+        },
+        "focusTextBoxOnNewTerminals": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.focusTextBoxOnNewTerminals",
+          "description": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+        },
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,

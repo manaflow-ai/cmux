@@ -281,7 +281,10 @@ struct cmuxApp: App {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
-                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
+                    dispatchReloadConfigurationMenuCommand()
+                }
+                Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
+                    DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
                 }
             }
 
@@ -911,6 +914,7 @@ struct cmuxApp: App {
 
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
     }
 
@@ -1158,6 +1162,14 @@ struct cmuxApp: App {
         }
     }
 
+    private func dispatchReloadConfigurationMenuCommand() {
+        NSApp.sendAction(
+            #selector(AppDelegate.reloadConfigurationMenuItem(_:)),
+            to: appDelegate,
+            from: nil
+        )
+    }
+
     private func closePanelOrWindow() {
         if let window = NSApp.keyWindow ?? NSApp.mainWindow,
            cmuxWindowShouldOwnCloseShortcut(window) {
@@ -1223,6 +1235,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
     "cmux.configEditor",
+    "cmux.defaultTerminalRegistrationError",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
@@ -4225,10 +4238,17 @@ private struct StartupAppearanceDebugView: View {
         applyAppearance(selectedAppearance)
         GhosttyStartupAppearancePreviewState.profile = selectedProfile
         GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearancePreview",
-            reloadSettingsFromFile: false
-        )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "debug.startupAppearancePreview",
+                reloadSettingsFromFile: false
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "debug.startupAppearancePreview",
+                reloadSettingsFromFile: false
+            )
+        }
         lastAppliedProfile = selectedProfile
         lastAppliedAppearance = selectedAppearance
     }
@@ -4239,10 +4259,17 @@ private struct StartupAppearanceDebugView: View {
         applyAppearance(.stored)
         GhosttyStartupAppearancePreviewState.profile = .realUserConfig
         GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearanceRestore",
-            reloadSettingsFromFile: false
-        )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "debug.startupAppearanceRestore",
+                reloadSettingsFromFile: false
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "debug.startupAppearanceRestore",
+                reloadSettingsFromFile: false
+            )
+        }
         lastAppliedProfile = .realUserConfig
         lastAppliedAppearance = .stored
     }
@@ -5356,8 +5383,9 @@ struct SettingsView: View {
     @Setting(\.app.keepWorkspaceOpenWhenClosingLastSurface) private var closeWorkspaceOnLastSurfaceShortcut
     @Setting(\.app.focusPaneOnFirstClick) private var paneFirstClickFocusEnabled
     @Setting(\.terminal.showScrollBar) private var showTerminalScrollBar
-    @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
-    private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @Setting(\.terminal.showTextBoxOnNewTerminals) private var showTextBoxOnNewTerminals
+    @Setting(\.terminal.focusTextBoxOnNewTerminals) private var focusTextBoxOnNewTerminals
+    @Setting(\.terminal.textBoxMaxLines) private var textBoxMaxLines
     @Setting(\.terminal.copyOnSelect) private var terminalCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
@@ -5436,6 +5464,13 @@ struct SettingsView: View {
     @State private var notificationCustomSoundErrorAlertMessage = ""
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
+    @State private var defaultTerminalStatus = DefaultTerminalRegistrationStatus(
+        matchedTargetCount: 0,
+        targetCount: DefaultTerminalRegistration.targetCount
+    )
+    @State private var isSettingDefaultTerminal = false
+    @State private var showSetDefaultTerminalConfirmation = false
+    @State private var defaultTerminalErrorMessage: String?
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
 
@@ -5490,6 +5525,38 @@ struct SettingsView: View {
             localized: "settings.app.minimalMode.subtitleOff",
             defaultValue: "Use the standard workspace title bar and controls."
         )
+    }
+
+    private var defaultTerminalSubtitle: String {
+        if let defaultTerminalErrorMessage {
+            return defaultTerminalErrorMessage
+        }
+        if isSettingDefaultTerminal {
+            return String(
+                localized: "settings.app.defaultTerminal.subtitleSetting",
+                defaultValue: "macOS may ask you to confirm this change."
+            )
+        }
+        if defaultTerminalStatus.isDefault {
+            return String(
+                localized: "settings.app.defaultTerminal.subtitleDefault",
+                defaultValue: "cmux handles SSH links, .command/.tool files, and UNIX executables."
+            )
+        }
+        return String(
+            localized: "settings.app.defaultTerminal.subtitleNotDefault",
+            defaultValue: "Set cmux as the handler for SSH links, .command/.tool files, and UNIX executables."
+        )
+    }
+
+    private var defaultTerminalActionTitle: String {
+        if isSettingDefaultTerminal {
+            return String(localized: "settings.app.defaultTerminal.buttonSetting", defaultValue: "Setting...")
+        }
+        if defaultTerminalStatus.isDefault {
+            return String(localized: "settings.app.defaultTerminal.buttonDefault", defaultValue: "Default")
+        }
+        return String(localized: "settings.app.defaultTerminal.buttonSet", defaultValue: "Set Default")
     }
 
     private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
@@ -6282,6 +6349,42 @@ struct SettingsView: View {
         }
     }
 
+    private func refreshDefaultTerminalStatus(clearError: Bool = true) {
+        defaultTerminalStatus = DefaultTerminalRegistration.currentStatus()
+        if clearError {
+            defaultTerminalErrorMessage = nil
+        }
+    }
+
+    private func setDefaultTerminal() {
+        refreshDefaultTerminalStatus()
+        guard !defaultTerminalStatus.isDefault else {
+            showSetDefaultTerminalConfirmation = false
+            return
+        }
+        guard !isSettingDefaultTerminal else { return }
+        isSettingDefaultTerminal = true
+        defaultTerminalErrorMessage = nil
+        Task {
+            do {
+                try await DefaultTerminalUserAction.registerAsDefault()
+                await MainActor.run {
+                    isSettingDefaultTerminal = false
+                    refreshDefaultTerminalStatus()
+                }
+            } catch {
+                await MainActor.run {
+                    isSettingDefaultTerminal = false
+                    defaultTerminalErrorMessage = String(
+                        localized: "defaultTerminal.updateFailed.message",
+                        defaultValue: "macOS could not update every default terminal handler."
+                    )
+                    refreshDefaultTerminalStatus(clearError: false)
+                }
+            }
+        }
+    }
+
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
@@ -6353,6 +6456,22 @@ struct SettingsView: View {
                                 AppIconSettings.applyIcon(mode)
                             }
                         )
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"),
+                            subtitle: defaultTerminalSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "default-terminal")
+                        ) {
+                            Button(defaultTerminalActionTitle) {
+                                showSetDefaultTerminalConfirmation = true
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(defaultTerminalStatus.isDefault || isSettingDefaultTerminal)
+                        }
 
                         SettingsCardDivider()
 
@@ -6873,29 +6992,6 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .json("terminal.textBoxMaxLines"),
-                            String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
-                            subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
-                            controlWidth: pickerColumnWidth
-                        ) {
-                            Stepper(
-                                value: textBoxMaxLinesBinding,
-                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
-                            ) {
-                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
-                                    .monospacedDigit()
-                                    .frame(width: 28, alignment: .trailing)
-                            }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
-                            .accessibilityLabel(
-                                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines")
-                            )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
                             configurationReview: .json("terminal.copyOnSelect"),
                             String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
                             subtitle: terminalCopyOnSelect
@@ -6983,6 +7079,84 @@ struct SettingsView: View {
                     }
 
                     SurfaceResumeApprovalSettingsCard()
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .textBox))
+                    SettingsCard {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.yellow)
+                                .accessibilityHidden(true)
+
+                            Text(String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested."))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showTextBoxOnNewTerminals"),
+                            String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"),
+                            subtitle: showTextBoxOnNewTerminals
+                                ? String(localized: "settings.textBox.showOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces open with the TextBox visible.")
+                                : String(localized: "settings.textBox.showOnNewTerminals.subtitleOff", defaultValue: "New terminals start with the TextBox hidden until you open it.")
+                        ) {
+                            Toggle("", isOn: $showTextBoxOnNewTerminals)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTextBoxShowOnNewTerminalsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.focusTextBoxOnNewTerminals"),
+                            String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"),
+                            subtitle: focusTextBoxOnNewTerminals
+                                ? String(localized: "settings.textBox.focusOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces put keyboard focus in the TextBox.")
+                                : String(localized: "settings.textBox.focusOnNewTerminals.subtitleOff", defaultValue: "New terminals keep keyboard focus in the terminal surface.")
+                        ) {
+                            Toggle("", isOn: $focusTextBoxOnNewTerminals)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTextBoxFocusOnNewTerminalsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.textBoxMaxLines"),
+                            String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"),
+                            subtitle: String(localized: "settings.textBox.maxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Stepper(
+                                value: textBoxMaxLinesBinding,
+                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
+                            ) {
+                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
+                                    .monospacedDigit()
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsTextBoxMaxLinesStepper")
+                            .accessibilityLabel(
+                                String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines")
+                            )
+                        }
+                    }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
@@ -8094,6 +8268,7 @@ struct SettingsView: View {
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            refreshDefaultTerminalStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
                 ?? .account
@@ -8127,6 +8302,24 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
             applySettingsNavigation(destination, proxy: proxy)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .defaultTerminalRegistrationDidChange)) { _ in
+            refreshDefaultTerminalStatus()
+            if defaultTerminalStatus.isDefault {
+                showSetDefaultTerminalConfirmation = false
+            }
+        }
+        .confirmationDialog(
+            String(localized: "settings.app.defaultTerminal.dialog.title", defaultValue: "Set cmux as default terminal?"),
+            isPresented: $showSetDefaultTerminalConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "settings.app.defaultTerminal.dialog.confirm", defaultValue: "Set Default")) {
+                setDefaultTerminal()
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "settings.app.defaultTerminal.dialog.message", defaultValue: "cmux will ask macOS to use this app for SSH links, .command/.tool files, and UNIX executables. macOS may show a confirmation prompt."))
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
@@ -8281,7 +8474,8 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
-        textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+        showTextBoxOnNewTerminals = TerminalTextBoxInputSettings.defaultShowOnNewTerminals
+        focusTextBoxOnNewTerminals = TerminalTextBoxInputSettings.defaultFocusOnNewTerminals
         textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
         let previousTerminalCopyOnSelect = terminalCopyOnSelect
         terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
