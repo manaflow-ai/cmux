@@ -479,6 +479,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         switch reason {
         case "connectionInterrupted":
             return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
+        case "manifestTimedOut":
+            return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, manifest timed out")
         case "missingManifest":
             return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing manifest")
         case "invalidManifest":
@@ -492,6 +494,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         switch reason {
         case "connectionInterrupted":
             return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension's XPC connection. No workspace data or actions are being shared.")
+        case "manifestTimedOut":
+            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's manifest in time. No workspace data or actions are being shared.")
         case "missingManifest":
             return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension manifest, so no workspace data or actions were shared.")
         case "invalidManifest":
@@ -846,6 +850,7 @@ private extension CMUXExtensionActionScope {
 private final class CMUXSidebarExtensionHostXPC {
     private static let untrustedScopes: Set<CMUXExtensionScope> = []
     private static let untrustedActionScopes: Set<CMUXExtensionActionScope> = []
+    private static let manifestRequestTimeoutNanoseconds: UInt64 = 5_000_000_000
 
     private var connection: NSXPCConnection?
     private var extensionProxy: CMUXSidebarExtensionXPC?
@@ -859,6 +864,8 @@ private final class CMUXSidebarExtensionHostXPC {
     private var currentManifest: CMUXExtensionManifest?
     private var onGrantChanged: ((CMUXSidebarExtensionEffectiveGrant?) -> Void)?
     private var onManifestBlocked: ((String?) -> Void)?
+    private var awaitingManifestGeneration: UInt64?
+    private var manifestRequestTimeoutTask: Task<Void, Never>?
     private let grantStore = CMUXSidebarExtensionGrantStore()
 
     var currentEffectiveGrant: CMUXSidebarExtensionEffectiveGrant? {
@@ -946,12 +953,14 @@ private final class CMUXSidebarExtensionHostXPC {
     private func clearProxy(ifCurrentGeneration generation: UInt64) {
         guard connectionGeneration == generation else { return }
         extensionProxy = nil
+        cancelManifestRequestTimeout()
         blockUntrustedExtension(reason: "connectionInterrupted")
         updateExportedSnapshotFilter()
     }
 
     private func clearConnection(ifCurrentGeneration generation: UInt64) {
         guard connectionGeneration == generation else { return }
+        cancelManifestRequestTimeout()
         connection = nil
         extensionProxy = nil
         exportedObject = nil
@@ -972,10 +981,13 @@ private final class CMUXSidebarExtensionHostXPC {
             updateExportedSnapshotFilter()
             return
         }
+        beginManifestRequestTimeout(generation: generation)
         requestExtensionManifest { [weak self] payload, error in
             Task { @MainActor [generation] in
                 guard let self else { return }
                 guard self.connectionGeneration == generation else { return }
+                guard self.awaitingManifestGeneration == generation else { return }
+                self.cancelManifestRequestTimeout()
                 if let payload {
                     do {
                         let manifest = try CMUXSidebarXPCCodec.decodeManifest(payload)
@@ -1001,6 +1013,31 @@ private final class CMUXSidebarExtensionHostXPC {
         }
     }
 
+    private func beginManifestRequestTimeout(generation: UInt64) {
+        cancelManifestRequestTimeout()
+        awaitingManifestGeneration = generation
+        manifestRequestTimeoutTask = Task { @MainActor [weak self, generation] in
+            do {
+                try await Task.sleep(nanoseconds: Self.manifestRequestTimeoutNanoseconds)
+            } catch {
+                return
+            }
+            guard let self,
+                  self.connectionGeneration == generation,
+                  self.awaitingManifestGeneration == generation else { return }
+            self.cancelManifestRequestTimeout()
+            self.blockUntrustedExtension(reason: "manifestTimedOut")
+            self.updateExportedSnapshotFilter()
+            self.sendSnapshotDidChange()
+        }
+    }
+
+    private func cancelManifestRequestTimeout() {
+        awaitingManifestGeneration = nil
+        manifestRequestTimeoutTask?.cancel()
+        manifestRequestTimeoutTask = nil
+    }
+
     func grantRequestedAccess(bundleIdentifier: String) {
         guard self.bundleIdentifier == bundleIdentifier, let currentManifest else { return }
         grantStore.grantRequestedAccess(bundleIdentifier: bundleIdentifier, manifest: currentManifest)
@@ -1014,6 +1051,7 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     private func applyManifest(_ manifest: CMUXExtensionManifest) {
+        cancelManifestRequestTimeout()
         currentManifest = manifest
         guard let bundleIdentifier else {
             allowedScopes = Self.untrustedScopes
@@ -1059,6 +1097,7 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     private func blockUntrustedExtension(reason: String) {
+        cancelManifestRequestTimeout()
         allowedScopes = Self.untrustedScopes
         allowedActionScopes = Self.untrustedActionScopes
         currentManifest = nil
