@@ -294,6 +294,8 @@ const state = {
   zoomedPanelIds: new Map(),
   minimizedPanelIds: new Set(),
   hoveredPanelId: null,
+  previousWorkspaceId: null,
+  previousPanelIds: new Map(),
   pendingPanels: new Map(),
   canceledPendingPanelIds: new Set(),
   pendingClosedPanelIds: new Set(),
@@ -1983,6 +1985,7 @@ const commands = [
   { id: "workspace.openFolder", label: "Open Workspace Folder", shortcut: "", run: () => openWorkspaceFolder() },
   { id: "workspace.next", label: "Next Workspace", shortcut: "Ctrl+PageDown", run: () => cycleWorkspace(1) },
   { id: "workspace.previous", label: "Previous Workspace", shortcut: "Ctrl+PageUp", run: () => cycleWorkspace(-1) },
+  { id: "workspace.last", label: "Switch to Last Workspace", shortcut: "Ctrl+Alt+Backspace", run: () => focusLastWorkspace() },
   ...workspaceOrdinalCommands,
   { id: "workspace.starterTerminalBrowser", label: "Add Terminal + Browser Starter", shortcut: "", run: () => applyWorkspaceStarter("terminalBrowser") },
   { id: "workspace.starterTwoTerminals", label: "Add Two-Terminal Starter", shortcut: "", run: () => applyWorkspaceStarter("twoTerminals") },
@@ -1997,6 +2000,7 @@ const commands = [
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
   { id: "terminal.nextPane", label: "Next Pane", shortcut: "Ctrl+Tab", run: () => cycleActivePane(1) },
   { id: "terminal.previousPane", label: "Previous Pane", shortcut: "Ctrl+Shift+Tab", run: () => cycleActivePane(-1) },
+  { id: "terminal.lastPane", label: "Switch to Last Active Pane", shortcut: "Ctrl+Shift+Backspace", run: () => focusLastPane() },
   ...paneOrdinalCommands,
   { id: "terminal.runCommand", label: "Run Command in Active Terminal", shortcut: "Ctrl+Shift+Enter", run: () => promptRunTerminalCommand() },
   { id: "terminal.runListFiles", label: "Run List Workspace Files", shortcut: "", run: () => runTerminalCommandSnippet("listFiles") },
@@ -2153,6 +2157,38 @@ function allPanelIds() {
   return new Set(allPanels().map((panel) => panel.id));
 }
 
+function rememberPreviousWorkspace(workspaceId) {
+  if (!workspaceId) return false;
+  if (!state.data?.workspaces?.some((workspace) => workspace.id === workspaceId)) return false;
+  state.previousWorkspaceId = workspaceId;
+  return true;
+}
+
+function previousWorkspace() {
+  const workspace = state.previousWorkspaceId
+    ? state.data?.workspaces.find((candidate) => candidate.id === state.previousWorkspaceId)
+    : null;
+  if (workspace) return workspace;
+  state.previousWorkspaceId = null;
+  return null;
+}
+
+function rememberPreviousPanel(workspace, panelId) {
+  if (!workspace?.id || !panelId) return false;
+  if (!workspaceHasPanelId(workspace, panelId)) return false;
+  state.previousPanelIds.set(workspace.id, panelId);
+  return true;
+}
+
+function previousPanelForWorkspace(workspace = activeWorkspace()) {
+  if (!workspace) return null;
+  const panelId = state.previousPanelIds.get(workspace.id);
+  const panel = workspace.panels.find((candidate) => candidate.id === panelId);
+  if (panel) return panel;
+  if (panelId) state.previousPanelIds.delete(workspace.id);
+  return null;
+}
+
 function visiblePanePanelIds() {
   return new Set([...elements.paneGrid.querySelectorAll(".pane[data-panel-id]:not(.is-minimized)")].map((pane) => pane.dataset.panelId));
 }
@@ -2200,6 +2236,7 @@ function markInteractedPanel(panelId) {
   const found = findPanelState(panelId);
   if (!found || found.workspace.id !== state.data?.activeWorkspaceId || isPanelMinimized(found.panel)) return null;
   const wasActive = found.workspace.activePanelId === panelId;
+  if (!wasActive) rememberPreviousPanel(found.workspace, found.workspace.activePanelId);
   state.lastInteractedPanelId = panelId;
   state.focusedPanelId = panelId;
   syncZoomedPanelToFocus(found.workspace, panelId);
@@ -3585,6 +3622,9 @@ function cleanupPanel(panelId) {
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
   if (state.lastInteractedPanelId === panelId) state.lastInteractedPanelId = null;
   if (state.hoveredPanelId === panelId) state.hoveredPanelId = null;
+  for (const [workspaceId, previousPanelId] of [...state.previousPanelIds.entries()]) {
+    if (previousPanelId === panelId) state.previousPanelIds.delete(workspaceId);
+  }
   state.minimizedPanelIds.delete(panelId);
   state.pendingPanels.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
@@ -3690,6 +3730,7 @@ function ensureTerminal(panel, body) {
     state.focusedPanelId = panel.id;
     state.lastInteractedPanelId = panel.id;
     if (found.workspace.activePanelId !== panel.id) {
+      rememberPreviousPanel(found.workspace, found.workspace.activePanelId);
       found.workspace.activePanelId = panel.id;
       scheduleRender();
       queueFocusSync({ type: "panel", panelId: panel.id });
@@ -7783,6 +7824,8 @@ function showToolbarMenu(event) {
   const workspace = activeWorkspace();
   const multiPane = Boolean(panel && workspace?.panels.length > 1);
   const multiWorkspace = (state.data?.workspaces.length || 0) > 1;
+  const hasPreviousPane = Boolean(previousPanelForWorkspace(workspace));
+  const hasPreviousWorkspace = Boolean(previousWorkspace());
   const terminalActive = panel?.type === "terminal";
   const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
@@ -7801,7 +7844,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Minimize active pane", minimizeActivePane, !panel),
       contextMenuButton("Restore minimized panes", () => restoreMinimizedPanes(workspace), minimizedPanelCount(workspace) === 0),
       contextMenuButton("Next pane", () => cycleActivePane(1), !multiPane),
-      contextMenuButton("Previous pane", () => cycleActivePane(-1), !multiPane)
+      contextMenuButton("Previous pane", () => cycleActivePane(-1), !multiPane),
+      contextMenuButton("Last active pane", focusLastPane, !hasPreviousPane)
     ),
     contextMenuSectionTitle("Layout"),
     contextMenuActionGroup(
@@ -7843,6 +7887,7 @@ function showToolbarMenu(event) {
     contextMenuActionGroup(
       contextMenuButton("Next workspace", () => cycleWorkspace(1), !multiWorkspace),
       contextMenuButton("Previous workspace", () => cycleWorkspace(-1), !multiWorkspace),
+      contextMenuButton("Last workspace", focusLastWorkspace, !hasPreviousWorkspace),
       contextMenuButton("Rename workspace", renameActiveWorkspace),
       contextMenuButton("Change workspace color", cycleWorkspaceColor),
       contextMenuButton("Change workspace folder", () => chooseWorkspaceFolder(), !workspace),
@@ -8552,6 +8597,7 @@ function runPaletteCommand(entry) {
 }
 
 async function createWorkspace(options = {}) {
+  const previousWorkspaceId = state.data?.activeWorkspaceId || "";
   const workspace = await api("/api/workspaces", {
     method: "POST",
     body: JSON.stringify({
@@ -8561,6 +8607,7 @@ async function createWorkspace(options = {}) {
   });
   if (options.cwd) rememberRecentFolder(workspace.cwd || options.cwd);
   await loadState();
+  if (workspace?.id && workspace.id !== previousWorkspaceId) rememberPreviousWorkspace(previousWorkspaceId);
   return workspace;
 }
 
@@ -8816,6 +8863,9 @@ function remapPanelStateId(previousPanelId, nextPanelId, workspaceId) {
   if (state.zoomedPanelId === previousPanelId) state.zoomedPanelId = nextPanelId;
   if (state.focusedPanelId === previousPanelId) state.focusedPanelId = nextPanelId;
   if (state.lastInteractedPanelId === previousPanelId) state.lastInteractedPanelId = nextPanelId;
+  for (const [mappedWorkspaceId, panelId] of [...state.previousPanelIds.entries()]) {
+    if (panelId === previousPanelId) state.previousPanelIds.set(mappedWorkspaceId, nextPanelId);
+  }
   if (state.dragPanelId === previousPanelId) state.dragPanelId = nextPanelId;
   for (const [mappedWorkspaceId, panelId] of [...state.zoomedPanelIds.entries()]) {
     if (panelId === previousPanelId) state.zoomedPanelIds.set(mappedWorkspaceId, nextPanelId);
@@ -8988,11 +9038,16 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
     ...panel,
     workspaceId: workspace.id
   };
+  const previousPanelId = workspace.activePanelId;
   workspace.panels = workspace.panels.filter((candidate) => candidate.id !== nextPanel.id);
   workspace.panels.push(nextPanel);
   workspace.activePanelId = nextPanel.id;
-  if (options.focus !== false) state.lastInteractedPanelId = nextPanel.id;
-  if (options.focus !== false) syncZoomedPanelToFocus(workspace, nextPanel.id);
+  if (options.focus !== false) {
+    rememberPreviousPanel(workspace, previousPanelId);
+    if (activeWorkspaceId !== workspace.id) rememberPreviousWorkspace(activeWorkspaceId);
+    state.lastInteractedPanelId = nextPanel.id;
+    syncZoomedPanelToFocus(workspace, nextPanel.id);
+  }
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   if (options.direction === "down" || options.direction === "right") {
     workspace.splitDirection = options.direction;
@@ -9395,7 +9450,9 @@ function moveWorkspaceRelative(workspaceId, targetWorkspaceId, placement) {
 async function focusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
-  const switchingWorkspace = state.data?.activeWorkspaceId !== workspaceId;
+  const currentWorkspaceId = state.data?.activeWorkspaceId || "";
+  const switchingWorkspace = currentWorkspaceId !== workspaceId;
+  if (switchingWorkspace) rememberPreviousWorkspace(currentWorkspaceId);
   const previousPanelId = workspace.activePanelId;
   const focusablePanel = workspace.panels.find((panel) => panel.id === workspace.activePanelId && !isPanelMinimized(panel))
     || firstUnminimizedPanel(workspace)
@@ -9420,10 +9477,18 @@ async function focusPanel(panelId) {
   const found = findPanelState(panelId);
   let wasMinimized = false;
   let zoomChanged = false;
+  const currentWorkspace = activeWorkspace();
   const wasAlreadyFocused = found
     && state.data?.activeWorkspaceId === found.workspace.id
     && found.workspace.activePanelId === panelId;
   if (found) {
+    if (!wasAlreadyFocused) {
+      if (currentWorkspace?.id && currentWorkspace.id !== found.workspace.id) {
+        rememberPreviousWorkspace(currentWorkspace.id);
+        rememberPreviousPanel(currentWorkspace, currentWorkspace.activePanelId);
+      }
+      if (found.workspace.activePanelId !== panelId) rememberPreviousPanel(found.workspace, found.workspace.activePanelId);
+    }
     wasMinimized = state.minimizedPanelIds.delete(panelId);
     state.focusedPanelId = panelId;
     state.lastInteractedPanelId = panelId;
@@ -9459,6 +9524,14 @@ function cycleActivePane(delta = 1) {
   return true;
 }
 
+function focusLastPane() {
+  const panel = previousPanelForWorkspace();
+  if (!panel) return false;
+  focusPanel(panel.id);
+  scheduleActiveSurfaceTabIntoView(panel.id);
+  return true;
+}
+
 function focusPaneByOrdinal(ordinal) {
   const workspace = activeWorkspace();
   const panels = workspace?.panels || [];
@@ -9479,6 +9552,13 @@ function cycleWorkspace(delta = 1) {
   const nextWorkspace = workspaces[(currentIndex + delta + workspaces.length) % workspaces.length];
   if (!nextWorkspace) return false;
   focusWorkspace(nextWorkspace.id);
+  return true;
+}
+
+function focusLastWorkspace() {
+  const workspace = previousWorkspace();
+  if (!workspace) return false;
+  focusWorkspace(workspace.id);
   return true;
 }
 
@@ -9541,6 +9621,7 @@ function setPaneMinimized(panelId, minimized = true) {
   const shouldMinimize = Boolean(minimized);
   if (state.minimizedPanelIds.has(panelId) === shouldMinimize) return false;
   if (shouldMinimize) {
+    rememberPreviousPanel(found.workspace, panelId);
     state.minimizedPanelIds.add(panelId);
     if (isPanelZoomed(found.panel, found.workspace)) clearZoomedPanelForWorkspace(found.workspace);
     if (found.workspace.activePanelId === panelId || state.focusedPanelId === panelId) {
@@ -10287,12 +10368,18 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && key === "tab") {
     consumeGlobalShortcut(event);
     cycleActivePane(event.shiftKey ? -1 : 1);
+  } else if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && key === "backspace") {
+    consumeGlobalShortcut(event);
+    focusLastPane();
   } else if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && /^[1-9]$/.test(event.key)) {
     consumeGlobalShortcut(event);
     focusPaneByOrdinal(Number(event.key));
   } else if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && /^[1-9]$/.test(event.key)) {
     consumeGlobalShortcut(event);
     focusWorkspaceByOrdinal(Number(event.key));
+  } else if (event.ctrlKey && event.altKey && !event.shiftKey && !event.metaKey && key === "backspace") {
+    consumeGlobalShortcut(event);
+    focusLastWorkspace();
   } else if (event.ctrlKey && event.key === "PageDown") {
     consumeGlobalShortcut(event);
     cycleWorkspace(1);
