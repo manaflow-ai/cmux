@@ -6,6 +6,7 @@ public enum CMUXSidebarSurfaceKind: String, Codable, CaseIterable, Equatable, Se
     case markdown
     case filePreview
     case rightSidebarTool
+    case project
     case unknown
 }
 

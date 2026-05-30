@@ -10928,6 +10928,8 @@ struct VerticalTabsSidebar: View {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
+        case .project:
+            return .project
         }
     }
 
