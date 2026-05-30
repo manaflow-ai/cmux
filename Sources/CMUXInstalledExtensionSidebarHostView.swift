@@ -124,6 +124,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         Group {
             if let identity {
                 VStack(alignment: .leading, spacing: 0) {
+                    extensionControlStrip(activeIdentity: identity)
                     if let effectiveGrant, effectiveGrant.needsAdditionalApproval {
                         extensionAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
                     }
@@ -151,10 +152,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     )
                         .id(identity.bundleIdentifier)
                         .accessibilityIdentifier("CMUXExtensionSidebarHostView")
-                        .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : SidebarWorkspaceScrollInsets.workspaceList.top)
+                        .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : 0)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
+                    extensionControlStrip(activeIdentity: nil)
                     if isLoading {
                         ProgressView()
                             .controlSize(.small)
@@ -181,41 +183,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        if enabledIdentities.count > 1 {
-                            enabledExtensionPicker
-                        }
-                        Button {
-                            if let browserAnchorView {
-                                CMUXSidebarExtensionBrowserPresenter.present(
-                                    from: browserAnchorView,
-                                    title: String(
-                                        localized: "sidebar.extensions.browser.title",
-                                        defaultValue: "Sidebar Extensions"
-                                    )
-                                )
-                            }
-                        } label: {
-                            Label(
-                                String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
-                                systemImage: "puzzlepiece.extension"
-                            )
-                        }
-                        .controlSize(.small)
-                        Button {
-                            onUseDefaultSidebar()
-                        } label: {
-                            Label(
-                                String(localized: "sidebar.extensions.useDefault", defaultValue: "Use Workspace Sidebar"),
-                                systemImage: "sidebar.left"
-                            )
-                        }
-                        .controlSize(.small)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TitlebarControlAnchorView { browserAnchorView = $0 })
                 .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
             }
         }
@@ -260,31 +230,84 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
-    private var enabledExtensionPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(
-                localized: "sidebar.extensions.choose.detail",
-                defaultValue: "Choose which enabled extension should replace the sidebar."
-            ))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
-                Button {
-                    selectExtension(enabledIdentity)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: enabledIdentity.bundleIdentifier == selectedExtensionBundleID ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 11, weight: .medium))
-                        Text(enabledIdentity.localizedName)
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
+    private func extensionControlStrip(activeIdentity: AppExtensionIdentity?) -> some View {
+        HStack(spacing: 8) {
+            extensionIdentityControl(activeIdentity: activeIdentity)
+            Spacer(minLength: 8)
+            if effectiveGrant?.needsAdditionalApproval == true {
+                Image(systemName: "lock")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .help(String(localized: "sidebar.extensions.access.statusLimited.help", defaultValue: "This extension has limited access."))
             }
+            Button {
+                onUseDefaultSidebar()
+            } label: {
+                Image(systemName: "sidebar.left")
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help(String(localized: "sidebar.extensions.useDefault", defaultValue: "Use Workspace Sidebar"))
+            Button {
+                presentExtensionBrowser()
+            } label: {
+                Image(systemName: "puzzlepiece.extension")
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help(String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."))
         }
+        .padding(.horizontal, 12)
+        .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 8)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(TitlebarControlAnchorView { browserAnchorView = $0 })
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.86))
+    }
+
+    @ViewBuilder
+    private func extensionIdentityControl(activeIdentity: AppExtensionIdentity?) -> some View {
+        if enabledIdentities.count > 1 {
+            Menu {
+                ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
+                    Button {
+                        selectExtension(enabledIdentity)
+                    } label: {
+                        Label(
+                            enabledIdentity.localizedName,
+                            systemImage: enabledIdentity.bundleIdentifier == activeIdentity?.bundleIdentifier ? "checkmark" : "puzzlepiece.extension"
+                        )
+                    }
+                }
+            } label: {
+                Label(
+                    activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
+                    systemImage: "puzzlepiece.extension"
+                )
+                .lineLimit(1)
+            }
+            .menuStyle(.button)
+            .controlSize(.small)
+        } else {
+            Label(
+                activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
+                systemImage: "puzzlepiece.extension"
+            )
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+    }
+
+    private func presentExtensionBrowser() {
+        guard let browserAnchorView else { return }
+        CMUXSidebarExtensionBrowserPresenter.present(
+            from: browserAnchorView,
+            title: String(
+                localized: "sidebar.extensions.browser.title",
+                defaultValue: "Sidebar Extensions"
+            )
+        )
     }
 
     private func extensionAccessBanner(
@@ -394,9 +417,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     private func applyModernExtensionState(_ state: AppExtensionPoint.Monitor.State) {
         disabledExtensionCount = state.disabledCount
         unapprovedExtensionCount = state.unapprovedCount
-        let unavailableCount = state.disabledCount + state.unapprovedCount
-        let enabledIdentities = unavailableCount >= state.identities.count ? [] : state.identities
-        applyEnabledExtensionIdentities(enabledIdentities)
+        applyEnabledExtensionIdentities(state.identities)
     }
 
     @available(macOS 26.0, *)
@@ -502,6 +523,9 @@ private final class CMUXSidebarExtensionHostXPC {
         let exportedObject = CMUXSidebarHostXPCObject(
             snapshotProvider: { Self.untrustedSnapshot(from: snapshotProvider()) },
             actionHandler: scopedActionHandler(actionHandler),
+            onAcceptedAction: { [weak self] in
+                self?.sendSnapshotDidChange()
+            },
             isCurrentGeneration: { [weak self] in
                 self?.connectionGeneration == generation
             }
@@ -684,16 +708,19 @@ private final class CMUXSidebarExtensionHostXPC {
 private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
     @MainActor var snapshotProvider: () -> CMUXSidebarSnapshot
     @MainActor var actionHandler: (CMUXSidebarAction) -> CMUXExtensionActionResult
+    @MainActor var onAcceptedAction: () -> Void
     @MainActor var isCurrentGeneration: () -> Bool
 
     @MainActor
     init(
         snapshotProvider: @escaping @MainActor () -> CMUXSidebarSnapshot,
         actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult,
+        onAcceptedAction: @escaping @MainActor () -> Void,
         isCurrentGeneration: @escaping @MainActor () -> Bool
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
+        self.onAcceptedAction = onAcceptedAction
         self.isCurrentGeneration = isCurrentGeneration
     }
 
@@ -721,6 +748,9 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
                 let action = try CMUXSidebarXPCCodec.decodeAction(payload)
                 let result = actionHandler(action)
                 reply(try CMUXSidebarXPCCodec.encodeActionResult(result), nil)
+                if result.accepted {
+                    onAcceptedAction()
+                }
             } catch {
                 reply(nil, error.localizedDescription as NSString)
             }
