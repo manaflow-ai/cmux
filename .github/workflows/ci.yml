@@ -401,8 +401,10 @@ jobs:
     # cmux build whose Swift codegen alone runs ~18-20 min, so 20 was right at
     # the edge and got guillotined mid-build (the post-cache step never ran, so
     # the cache stayed cold and every retry timed out the same way). 35 gives a
-    # cold build enough room to finish and populate the cache.
-    timeout-minutes: 35
+    # cold build enough room to finish and populate the cache. Extension project
+    # and package graph changes can still spend more than 35 minutes in the
+    # build step before the lag regression starts.
+    timeout-minutes: 55
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
