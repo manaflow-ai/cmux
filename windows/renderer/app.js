@@ -208,6 +208,7 @@ const state = {
   settings: initialSettings,
   settingsCategory: "quick",
   settingsQuery: "",
+  settingsInspectorSignature: "",
   terminalFontSize: initialSettings.terminalFontSize
 };
 
@@ -2823,7 +2824,7 @@ function renderInspector() {
       return card;
     }));
   } else if (state.inspectorMode === "settings") {
-    renderSettingsInspector();
+    renderSettingsInspector({ ifChanged: true });
   } else {
     elements.inspectorTitle.textContent = "Session";
     elements.inspectorSubtitle.textContent = "Local Windows runtime";
@@ -2850,9 +2851,18 @@ function renderInspector() {
   }
 }
 
-function renderSettingsInspector() {
+function renderSettingsInspector(options = {}) {
   elements.inspectorTitle.textContent = "Settings";
   elements.inspectorSubtitle.textContent = `${settingsCategoryLabel(state.settingsCategory)} page`;
+  const signature = settingsInspectorSignature();
+  if (
+    options.ifChanged
+    && signature === state.settingsInspectorSignature
+    && elements.inspectorBody.querySelector(".settings-react-host")
+  ) {
+    return;
+  }
+  state.settingsInspectorSignature = signature;
   const workspace = activeWorkspace();
   const settingsChrome = document.createElement("div");
   settingsChrome.className = "settings-react-host";
@@ -3303,6 +3313,76 @@ function renderSettingsInspector() {
   elements.inspectorBody.replaceChildren(...nodes);
   renderSettingsChrome(settingsChrome);
   if (searching) applySettingsFilter();
+}
+
+function settingsInspectorSignature() {
+  const category = state.settingsCategory;
+  const searching = Boolean(normalizeSettingsQuery(state.settingsQuery));
+  const parts = [
+    category,
+    state.settingsQuery,
+    stableJson(state.settings)
+  ];
+  if (searching || ["workspace", "layout", "blueprints", "appearance", "performance", "actions"].includes(category)) {
+    parts.push(activeWorkspaceSettingsSignature());
+  }
+  if (searching || ["appearance", "actions"].includes(category)) {
+    parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
+  }
+  if (searching || ["browser", "actions"].includes(category)) {
+    parts.push(stableJson(state.recentBrowserPages));
+  }
+  if (searching || ["workspace", "actions"].includes(category)) {
+    parts.push(stableJson(state.recentFolders));
+  }
+  if (searching || ["commands", "data", "actions"].includes(category)) {
+    parts.push(stableJson(state.customCommandSnippets), stableJson(state.recentCommands));
+  }
+  if (searching || ["profiles", "actions"].includes(category)) {
+    parts.push(stableJson(state.savedSettingsProfiles));
+  }
+  if (searching || ["blueprints", "actions"].includes(category)) {
+    parts.push(stableJson(state.workspaceBlueprints));
+  }
+  if (searching || category === "performance") {
+    parts.push(stableJson(state.renderStats), stableJson(state.terminalOutputStats), String(state.performanceGuardTriggered));
+  }
+  return parts.join("\u001e");
+}
+
+function activeWorkspaceSettingsSignature() {
+  const workspace = activeWorkspace();
+  if (!workspace) return "";
+  return stableJson({
+    id: workspace.id,
+    title: workspace.title,
+    color: workspace.color,
+    cwd: workspace.cwd,
+    cwdShort: workspace.cwdShort,
+    activePanelId: workspace.activePanelId,
+    splitDirection: workspace.splitDirection,
+    terminalCount: workspace.terminalCount,
+    browserCount: workspace.browserCount,
+    panels: workspace.panels.map((panel) => ({
+      id: panel.id,
+      type: panel.type,
+      title: panel.title,
+      color: panel.color,
+      cwd: panel.cwd,
+      cwdShort: panel.cwdShort,
+      shellProfile: panel.shellProfile,
+      shellPath: panel.shellPath,
+      url: panel.url
+    }))
+  });
+}
+
+function stableJson(value) {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return "";
+  }
 }
 
 function unmountSettingsChrome() {
