@@ -30,7 +30,7 @@ struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
 
 enum TitlebarControlsHitRegions {
     static let outerLeadingPadding: CGFloat = 4
-    static let sidebarChromeButtonCount = 3
+    static let sidebarChromeButtonCount = TitlebarShortcutHintActionSlot.sidebarChromeSlots.count
     static let allTitlebarButtonCount = MinimalModeSidebarControlActionSlot.allCases.count
 
     static func buttonXRanges(
