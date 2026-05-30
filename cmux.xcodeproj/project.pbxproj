@@ -275,6 +275,8 @@
 		8E774000000000000000001B /* HostAllowlistTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000001A /* HostAllowlistTests.swift */; };
 		8E7740000000000000000015 /* HTTPAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000014 /* HTTPAuth.swift */; };
 		8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000016 /* HTTPAuthTests.swift */; };
+		8E7743000000000000000007 /* HTTPControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000006 /* HTTPControlServer.swift */; };
+		8E7743000000000000000009 /* HTTPControlServerListenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000008 /* HTTPControlServerListenerTests.swift */; };
 		8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000002 /* HTTPControlSettings.swift */; };
 		8E774000000000000000000B /* HTTPParseError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000A /* HTTPParseError.swift */; };
 		8E7740000000000000000009 /* HTTPRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000008 /* HTTPRequest.swift */; };
@@ -879,6 +881,8 @@
 		8E774000000000000000001A /* HostAllowlistTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAllowlistTests.swift; sourceTree = "<group>"; };
 		8E7740000000000000000014 /* HTTPAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuth.swift; sourceTree = "<group>"; };
 		8E7740000000000000000016 /* HTTPAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuthTests.swift; sourceTree = "<group>"; };
+		8E7743000000000000000006 /* HTTPControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlServer.swift; sourceTree = "<group>"; };
+		8E7743000000000000000008 /* HTTPControlServerListenerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlServerListenerTests.swift; sourceTree = "<group>"; };
 		8E7740000000000000000002 /* HTTPControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlSettings.swift; sourceTree = "<group>"; };
 		8E774000000000000000000A /* HTTPParseError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPParseError.swift; sourceTree = "<group>"; };
 		8E7740000000000000000008 /* HTTPRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequest.swift; sourceTree = "<group>"; };
@@ -1234,6 +1238,7 @@
 				8E7740000000000000000004 /* AppSurfaceProvider.swift */,
 				8E7740000000000000000018 /* HostAllowlist.swift */,
 				8E7740000000000000000014 /* HTTPAuth.swift */,
+				8E7743000000000000000006 /* HTTPControlServer.swift */,
 				8E7740000000000000000002 /* HTTPControlSettings.swift */,
 				8E774000000000000000000A /* HTTPParseError.swift */,
 				8E7740000000000000000008 /* HTTPRequest.swift */,
@@ -1251,6 +1256,7 @@
 			children = (
 				8E774000000000000000001A /* HostAllowlistTests.swift */,
 				8E7740000000000000000016 /* HTTPAuthTests.swift */,
+				8E7743000000000000000008 /* HTTPControlServerListenerTests.swift */,
 				8E774000000000000000000E /* HTTPRequestParserTests.swift */,
 				8E7740000000000000000012 /* JSONResponsesTests.swift */,
 				8E7743000000000000000004 /* RouteTableTests.swift */,
@@ -2275,6 +2281,7 @@
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				8E7740000000000000000019 /* HostAllowlist.swift in Sources */,
 				8E7740000000000000000015 /* HTTPAuth.swift in Sources */,
+				8E7743000000000000000007 /* HTTPControlServer.swift in Sources */,
 				8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */,
 				8E774000000000000000000B /* HTTPParseError.swift in Sources */,
 				8E7740000000000000000009 /* HTTPRequest.swift in Sources */,
@@ -2587,6 +2594,7 @@
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				8E774000000000000000001B /* HostAllowlistTests.swift in Sources */,
 				8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */,
+				8E7743000000000000000009 /* HTTPControlServerListenerTests.swift in Sources */,
 				8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
 				8E7740000000000000000013 /* JSONResponsesTests.swift in Sources */,
