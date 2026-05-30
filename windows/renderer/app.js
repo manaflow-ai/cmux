@@ -1454,6 +1454,7 @@ const commands = [
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
+  { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
@@ -3185,9 +3186,10 @@ function renderSettingsInspector(options = {}) {
     performanceSection.append(scrollbackRow);
     const performanceActions = document.createElement("div");
     performanceActions.className = "settings-actions";
-    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset balanced reset render stats clear");
+    performanceActions.dataset.settingsSearch = normalizeSettingsQuery("performance speed preset balanced reset render stats clear copy diagnostics report lag debug");
     performanceActions.append(
       settingsActionButton("Tune now", () => tunePerformanceNow(), "", "performance tune optimize lag speed"),
+      settingsActionButton("Copy diagnostics", copyPerformanceDiagnostics, "", "performance diagnostics report copy lag debug stats"),
       settingsActionButton("Speed preset", () => applySettingsPresetById("performance"), "", "performance speed preset optimize"),
       settingsActionButton("Balanced preset", () => applySettingsPresetById("balanced"), "", "balanced preset restore"),
       settingsActionButton("Reset stats", resetRenderStats, "", "performance render stats reset")
@@ -3699,6 +3701,100 @@ function performanceMetrics() {
     ["Settings save", state.settingsSavePending ? "Queued" : "Clean"],
     ["Renders", String(state.renderStats.count)]
   ];
+}
+
+function performanceDiagnosticsPayload() {
+  const workspace = activeWorkspace();
+  const panels = allPanels();
+  const workspacePanels = workspace?.panels || [];
+  updateTerminalOutputBacklog();
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    app: {
+      name: "cmux Windows",
+      userAgent: navigator.userAgent,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio || 1
+      }
+    },
+    metrics: Object.fromEntries(performanceMetrics()),
+    renderStats: { ...state.renderStats },
+    terminalOutputStats: { ...state.terminalOutputStats },
+    performanceGuard: {
+      enabled: state.settings.performanceMode,
+      adaptive: state.settings.adaptivePerformance,
+      triggered: state.performanceGuardTriggered,
+      reason: state.performanceGuardReason
+    },
+    settings: {
+      theme: state.settings.theme,
+      density: state.settings.density,
+      toolbarMode: state.settings.toolbarMode,
+      paneHeaderMode: state.settings.paneHeaderMode,
+      sidebarDetailMode: state.settings.sidebarDetailMode,
+      sidebarFooterMode: state.settings.sidebarFooterMode,
+      tabSize: state.settings.tabSize,
+      titleDetailMode: state.settings.titleDetailMode,
+      showTabs: state.settings.showTabs,
+      showStatusbar: state.settings.showStatusbar,
+      performanceMode: state.settings.performanceMode,
+      adaptivePerformance: state.settings.adaptivePerformance,
+      reduceMotion: state.settings.reduceMotion,
+      background: state.settings.backgroundImage
+        ? isBackgroundPreset(state.settings.backgroundImage) ? state.settings.backgroundImage : "custom-image"
+        : "none",
+      terminalFontFamily: state.settings.terminalFontFamily,
+      terminalFontSize: state.settings.terminalFontSize,
+      terminalLineHeight: state.settings.terminalLineHeight,
+      terminalPadding: state.settings.terminalPadding,
+      terminalScrollback: state.settings.terminalScrollback,
+      terminalCursorStyle: state.settings.terminalCursorStyle,
+      terminalCursorBlink: state.settings.terminalCursorBlink
+    },
+    workspace: workspace ? {
+      id: workspace.id,
+      title: workspace.title || "Workspace",
+      cwdShort: workspace.cwdShort || "",
+      splitDirection: paneLayoutDirection(workspace),
+      activePanelId: workspace.activePanelId,
+      panels: workspacePanels.map((panel) => ({
+        id: panel.id,
+        type: panel.type,
+        title: panel.title || "",
+        cwdShort: panel.cwdShort || "",
+        urlHost: panel.type === "browser" ? hostnameOf(panel.url) : "",
+        needsAttention: Boolean(panel.needsAttention)
+      }))
+    } : null,
+    counts: {
+      workspaces: state.data?.workspaces?.length || 0,
+      panes: panels.length,
+      terminals: panels.filter((panel) => panel.type === "terminal").length,
+      browsers: panels.filter((panel) => panel.type === "browser").length,
+      paneCache: state.paneCache.size,
+      terminalCache: state.terminals.size,
+      browserCache: state.browserViews.size
+    }
+  };
+}
+
+async function copyPerformanceDiagnostics() {
+  const payload = JSON.stringify(performanceDiagnosticsPayload(), null, 2);
+  if (await writeClipboardText(payload)) {
+    toast("Performance diagnostics copied.");
+    return;
+  }
+  await showTextDialog({
+    title: "Performance diagnostics",
+    message: "Clipboard access is unavailable. The diagnostics report is shown below.",
+    value: payload,
+    confirmLabel: "Close",
+    multiline: true,
+    readOnly: true
+  });
 }
 
 function settingsMetricGrid(metrics) {
@@ -5098,6 +5194,7 @@ function showToolbarMenu(event) {
     contextMenuActionGroup(
       contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
       contextMenuButton("Tune performance now", () => tunePerformanceNow()),
+      contextMenuButton("Copy performance diagnostics", copyPerformanceDiagnostics),
       contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
       contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
       contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
