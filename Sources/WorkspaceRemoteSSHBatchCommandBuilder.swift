@@ -10,11 +10,21 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String
     ) -> [String] {
-        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
+        let script = daemonTransportCommand(configuration: configuration, remotePath: remotePath)
         let command = "sh -c \(shellSingleQuoted(script))"
         return ["-T"]
             + batchArguments(configuration: configuration)
             + ["-o", "RequestTTY=no", configuration.destination, command]
+    }
+
+    static func daemonTransportCommand(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String
+    ) -> String {
+        if let headlessInstanceID = normalizedOptional(configuration.headlessInstanceID) {
+            return "exec \(shellSingleQuoted(remotePath)) headless connect --id \(shellSingleQuoted(headlessInstanceID))"
+        }
+        return "exec \(shellSingleQuoted(remotePath)) serve --stdio"
     }
 
     static func daemonSocketForwardArguments(
@@ -91,6 +101,14 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
             guard !trimmed.isEmpty else { return nil }
             return trimmed
         }
+    }
+
+    private static func normalizedOptional(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private static func backgroundSSHOptions(_ options: [String]) -> [String] {

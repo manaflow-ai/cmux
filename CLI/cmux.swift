@@ -3660,6 +3660,14 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+        case "headless":
+            try runHeadlessCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
         case "ssh-pty-attach":
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
         case "ssh-session-list":
@@ -7381,6 +7389,181 @@ struct CMUXCLI {
             jsonOutput: jsonOutput,
             idFormat: idFormat
         )
+    }
+
+    private func runHeadlessCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "Usage: cmux headless attach <destination> --id <instance> [flags]")
+        }
+        switch subcommand {
+        case "attach":
+            try runHeadlessAttach(
+                commandArgs: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        default:
+            throw CLIError(message: "Unknown headless subcommand: \(subcommand). Usage: cmux headless attach <destination> --id <instance>")
+        }
+    }
+
+    private func runHeadlessAttach(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let localSocketPath = client.socketPath
+        let remoteRelayPort = generateRemoteRelayPort()
+        let relayID = UUID().uuidString.lowercased()
+        let relayToken = try randomHex(byteCount: 32)
+        let (headlessIDRaw, remainingArgs) = parseOption(commandArgs, name: "--id")
+        guard headlessIDRaw != nil else {
+            throw CLIError(message: "headless attach requires --id <instance>")
+        }
+        guard let headlessID = normalizedHeadlessInstanceID(headlessIDRaw) else {
+            throw CLIError(message: "headless attach: --id must be 1-64 characters using letters, numbers, '.', '_' or '-'")
+        }
+
+        let sshOptions = try parseSSHCommandOptions(
+            remainingArgs,
+            localSocketPath: localSocketPath,
+            remoteRelayPort: remoteRelayPort,
+            windowOverride: windowOverride
+        )
+        guard sshOptions.extraArguments.isEmpty else {
+            throw CLIError(message: "headless attach does not accept remote command args")
+        }
+
+        let remoteSSHOptions = effectiveSSHOptions(
+            sshOptions.sshOptions,
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
+        let remoteShellCommand = buildInteractiveRemoteShellScript(
+            remoteRelayPort: sshOptions.remoteRelayPort,
+            shellFeatures: scopedGhosttyShellFeaturesValue(),
+            terminfoSource: localXtermGhosttyTerminfoSource()
+        )
+        let startupCommand = headlessAttachStartupCommand(remoteShellCommand: remoteShellCommand)
+        var workspaceCreateParams: [String: Any] = [
+            "initial_command": startupCommand,
+        ]
+        try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
+
+        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
+        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
+            throw CLIError(message: "workspace.create did not return workspace_id")
+        }
+        let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let configuredPayload: [String: Any]
+        do {
+            let workspaceTitle = sshOptions.workspaceName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let effectiveTitle = workspaceTitle?.isEmpty == false ? workspaceTitle! : "headless:\(headlessID)"
+            _ = try client.sendV2(method: "workspace.rename", params: [
+                "workspace_id": workspaceId,
+                "title": effectiveTitle,
+            ])
+
+            var configureParams: [String: Any] = [
+                "workspace_id": workspaceId,
+                "destination": sshOptions.destination,
+                "auto_connect": true,
+                "headless_instance_id": headlessID,
+                "terminal_startup_command": startupCommand,
+                "preserve_after_terminal_exit": true,
+                "relay_port": sshOptions.remoteRelayPort,
+                "relay_id": relayID,
+                "relay_token": relayToken,
+                "local_socket_path": sshOptions.localSocketPath,
+            ]
+            if let port = sshOptions.port {
+                configureParams["port"] = port
+            }
+            if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
+                configureParams["identity_file"] = identityFile
+            }
+            if !remoteSSHOptions.isEmpty {
+                configureParams["ssh_options"] = remoteSSHOptions
+            }
+
+            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+            var selectParams: [String: Any] = ["workspace_id": workspaceId]
+            if let workspaceWindowId, !workspaceWindowId.isEmpty {
+                selectParams["window_id"] = workspaceWindowId
+            }
+            if !sshOptions.noFocus {
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+            }
+        } catch {
+            do {
+                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            } catch {
+                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                FileHandle.standardError.write(Data(warning.utf8))
+            }
+            throw error
+        }
+
+        var payload = configuredPayload
+        payload["headless_instance_id"] = headlessID
+        payload["remote_relay_port"] = sshOptions.remoteRelayPort
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
+            let remote = payload["remote"] as? [String: Any]
+            let state = (remote?["state"] as? String) ?? "unknown"
+            print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) headless=\(headlessID) state=\(state)")
+        }
+    }
+
+    private func normalizedHeadlessInstanceID(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        guard trimmed.count <= 64 else {
+            return nil
+        }
+        for scalar in trimmed.unicodeScalars {
+            let value = scalar.value
+            let isDigit = value >= 48 && value <= 57
+            let isUpper = value >= 65 && value <= 90
+            let isLower = value >= 97 && value <= 122
+            let isPunctuation = scalar == "." || scalar == "_" || scalar == "-"
+            guard isDigit || isUpper || isLower || isPunctuation else {
+                return nil
+            }
+        }
+        return trimmed
+    }
+
+    private func headlessAttachStartupCommand(remoteShellCommand: String) -> String {
+        let currentExecutable = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
+        let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
+        let attachCommand = "\"$cmux_headless_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_headless_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\" --command-b64 \(shellQuote(commandB64))"
+        return ([
+            "cmux_headless_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_headless_attach_cli\" ] || [ ! -x \"$cmux_headless_attach_cli\" ]; then cmux_headless_attach_cli=\(currentExecutable); fi",
+            "if [ -z \"$cmux_headless_attach_cli\" ] || [ ! -x \"$cmux_headless_attach_cli\" ]; then cmux_headless_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_headless_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for headless attach.' >&2; exit 127; fi",
+            "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for headless attach.' >&2; exit 1; fi",
+            "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for headless attach.' >&2; exit 1; fi",
+            "if [ -z \"${CMUX_SURFACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required terminal context missing for headless attach.' >&2; exit 1; fi",
+            "cmux_headless_session_id=\"headless-$CMUX_WORKSPACE_ID-$CMUX_SURFACE_ID\"",
+        ] + sshPTYAttachRetryLoopLines(command: attachCommand)).joined(separator: "\n")
     }
 
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
@@ -13310,6 +13493,25 @@ struct CMUXCLI {
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+            """
+        case "headless":
+            return """
+            Usage: cmux headless attach <destination> --id <instance> [flags]
+
+            Attach the desktop app to an existing named cmux headless instance on a remote machine.
+
+            Flags:
+              --id <instance>        Headless instance id on the remote host
+              --name <title>         Optional workspace title
+              --port <n>             SSH port
+              --identity <path>      SSH identity file path
+              --ssh-option <opt>     Extra SSH -o option (repeatable)
+              --window <id|ref|index> Target window for the managed workspace
+              --no-focus             Create workspace without switching to it
+
+            Example:
+              cmux headless attach dev@my-host --id work
+              cmux headless attach dev@my-host --id gpu --name "gpu headless" --port 2222
             """
         case "ssh-session-list":
             return """
@@ -31322,6 +31524,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          headless attach <destination> --id <instance> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

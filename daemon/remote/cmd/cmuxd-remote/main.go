@@ -115,7 +115,7 @@ func shouldRunCLIForInvocation(argv0 string, args []string) bool {
 
 func isDaemonEntryCommand(arg string) bool {
 	switch arg {
-	case "version", "serve", "cli":
+	case "version", "serve", "cli", "headless":
 		return true
 	default:
 		return false
@@ -137,15 +137,30 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs.SetOutput(stderr)
 		stdio := fs.Bool("stdio", false, "serve over stdin/stdout")
 		ws := fs.Bool("ws", false, "serve terminal PTY transport over WebSocket")
+		unixSocket := fs.Bool("unix", false, "serve a named headless instance over a Unix socket")
 		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
+		socketPath := fs.String("socket", "", "Unix socket path for --unix")
+		instanceID := fs.String("id", "default", "headless instance id for --unix")
+		instanceName := fs.String("name", "", "human-readable headless instance name for --unix")
+		registryDir := fs.String("registry-dir", "", "headless instance registry directory for --unix")
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
 		shell := fs.String("shell", "", "shell path for --ws PTY sessions")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		if *stdio == *ws {
-			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio or --ws")
+		modeCount := 0
+		if *stdio {
+			modeCount++
+		}
+		if *ws {
+			modeCount++
+		}
+		if *unixSocket {
+			modeCount++
+		}
+		if modeCount != 1 {
+			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio, --ws, or --unix")
 			return 2
 		}
 		if *ws {
@@ -164,6 +179,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 			return 0
 		}
+		if *unixSocket {
+			if err := runUnixHeadlessServer(context.Background(), unixHeadlessServerConfig{
+				SocketPath:  strings.TrimSpace(*socketPath),
+				InstanceID:  strings.TrimSpace(*instanceID),
+				Name:        strings.TrimSpace(*instanceName),
+				RegistryDir: strings.TrimSpace(*registryDir),
+				Shell:       strings.TrimSpace(*shell),
+			}, stderr); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve --unix failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
 		if err := runStdioServer(stdin, stdout); err != nil {
 			_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
 			return 1
@@ -171,6 +199,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "cli":
 		return runCLI(args[1:])
+	case "headless":
+		return runHeadless(args[1:], stdin, stdout, stderr)
 	default:
 		usage(stderr)
 		return 2
@@ -182,10 +212,16 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --unix [--id <id>] [--name <name>] [--socket <path>] [--registry-dir <dir>]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote headless <list|connect> [args...]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
+	return serveRPCFrames(stdin, stdout, newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard), true)
+}
+
+func serveRPCFrames(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHub bool) error {
 	writer := &stdioFrameWriter{
 		writer: bufio.NewWriter(stdout),
 	}
@@ -194,8 +230,8 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		nextSessionID: 1,
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
-		ptyHub:        newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard),
-		ownsPTYHub:    true,
+		ptyHub:        ptyHub,
+		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
 	defer server.closeAll()
@@ -345,18 +381,9 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
-				"name":    "cmuxd-remote",
-				"version": version,
-				"capabilities": []string{
-					"session.basic",
-					"session.resize.min",
-					"proxy.http_connect",
-					"proxy.socks5",
-					"proxy.stream",
-					"proxy.stream.push",
-					"pty.session",
-					"pty.session.token",
-				},
+				"name":         "cmuxd-remote",
+				"version":      version,
+				"capabilities": daemonCapabilities(),
 			},
 		}
 	case "ping":
@@ -408,6 +435,19 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				Message: fmt.Sprintf("unknown method %q", req.Method),
 			},
 		}
+	}
+}
+
+func daemonCapabilities() []string {
+	return []string{
+		"session.basic",
+		"session.resize.min",
+		"proxy.http_connect",
+		"proxy.socks5",
+		"proxy.stream",
+		"proxy.stream.push",
+		"pty.session",
+		"pty.session.token",
 	}
 }
 

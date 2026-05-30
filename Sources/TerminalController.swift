@@ -6839,6 +6839,8 @@ class TerminalController {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketSessionID = v2RawString(params, "daemon_websocket_session_id")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let headlessInstanceID = v2RawString(params, "headless_instance_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonWebSocketExpiresAtUnix = (params["daemon_websocket_expires_at_unix"] as? Int64)
             ?? Int64((params["daemon_websocket_expires_at_unix"] as? Double) ?? 0)
         let rawDaemonHeaders = params["daemon_websocket_headers"] as? [String: Any] ?? [:]
@@ -6919,6 +6921,7 @@ class TerminalController {
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
                 foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+                headlessInstanceID: headlessInstanceID?.isEmpty == true ? nil : headlessInstanceID,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
