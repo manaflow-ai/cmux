@@ -48,6 +48,10 @@ import {
   safeReleasePointerCapture,
   safeSetPointerCapture
 } from "./pointer-utils.js";
+import {
+  attachHorizontalWheelScroll,
+  scrollChildIntoView
+} from "./scroll-utils.js";
 
 const backgroundPresetMap = new Map(backgroundPresets.map((preset) => [preset.value, preset]));
 const terminalFontStacks = new Map(terminalFontOptions.map(([id, , stack]) => [id, stack]));
@@ -244,6 +248,9 @@ const state = {
   paletteRenderFrame: 0,
   paletteRenderTimer: 0,
   paletteListSignature: "",
+  surfaceTabScrollFrame: 0,
+  surfaceTabOverflowFrame: 0,
+  surfaceTabResizeObserver: null,
   dragPanelId: null,
   dragWorkspaceId: null,
   zoomedPanelId: null,
@@ -2113,12 +2120,52 @@ function renderSurfaceTabs(workspace) {
   });
   nodes.push(getNewSurfaceTab(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
+  scheduleActiveSurfaceTabIntoView(workspace.activePanelId);
+  scheduleSurfaceTabsOverflowRefresh();
 }
 
 function clearSurfaceTabs() {
   for (const tab of state.surfaceTabButtons.values()) tab.remove();
   state.surfaceTabButtons.clear();
   replaceChildrenIfChanged(elements.surfaceTabs, []);
+  toggleClassIfChanged(elements.surfaceTabs, "has-overflow", false);
+}
+
+function scheduleActiveSurfaceTabIntoView(panelId) {
+  if (!panelId || state.surfaceTabScrollFrame) return;
+  state.surfaceTabScrollFrame = requestAnimationFrame(() => {
+    state.surfaceTabScrollFrame = 0;
+    const activeTab = state.surfaceTabButtons.get(panelId);
+    scrollChildIntoView(elements.surfaceTabs, activeTab, {
+      inset: 42,
+      smooth: !document.body.classList.contains("reduce-motion") && !state.settings.reduceMotion && !state.settings.performanceMode
+    });
+  });
+}
+
+function scheduleSurfaceTabsOverflowRefresh() {
+  if (state.surfaceTabOverflowFrame) return;
+  state.surfaceTabOverflowFrame = requestAnimationFrame(() => {
+    state.surfaceTabOverflowFrame = 0;
+    updateSurfaceTabsOverflow();
+  });
+}
+
+function updateSurfaceTabsOverflow() {
+  if (!elements.surfaceTabs) return;
+  toggleClassIfChanged(elements.surfaceTabs, "has-overflow", elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1);
+}
+
+function observeSurfaceTabOverflow() {
+  if (!elements.surfaceTabs) return;
+  if (typeof ResizeObserver === "function") {
+    state.surfaceTabResizeObserver = new ResizeObserver(scheduleSurfaceTabsOverflowRefresh);
+    state.surfaceTabResizeObserver.observe(elements.surfaceTabs);
+  }
+  window.addEventListener("resize", scheduleSurfaceTabsOverflowRefresh, { passive: true });
+  requestAnimationFrame(() => {
+    updateSurfaceTabsOverflow();
+  });
 }
 
 function createSurfaceTab() {
@@ -2130,7 +2177,11 @@ function createSurfaceTab() {
     <span class="surface-label"></span>
     <span class="surface-close" title="Close">×</span>
   `;
-  button.addEventListener("click", () => focusPanel(button.dataset.panelId));
+  button.addEventListener("click", () => {
+    const panelId = button.dataset.panelId;
+    focusPanel(panelId);
+    scheduleActiveSurfaceTabIntoView(panelId);
+  });
   button.addEventListener("contextmenu", (event) => {
     const found = findPanelState(button.dataset.panelId);
     if (found) showPanelContextMenu(event, found.panel);
@@ -8232,6 +8283,8 @@ document.getElementById("renameWorkspaceButton").onclick = () => renameActiveWor
 document.getElementById("colorWorkspaceButton").onclick = () => cycleWorkspaceColor();
 document.getElementById("notifyButton").onclick = () => simulateNotification();
 document.getElementById("toggleSidebarButton").onclick = () => toggleSidebar();
+attachHorizontalWheelScroll(elements.surfaceTabs);
+observeSurfaceTabOverflow();
 document.getElementById("paletteButton").onclick = () => {
   state.paletteOpen = true;
   renderPalette();
