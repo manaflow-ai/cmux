@@ -564,6 +564,16 @@ class CmuxWindowsRuntime {
     return null;
   }
 
+  ensureTerminalProcess(panel) {
+    if (!panel || panel.type !== "terminal") return null;
+    let terminal = this.terminals.get(panel.id);
+    if (!terminal || terminal.closed) {
+      terminal = new TerminalProcess(panel);
+      this.terminals.set(panel.id, terminal);
+    }
+    return terminal;
+  }
+
   createWorkspace(title) {
     const workspace = this.newWorkspace(title || `Workspace ${this.state.workspaces.length + 1}`);
     workspace.activePanelId = workspace.panels[0]?.id || null;
@@ -598,6 +608,7 @@ class CmuxWindowsRuntime {
       workspace.splitDirection = options.direction;
     }
     this.persistAndBroadcast();
+    if (this.eventSockets.size > 0) this.ensureTerminalProcess(panel);
     return panel;
   }
 
@@ -771,11 +782,7 @@ class CmuxWindowsRuntime {
     const targetPanelId = panelId || workspace?.activePanelId;
     const found = targetPanelId ? this.findPanel(targetPanelId) : null;
     if (!found || found.panel.type !== "terminal") return false;
-    let terminal = this.terminals.get(found.panel.id);
-    if (!terminal || terminal.closed) {
-      terminal = new TerminalProcess(found.panel);
-      this.terminals.set(found.panel.id, terminal);
-    }
+    const terminal = this.ensureTerminalProcess(found.panel);
     terminal.write(String(text || ""));
     return true;
   }
@@ -968,11 +975,7 @@ class CmuxWindowsRuntime {
           ws.close();
           return;
         }
-        let terminal = this.terminals.get(found.panel.id);
-        if (!terminal || terminal.closed) {
-          terminal = new TerminalProcess(found.panel);
-          this.terminals.set(found.panel.id, terminal);
-        }
+        const terminal = this.ensureTerminalProcess(found.panel);
         terminal.attach(ws);
         return;
       }

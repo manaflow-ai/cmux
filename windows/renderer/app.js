@@ -8039,6 +8039,7 @@ async function createPanel(type, direction = "right", options = {}) {
       })
     });
     insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
+    optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
     if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
     if (options.reconcile !== false) {
       await loadState();
@@ -8073,6 +8074,29 @@ function refreshWorkspaceCounts(workspace) {
   if (!workspace) return;
   workspace.terminalCount = workspace.panels.filter((panel) => panel.type === "terminal").length;
   workspace.browserCount = workspace.panels.filter((panel) => panel.type === "browser").length;
+}
+
+function optimisticAddPanel(panel, workspaceId, options = {}) {
+  if (!panel?.id || findPanelState(panel.id)) return false;
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === (panel.workspaceId || workspaceId));
+  if (!workspace) return false;
+  const activeWorkspaceId = state.data.activeWorkspaceId;
+  const nextPanel = {
+    ...panel,
+    workspaceId: workspace.id
+  };
+  workspace.panels = workspace.panels.filter((candidate) => candidate.id !== nextPanel.id);
+  workspace.panels.push(nextPanel);
+  workspace.activePanelId = nextPanel.id;
+  workspace.cwd = nextPanel.cwd || workspace.cwd;
+  if (options.direction === "down" || options.direction === "right") {
+    workspace.splitDirection = options.direction;
+  }
+  if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+  else state.data.activeWorkspaceId = activeWorkspaceId;
+  refreshWorkspaceCounts(workspace);
+  render();
+  return true;
 }
 
 function optimisticFocusWorkspace(workspaceId) {
