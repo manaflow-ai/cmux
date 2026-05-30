@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
+                    "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
@@ -109,6 +110,7 @@ extension CmuxSettingsFileStore {
             [
                 "sidebar": [
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
+                    "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
                     "stackBranchDirectory": SidebarBranchDirectoryStackedSettings.defaultStacked,
@@ -163,6 +165,8 @@ extension CmuxSettingsFileStore {
             [
                 "browser": [
                     "defaultSearchEngine": BrowserSearchSettings.defaultSearchEngine.rawValue,
+                    "customSearchEngineName": BrowserSearchSettings.defaultCustomSearchEngineName,
+                    "customSearchEngineURLTemplate": BrowserSearchSettings.defaultCustomSearchEngineURLTemplate,
                     "showSearchSuggestions": BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                     "theme": BrowserThemeSettings.defaultMode.rawValue,
                     "discardHiddenWebViews": BrowserHiddenWebViewDiscardPolicy.defaultEnabled,

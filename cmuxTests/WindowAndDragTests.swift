@@ -2643,7 +2643,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
-    func testNativePreviewSessionsDetachAndReuseViewsAcrossRecreation() throws {
+    func testNativePreviewSessionsDetachAndManageViewsAcrossRecreation() throws {
         let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -2706,12 +2706,15 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         ))
         XCTAssertNil(mediaView.superview)
 
-        XCTAssertTrue(quickLookView === sessions.quickLook.view(
+        let remountedQuickLookView = sessions.quickLook.view(
             panel: panel,
             isVisibleInUI: true,
             backgroundColor: NSColor.textBackgroundColor,
             drawsBackground: true
-        ))
+        )
+        XCTAssertFalse(quickLookView === remountedQuickLookView)
+        XCTAssertTrue(quickLookView.superview === host)
+        sessions.quickLook.dismantle(quickLookView)
         XCTAssertNil(quickLookView.superview)
     }
 
@@ -2720,6 +2723,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         let textView = NSTextView()
         textView.string = "edited from text view"
@@ -2740,6 +2744,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
@@ -2772,6 +2777,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         try "loaded after clean save".write(to: url, atomically: true, encoding: .utf8)
@@ -2798,6 +2804,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -2836,6 +2843,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
 
         let textView = SavingTextView()
@@ -2865,6 +2873,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
         if let task = panel.saveTextContent() {
@@ -2891,6 +2900,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: linkURL.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited through link")
         if let task = panel.saveTextContent() {
@@ -2911,6 +2921,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         if let task = panel.saveTextContent() {
             await task.value
@@ -2926,6 +2937,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await panel.loadTextContent().value
         panel.updateTextContent("edited")
         try FileManager.default.removeItem(at: url)
@@ -2944,6 +2956,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainer?.lineFragmentPadding = 5
 
         let firstWindow = windowHosting(textView)
+        defer { closeWindow(firstWindow) }
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -2952,6 +2965,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         textView.textContainer?.lineFragmentPadding = 5
 
         let secondWindow = windowHosting(textView)
+        defer { closeWindow(secondWindow) }
         XCTAssertEqual(textView.textContainerInset.width, FilePreviewTextEditorLayout.textContainerInset.width)
         XCTAssertEqual(textView.textContainerInset.height, FilePreviewTextEditorLayout.textContainerInset.height)
         XCTAssertEqual(textView.textContainer?.lineFragmentPadding, FilePreviewTextEditorLayout.lineFragmentPadding)
@@ -3012,10 +3026,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         panel.focus()
 
         let textView = SavingTextView()
         let window = windowHosting(textView)
+        defer { closeWindow(window) }
         panel.attachTextView(textView)
 
         XCTAssertTrue(window.firstResponder === textView)
@@ -3052,6 +3068,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
         await waitForPanelPreviewMode(panel, .text)
         await waitForPanelTextContent(panel, "extensionless text")
 
@@ -3107,6 +3124,55 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(applications.map(\.isDefault), [false])
     }
 
+    func testExternalOpenMenuKeepsFinderTopLevelAndOpenWithItemsSearchableByAppName() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.png")
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        let pixelmatorURL = URL(fileURLWithPath: "/Applications/Pixelmator Pro.app")
+        let primaryApplication = FileExternalOpenApplication(
+            url: previewURL,
+            displayName: "Preview",
+            isDefault: true
+        )
+        let otherApplication = FileExternalOpenApplication(
+            url: pixelmatorURL,
+            displayName: "Pixelmator Pro",
+            isDefault: false
+        )
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: primaryApplication,
+            otherApplications: [otherApplication]
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openInApplication("Preview"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
+        ])
+
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
+        XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
+    }
+
+    func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
+        let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
+
+        let menu = FileExternalOpenMenuFactory.makeMenu(
+            fileURL: fileURL,
+            primaryApplication: nil,
+            otherApplications: []
+        )
+
+        let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        XCTAssertEqual(topLevelTitles, [
+            FileExternalOpenText.openExternally,
+            FileExternalOpenText.revealInFinder,
+        ])
+    }
+
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {
         let suiteName = "cmux.file-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -3141,6 +3207,18 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
         XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickMarkdownRoutingDefaultsToReadableMarkdownFiles() throws {
+        let suiteName = "cmux.markdown-preview-default-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "# preview me", encoding: .utf8, pathExtension: "md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
     }
 
     func testCmdClickFilePreviewRoutingReusesRightSidePane() throws {
@@ -3275,6 +3353,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTFail("Timed out waiting for file preview text content", file: file, line: line)
     }
 
+    private func closeWindow(_ window: NSWindow) {
+        window.contentView = nil
+        window.close()
+    }
+
     private func windowHosting(_ textView: NSTextView) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -3383,6 +3466,143 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         model.apply(laterState)
 
         XCTAssertEqual(model.flashReason, .navigation)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelAnimatesFlashAfterWorkspaceSwitchBackWhenTokenChanges() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstFlashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [firstFlashRect],
+            flashRect: firstFlashRect,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: secondWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: firstWorkspaceId,
+                unreadRects: [],
+                flashRect: firstFlashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelWaitsForFlashRectBeforeConsumingToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstFlashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [],
+            flashRect: firstFlashRect,
+            flashToken: 0,
+            flashReason: nil
+        ))
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: secondWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 0,
+            flashReason: nil
+        ))
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: firstWorkspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: firstWorkspaceId,
+                unreadRects: [],
+                flashRect: firstFlashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelAnimatesFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
+    }
+
+    func testTmuxWorkspacePaneOverlayModelWaitsForRectBeforeFirstObservedFlashToken() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let workspaceId = UUID()
+        let flashRect = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let flashDate = Date(timeIntervalSince1970: 42)
+
+        model.apply(TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: workspaceId,
+            unreadRects: [],
+            flashRect: nil,
+            flashToken: 1,
+            flashReason: .unreadIndicatorDismiss
+        ))
+        XCTAssertNil(model.flashStartedAt)
+
+        model.apply(
+            TmuxWorkspacePaneOverlayRenderState(
+                workspaceId: workspaceId,
+                unreadRects: [],
+                flashRect: flashRect,
+                flashToken: 1,
+                flashReason: .unreadIndicatorDismiss
+            ),
+            now: { flashDate }
+        )
+
+        XCTAssertEqual(model.flashStartedAt, flashDate)
+        XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
     }
 
     func testAllFlashReasonsUseNotificationRingAccent() {

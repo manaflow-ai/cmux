@@ -1809,8 +1809,12 @@ enum BrowserWebExtensionSupport {
     }
 
     static func notePanelFocusChanged(panel: BrowserPanel, isFocused: Bool) {
-        guard #available(macOS 15.4, *), isFocused else { return }
-        BrowserWebExtensionRuntime.shared.notePanelDidBecomeActive(panel: panel)
+        guard #available(macOS 15.4, *) else { return }
+        if isFocused {
+            BrowserWebExtensionRuntime.shared.notePanelDidBecomeActive(panel: panel)
+        } else {
+            BrowserWebExtensionRuntime.shared.notePanelDidResignActive(panel: panel)
+        }
     }
 }
 
@@ -2056,6 +2060,24 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         guard let tab = tabAdaptersByPanelID[panel.id] else { return }
         let window = ensureWindowAdapter(runtimeKey: tab.runtimeKey)
         noteActiveTab(tab, runtimeKey: tab.runtimeKey, focusedWindow: window)
+    }
+
+    func notePanelDidResignActive(panel: BrowserPanel) {
+        guard let tab = tabAdaptersByPanelID[panel.id] else { return }
+        let runtimeKey = tab.runtimeKey
+        var didChange = false
+        if isSameTab(activeTabsByRuntimeKey[runtimeKey], tab) {
+            activeTabsByRuntimeKey[runtimeKey] = nil
+            didChange = true
+        }
+        if let window = windowAdaptersByRuntimeKey[runtimeKey],
+           isSameWindow(focusedWindowsByRuntimeKey[runtimeKey], window) {
+            focusedWindowsByRuntimeKey[runtimeKey] = nil
+            didChange = true
+        }
+        if didChange {
+            postDidChange()
+        }
     }
 
     func installExtension(
