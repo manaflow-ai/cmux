@@ -2419,6 +2419,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(clearedParams["panel_id"] as? String, originalPanelId.uuidString)
     }
 
+    func testRemoteRelayAmbiguousTabIDAliasesPreferWorkspaceOnCollision() throws {
+        let staleID = UUID()
+        let restoredWorkspaceID = UUID()
+        let restoredPanelID = UUID()
+        let request: [String: Any] = [
+            "id": "relay-ambiguous-alias-request",
+            "method": "surface.report_tty",
+            "params": [
+                "workspace_id": staleID.uuidString,
+                "surface_id": staleID.uuidString,
+                "tab_id": staleID.uuidString,
+                "tab_ids": [staleID.uuidString],
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+
+        let rewrittenData = Workspace.rewriteRemoteRelayCommandLine(
+            requestData,
+            workspaceAliases: [staleID: restoredWorkspaceID],
+            surfaceAliases: [staleID: restoredPanelID]
+        )
+        let rewritten = try XCTUnwrap(JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any])
+        let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
+
+        XCTAssertEqual(params["workspace_id"] as? String, restoredWorkspaceID.uuidString)
+        XCTAssertEqual(params["surface_id"] as? String, restoredPanelID.uuidString)
+        XCTAssertEqual(params["tab_id"] as? String, restoredWorkspaceID.uuidString)
+        XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspaceID.uuidString])
+    }
+
     func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {
         let manager = TabManager()
         let sourceWorkspace = manager.addWorkspace(select: true)

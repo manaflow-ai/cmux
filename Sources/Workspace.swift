@@ -2403,9 +2403,15 @@ nonisolated func remoteDaemonMissingRequiredCapabilitiesMessage(_ missingCapabil
     if missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionCapability) ||
         missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
         missing.contains(WorkspaceRemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability) {
-        return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+        return String(
+            localized: "remoteDaemon.error.missingPersistentPTYCapability",
+            defaultValue: "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+        )
     }
-    return "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
+    return String(
+        localized: "remoteDaemon.error.missingRequiredFunctionality",
+        defaultValue: "remote daemon is missing required functionality; reconnect the remote workspace to update cmux"
+    )
 }
 
 private final class WorkspaceRemoteDaemonRPCClient {
@@ -5934,20 +5940,35 @@ final class WorkspaceRemotePTYBridgeServer {
             let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
             let lowered = message.lowercased()
             if lowered.contains("missing required capability") || lowered.contains("pty.session") {
-                return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+                return String(
+                    localized: "remoteDaemon.error.missingPersistentPTYCapability",
+                    defaultValue: "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
+                )
             }
             if lowered.contains("pty_session_not_found") ||
                 (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
                 (lowered.contains("persistent pty session") && lowered.contains("not running")) {
-                return "persistent SSH PTY session is no longer running"
+                return String(
+                    localized: "remotePTYAttach.error.sessionEnded",
+                    defaultValue: "persistent SSH PTY session is no longer running"
+                )
             }
             if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
-                return "remote PTY input is temporarily backed up"
+                return String(
+                    localized: "remotePTYAttach.error.inputBackedUp",
+                    defaultValue: "remote PTY input is temporarily backed up"
+                )
             }
             if lowered.contains("timed out") || lowered.contains("timeout") {
-                return "remote daemon did not respond in time"
+                return String(
+                    localized: "remotePTYAttach.error.daemonTimeout",
+                    defaultValue: "remote daemon did not respond in time"
+                )
             }
-            return "remote PTY attach failed"
+            return String(
+                localized: "remotePTYAttach.error.attachFailed",
+                defaultValue: "remote PTY attach failed"
+            )
         }
     }
 
@@ -13344,11 +13365,11 @@ final class Workspace: Identifiable, ObservableObject {
             return value
         }
 
-        if let mapped = surfaceAliases[uuid] {
+        if let mapped = workspaceAliases[uuid] {
             didRewrite = true
             return mapped.uuidString
         }
-        if let mapped = workspaceAliases[uuid] {
+        if let mapped = surfaceAliases[uuid] {
             didRewrite = true
             return mapped.uuidString
         }
