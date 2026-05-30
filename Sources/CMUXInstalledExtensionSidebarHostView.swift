@@ -124,6 +124,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var browserAnchorView: NSView?
     @State private var xpcHost = CMUXSidebarExtensionHostXPC()
     @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
+    @State private var blockedManifestReason: String?
     @State private var isShowingExtensionDetails = false
 
     var body: some View {
@@ -144,21 +145,30 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                                 actionHandler: actionHandler,
                                 onGrantChanged: { grant in
                                     effectiveGrant = grant
+                                },
+                                onManifestBlocked: { reason in
+                                    blockedManifestReason = reason
                                 }
                             )
                         },
                         onDeactivation: { error in
                             xpcHost.invalidate()
                             effectiveGrant = nil
+                            blockedManifestReason = nil
                             if self.identity?.bundleIdentifier == identity.bundleIdentifier {
                                 self.identity = nil
                             }
                             errorText = error?.localizedDescription
                         }
                     )
-                        .id(identity.bundleIdentifier)
-                        .accessibilityIdentifier("CMUXExtensionSidebarHostView")
-                        .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : 0)
+                    .id(identity.bundleIdentifier)
+                    .opacity(blockedManifestReason == nil ? 1 : 0)
+                    .frame(height: blockedManifestReason == nil ? nil : 0)
+                    .accessibilityIdentifier("CMUXExtensionSidebarHostView")
+                    .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : 0)
+                    if let blockedManifestReason {
+                        blockedExtensionView(reason: blockedManifestReason)
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -215,6 +225,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         } catch {
             identity = nil
             xpcHost.invalidate()
+            blockedManifestReason = nil
             isLoading = false
             errorText = String(
                 localized: "sidebar.extensions.error",
@@ -300,9 +311,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             VStack(alignment: .leading, spacing: 6) {
                 detailRow(
                     title: String(localized: "sidebar.extensions.details.status", defaultValue: "Status"),
-                    value: activeIdentity == nil
+                    value: blockedManifestReason.map(blockedStatusText(reason:)) ?? (activeIdentity == nil
                         ? String(localized: "sidebar.extensions.details.statusWaiting", defaultValue: "Waiting for an enabled extension")
-                        : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Hosted out of process")
+                        : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Hosted out of process"))
                 )
                 if let activeIdentity {
                     detailRow(
@@ -321,6 +332,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             if let effectiveGrant {
                 Divider()
                 permissionSection(effectiveGrant: effectiveGrant)
+            } else if let blockedManifestReason {
+                Divider()
+                Text(blockedDetailText(reason: blockedManifestReason))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()
@@ -361,6 +378,55 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         .padding(14)
         .frame(width: 340, alignment: .leading)
+    }
+
+    private func blockedExtensionView(reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.secondary)
+            Text(String(localized: "sidebar.extensions.blocked.title", defaultValue: "Extension Blocked"))
+                .font(.system(size: 13, weight: .semibold))
+            Text(blockedDetailText(reason: reason))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                presentExtensionBrowser()
+            } label: {
+                Label(
+                    String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."),
+                    systemImage: "puzzlepiece.extension"
+                )
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityIdentifier("CMUXExtensionSidebarBlockedState")
+    }
+
+    private func blockedStatusText(reason: String) -> String {
+        switch reason {
+        case "missingManifest":
+            return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing manifest")
+        case "invalidManifest":
+            return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid manifest")
+        default:
+            return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, manifest unavailable")
+        }
+    }
+
+    private func blockedDetailText(reason: String) -> String {
+        switch reason {
+        case "missingManifest":
+            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension manifest, so no workspace data or actions were shared.")
+        case "invalidManifest":
+            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's manifest. No workspace data or actions were shared.")
+        default:
+            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's manifest. No workspace data or actions were shared.")
+        }
     }
 
     private func detailRow(title: String, value: String) -> some View {
@@ -670,6 +736,7 @@ private final class CMUXSidebarExtensionHostXPC {
     private var bundleIdentifier: String?
     private var currentManifest: CMUXExtensionManifest?
     private var onGrantChanged: ((CMUXSidebarExtensionEffectiveGrant?) -> Void)?
+    private var onManifestBlocked: ((String?) -> Void)?
     private let grantStore = CMUXSidebarExtensionGrantStore()
 
     var currentEffectiveGrant: CMUXSidebarExtensionEffectiveGrant? {
@@ -692,7 +759,8 @@ private final class CMUXSidebarExtensionHostXPC {
         bundleIdentifier: String,
         snapshotProvider: @escaping @MainActor () -> CMUXSidebarSnapshot,
         actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult,
-        onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void
+        onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void,
+        onManifestBlocked: @escaping @MainActor (String?) -> Void
     ) {
         invalidate()
         connectionGeneration += 1
@@ -727,6 +795,7 @@ private final class CMUXSidebarExtensionHostXPC {
         self.bundleIdentifier = bundleIdentifier
         self.currentManifest = nil
         self.onGrantChanged = onGrantChanged
+        self.onManifestBlocked = onManifestBlocked
         self.allowedScopes = Self.untrustedScopes
         self.allowedActionScopes = Self.untrustedActionScopes
         self.extensionProxy = connection.remoteObjectProxy as? CMUXSidebarExtensionXPC
@@ -768,6 +837,8 @@ private final class CMUXSidebarExtensionHostXPC {
         currentManifest = nil
         onGrantChanged?(nil)
         onGrantChanged = nil
+        onManifestBlocked?(nil)
+        onManifestBlocked = nil
     }
 
     private func requestManifestThenSendInitialSnapshot(generation: UInt64) {
@@ -829,6 +900,7 @@ private final class CMUXSidebarExtensionHostXPC {
         let effectiveGrant = grantStore.effectiveGrant(bundleIdentifier: bundleIdentifier, manifest: manifest)
         allowedScopes = effectiveGrant.readScopes
         allowedActionScopes = effectiveGrant.actionScopes
+        onManifestBlocked?(nil)
         onGrantChanged?(effectiveGrant)
     }
 
@@ -867,6 +939,7 @@ private final class CMUXSidebarExtensionHostXPC {
         allowedActionScopes = Self.untrustedActionScopes
         currentManifest = nil
         onGrantChanged?(nil)
+        onManifestBlocked?(reason)
 #if DEBUG
         cmuxDebugLog("extension.sidebar.manifest.blocked reason=\(reason)")
 #endif
