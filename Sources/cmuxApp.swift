@@ -6054,24 +6054,24 @@ struct SettingsView: View {
     private var notificationPermissionSubtitle: String {
         switch notificationStore.authorizationState {
         case .unknown, .notDetermined:
-            return "Desktop notifications are not enabled yet."
+            return String(localized: "settings.notifications.permission.subtitle.notEnabled", defaultValue: "Desktop notifications are not enabled yet.")
         case .authorized:
-            return "Desktop notifications are enabled."
+            return String(localized: "settings.notifications.permission.subtitle.enabled", defaultValue: "Desktop notifications are enabled.")
         case .denied:
-            return "Desktop notifications are disabled in System Settings."
+            return String(localized: "settings.notifications.permission.subtitle.disabled", defaultValue: "Desktop notifications are disabled in System Settings.")
         case .provisional:
-            return "Desktop notifications are enabled with quiet delivery."
+            return String(localized: "settings.notifications.permission.subtitle.provisional", defaultValue: "Desktop notifications are enabled with quiet delivery.")
         case .ephemeral:
-            return "Desktop notifications are temporarily enabled."
+            return String(localized: "settings.notifications.permission.subtitle.ephemeral", defaultValue: "Desktop notifications are temporarily enabled.")
         }
     }
 
     private var notificationPermissionActionTitle: String {
         switch notificationStore.authorizationState {
         case .unknown, .notDetermined:
-            return "Enable"
+            return String(localized: "settings.notifications.permission.action.enable", defaultValue: "Enable")
         case .authorized, .denied, .provisional, .ephemeral:
-            return "Open Settings"
+            return String(localized: "settings.notifications.permission.action.openSettings", defaultValue: "Open Settings")
         }
     }
 
