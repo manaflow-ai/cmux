@@ -1431,6 +1431,13 @@ final class CMUXOpenCommandTests: XCTestCase {
           printf '%s\\n' "$CMUX_FAKE_GIT_REPO_ROOT"
           exit 0
         fi
+        if [ "${1:-}" = "rev-parse" ] && [ "${2:-}" = "--verify" ]; then
+          : > "$CMUX_FAKE_GIT_STARTED"
+          while [ ! -f "$CMUX_FAKE_GIT_RELEASE" ]; do
+            sleep 0.05
+          done
+          exit 1
+        fi
         if [ "${1:-}" = "diff" ]; then
           : > "$CMUX_FAKE_GIT_STARTED"
           while [ ! -f "$CMUX_FAKE_GIT_RELEASE" ]; do
@@ -1512,6 +1519,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [openHandled], timeout: 5)
         XCTAssertNotNil(openedURLBox.get())
         XCTAssertTrue(pendingHTMLBox.get()?.contains("data-cmux-diff-pending=\"true\"") == true, pendingHTMLBox.get() ?? "")
+        XCTAssertTrue(pendingHTMLBox.get()?.contains("data-status-only=\"true\"") == true, pendingHTMLBox.get() ?? "")
+        XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"toolbar\"") == true, pendingHTMLBox.get() ?? "")
+        XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"viewer\"") == true, pendingHTMLBox.get() ?? "")
+        XCTAssertFalse(pendingHTMLBox.get()?.contains("<main>") == true, pendingHTMLBox.get() ?? "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: releaseDiffURL.path))
         FileManager.default.createFile(atPath: releaseDiffURL.path, contents: Data())
 
