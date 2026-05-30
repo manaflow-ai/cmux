@@ -13,9 +13,9 @@ struct GhosttyConfig {
 
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
-    static let defaultSidebarFontSize: CGFloat = 12.5
-    static let minSidebarFontSize: CGFloat = 10
-    static let maxSidebarFontSize: CGFloat = 20
+    static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
+    static let minSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSidebarFontSize)
+    static let maxSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSidebarFontSize)
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
@@ -664,8 +664,7 @@ struct GhosttyConfig {
     }
 
     static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {
-        guard value.isFinite else { return defaultSidebarFontSize }
-        return min(max(value, minSidebarFontSize), maxSidebarFontSize)
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(Double(value)))
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {

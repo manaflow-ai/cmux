@@ -5254,6 +5254,7 @@ func openCmuxSettingsFileInEditor() {
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
+    private let sidebarFontSizeControlWidth: CGFloat = 292
     private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
     private let settingsJSONDocsURL = URL(string: "https://cmux.com/docs/configuration#cmux-json")!
     @Environment(\.openWindow) private var openWindow
@@ -5406,6 +5407,8 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @State private var sidebarFontSize = CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
+    @State private var sidebarFontSizeErrorMessage: String?
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -6250,6 +6253,57 @@ struct SettingsView: View {
         }
     }
 
+    private var sidebarFontSizeBinding: Binding<Double> {
+        Binding(
+            get: { sidebarFontSize },
+            set: { newValue in
+                sidebarFontSize = CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(newValue)
+                sidebarFontSizeErrorMessage = nil
+            }
+        )
+    }
+
+    private var sidebarFontSizeSubtitle: String {
+        sidebarFontSizeErrorMessage
+            ?? String(
+                localized: "settings.sidebarAppearance.fontSize.subtitle",
+                defaultValue: "Controls workspace titles, metadata, badges, and shortcut hints in the left sidebar."
+            )
+    }
+
+    private var sidebarFontSizeDisplayText: String {
+        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(sidebarFontSize)
+        return String(
+            localized: "settings.sidebarAppearance.fontSize.points",
+            defaultValue: "\(formattedValue) pt"
+        )
+    }
+
+    private func refreshSidebarFontSizeFromConfig() {
+        sidebarFontSize = Double(GhosttyConfig.load(useCache: false).sidebarFontSize)
+        sidebarFontSizeErrorMessage = nil
+    }
+
+    private func saveSidebarFontSizeFromSettings() {
+        let clampedValue = CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(sidebarFontSize)
+        sidebarFontSize = clampedValue
+        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(clampedValue)
+        do {
+            let environment = ConfigSourceEnvironment.live()
+            try environment.writeCmuxConfigSetting(
+                key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+                value: formattedValue
+            )
+            sidebarFontSizeErrorMessage = nil
+            GhosttyApp.shared.reloadConfiguration(source: "settings.sidebar.fontSize")
+        } catch {
+            sidebarFontSizeErrorMessage = String(
+                localized: "settings.sidebarAppearance.fontSize.saveFailed",
+                defaultValue: "Couldn't save sidebar font size (\(error.localizedDescription))."
+            )
+        }
+    }
+
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
@@ -6964,6 +7018,42 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .toggleStyle(.switch)
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"),
+                            subtitle: sidebarFontSizeSubtitle,
+                            controlWidth: sidebarFontSizeControlWidth,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .sidebarAppearance, idSuffix: "font-size")
+                        ) {
+                            HStack(spacing: 8) {
+                                Slider(
+                                    value: sidebarFontSizeBinding,
+                                    in: CmuxGhosttyConfigSettingEditor.minSidebarFontSize...CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
+                                    step: 0.5
+                                ) { editing in
+                                    if !editing {
+                                        saveSidebarFontSizeFromSettings()
+                                    }
+                                }
+                                .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
+
+                                Text(sidebarFontSizeDisplayText)
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .monospacedDigit()
+                                    .frame(width: 46, alignment: .trailing)
+
+                                Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
+                                    sidebarFontSize = CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
+                                    saveSidebarFontSizeFromSettings()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(sidebarFontSize == CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
+                            }
                         }
 
                         SettingsCardDivider()
@@ -8061,6 +8151,7 @@ struct SettingsView: View {
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
+            refreshSidebarFontSizeFromConfig()
             refreshNotificationCustomSoundStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
@@ -8091,6 +8182,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshSidebarFontSizeFromConfig()
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
@@ -8291,6 +8385,8 @@ struct SettingsView: View {
         sidebarTintHexDark = nil
         sidebarTintOpacity = SidebarTintDefaults.opacity
         sidebarMatchTerminalBackground = false
+        sidebarFontSize = CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
+        saveSidebarFontSizeFromSettings()
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         draftState.socketPasswordDraft = ""

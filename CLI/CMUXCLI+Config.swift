@@ -20,6 +20,34 @@ extension CMUXCLI {
         switch subcommand {
         case "help":
             print(configUsage())
+        case "get":
+            guard args.count == 2, args[1].lowercased() == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey else {
+                throw CLIError(message: "Usage: cmux config get sidebar-font-size")
+            }
+            try runConfigGetSidebarFontSize(jsonOutput: wantsJSON)
+        case "set":
+            guard args.count == 3, args[1].lowercased() == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey else {
+                throw CLIError(message: "Usage: cmux config set sidebar-font-size <points>")
+            }
+            try runConfigSetSidebarFontSize(
+                rawValue: args[2],
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+        case "sidebar-font-size":
+            if args.count == 1 {
+                try runConfigGetSidebarFontSize(jsonOutput: wantsJSON)
+            } else if args.count == 2 {
+                try runConfigSetSidebarFontSize(
+                    rawValue: args[1],
+                    socketPath: socketPath,
+                    explicitPassword: explicitPassword,
+                    jsonOutput: wantsJSON
+                )
+            } else {
+                throw CLIError(message: "Usage: cmux config sidebar-font-size [points]")
+            }
         case "path", "paths":
             guard args.count == 1 else {
                 throw CLIError(message: "Usage: cmux config path")
@@ -62,21 +90,30 @@ extension CMUXCLI {
     func configCommandDoesNotNeedSocket(_ commandArgs: [String]) -> Bool {
         let parsedArgs = docsSettingsArguments(commandArgs)
         let subcommand = parsedArgs.arguments.first?.lowercased() ?? "help"
+        if subcommand == "get" {
+            return true
+        }
+        if subcommand == CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey {
+            return parsedArgs.arguments.count == 1
+        }
         return hasHelpRequest(beforeSeparator: parsedArgs.head) ||
             ["help", "path", "paths", "docs", "documentation", "doctor", "check", "validate"].contains(subcommand)
     }
 
     func configUsage() -> String {
         return """
-        Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>
+        Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size>
 
-        Inspect cmux.json, print configuration references, or reload the running app.
+        Inspect cmux.json, print configuration references, update selected Ghostty config keys, or reload the running app.
 
         Subcommands:
           doctor|check|validate [--path <path>]   Validate JSONC syntax for cmux config files.
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
+          get sidebar-font-size                   Print the current sidebar font size.
+          set sidebar-font-size <points>          Set sidebar text size, clamped to 10-20 pt, then reload if cmux is running.
+          sidebar-font-size [points]              Get or set sidebar text size.
 
         Config files:
           \(Self.primarySettingsDisplayPath)
@@ -89,6 +126,8 @@ extension CMUXCLI {
         Examples:
           cmux config doctor
           cmux config doctor --path .cmux/cmux.json
+          cmux config set sidebar-font-size 14
+          cmux config sidebar-font-size 12.5
           cmux config reload
         """
     }
@@ -133,6 +172,136 @@ extension CMUXCLI {
         print()
         print("Reload after editing (covers BOTH cmux.json and Ghostty config; no app restart needed):")
         print("  cmux reload-config")
+    }
+
+    private func runConfigGetSidebarFontSize(jsonOutput: Bool) throws {
+        let url = try cmuxGhosttyConfigURLForCLI()
+        let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let configuredValue = CmuxGhosttyConfigSettingEditor.parsedSidebarFontSize(in: contents)
+        let effectiveValue = configuredValue ?? CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
+        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(effectiveValue)
+
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "key": CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+                "value": effectiveValue,
+                "formatted": formattedValue,
+                "path": url.path,
+                "configured": configuredValue != nil,
+            ]
+            if let configuredValue {
+                payload["configured_value"] = configuredValue
+            }
+            print(jsonString(payload))
+            return
+        }
+
+        print("\(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue)")
+        print("path: \(Self.tildePath(url.path))")
+    }
+
+    private func runConfigSetSidebarFontSize(
+        rawValue: String,
+        socketPath: String?,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        guard let requestedValue = Double(rawValue), requestedValue.isFinite else {
+            throw CLIError(message: "sidebar-font-size requires a numeric point size")
+        }
+
+        let value = CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(requestedValue)
+        let formattedValue = CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize(value)
+        let url = try cmuxGhosttyConfigURLForCLI()
+        try CmuxGhosttyConfigSettingEditor.writeSetting(
+            key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+            value: formattedValue,
+            to: url
+        )
+
+        let reloadResult = reloadConfigAfterSidebarFontSizeSet(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
+
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "ok": true,
+                "key": CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+                "value": value,
+                "formatted": formattedValue,
+                "path": url.path,
+                "reload": reloadResult.status,
+                "clamped": value != requestedValue,
+            ]
+            if let message = reloadResult.message {
+                payload["reload_message"] = message
+            }
+            print(jsonString(payload))
+            return
+        }
+
+        switch reloadResult.status {
+        case "reloaded":
+            print("OK \(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue) (reloaded)")
+        case "failed":
+            print("OK \(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue) (saved; reload failed)")
+            if let message = reloadResult.message {
+                print("reload: \(message)")
+            }
+            print("Run `cmux config reload` after cmux is running to apply it.")
+        default:
+            print("OK \(CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey) = \(formattedValue) (saved)")
+            print("Run `cmux config reload` to apply it.")
+        }
+        print("path: \(Self.tildePath(url.path))")
+    }
+
+    private func cmuxGhosttyConfigURLForCLI() throws -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        let fileManager = FileManager.default
+        guard let appSupportDirectory = CmuxApplicationSupportDirectories
+            .userDirectories(environment: environment, fileManager: fileManager)
+            .first else {
+            throw CLIError(message: "Could not resolve the user Application Support directory")
+        }
+        let bundleIdentifier = normalizedConfigValue(environment["CMUX_BUNDLE_ID"])
+            ?? CLISocketPathResolver.currentAppBundleIdentifier()
+        return CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+            currentBundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        )
+    }
+
+    private func reloadConfigAfterSidebarFontSizeSet(
+        socketPath: String?,
+        explicitPassword: String?
+    ) -> (status: String, message: String?) {
+        guard let socketPath else {
+            return ("skipped", nil)
+        }
+        do {
+            let client = try connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            )
+            defer { client.close() }
+            let response = try client.send(command: "reload_config")
+            if response.hasPrefix("ERROR:") {
+                return ("failed", response)
+            }
+            return ("reloaded", response)
+        } catch {
+            return ("failed", Self.configDoctorErrorMessage(error))
+        }
+    }
+
+    private func normalizedConfigValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private struct ConfigDoctorOptions {
