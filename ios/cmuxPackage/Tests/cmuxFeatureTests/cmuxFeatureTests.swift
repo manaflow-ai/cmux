@@ -2139,7 +2139,7 @@ import UIKit
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    for _ in 0..<200 where deliveredText.count < 2 {
+    for _ in 0..<200 where deliveredText.isEmpty {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
@@ -2147,6 +2147,48 @@ import UIKit
         oldGridText,
         currentGridText,
     ])
+}
+
+@MainActor
+@Test func terminalRenderGridEventsDriveMountedSink() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = TerminalRenderGridEventRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    var deliveredText: [String] = []
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid"])
+
+    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
+        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
+    }
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    for _ in 0..<200 where deliveredText.count < 2 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    let liveText = try terminalRenderGridReplacementText(seq: 2, text: "live")
+    #expect(deliveredText == [liveText])
 }
 
 @Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
@@ -2395,6 +2437,35 @@ private func terminalRenderGridReplacementText(seq: UInt64, text: String) throws
         text: text
     )
     return try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
+}
+
+private func rpcHostStatusFrame(renderGrid: Bool) throws -> Data {
+    let capabilities = renderGrid
+        ? ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+        : ["events.v1", "terminal.bytes.v1", "terminal.replay.v1"]
+    return try rpcResultFrame(
+        result: [
+            "terminal_fidelity": renderGrid ? "render_grid" : "ghostty_bytes",
+            "capabilities": capabilities,
+        ]
+    )
+}
+
+private func terminalRenderGridEventFrame(seq: UInt64, text: String) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "live-terminal",
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        text: text
+    )
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": "terminal.render_grid",
+        "payload": try frame.jsonObject(),
+    ]
+    let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
+    return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
 
 private func rpcTerminalReplayFrame(
@@ -2898,6 +2969,44 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
     }
 }
 
+private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "live-workspace",
+                title: "Live Workspace",
+                terminalID: "live-terminal"
+            )
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: true)
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.replay":
+            return try combinedFrames([
+                rpcTerminalReplayFrame(
+                    seq: 1,
+                    rawText: "unused-tail",
+                    renderGridText: "initial"
+                ),
+                terminalRenderGridEventFrame(seq: 2, text: "live"),
+            ])
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
 private actor RequestAwareTransport: CmxByteTransport {
     private let router: any RequestAwareTransportRouter
     private var pendingResponses: [Data] = []
@@ -3021,6 +3130,7 @@ private actor ScriptedTransportResponses {
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
+                topics: params["topics"] as? [String],
                 hasAuth: auth != nil,
                 attachToken: auth?["attach_token"] as? String,
                 stackAccessToken: auth?["stack_access_token"] as? String
@@ -3039,6 +3149,7 @@ private struct RecordedRPCRequest: Sendable {
     var maxScrollbackRows: Int?
     var clientID: String?
     var text: String?
+    var topics: [String]?
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
@@ -3070,6 +3181,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
+        topics: params["topics"] as? [String],
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
         stackAccessToken: auth?["stack_access_token"] as? String
@@ -3358,6 +3470,12 @@ private func responseFrame(_ data: Data, matching request: RecordedRPCRequest) t
         encoded.append(try MobileSyncFrameCodec.encodeFrame(envelopeData))
     }
     return encoded
+}
+
+private func combinedFrames(_ frames: [Data]) -> Data {
+    frames.reduce(into: Data()) { output, frame in
+        output.append(frame)
+    }
 }
 
 private struct HangingTransportFactory: CmxByteTransportFactory {

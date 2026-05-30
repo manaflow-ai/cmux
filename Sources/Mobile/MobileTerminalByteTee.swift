@@ -85,6 +85,7 @@ final class MobileTerminalByteTee {
             state.replayBuffer.removeFirst(state.replayBuffer.count - replayBudget)
         }
         statesBySurfaceID[surfaceID] = state
+        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 
         // JSON+base64 stopgap for the wire format. A future commit can
         // switch to a binary opcode on the same connection if PTY

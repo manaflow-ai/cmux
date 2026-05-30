@@ -9608,25 +9608,10 @@ class TerminalController {
     private func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
-        seq: UInt64,
-        size: ghostty_surface_size_s
+        seq: UInt64
     ) -> MobileTerminalRenderGridFrame? {
-        guard size.columns > 0, size.rows > 0 else { return nil }
-        guard let text = readTerminalTextFromVTExportForSnapshot(
-            terminalPanel: terminalPanel,
-            bindingAction: "write_active_file:copy,plain",
-            lineLimit: nil,
-            normalizeLineEndings: false
-        ) else {
-            return nil
-        }
-        return try? MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: surfaceID.uuidString,
-            stateSeq: seq,
-            columns: Int(size.columns),
-            rows: Int(size.rows),
-            text: text
-        )
+        guard surfaceID == terminalPanel.id else { return nil }
+        return terminalPanel.surface.mobileRenderGridFrame(stateSeq: seq)?.frame
     }
 
     private func readPlainTerminalTextForSnapshot(
@@ -20986,11 +20971,17 @@ class TerminalController {
         includePrivateMetadata: Bool = true
     ) -> V2CallResult {
         let status = MobileHostService.shared.statusSnapshot()
-        let capabilities = ["events.v1", "terminal.bytes.v1", "terminal.replay.v1", "terminal.viewport.v1"]
+        let capabilities = [
+            "events.v1",
+            "terminal.bytes.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "terminal.viewport.v1",
+        ]
         guard includePrivateMetadata else {
             return .ok([
                 "routes": status.routes.map(\.mobileHostJSONObject),
-                "terminal_fidelity": "ghostty_bytes",
+                "terminal_fidelity": "render_grid",
                 "capabilities": capabilities,
             ])
         }
@@ -21003,7 +20994,7 @@ class TerminalController {
             "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
-            "terminal_fidelity": "ghostty_bytes",
+            "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
         ])
     }
@@ -21380,39 +21371,42 @@ class TerminalController {
         }
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
-        let data = state?.data ?? Data()
-        let snapshotData = readTerminalTextFromVTExportForSnapshot(
+        let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
-            bindingAction: "write_active_file:copy,vt",
-            lineLimit: nil,
-            normalizeLineEndings: false
-        )?.data(using: .utf8) ?? Data()
-        let surfaceSize = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay")
-            .map { ghostty_surface_size($0) }
+            surfaceID: surfaceId,
+            seq: seq
+        )
         #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) bufferBytes=\(data.count) snapshotBytes=\(snapshotData.count) seq=\(seq) hasState=\(state != nil)")
+        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
         #endif
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
             "seq": seq,
-            "data_b64": data.base64EncodedString(),
         ]
-        if !snapshotData.isEmpty {
-            payload["snapshot_format"] = "ghostty.active.vt"
-            payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
-        }
-        if let size = surfaceSize {
-            payload["columns"] = max(Int(size.columns), 1)
-            payload["rows"] = max(Int(size.rows), 1)
-            if let renderGrid = mobileTerminalRenderGridFrame(
+        if let renderGrid,
+           let renderGridObject = try? renderGrid.jsonObject() {
+            payload["columns"] = renderGrid.columns
+            payload["rows"] = renderGrid.rows
+            payload["render_grid"] = renderGridObject
+        } else {
+            let snapshotData = readTerminalTextFromVTExportForSnapshot(
                 terminalPanel: terminalPanel,
-                surfaceID: surfaceId,
-                seq: seq,
-                size: size
-            ),
-               let renderGridObject = try? renderGrid.jsonObject() {
-                payload["render_grid"] = renderGridObject
+                bindingAction: "write_active_file:copy,vt",
+                lineLimit: nil,
+                normalizeLineEndings: false
+            )?.data(using: .utf8) ?? Data()
+            let data = state?.data ?? Data()
+            if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
+                let size = ghostty_surface_size(surface)
+                payload["columns"] = max(Int(size.columns), 1)
+                payload["rows"] = max(Int(size.rows), 1)
+            }
+            if !snapshotData.isEmpty {
+                payload["snapshot_format"] = "ghostty.active.vt"
+                payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
+            } else if !data.isEmpty {
+                payload["data_b64"] = data.base64EncodedString()
             }
         }
         return .ok(payload)

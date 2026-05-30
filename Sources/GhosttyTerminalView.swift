@@ -11,6 +11,7 @@ import os
 import Sentry
 import Bonsplit
 import CMUXAgentLaunch
+import CMUXMobileCore
 import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
@@ -7003,6 +7004,34 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func visibleText() -> String? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "visibleText") else { return nil }
         return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+    }
+
+    @MainActor
+    func mobileRenderGridFrame(
+        stateSeq: UInt64,
+        full: Bool = true,
+        changedRows: Set<Int>? = nil
+    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
+        let size = ghostty_surface_size(surface)
+        let columns = max(Int(size.columns), 1)
+        let rowCount = max(Int(size.rows), 1)
+        guard let text = Self.readText(surface: surface, pointTag: GHOSTTY_POINT_ACTIVE) else {
+            return nil
+        }
+        let rows = MobileTerminalRenderGridFrame.normalizedPlainRows(from: text, maxRows: rowCount)
+        guard let frame = try? MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: id.uuidString,
+            stateSeq: stateSeq,
+            columns: columns,
+            rows: rowCount,
+            text: text,
+            full: full,
+            changedRows: changedRows
+        ) else {
+            return nil
+        }
+        return (frame, rows)
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key

@@ -418,7 +418,22 @@ enum MobileShellRouteAuthPolicy {
 @MainActor
 @Observable
 public final class CMUXMobileShellStore {
-    private static let terminalEventTopics = ["workspace.updated", "terminal.bytes"]
+    private enum TerminalOutputTransport: Equatable {
+        case renderGrid
+        case rawBytes
+
+        var eventTopics: [String] {
+            switch self {
+            case .renderGrid:
+                return ["workspace.updated", "terminal.render_grid"]
+            case .rawBytes:
+                return ["workspace.updated", "terminal.bytes"]
+            }
+        }
+    }
+
+    private static let terminalRenderGridCapability = "terminal.render_grid.v1"
+    private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
@@ -467,6 +482,7 @@ public final class CMUXMobileShellStore {
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    private var terminalOutputTransport: TerminalOutputTransport
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -534,6 +550,7 @@ public final class CMUXMobileShellStore {
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalOutputTransport = .rawBytes
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
@@ -1329,6 +1346,7 @@ public final class CMUXMobileShellStore {
     private func resetTerminalOutputTracking() {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
+        terminalOutputTransport = .rawBytes
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
     }
@@ -1499,7 +1517,8 @@ public final class CMUXMobileShellStore {
 
     private func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
-        reason: String
+        reason: String,
+        topics: [String]
     ) async -> Bool {
         let requestData: Data
         do {
@@ -1507,7 +1526,7 @@ public final class CMUXMobileShellStore {
                 method: "mobile.events.subscribe",
                 params: [
                     "stream_id": terminalEventStreamID,
-                    "topics": Self.terminalEventTopics,
+                    "topics": topics,
                 ]
             )
         } catch {
@@ -1534,6 +1553,31 @@ public final class CMUXMobileShellStore {
         return true
     }
 
+    private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
+        let fallback: TerminalOutputTransport = .rawBytes
+        do {
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
+            )
+            guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                terminalOutputTransport = fallback
+                return fallback
+            }
+            let capabilities = payload["capabilities"] as? [String] ?? []
+            let fidelity = payload["terminal_fidelity"] as? String
+            let transport: TerminalOutputTransport = capabilities.contains(Self.terminalRenderGridCapability) ||
+                fidelity == "render_grid" ? .renderGrid : .rawBytes
+            terminalOutputTransport = transport
+            liveAnchormuxLog("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
+            return transport
+        } catch {
+            terminalOutputTransport = fallback
+            liveAnchormuxLog("sync.transport=raw_bytes reason=status_failed")
+            return fallback
+        }
+    }
+
     private func refreshTerminalEventSubscription(reason: String) {
         guard let client = remoteClient, connectionState == .connected else { return }
         guard runtime?.supportsServerPushEvents ?? true else { return }
@@ -1541,7 +1585,12 @@ public final class CMUXMobileShellStore {
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
-            _ = await self.requestTerminalEventSubscription(client: client, reason: reason)
+            let topics = self.terminalOutputTransport.eventTopics
+            _ = await self.requestTerminalEventSubscription(
+                client: client,
+                reason: reason,
+                topics: topics
+            )
         }
     }
 
@@ -1559,10 +1608,13 @@ public final class CMUXMobileShellStore {
                 }
             }
 
-            let stream = await client.subscribe(to: Set(Self.terminalEventTopics))
+            let outputTransport = await self?.resolveTerminalOutputTransport(client: client) ?? .rawBytes
+            let topics = outputTransport.eventTopics
+            let stream = await client.subscribe(to: Set(topics))
             let subscribed = await self?.requestTerminalEventSubscription(
                 client: client,
-                reason: "start"
+                reason: "start",
+                topics: topics
             ) ?? false
             guard subscribed else {
                 return
@@ -1574,12 +1626,12 @@ public final class CMUXMobileShellStore {
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                } else if event.topic == "terminal.render_grid" {
+                    self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.bytes" {
                     // Raw PTY bytes coming from the Mac surface's libghostty
-                    // pty-tee. Fan them out to whichever GhosttySurfaceView
-                    // is mounted for the named surface so it can call
-                    // `ghostty_surface_process_output` and converge on the
-                    // same grid as the Mac by construction.
+                    // pty-tee. This is the compatibility fallback when the Mac
+                    // host does not advertise `terminal.render_grid.v1`.
                     self.handleTerminalBytesEvent(event)
                 }
             }
@@ -1655,12 +1707,9 @@ public final class CMUXMobileShellStore {
     }
 
     /// Per-surface byte sinks for the libghostty render path. A mounted
-    /// `GhosttySurfaceView` registers itself here and receives raw PTY
-    /// bytes pushed from the Mac via `terminal.bytes` events. The Mac
-    /// installs `ghostty_surface_set_pty_tee_cb` on its own surface so
-    /// every byte the Mac's read thread sees is mirrored here byte for
-    /// byte. The iOS surface feeds them into its own libghostty,
-    /// producing the same grid by construction.
+    /// `GhosttySurfaceView` registers itself here and receives VT patch bytes
+    /// derived from render-grid frames. Raw PTY bytes still use the same sink as
+    /// a compatibility fallback for older Mac hosts.
     private var terminalByteSinksBySurfaceID: [String: (Data) -> Void] = [:]
 
     public func registerTerminalByteSink(
@@ -1811,7 +1860,7 @@ public final class CMUXMobileShellStore {
                 }
                 let deliverBytes: Data?
                 if let renderGrid {
-                    deliverBytes = renderGrid.vtReplacementBytes()
+                    deliverBytes = renderGrid.vtPatchBytes()
                     liveAnchormuxLog("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
                 } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
@@ -1840,6 +1889,34 @@ public final class CMUXMobileShellStore {
             }
         }
         return nil
+    }
+
+    private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = try? JSONSerialization.jsonObject(with: json) as? [String: Any]
+        else {
+            return
+        }
+        let frameObject: Any = payload["render_grid"] ?? payload
+        guard let renderGrid = try? MobileTerminalRenderGridFrame.decodeJSONObject(frameObject),
+              terminalByteSinksBySurfaceID[renderGrid.surfaceID] != nil else {
+            return
+        }
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
+           deliveredSeq > renderGrid.stateSeq {
+            liveAnchormuxLog(
+                "sync.render_grid_stale surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+            )
+            return
+        }
+        let bytes = renderGrid.vtPatchBytes()
+        markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
+        #if DEBUG
+        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
+        #endif
+        guard !bytes.isEmpty else { return }
+        terminalByteSinksBySurfaceID[renderGrid.surfaceID]?(bytes)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
