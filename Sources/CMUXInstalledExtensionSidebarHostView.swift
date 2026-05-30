@@ -610,6 +610,15 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(pendingPermissionDescriptions(effectiveGrant: effectiveGrant), id: \.self) { description in
+                    Label(description, systemImage: "circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            .padding(.top, 2)
             HStack(spacing: 8) {
                 Button {
                     xpcHost.grantRequestedAccess(bundleIdentifier: identity.bundleIdentifier)
@@ -619,20 +628,61 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     Text(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access"))
                 }
                 .controlSize(.small)
-                Button {
-                    xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
-                    self.effectiveGrant = xpcHost.currentEffectiveGrant
-                    xpcHost.sendSnapshotDidChange()
-                } label: {
-                    Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
+                if effectiveGrant.hasSensitiveAccess {
+                    Button {
+                        xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
+                        self.effectiveGrant = xpcHost.currentEffectiveGrant
+                        xpcHost.sendSnapshotDidChange()
+                    } label: {
+                        Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 8)
         .padding(.bottom, 10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.88))
+    }
+
+    private func pendingPermissionDescriptions(
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> [String] {
+        let pendingReadScopes = effectiveGrant.manifest.requestedScopes.filter {
+            !effectiveGrant.readScopes.contains($0)
+        }
+        let pendingActionScopes = effectiveGrant.manifest.requestedActionScopes.filter {
+            !effectiveGrant.actionScopes.contains($0)
+        }
+        return pendingReadScopes.map(permissionDescription(scope:)) +
+            pendingActionScopes.map(permissionDescription(actionScope:))
+    }
+
+    private func permissionDescription(scope: CMUXExtensionScope) -> String {
+        switch scope {
+        case .workspaceMetadata:
+            return String(localized: "sidebar.extensions.permission.workspaceMetadata.detail", defaultValue: "Read workspace names, branches, unread counts, and selection")
+        case .workspacePaths:
+            return String(localized: "sidebar.extensions.permission.workspacePaths.detail", defaultValue: "Read local workspace and project paths")
+        case .notifications:
+            return String(localized: "sidebar.extensions.permission.notifications.detail", defaultValue: "Read latest workspace notifications")
+        case .networkPorts:
+            return String(localized: "sidebar.extensions.permission.networkPorts.detail", defaultValue: "Read listening ports for each workspace")
+        case .pullRequests:
+            return String(localized: "sidebar.extensions.permission.pullRequests.detail", defaultValue: "Read pull request links associated with workspaces")
+        }
+    }
+
+    private func permissionDescription(actionScope: CMUXExtensionActionScope) -> String {
+        switch actionScope {
+        case .selectWorkspace:
+            return String(localized: "sidebar.extensions.permission.selectWorkspace.detail", defaultValue: "Select a workspace when you click in the extension")
+        case .closeWorkspace:
+            return String(localized: "sidebar.extensions.permission.closeWorkspace.detail", defaultValue: "Close workspaces from the extension")
+        case .openURL:
+            return String(localized: "sidebar.extensions.permission.openURL.detail", defaultValue: "Open links from the extension")
+        }
     }
 
     private func observeEnabledExtensionIdentities(
