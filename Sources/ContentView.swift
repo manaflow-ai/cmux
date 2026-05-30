@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxExtensionKit
+import CmuxExtensionSidebarExamples
 import ImageIO
 import Observation
 import SwiftUI
@@ -9853,8 +9854,15 @@ enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
     static let defaultProviderId = CmuxExtensionSidebarProviderID.defaultWorkspaces
 
+    // User-vibe-coded sidebar providers. To add your own:
+    // 1. Implement `CmuxExtensionSidebarProvider` in a new file under
+    //    Examples/CmuxExtensionSidebarExamples/Sources/CmuxExtensionSidebarExamples/
+    //    (or any Swift Package depended on by the cmux target).
+    // 2. Append your provider to `SidebarExamples.providers`.
+    // 3. Rebuild with `./scripts/reload.sh --tag <tag>` and pick it from the
+    //    sidebar provider menu.
     static var providers: [any CmuxExtensionSidebarProvider] {
-        []
+        SidebarExamples.providers
     }
 
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
@@ -10727,6 +10735,12 @@ struct VerticalTabsSidebar: View {
                         .receive(on: RunLoop.main)
                         .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
                 ) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
+                    .receive(on: RunLoop.main)
+            ) { _ in
                 refreshExtensionSidebarSnapshot()
             }
         }
