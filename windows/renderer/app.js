@@ -293,6 +293,7 @@ const state = {
   zoomedPanelId: null,
   zoomedPanelIds: new Map(),
   minimizedPanelIds: new Set(),
+  hoveredPanelId: null,
   pendingPanels: new Map(),
   canceledPendingPanelIds: new Set(),
   pendingClosedPanelIds: new Set(),
@@ -2091,10 +2092,21 @@ function setZoomedPanelIdForWorkspace(workspace, panelId) {
   if (nextPanelId) state.zoomedPanelIds.set(workspace.id, nextPanelId);
   else state.zoomedPanelIds.delete(workspace.id);
   if (workspace.id === state.data?.activeWorkspaceId) state.zoomedPanelId = nextPanelId;
+  if (nextPanelId && workspace.activePanelId !== nextPanelId) {
+    workspace.activePanelId = nextPanelId;
+  }
 }
 
 function clearZoomedPanelForWorkspace(workspace = activeWorkspace()) {
   setZoomedPanelIdForWorkspace(workspace, null);
+}
+
+function syncZoomedPanelToFocus(workspace, panelId) {
+  if (!workspace || !workspaceHasPanelId(workspace, panelId) || state.minimizedPanelIds.has(panelId)) return false;
+  const zoomedPanelId = zoomedPanelIdForWorkspace(workspace);
+  if (!zoomedPanelId || zoomedPanelId === panelId) return false;
+  setZoomedPanelIdForWorkspace(workspace, panelId);
+  return true;
 }
 
 function isPanelZoomed(panel, workspace = activeWorkspace()) {
@@ -2145,12 +2157,27 @@ function panelFromActiveElement() {
   return panelFromElement(document.activeElement);
 }
 
+function hoveredPanel() {
+  const found = state.hoveredPanelId ? findPanelState(state.hoveredPanelId) : null;
+  if (
+    found
+    && found.workspace.id === state.data?.activeWorkspaceId
+    && !isPanelMinimized(found.panel)
+  ) {
+    return found.panel;
+  }
+  state.hoveredPanelId = null;
+  return null;
+}
+
 function markInteractedPanel(panelId) {
   const found = findPanelState(panelId);
   if (!found || found.workspace.id !== state.data?.activeWorkspaceId || isPanelMinimized(found.panel)) return null;
+  const wasActive = found.workspace.activePanelId === panelId;
   state.lastInteractedPanelId = panelId;
   state.focusedPanelId = panelId;
-  if (found.workspace.activePanelId !== panelId) {
+  syncZoomedPanelToFocus(found.workspace, panelId);
+  if (!wasActive) {
     found.workspace.activePanelId = panelId;
     queueFocusSync({ type: "panel", panelId });
   }
@@ -2177,7 +2204,7 @@ function focusedPanel() {
 }
 
 function actionPanelFromEvent(event) {
-  return panelFromEvent(event) || panelFromActiveElement() || focusedPanel();
+  return panelFromEvent(event) || hoveredPanel() || panelFromActiveElement() || focusedPanel();
 }
 
 function api(path, options = {}) {
@@ -3292,6 +3319,16 @@ function createPane(panel) {
     </div>
     <div class="pane-body"></div>
   `;
+  pane.addEventListener("pointerenter", () => {
+    state.hoveredPanelId = pane.dataset.panelId;
+  });
+  pane.addEventListener("pointermove", () => {
+    state.hoveredPanelId = pane.dataset.panelId;
+  });
+  pane.addEventListener("pointerleave", () => {
+    if (state.hoveredPanelId === pane.dataset.panelId) state.hoveredPanelId = null;
+  });
+  pane.addEventListener("focusin", () => markInteractedPanel(pane.dataset.panelId));
   pane.addEventListener("pointerdown", () => markInteractedPanel(pane.dataset.panelId), { capture: true });
   const header = pane.querySelector(".pane-header");
   header.draggable = false;
@@ -3476,6 +3513,7 @@ function cleanupPanel(panelId) {
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
   if (state.lastInteractedPanelId === panelId) state.lastInteractedPanelId = null;
+  if (state.hoveredPanelId === panelId) state.hoveredPanelId = null;
   state.minimizedPanelIds.delete(panelId);
   state.pendingPanels.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
@@ -8883,6 +8921,7 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
   workspace.panels.push(nextPanel);
   workspace.activePanelId = nextPanel.id;
   if (options.focus !== false) state.lastInteractedPanelId = nextPanel.id;
+  if (options.focus !== false) syncZoomedPanelToFocus(workspace, nextPanel.id);
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   if (options.direction === "down" || options.direction === "right") {
     workspace.splitDirection = options.direction;
@@ -8897,10 +8936,13 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
 function optimisticFocusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return false;
+  const zoomChanged = workspace.activePanelId ? syncZoomedPanelToFocus(workspace, workspace.activePanelId) : false;
   state.focusedPanelId = workspace.activePanelId || null;
   state.lastInteractedPanelId = workspace.activePanelId || null;
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
+    render();
+  } else if (zoomChanged) {
     render();
   }
   return true;
@@ -8911,6 +8953,7 @@ function optimisticFocusPanel(panelId) {
   if (!found) return false;
   state.focusedPanelId = panelId;
   state.lastInteractedPanelId = panelId;
+  syncZoomedPanelToFocus(found.workspace, panelId);
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
   render();
@@ -9287,10 +9330,11 @@ async function focusWorkspace(workspaceId) {
     || workspace.panels.find((panel) => panel.id === workspace.activePanelId)
     || workspace.panels[0];
   if (focusablePanel) workspace.activePanelId = focusablePanel.id;
+  const zoomChanged = focusablePanel ? syncZoomedPanelToFocus(workspace, focusablePanel.id) : false;
   state.focusedPanelId = focusablePanel?.id || null;
   state.lastInteractedPanelId = focusablePanel?.id || null;
   if (state.data?.activeWorkspaceId === workspaceId) {
-    if (workspace.activePanelId !== previousPanelId) render();
+    if (workspace.activePanelId !== previousPanelId || zoomChanged) render();
     focusTerminalSession(focusablePanel?.id);
     return;
   }
@@ -9302,13 +9346,18 @@ async function focusWorkspace(workspaceId) {
 async function focusPanel(panelId) {
   const found = findPanelState(panelId);
   let wasMinimized = false;
+  let zoomChanged = false;
+  const wasAlreadyFocused = found
+    && state.data?.activeWorkspaceId === found.workspace.id
+    && found.workspace.activePanelId === panelId;
   if (found) {
     wasMinimized = state.minimizedPanelIds.delete(panelId);
     state.focusedPanelId = panelId;
     state.lastInteractedPanelId = panelId;
+    zoomChanged = syncZoomedPanelToFocus(found.workspace, panelId);
   }
-  if (found && state.data?.activeWorkspaceId === found.workspace.id && found.workspace.activePanelId === panelId) {
-    if (wasMinimized) render();
+  if (wasAlreadyFocused) {
+    if (wasMinimized || zoomChanged) render();
     focusTerminalSession(panelId);
     return;
   }
@@ -9411,6 +9460,7 @@ function setPaneMinimized(panelId, minimized = true) {
     state.data.activeWorkspaceId = found.workspace.id;
     state.focusedPanelId = panelId;
     state.lastInteractedPanelId = panelId;
+    syncZoomedPanelToFocus(found.workspace, panelId);
   }
   render();
   if (!shouldMinimize) focusTerminalSession(panelId);
