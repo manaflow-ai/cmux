@@ -23,6 +23,11 @@ export const vmStatus = pgEnum("vm_status", [
 
 export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
 
+export const typefullyDraftStatus = pgEnum("typefully_draft_status", [
+  "draft",
+  "archived",
+]);
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {
@@ -122,5 +127,23 @@ export const cloudVmBillingGrants = pgTable(
       .on(table.billingCustomerType, table.billingCustomerId, table.createdAt),
     uniqueIndex("cloud_vm_billing_grants_customer_item_reason_unique")
       .on(table.billingCustomerType, table.billingCustomerId, table.itemId, table.reason),
+  ],
+);
+
+export const typefullyDrafts = pgTable(
+  "typefully_drafts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    userEmail: text("user_email").notNull(),
+    title: text("title").notNull().default("Untitled draft"),
+    thread: jsonb("thread").$type<string[]>().notNull().default(sql`'[""]'::jsonb`),
+    status: typefullyDraftStatus("status").notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("typefully_drafts_user_updated_idx").on(table.userId, table.updatedAt),
+    index("typefully_drafts_user_status_updated_idx").on(table.userId, table.status, table.updatedAt),
   ],
 );
