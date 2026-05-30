@@ -6,6 +6,9 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+echo "==> Installing git hooks..."
+git config core.hooksPath .githooks
+
 echo "==> Initializing submodules..."
 git submodule update --init --recursive
 
