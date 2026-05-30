@@ -48,6 +48,25 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testManifestDecodingDefaultsMissingActionScopesToNone() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "kind": "sidebar",
+          "minimumAPIVersion": { "major": 1, "minor": 0 },
+          "requestedScopes": ["workspaceMetadata"]
+        }
+        """.utf8)
+
+        let manifest = try JSONDecoder().decode(CMUXExtensionManifest.self, from: payload)
+
+        #expect(manifest.requestedScopes == [.workspaceMetadata])
+        #expect(manifest.requestedActionScopes.isEmpty)
+        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+    }
+
+    @Test
     func testSidebarSnapshotFilteringRemovesUngrantedScopeData() throws {
         let workspaceID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
         let snapshot = CMUXSidebarSnapshot(

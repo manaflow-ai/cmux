@@ -458,16 +458,16 @@ private final class MonitorContinuationBox: @unchecked Sendable {
 
 @MainActor
 private final class CMUXSidebarExtensionHostXPC {
-    private static let fallbackScopes: Set<CMUXExtensionScope> = [.workspaceMetadata]
-    private static let fallbackActionScopes: Set<CMUXExtensionActionScope> = [.selectWorkspace]
+    private static let untrustedScopes: Set<CMUXExtensionScope> = []
+    private static let untrustedActionScopes: Set<CMUXExtensionActionScope> = []
 
     private var connection: NSXPCConnection?
     private var extensionProxy: CMUXSidebarExtensionXPC?
     private var exportedObject: CMUXSidebarHostXPCObject?
     private var snapshotProvider: (() -> CMUXSidebarSnapshot)?
     private var actionHandler: ((CMUXSidebarAction) -> CMUXExtensionActionResult)?
-    private var allowedScopes = fallbackScopes
-    private var allowedActionScopes = fallbackActionScopes
+    private var allowedScopes = untrustedScopes
+    private var allowedActionScopes = untrustedActionScopes
     private var connectionGeneration: UInt64 = 0
     private var bundleIdentifier: String?
     private var currentManifest: CMUXExtensionManifest?
@@ -485,7 +485,7 @@ private final class CMUXSidebarExtensionHostXPC {
     ) {
         self.snapshotProvider = snapshotProvider
         self.actionHandler = actionHandler
-        exportedObject?.actionHandler = actionHandler
+        exportedObject?.actionHandler = scopedActionHandler(actionHandler)
         updateExportedSnapshotFilter()
     }
 
@@ -500,16 +500,8 @@ private final class CMUXSidebarExtensionHostXPC {
         connectionGeneration += 1
         let generation = connectionGeneration
         let exportedObject = CMUXSidebarHostXPCObject(
-            snapshotProvider: { snapshotProvider().filtered(for: Self.fallbackScopes) },
-            actionHandler: { [weak self] action in
-                guard let self, self.allowedActionScopes.contains(action.requiredScope) else {
-                    return CMUXExtensionActionResult(
-                        accepted: false,
-                        message: String(localized: "sidebar.extensions.action.scopeRejected", defaultValue: "Extension action is not granted")
-                    )
-                }
-                return actionHandler(action)
-            },
+            snapshotProvider: { Self.untrustedSnapshot(from: snapshotProvider()) },
+            actionHandler: scopedActionHandler(actionHandler),
             isCurrentGeneration: { [weak self] in
                 self?.connectionGeneration == generation
             }
@@ -534,8 +526,8 @@ private final class CMUXSidebarExtensionHostXPC {
         self.bundleIdentifier = bundleIdentifier
         self.currentManifest = nil
         self.onGrantChanged = onGrantChanged
-        self.allowedScopes = Self.fallbackScopes
-        self.allowedActionScopes = Self.fallbackActionScopes
+        self.allowedScopes = Self.untrustedScopes
+        self.allowedActionScopes = Self.untrustedActionScopes
         self.extensionProxy = connection.remoteObjectProxy as? CMUXSidebarExtensionXPC
         connection.resume()
         requestManifestThenSendInitialSnapshot(generation: generation)
@@ -569,8 +561,8 @@ private final class CMUXSidebarExtensionHostXPC {
         connection = nil
         extensionProxy = nil
         exportedObject = nil
-        allowedScopes = Self.fallbackScopes
-        allowedActionScopes = Self.fallbackActionScopes
+        allowedScopes = Self.untrustedScopes
+        allowedActionScopes = Self.untrustedActionScopes
         bundleIdentifier = nil
         currentManifest = nil
         onGrantChanged?(nil)
@@ -580,8 +572,8 @@ private final class CMUXSidebarExtensionHostXPC {
     private func requestManifestThenSendInitialSnapshot(generation: UInt64) {
         guard let extensionProxy,
               let requestExtensionManifest = extensionProxy.requestExtensionManifest else {
+            blockUntrustedExtension(reason: "missingManifest")
             updateExportedSnapshotFilter()
-            sendSnapshotDidChange()
             return
         }
         requestExtensionManifest { [weak self] payload, error in
@@ -594,19 +586,13 @@ private final class CMUXSidebarExtensionHostXPC {
                         try CMUXExtensionValidator.validateSidebarManifest(manifest)
                         self.applyManifest(manifest)
                     } catch {
-                        self.allowedScopes = Self.fallbackScopes
-                        self.allowedActionScopes = Self.fallbackActionScopes
-                        self.currentManifest = nil
-                        self.onGrantChanged?(nil)
+                        self.blockUntrustedExtension(reason: "invalidManifest")
 #if DEBUG
                         cmuxDebugLog("extension.sidebar.manifest.invalid error=\(error.localizedDescription)")
 #endif
                     }
                 } else {
-                    self.allowedScopes = Self.fallbackScopes
-                    self.allowedActionScopes = Self.fallbackActionScopes
-                    self.currentManifest = nil
-                    self.onGrantChanged?(nil)
+                    self.blockUntrustedExtension(reason: "manifestRequestFailed")
                     if let error {
 #if DEBUG
                         cmuxDebugLog("extension.sidebar.manifest.failed error=\(error)")
@@ -634,8 +620,8 @@ private final class CMUXSidebarExtensionHostXPC {
     private func applyManifest(_ manifest: CMUXExtensionManifest) {
         currentManifest = manifest
         guard let bundleIdentifier else {
-            allowedScopes = Self.fallbackScopes
-            allowedActionScopes = Self.fallbackActionScopes
+            allowedScopes = Self.untrustedScopes
+            allowedActionScopes = Self.untrustedActionScopes
             onGrantChanged?(nil)
             return
         }
@@ -653,10 +639,45 @@ private final class CMUXSidebarExtensionHostXPC {
         guard let snapshotProvider else { return }
         exportedObject?.snapshotProvider = { [weak self] in
             guard let self else {
-                return snapshotProvider().filtered(for: Self.fallbackScopes)
+                return Self.untrustedSnapshot(from: snapshotProvider())
             }
             return filteredSnapshot(from: snapshotProvider)
         }
+    }
+
+    private func scopedActionHandler(
+        _ actionHandler: @escaping @MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult
+    ) -> (@MainActor (CMUXSidebarAction) -> CMUXExtensionActionResult) {
+        { [weak self] action in
+            guard let self,
+                  self.currentManifest != nil,
+                  self.allowedActionScopes.contains(action.requiredScope) else {
+                return CMUXExtensionActionResult(
+                    accepted: false,
+                    message: String(localized: "sidebar.extensions.action.scopeRejected", defaultValue: "Extension action is not granted")
+                )
+            }
+            return actionHandler(action)
+        }
+    }
+
+    private func blockUntrustedExtension(reason: String) {
+        allowedScopes = Self.untrustedScopes
+        allowedActionScopes = Self.untrustedActionScopes
+        currentManifest = nil
+        onGrantChanged?(nil)
+#if DEBUG
+        cmuxDebugLog("extension.sidebar.manifest.blocked reason=\(reason)")
+#endif
+    }
+
+    private static func untrustedSnapshot(from snapshot: CMUXSidebarSnapshot) -> CMUXSidebarSnapshot {
+        CMUXSidebarSnapshot(
+            apiVersion: snapshot.apiVersion,
+            sequence: snapshot.sequence,
+            selectedWorkspaceID: nil,
+            workspaces: []
+        )
     }
 }
 

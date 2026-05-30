@@ -40,4 +40,26 @@ public struct CMUXExtensionManifest: Codable, Equatable, Identifiable, Sendable 
             requestedActionScopes: [.selectWorkspace]
         )
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case kind
+        case minimumAPIVersion
+        case requestedScopes
+        case requestedActionScopes
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        kind = try container.decode(CMUXExtensionKind.self, forKey: .kind)
+        minimumAPIVersion = try container.decode(CMUXExtensionAPIVersion.self, forKey: .minimumAPIVersion)
+        requestedScopes = try container.decode([CMUXExtensionScope].self, forKey: .requestedScopes)
+        requestedActionScopes = try container.decodeIfPresent(
+            [CMUXExtensionActionScope].self,
+            forKey: .requestedActionScopes
+        ) ?? []
+    }
 }
