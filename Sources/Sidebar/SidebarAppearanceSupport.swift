@@ -1,10 +1,26 @@
 import AppKit
+import CmuxAppearance
 import Foundation
 import SwiftUI
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
     static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
+}
+
+// Persisted selection of the active Aurean palette temperature. The settings UI and the
+// root `AureanTheme` write `userDefaultsKey`; ambient AppKit color helpers read it here so
+// chrome rendered outside the SwiftUI environment still tracks the chosen variant.
+enum AureanAppearanceSettings {
+    static let userDefaultsKey = "aureanPaletteVariant"
+
+    static var activeVariant: AureanPaletteVariant {
+        guard let raw = UserDefaults.standard.string(forKey: userDefaultsKey),
+              let variant = AureanPaletteVariant(rawValue: raw) else { return .cool }
+        return variant
+    }
+
+    static var activePalette: AureanPalette { AureanPalette(variant: activeVariant) }
 }
 
 extension Color {
@@ -53,13 +69,12 @@ func titlebarControlForegroundNSColor(
 func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     switch colorScheme {
     case .dark:
-        return NSColor(
-            srgbRed: 0,
-            green: 145.0 / 255.0,
-            blue: 1.0,
-            alpha: 1.0
-        )
+        // Aurean is a dark-first design; the active palette's accent drives selection,
+        // focus rings, and drop targets across the app.
+        return AureanAppearanceSettings.activePalette.accent.nsColor
     default:
+        // Light mode keeps the original cmux blue — the pale Aurean accent lacks contrast
+        // on light backgrounds.
         return NSColor(
             srgbRed: 0,
             green: 136.0 / 255.0,
