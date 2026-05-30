@@ -3052,7 +3052,7 @@ struct CMUXCLI {
         }
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print(hooksNoCmuxTargetFallbackOutput(commandArgs)); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -3061,7 +3061,7 @@ struct CMUXCLI {
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
                !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
-                print("{}")
+                print(hooksNoCmuxTargetFallbackOutput(commandArgs))
                 return
             }
         }
@@ -29984,6 +29984,59 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     // MARK: - Feed (workstream) hook bridge
 
+    static let antigravityPreToolAllowOutput = #"{"allow_tool":true}"#
+
+    private static func antigravityPreToolDenyOutput(reason: String) -> String {
+        let output: [String: Any] = [
+            "allow_tool": false,
+            "deny_reason": reason,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: output, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8) else {
+            return #"{"allow_tool":false,"deny_reason":"Permission denied by cmux."}"#
+        }
+        return string
+    }
+
+    private static func feedHookFallbackOutput(source: String, agentEvent: String) -> String {
+        if source == "antigravity", agentEvent == "PreToolUse" {
+            return antigravityPreToolAllowOutput
+        }
+        return "{}"
+    }
+
+    private static func feedHookUnresolvedDecisionOutput(
+        source: String,
+        agentEvent: String,
+        isActionable: Bool
+    ) -> String {
+        if source == "antigravity", agentEvent == "PreToolUse", isActionable {
+            let reason = String(
+                localized: "hooks.antigravity.unresolvedPermissionReason",
+                defaultValue: "cmux Feed permission request was not resolved."
+            )
+            return antigravityPreToolDenyOutput(
+                reason: reason
+            )
+        }
+        return feedHookFallbackOutput(source: source, agentEvent: agentEvent)
+    }
+
+    /// Output for a `hooks feed` / legacy `feed-hook` invocation that needs
+    /// a cmux target but is running outside a cmux terminal (no
+    /// CMUX_SURFACE_ID / CMUX_WORKSPACE_ID). Most agents treat an empty
+    /// `{}` as a no-op, but Antigravity's PreToolUse hook is a permission
+    /// gate whose `allow_tool` field defaults to `false`, so `{}` denies
+    /// every tool call (https://github.com/manaflow-ai/cmux/issues/4591).
+    /// Route through the agent-aware fail-open fallback so Antigravity
+    /// PreToolUse emits `{"allow_tool":true}` while every other agent/event
+    /// keeps the `{}` no-op.
+    private func hooksNoCmuxTargetFallbackOutput(_ commandArgs: [String]) -> String {
+        let source = optionValue(commandArgs, name: "--source") ?? ""
+        let event = optionValue(commandArgs, name: "--event") ?? ""
+        return Self.feedHookFallbackOutput(source: source, agentEvent: event)
+    }
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
@@ -30011,21 +30064,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard !source.isEmpty else {
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
+        let optionEvent = optionValue(commandArgs, name: "--event") ?? ""
 
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
         // Also matches the graceful-fallback pattern of the other hooks.
         guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
+            print(Self.feedHookFallbackOutput(source: source, agentEvent: optionEvent))
             return
         }
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`.
+        // JSON through stdin; unknown inputs fall through to the agent's
+        // native no-op/allow output.
         let stdinData = FileHandle.standardInput.readDataToEndOfFile()
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
-            print("{}")
+            print(Self.feedHookFallbackOutput(source: source, agentEvent: optionEvent))
             return
         }
 
@@ -30033,16 +30088,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
         let rawEvent = (stdinObj["hook_event_name"] as? String)
             ?? (stdinObj["event"] as? String)
-            ?? optionValue(commandArgs, name: "--event")
-            ?? ""
+            ?? optionEvent
         let toolCall = stdinObj["toolCall"] as? [String: Any]
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
             ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
             ?? ""
 
         // Decide whether this event is Feed-actionable. Non-actionable
-        // events are forwarded as telemetry (non-blocking) and exit `{}`
-        // so the agent proceeds without a decision.
+        // events are forwarded as telemetry (non-blocking) and exit the
+        // agent's native no-op/allow output so the agent proceeds.
         let (hookEventName, isActionable) = Self.classifyFeedEvent(
             source: source,
             event: rawEvent,
@@ -30105,8 +30159,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // for the user's Feed click; the hook's stdout is then a
         // proper hookSpecificOutput that Claude honors directly
         // (no keystroke injection, no guessing the TUI layout).
-        // If the user doesn't click in time the hook emits {}
-        // and Claude falls back to its native TUI prompt.
+        // If the user doesn't click in time the hook emits the agent's
+        // native no-op/allow output; Claude falls back to its native TUI
+        // prompt.
         //
         // Wait is capped at 120s and the wrapper's hook timeout
         // is 125s so the socket always returns before Claude
@@ -30131,7 +30186,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
             )
         } catch {
-            print("{}")
+            print(Self.feedHookUnresolvedDecisionOutput(
+                source: source,
+                agentEvent: rawEvent,
+                isActionable: isActionable
+            ))
             return
         }
 
@@ -30140,7 +30199,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
               let ok = respObj["ok"] as? Bool, ok,
               let result = respObj["result"] as? [String: Any]
         else {
-            print("{}")
+            print(Self.feedHookUnresolvedDecisionOutput(
+                source: source,
+                agentEvent: rawEvent,
+                isActionable: isActionable
+            ))
             return
         }
 
@@ -30157,7 +30220,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             print(out)
             return
         }
-        print("{}")
+        print(Self.feedHookUnresolvedDecisionOutput(
+            source: source,
+            agentEvent: rawEvent,
+            isActionable: isActionable
+        ))
     }
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`
@@ -30418,13 +30485,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return "{}"
             }
             if source == "antigravity" {
-                let reason = mode == "deny"
-                    ? "User denied permission via cmux Feed."
-                    : "User approved via cmux Feed."
-                return encode([
-                    "decision": mode == "deny" ? "deny" : "allow",
-                    "reason": reason,
-                ])
+                if mode == "deny" {
+                    let reason = String(
+                        localized: "hooks.antigravity.denyReason",
+                        defaultValue: "User denied permission via cmux Feed."
+                    )
+                    return Self.antigravityPreToolDenyOutput(
+                        reason: reason
+                    )
+                }
+                return Self.antigravityPreToolAllowOutput
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(

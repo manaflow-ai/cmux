@@ -331,9 +331,31 @@ extension CMUXCLI {
         def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
     }
 
+    private static func pinnedHookShouldFailOpen(
+        routedArguments: String,
+        for def: AgentHookDef
+    ) -> Bool {
+        def.name == "antigravity"
+            && routedArguments == "hooks feed --source antigravity --event PreToolUse"
+    }
+
+    private static func pinnedHookFallbackOutput(
+        routedArguments: String,
+        for def: AgentHookDef
+    ) -> String {
+        pinnedHookShouldFailOpen(routedArguments: routedArguments, for: def)
+            ? antigravityPreToolAllowOutput
+            : "{}"
+    }
+
     private static func pinnedAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let socketPath = pinnedAgentHookSocketPath()
+        let fallbackOutput = pinnedHookFallbackOutput(routedArguments: routedArguments, for: def)
+        let fallbackEcho = "printf '%s\\n' \(shellSingleQuote(fallbackOutput))"
+        let failOpenAfterDispatch = pinnedHookShouldFailOpen(routedArguments: routedArguments, for: def)
+            ? "if [ $cmux_hook_status -ne 0 ]; then \(fallbackEcho); cmux_hook_status=0; fi; "
+            : ""
         let shellTraceStart = pinnedHookShellTraceCommand(
             agentName: def.name,
             phase: "start",
@@ -366,11 +388,11 @@ extension CMUXCLI {
                 routedArguments: routedArguments,
                 socketPath: socketPath
             )
-            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else echo '{}'; fi"
+            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else \(fallbackEcho); fi"
         } else {
-            dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
+            dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(fallbackEcho)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(fallbackEcho); } || { \(dispatch); cmux_hook_status=$?; \(failOpenAfterDispatch)\(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
