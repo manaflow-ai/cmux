@@ -329,6 +329,9 @@ Config subcommands:
 | `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
 | `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
+| `config get sidebar-font-size` | Print the effective sidebar text size. |
+| `config set sidebar-font-size <points>` | Write the sidebar text size to cmux's editable Ghostty config and reload the running app when available. |
+| `config sidebar-font-size [points]` | Get the sidebar text size, or set it when a point size is provided. |
 
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
@@ -385,7 +388,7 @@ the expected text without connecting to a cmux socket.
 - `cmux settings --help` -> `Usage: cmux settings [open [target]|path|docs|<target>]`
 - `cmux settings path` -> `Config files:`
 - `cmux settings docs` -> `Config files:`
-- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload>`
+- `cmux config --help` -> `Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size>`
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
