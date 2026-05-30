@@ -2947,7 +2947,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
-    private final class WKInspectorProbeWebView: WKWebView {
+    private final class WKRelatedProbeView: NSView {
     }
 
     private final class FakeInspector: NSObject {
@@ -2967,7 +2967,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         private var visible = false
         private var attached = false
         private var frontendAttachedForTesting = false
-        private weak var frontendWebView: WKWebView?
+        private weak var frontendView: NSView?
 
         init(
             hideBehavior: HideBehavior = .unsupported,
@@ -2997,14 +2997,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             events.append("attach")
             attachCount += 1
             attached = true
-            show()
         }
 
         @objc func show() {
             events.append("show")
             showCount += 1
             guard !requiresAttachmentToShow ||
-                (attached && (frontendAttachedForTesting || frontendWebView?.window != nil)) else { return }
+                (attached && (frontendAttachedForTesting || frontendView?.window != nil)) else { return }
             visible = true
         }
 
@@ -3022,12 +3021,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             attached = false
         }
 
-        @objc func inspectorWebView() -> WKWebView? {
-            frontendWebView
+        @objc func inspectorWebView() -> NSView? {
+            frontendView
         }
 
-        func setFrontendWebView(_ webView: WKWebView?) {
-            frontendWebView = webView
+        func setFrontendView(_ view: NSView?) {
+            frontendView = view
         }
 
         func setFrontendAttachedForTesting(_ attached: Bool) {
@@ -3086,12 +3085,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private func closeWindow(_ window: NSWindow) {
+        window.isReleasedWhenClosed = false
         window.contentView = nil
         window.orderOut(nil)
         window.close()
     }
 
-    private func makeDetachedInspectorWindow(frontendWebView: WKWebView) -> NSWindow {
+    private func makeDetachedInspectorWindow(frontendView: NSView) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -3099,8 +3099,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         window.title = "Web Inspector — example.com"
-        frontendWebView.frame = window.contentView?.bounds ?? .zero
-        window.contentView?.addSubview(frontendWebView)
+        frontendView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(frontendView)
         return window
     }
 
@@ -3203,10 +3203,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         window.title = "Web Inspector — example.com"
-        let frontendWebView = WKWebView(frame: window.contentView?.bounds ?? .zero)
-        window.contentView?.addSubview(frontendWebView)
-        window.contentView?.addSubview(WKInspectorProbeView(frame: window.contentView?.bounds ?? .zero))
-        inspector.setFrontendWebView(frontendWebView)
+        let frontendView = WKInspectorProbeView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(frontendView)
+        inspector.setFrontendView(frontendView)
         defer { closeWindow(window) }
 
         window.makeKeyAndOrderFront(nil)
@@ -3259,12 +3258,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         attachedHost.addSubview(attachedInspectorView)
 
         inspectorWindow.title = "Web Inspector — example.com"
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: inspectorContentView.bounds,
-            configuration: WKWebViewConfiguration()
-        )
-        inspectorContentView.addSubview(frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        let frontendView = WKInspectorProbeView(frame: inspectorContentView.bounds)
+        inspectorContentView.addSubview(frontendView)
+        inspector.setFrontendView(frontendView)
 
         mainWindow.makeKeyAndOrderFront(nil)
         inspectorWindow.makeKeyAndOrderFront(nil)
@@ -3297,12 +3293,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
         defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: .zero,
-            configuration: WKWebViewConfiguration()
-        )
-        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        let frontendView = WKInspectorProbeView(frame: .zero)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendView: frontendView)
+        inspector.setFrontendView(frontendView)
         defer { closeWindow(inspectorWindow) }
 
         XCTAssertTrue(browserPanel.showDeveloperTools())
@@ -3351,12 +3344,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
         defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: .zero,
-            configuration: WKWebViewConfiguration()
-        )
-        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        let frontendView = WKInspectorProbeView(frame: .zero)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendView: frontendView)
+        inspector.setFrontendView(frontendView)
         defer { closeWindow(inspectorWindow) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
@@ -3388,12 +3378,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
         defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: .zero,
-            configuration: WKWebViewConfiguration()
-        )
-        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        let frontendView = WKInspectorProbeView(frame: .zero)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendView: frontendView)
+        inspector.setFrontendView(frontendView)
         defer { closeWindow(inspectorWindow) }
 
         inspectorWindow.makeKeyAndOrderFront(nil)
@@ -3446,17 +3433,16 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         browserPanel.webView.frame = contentView.bounds
         contentView.addSubview(browserPanel.webView)
 
-        let frontendWebView = WKInspectorProbeWebView(
+        let frontendView = WKInspectorProbeView(
             frame: NSRect(
                 x: contentView.bounds.midX,
                 y: 0,
                 width: contentView.bounds.midX,
                 height: contentView.bounds.height
-            ),
-            configuration: WKWebViewConfiguration()
+            )
         )
-        contentView.addSubview(frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        contentView.addSubview(frontendView)
+        inspector.setFrontendView(frontendView)
 
         mainWindow.makeKeyAndOrderFront(nil)
         mainWindow.makeKey()
@@ -3486,12 +3472,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = { [browserPanel] in [browserPanel] }
         defer { appDelegate.debugBrowserPanelsForInspectorWindowCloseOverride = nil }
 
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: .zero,
-            configuration: WKWebViewConfiguration()
-        )
-        let inspectorWindow = makeDetachedInspectorWindow(frontendWebView: frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        let frontendView = WKInspectorProbeView(frame: .zero)
+        let inspectorWindow = makeDetachedInspectorWindow(frontendView: frontendView)
+        inspector.setFrontendView(frontendView)
         defer { closeWindow(inspectorWindow) }
 
         XCTAssertTrue(browserPanel.showDeveloperTools())
@@ -3519,6 +3502,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)
+        waitForDeveloperToolsTransitions()
 
         // Simulate WebKit closing inspector during detach/reattach churn.
         inspector.close()
@@ -3572,6 +3556,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
+        waitForDeveloperToolsTransitions()
 
         // Simulate user closing inspector before detach.
         inspector.close()
@@ -3588,6 +3573,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertEqual(inspector.showCount, 1)
+        waitForDeveloperToolsTransitions()
 
         // Simulate a transient close caused by view detach, not user intent.
         inspector.close()
@@ -3702,6 +3688,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
+        waitForDeveloperToolsTransitions()
 
         XCTAssertTrue(panel.toggleDeveloperTools())
 
@@ -3833,12 +3820,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.webView.frame = sourceSlot.bounds
         sourceSlot.addSubview(panel.webView)
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
-            configuration: WKWebViewConfiguration()
+        let frontendView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72)
         )
-        sourceSlot.addSubview(frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        sourceSlot.addSubview(frontendView)
+        inspector.setFrontendView(frontendView)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -3853,7 +3839,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "The page web view should move to the portal host for this regression setup"
         )
         XCTAssertTrue(
-            frontendWebView.superview === sourceSlot,
+            frontendView.superview === sourceSlot,
             "The portal must not reparent WKInspector frontend views; WebKit owns their window/controller lifecycle"
         )
     }
@@ -4035,7 +4021,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let inspectorView = WKInspectorProbeView(
+        let inspectorView = WKRelatedProbeView(
             frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72)
         )
         inspectorView.autoresizingMask = [.width]

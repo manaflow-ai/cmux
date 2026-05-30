@@ -6339,11 +6339,11 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
-        guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
+        guard let frontendView = webView.cmuxInspectorFrontendView(),
               let contentView = window.contentView else {
             return false
         }
-        return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
+        return frontendView === contentView || frontendView.isDescendant(of: contentView)
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
@@ -7792,14 +7792,18 @@ extension WKWebView {
         return inspector
     }
 
-    func cmuxInspectorFrontendWebView() -> WKWebView? {
+    func cmuxInspectorFrontendView() -> NSView? {
         guard let inspector = cmuxInspectorObject() else { return nil }
         let selector = NSSelectorFromString("inspectorWebView")
         guard inspector.responds(to: selector),
-              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
+              let inspectorView = inspector.perform(selector)?.takeUnretainedValue() as? NSView else {
             return nil
         }
-        return inspectorWebView
+        return inspectorView
+    }
+
+    func cmuxInspectorFrontendWebView() -> WKWebView? {
+        cmuxInspectorFrontendView() as? WKWebView
     }
 }
 
