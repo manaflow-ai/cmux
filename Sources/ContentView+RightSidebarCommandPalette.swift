@@ -47,6 +47,10 @@ extension ContentView {
             return .nextSurface
         case "palette.previousTabInPane":
             return .prevSurface
+        case "palette.nextPane":
+            return .nextPane
+        case "palette.previousPane":
+            return .prevPane
         case "palette.browserToggleDevTools":
             return .toggleBrowserDeveloperTools
         case "palette.browserConsole":

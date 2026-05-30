@@ -114,6 +114,8 @@ enum KeyboardShortcutSettings {
         case attachTextBoxFile
 
         // Panes / splits
+        case nextPane
+        case prevPane
         case focusLeft
         case focusRight
         case focusUp
@@ -201,6 +203,8 @@ enum KeyboardShortcutSettings {
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
+            case .nextPane: return String(localized: "shortcut.nextPane.label", defaultValue: "Next Pane")
+            case .prevPane: return String(localized: "shortcut.previousPane.label", defaultValue: "Previous Pane")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -377,6 +381,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .attachTextBoxFile:
                 return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
+            case .nextPane:
+                return StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
+            case .prevPane:
+                return StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:
@@ -894,6 +902,8 @@ enum KeyboardShortcutSettings {
     static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
     static func focusUpShortcut() -> StoredShortcut { shortcut(for: .focusUp) }
     static func focusDownShortcut() -> StoredShortcut { shortcut(for: .focusDown) }
+    static func nextPaneShortcut() -> StoredShortcut { shortcut(for: .nextPane) }
+    static func prevPaneShortcut() -> StoredShortcut { shortcut(for: .prevPane) }
 
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }

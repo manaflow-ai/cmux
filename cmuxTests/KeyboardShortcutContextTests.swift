@@ -141,6 +141,19 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testPaneCycleShortcutsArePublicConfigurableActions() {
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.nextPane))
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.prevPane))
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.nextPane.defaultShortcut,
+            StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.prevPane.defaultShortcut,
+            StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
+        )
+    }
+
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
