@@ -105,6 +105,40 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testSidebarSnapshotFilteringWithNoScopesRemovesWorkspaceMetadata() {
+        let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+        let windowID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+        let snapshot = CMUXSidebarSnapshot(
+            sequence: 45,
+            windowID: windowID,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CMUXSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Private Workspace",
+                    detail: "Sensitive detail",
+                    isPinned: true,
+                    rootPath: "/Users/example/private",
+                    projectRootPath: "/Users/example/private",
+                    gitBranch: "secret",
+                    unreadCount: 9,
+                    latestNotification: "Sensitive notification",
+                    listeningPorts: [8080],
+                    pullRequestURLs: ["https://github.com/manaflow-ai/cmux/pull/4994"]
+                ),
+            ]
+        )
+
+        let filtered = snapshot.filtered(for: [CMUXExtensionScope]())
+
+        #expect(filtered.apiVersion == .sidebarV1)
+        #expect(filtered.sequence == 45)
+        #expect(filtered.windowID == nil)
+        #expect(filtered.selectedWorkspaceID == nil)
+        #expect(filtered.workspaces.isEmpty)
+    }
+
+    @Test
     func testSidebarXPCCodecRoundTripsSnapshotActionAndResult() throws {
         let workspaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
         let snapshot = CMUXSidebarSnapshot(

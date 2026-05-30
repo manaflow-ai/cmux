@@ -23,6 +23,14 @@ public struct CMUXSidebarSnapshot: Codable, Equatable, Sendable {
 
     public func filtered(for scopes: some Sequence<CMUXExtensionScope>) -> CMUXSidebarSnapshot {
         let scopeSet = Set(scopes)
+        guard scopeSet.contains(.workspaceMetadata) else {
+            return CMUXSidebarSnapshot(
+                apiVersion: apiVersion,
+                sequence: sequence,
+                selectedWorkspaceID: nil,
+                workspaces: []
+            )
+        }
         return CMUXSidebarSnapshot(
             apiVersion: apiVersion,
             sequence: sequence,
