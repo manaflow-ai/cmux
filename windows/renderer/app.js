@@ -1104,20 +1104,24 @@ function applySettings() {
 
 function updateSettings(updates, options = {}) {
   const previous = state.settings;
-  state.settings = normalizeSettings({
+  const nextSettings = normalizeSettings({
     ...state.settings,
     ...updates
   });
+  const changedKeys = Object.keys(updates).filter((key) => previous[key] !== nextSettings[key]);
+  if (changedKeys.length === 0) return false;
+  state.settings = nextSettings;
   state.terminalFontSize = state.settings.terminalFontSize;
   if (options.immediate) saveSettings();
   else scheduleSettingsSave();
   applySettings();
-  if (Object.keys(updates).some((key) => terminalAppearanceKeys.has(key) && previous[key] !== state.settings[key])) {
+  if (changedKeys.some((key) => terminalAppearanceKeys.has(key))) {
     scheduleTerminalAppearanceRefresh();
   }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
   }
+  return true;
 }
 
 function normalizePaneWeight(value) {
