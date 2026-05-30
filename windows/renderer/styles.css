@@ -212,7 +212,7 @@ button {
 }
 
 .shell.pane-header-compact .pane {
-  grid-template-rows: 24px minmax(0, 1fr);
+  grid-template-rows: 20px minmax(0, 1fr);
 }
 
 .shell.pane-header-hidden .pane {
@@ -1009,9 +1009,9 @@ button {
 }
 
 .pane.is-active {
-  border-color: var(--panel-color, var(--color-line-strong));
+  border-color: color-mix(in oklch, var(--panel-color, var(--color-accent)) 48%, var(--color-line) 52%);
   box-shadow:
-    inset 0 0 0 1px color-mix(in oklch, var(--panel-color, var(--color-accent)) 68%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--panel-color, var(--color-accent)) 36%, transparent),
     inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
@@ -1160,7 +1160,7 @@ button {
 }
 
 .shell.pane-header-compact {
-  --pane-drop-top: 24px;
+  --pane-drop-top: 20px;
 }
 
 .shell.pane-header-hidden {
@@ -1168,13 +1168,13 @@ button {
 }
 
 .shell.pane-header-compact .pane-header {
-  gap: 6px;
-  padding: 0 6px;
+  gap: 4px;
+  padding: 0 5px;
 }
 
 .shell.pane-header-compact .pane-grip {
-  width: 10px;
-  font-size: 10px;
+  width: 12px;
+  font-size: 9px;
 }
 
 .shell.pane-header-compact .pane-type {
@@ -1182,17 +1182,19 @@ button {
 }
 
 .shell.pane-header-compact .pane-title {
-  font-size: 11px;
+  display: none;
 }
 
 .shell.pane-header-compact .pane-toolbar {
+  margin-left: auto;
   gap: 3px;
+  max-width: none;
 }
 
 .shell.pane-header-compact .pane-tool {
-  width: 22px;
-  height: 20px;
-  font-size: 11px;
+  width: 20px;
+  height: 18px;
+  font-size: 10px;
 }
 
 .pane.is-browser .font-down,
