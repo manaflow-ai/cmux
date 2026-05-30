@@ -499,12 +499,20 @@
           "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。"
         },
         "terminal": {
-          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。"
+          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。",
+          "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
+          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
         },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",
+          "byCwd": {
+            "newWorkspacePlacement": "依 cwd 覆寫群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。省略時會回退到全域預設值。"
+          }
         }
       }
     },
@@ -920,7 +928,8 @@
       "changelog": "更新日誌",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox（測試版）"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1063,21 @@
       "daemonSession": "會話管理",
       "daemonSessionHow": "在重新連線時保留會話，協調跨多個附件的 PTY 大小調整",
       "daemonPath": "守護程式二進位檔案儲存在遠端主機上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，並根據應用程式中嵌入的 SHA-256 清單進行驗證。"
+    },
+    "textBox": {
+      "title": "TextBox（測試版）",
+      "metaTitle": "TextBox（測試版）",
+      "metaDescription": "為新的終端機分頁、分割和工作區設定 cmux 測試版 TextBox 輸入。",
+      "intro": "TextBox 是 cmux 的富文字終端機輸入介面，可在傳送到終端機前編寫提示。",
+      "betaCallout": "TextBox 是測試版功能。測試期間，預設值和行為可能會變更。",
+      "defaultsTitle": "預設值",
+      "defaultsDesc": "TextBox 設定位於 Settings > TextBox：",
+      "showSetting": "Show TextBox on New Terminals 會讓新的工作區、終端機分頁和終端機分割在開啟時顯示 TextBox，同時將焦點保留在終端機。",
+      "focusSetting": "Focus TextBox on New Terminals 會將鍵盤焦點放入 TextBox。啟用焦點也會顯示 TextBox。",
+      "maxLinesSetting": "TextBox Max Lines 會限制 TextBox 在內容開始捲動前的最大高度。",
+      "configTitle": "cmux.json",
+      "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下設定相同預設值：",
+      "focusNote": "還原的工作階段會保留已儲存的 TextBox 顯示和焦點狀態。這些預設值只會套用到新建的終端機介面。"
     }
   },
   "legal": {

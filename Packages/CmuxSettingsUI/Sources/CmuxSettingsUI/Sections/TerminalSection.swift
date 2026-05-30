@@ -2,9 +2,9 @@ import CmuxSettings
 import SwiftUI
 
 /// **Terminal** section — mirrors the legacy in-app section
-/// row-for-row: scroll bar, text-box max lines, copy on selection,
-/// resume agent sessions, agent hibernation enable + idle seconds +
-/// max live terminals, plus the JSON-backed Resume Commands editor.
+/// row-for-row: scroll bar, copy on selection, resume agent sessions,
+/// agent hibernation enable + idle seconds + max live terminals, plus
+/// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
     private let jsonStore: JSONConfigStore
@@ -12,7 +12,6 @@ public struct TerminalSection: View {
     private let hostActions: SettingsHostActions
 
     @State private var scrollBar: DefaultsValueModel<Bool>
-    @State private var textBoxLines: DefaultsValueModel<Int>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -29,7 +28,6 @@ public struct TerminalSection: View {
         self.catalog = catalog
         self.hostActions = hostActions
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
-        _textBoxLines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textBoxMaxLines))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
@@ -85,24 +83,6 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
-            }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .json("terminal.textBoxMaxLines"),
-                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
-                subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
-                controlWidth: 196
-            ) {
-                Stepper(
-                    value: Binding(get: { textBoxLines.current }, set: { textBoxLines.set($0) }),
-                    in: 1...20
-                ) {
-                    Text(verbatim: "\(textBoxLines.current)")
-                        .monospacedDigit()
-                        .frame(width: 28, alignment: .trailing)
-                }
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
             }
             SettingsCardDivider()
             SettingsCardRow(
