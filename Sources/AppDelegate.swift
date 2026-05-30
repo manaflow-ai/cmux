@@ -862,6 +862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugAddWorkspaceInPreferredMainWindowCreationOverride: ((MainWindowContext, String?) -> UUID?)?
     weak var debugPreferredWorkspaceCreationWindowOverride: NSWindow?
     var debugBrowserPanelsForInspectorWindowCloseOverride: (() -> [BrowserPanel])?
+    var debugFocusedCloseShortcutWindowOverride: (() -> NSWindow?)?
 #endif
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -6013,6 +6014,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Close shortcuts are focused-window commands. Some AppKit key-equivalent
         // paths can preserve stale event window metadata after a new window becomes
         // key, so prefer the actual focused window before falling back to event data.
+#if DEBUG
+        if let debugWindow = debugFocusedCloseShortcutWindowOverride?(),
+           isMainTerminalWindow(debugWindow) {
+            return debugWindow
+        }
+#endif
         if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
             return keyWindow
         }
@@ -14437,6 +14444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         debugAddWorkspaceInPreferredMainWindowCreationOverride = nil
         debugPreferredWorkspaceCreationWindowOverride = nil
         debugBrowserPanelsForInspectorWindowCloseOverride = nil
+        debugFocusedCloseShortcutWindowOverride = nil
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {

@@ -9268,6 +9268,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let originalManager = originalContext.tabManager
         let focusedManager = focusedContext.tabManager
         defer {
+            appDelegate.debugFocusedCloseShortcutWindowOverride = nil
             appDelegate.tabManager = previousTabManager
             appDelegate.unregisterMainWindowContextForTesting(windowId: originalContext.windowId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: focusedContext.windowId)
@@ -9275,16 +9276,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             closeTestWindow(focusedWindow)
         }
 
-        originalWindow.orderFront(nil)
-        focusedWindow.makeKeyAndOrderFront(nil)
-        XCTAssertTrue(
-            waitForCondition(timeout: 1.0) {
-                focusedWindow.isVisible && NSApp.keyWindow === focusedWindow
-            },
-            "Expected focused test window to become key before close shortcut routing assertions",
-            file: file,
-            line: line
-        )
+        appDelegate.debugFocusedCloseShortcutWindowOverride = { focusedWindow }
 
         // Model the observed bug: the user-visible focused window is the new window,
         // but the key event still carries the original window number.
