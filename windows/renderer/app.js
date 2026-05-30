@@ -46,6 +46,7 @@ const customCommandSnippetsStorageKey = "cmux.customTerminalCommandSnippets";
 const savedSettingsProfilesStorageKey = "cmux.savedSettingsProfiles";
 const workspaceBlueprintsStorageKey = "cmux.workspaceBlueprints";
 const customColorPaletteStorageKey = "cmux.customColorPalette";
+const savedBackgroundImagesStorageKey = "cmux.savedBackgroundImages";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
 const customCommandSnippetsLimit = 20;
@@ -53,6 +54,7 @@ const savedSettingsProfilesLimit = 12;
 const workspaceBlueprintsLimit = 12;
 const workspaceBlueprintPanelLimit = 8;
 const customColorPaletteLimit = 18;
+const savedBackgroundImagesLimit = 12;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -107,6 +109,7 @@ const state = {
   savedSettingsProfiles: loadSavedSettingsProfiles(),
   workspaceBlueprints: loadWorkspaceBlueprints(),
   customColorPalette: loadCustomColorPalette(),
+  savedBackgroundImages: loadSavedBackgroundImages(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -324,6 +327,11 @@ function normalizedImageUrl(value) {
   return url.startsWith("preset:") ? "" : url;
 }
 
+function isCustomBackgroundImage(value) {
+  const url = normalizedImageUrl(value);
+  return Boolean(url && !url.startsWith("preset:"));
+}
+
 function backgroundCss(value) {
   const normalized = normalizeBackgroundValue(value);
   if (!normalized) return "none";
@@ -356,6 +364,20 @@ function shortFolderPath(folderPath) {
   const parts = raw.split(/[\\/]+/).filter(Boolean);
   if (parts.length <= 3) return raw;
   return `${parts[0]}\\...\\${parts.slice(-2).join("\\")}`;
+}
+
+function fileNameFromUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    const pathname = decodeURIComponent(url.pathname || "");
+    const parts = pathname.split(/[\\/]+/).filter(Boolean);
+    return parts.at(-1) || url.hostname || "";
+  } catch {
+    const parts = raw.split(/[\\/]+/).filter(Boolean);
+    return parts.at(-1) || raw;
+  }
 }
 
 function loadRecentFolders() {
@@ -738,6 +760,130 @@ function upsertWorkspaceBlueprint(blueprint) {
   ];
   saveWorkspaceBlueprints();
   return state.workspaceBlueprints[0];
+}
+
+function normalizeBackgroundLabel(label) {
+  return String(label || "").replace(/\s+/g, " ").trim().slice(0, 48);
+}
+
+function createSavedBackgroundImageId() {
+  return `background_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultBackgroundLabel(url) {
+  if (/^data:image\//i.test(url)) return "Background image";
+  const name = fileNameFromUrl(url).replace(/\.(?:avif|bmp|gif|jpe?g|png|webp)$/i, "");
+  if (name && !name.startsWith("data:image")) return normalizeBackgroundLabel(name);
+  try {
+    const parsed = new URL(url);
+    return normalizeBackgroundLabel(parsed.hostname || "Background image");
+  } catch {
+    return "Background image";
+  }
+}
+
+function normalizeSavedBackgroundImage(entry) {
+  const input = typeof entry === "string" ? { url: entry } : entry || {};
+  const url = normalizedImageUrl(input.url || input.value || input.backgroundImage);
+  if (!url) return null;
+  const label = normalizeBackgroundLabel(input.label) || defaultBackgroundLabel(url);
+  const id = /^[a-z0-9_-]+$/i.test(input.id || "") ? input.id : createSavedBackgroundImageId();
+  return {
+    id,
+    label,
+    url,
+    createdAt: Number(input.createdAt) || Date.now()
+  };
+}
+
+function loadSavedBackgroundImages() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(savedBackgroundImagesStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const backgrounds = [];
+    const seenIds = new Set();
+    const seenUrls = new Set();
+    for (const entry of parsed) {
+      const background = normalizeSavedBackgroundImage(entry);
+      if (!background) continue;
+      const urlKey = background.url.toLowerCase();
+      if (seenUrls.has(urlKey)) continue;
+      if (seenIds.has(background.id)) background.id = createSavedBackgroundImageId();
+      seenIds.add(background.id);
+      seenUrls.add(urlKey);
+      backgrounds.push(background);
+      if (backgrounds.length >= savedBackgroundImagesLimit) break;
+    }
+    return backgrounds;
+  } catch {
+    return [];
+  }
+}
+
+function saveSavedBackgroundImages() {
+  localStorage.setItem(savedBackgroundImagesStorageKey, JSON.stringify(state.savedBackgroundImages));
+}
+
+function upsertSavedBackgroundImage(background, options = {}) {
+  const normalized = normalizeSavedBackgroundImage(background);
+  if (!normalized) {
+    if (options.toast !== false) toast("Choose a custom background image first.");
+    return null;
+  }
+  const urlKey = normalized.url.toLowerCase();
+  const replacing = state.savedBackgroundImages.some((candidate) => (
+    candidate.id === normalized.id || candidate.url.toLowerCase() === urlKey
+  ));
+  if (!replacing && state.savedBackgroundImages.length >= savedBackgroundImagesLimit) {
+    toast(`Background limit is ${savedBackgroundImagesLimit}. Delete one first.`);
+    return null;
+  }
+  state.savedBackgroundImages = [
+    normalized,
+    ...state.savedBackgroundImages.filter((candidate) => (
+      candidate.id !== normalized.id && candidate.url.toLowerCase() !== urlKey
+    ))
+  ];
+  saveSavedBackgroundImages();
+  if (options.render !== false) renderSettingsInspector();
+  if (options.toast !== false) toast(replacing ? "Saved background updated." : "Background saved.");
+  return state.savedBackgroundImages[0];
+}
+
+function applySavedBackgroundImage(backgroundId) {
+  const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
+  if (!background) return;
+  updateSettings({ backgroundImage: background.url });
+  renderSettingsInspector();
+  toast(`${background.label} background applied.`);
+}
+
+async function renameSavedBackgroundImage(backgroundId) {
+  const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
+  if (!background) return;
+  const label = await showTextDialog({
+    title: "Rename background",
+    value: background.label,
+    placeholder: "Background name",
+    confirmLabel: "Rename"
+  });
+  if (!label) return;
+  upsertSavedBackgroundImage({ ...background, label, createdAt: background.createdAt });
+}
+
+async function deleteSavedBackgroundImage(backgroundId) {
+  const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
+  if (!background) return;
+  if (!await showConfirmDialog({
+    title: "Delete background",
+    message: `Delete "${background.label}"?`,
+    confirmLabel: "Delete",
+    danger: true
+  })) return;
+  state.savedBackgroundImages = state.savedBackgroundImages.filter((candidate) => candidate.id !== backgroundId);
+  saveSavedBackgroundImages();
+  renderSettingsInspector();
+  toast("Saved background deleted.");
 }
 
 function workspaceBlueprintSummary(blueprint) {
@@ -1136,6 +1282,8 @@ const commands = [
   { id: "settings.colors", label: "Open Color Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
   { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
+  { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
+  { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => upsertSavedBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -2554,6 +2702,7 @@ function renderSettingsInspector() {
     );
     imageActions.dataset.settingsSearch = normalizeSettingsQuery("background image local file wallpaper clear");
     appearanceSection.append(imageActions);
+    appearanceSection.append(settingRow("Saved backgrounds", savedBackgroundImagesPanel(), true, "saved background image wallpaper library apply rename delete save"));
 
     const opacityInput = document.createElement("input");
     opacityInput.className = "setting-control";
@@ -3357,6 +3506,88 @@ function backgroundPresetGrid() {
   return grid;
 }
 
+function savedBackgroundImagesPanel() {
+  const panel = document.createElement("div");
+  panel.className = "saved-background-panel";
+  panel.dataset.settingsSearch = normalizeSettingsQuery("saved background image wallpaper library url file apply rename delete save");
+
+  const addRow = document.createElement("div");
+  addRow.className = "saved-background-add";
+  const input = document.createElement("input");
+  input.className = "setting-control saved-background-input";
+  input.placeholder = "https://image-url";
+  input.dataset.settingsSearch = normalizeSettingsQuery("saved background image url add");
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      upsertSavedBackgroundImage({ url: input.value });
+      input.value = "";
+    }
+  });
+  const saveUrl = settingsActionButton("Save URL", () => {
+    if (upsertSavedBackgroundImage({ url: input.value })) input.value = "";
+  }, "", "saved background image url add");
+  addRow.append(input, saveUrl);
+  panel.append(addRow);
+
+  const actions = document.createElement("div");
+  actions.className = "settings-actions saved-background-actions";
+  actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper");
+  const saveCurrent = settingsActionButton("Save current", () => upsertSavedBackgroundImage({
+    url: state.settings.backgroundImage
+  }), "", "saved background image current");
+  saveCurrent.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
+  actions.append(
+    saveCurrent,
+    settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "saved background image choose local file wallpaper")
+  );
+  panel.append(actions);
+
+  if (state.savedBackgroundImages.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "saved-background-empty";
+    empty.textContent = "Save custom background images here so they can be reapplied without pasting the URL again.";
+    panel.append(empty);
+    return panel;
+  }
+
+  const list = document.createElement("div");
+  list.className = "saved-background-list";
+  for (const background of state.savedBackgroundImages) {
+    const card = document.createElement("div");
+    card.className = `saved-background-card${state.settings.backgroundImage === background.url ? " is-active" : ""}`;
+    card.dataset.settingsSearch = normalizeSettingsQuery(`saved background image wallpaper ${background.label} ${background.url}`);
+    const preview = document.createElement("button");
+    preview.className = "saved-background-preview";
+    preview.type = "button";
+    preview.title = `Apply ${background.label}`;
+    preview.style.setProperty("--saved-background-image", backgroundCss(background.url));
+    preview.onclick = () => applySavedBackgroundImage(background.id);
+    const text = document.createElement("div");
+    text.className = "saved-background-text";
+    const label = document.createElement("div");
+    label.className = "saved-background-label";
+    label.textContent = background.label;
+    label.title = background.label;
+    const url = document.createElement("div");
+    url.className = "saved-background-url";
+    url.textContent = background.url;
+    url.title = background.url;
+    text.append(label, url);
+    const cardActions = document.createElement("div");
+    cardActions.className = "saved-background-card-actions";
+    cardActions.append(
+      settingsActionButton("Apply", () => applySavedBackgroundImage(background.id), "", `apply saved background ${background.label}`),
+      settingsActionButton("Rename", () => renameSavedBackgroundImage(background.id), "", `rename saved background ${background.label}`),
+      settingsActionButton("Delete", () => deleteSavedBackgroundImage(background.id), "danger", `delete saved background ${background.label}`)
+    );
+    card.append(preview, text, cardActions);
+    list.append(card);
+  }
+  panel.append(list);
+  return panel;
+}
+
 function isActiveTerminalColorPreset(preset) {
   return state.settings.terminalBackground === preset.background
     && state.settings.terminalForeground === preset.foreground
@@ -3697,7 +3928,7 @@ function settingsActionButton(label, onClick, tone = "", searchTerms = "") {
   return button;
 }
 
-async function chooseBackgroundImage() {
+async function chooseBackgroundImage(options = {}) {
   if (!window.cmuxNative?.pickBackgroundImage) {
     toast("Local image picker is unavailable.");
     return;
@@ -3705,8 +3936,11 @@ async function chooseBackgroundImage() {
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return;
   updateSettings({ backgroundImage: url });
+  if (options.save) {
+    upsertSavedBackgroundImage({ url }, { render: false, toast: false });
+  }
   renderSettingsInspector();
-  toast("Background image updated.");
+  toast(options.save ? "Background image saved." : "Background image updated.");
 }
 
 function settingsPresetGrid() {
@@ -4262,6 +4496,8 @@ function showToolbarMenu(event) {
     contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
     contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
     contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
+    contextMenuButton("Background settings", () => openSettingsCategory("appearance")),
+    contextMenuButton("Save current background", () => upsertSavedBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
     contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
@@ -4752,6 +4988,16 @@ function paletteEntries() {
       shortcut: "Color",
       search: normalizeSettingsQuery(`saved color palette custom workspace pane tab ${color}`),
       run: () => setWorkspaceColor(color)
+    });
+  }
+  for (const background of state.savedBackgroundImages) {
+    entries.push({
+      id: `savedBackground.${background.id}`,
+      label: `Background: ${background.label}`,
+      meta: background.url,
+      shortcut: "Look",
+      search: normalizeSettingsQuery(`saved background image wallpaper apply ${background.label} ${background.url}`),
+      run: () => applySavedBackgroundImage(background.id)
     });
   }
   for (const profile of state.savedSettingsProfiles) {
@@ -5504,12 +5750,13 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 
 async function exportSettings() {
   const payload = JSON.stringify({
-    version: 5,
+    version: 6,
     settings: state.settings,
     commandSnippets: state.customCommandSnippets,
     settingsProfiles: state.savedSettingsProfiles,
     workspaceBlueprints: state.workspaceBlueprints,
-    customColorPalette: state.customColorPalette
+    customColorPalette: state.customColorPalette,
+    savedBackgroundImages: state.savedBackgroundImages
   }, null, 2);
   if (await writeClipboardText(payload)) {
     toast("Settings copied to clipboard.");
@@ -5590,6 +5837,28 @@ async function importSettings() {
         importedColorPalette.map(normalizeCustomPaletteColor).filter(Boolean)
       ).slice(0, customColorPaletteLimit);
       saveCustomColorPalette();
+    }
+    const importedBackgroundImages = Array.isArray(parsed?.savedBackgroundImages)
+      ? parsed.savedBackgroundImages
+      : Array.isArray(parsed?.savedBackgrounds)
+        ? parsed.savedBackgrounds
+        : null;
+    if (importedBackgroundImages) {
+      state.savedBackgroundImages = [];
+      const seenBackgroundIds = new Set();
+      const seenBackgroundUrls = new Set();
+      for (const entry of importedBackgroundImages) {
+        if (state.savedBackgroundImages.length >= savedBackgroundImagesLimit) break;
+        const background = normalizeSavedBackgroundImage(entry);
+        if (!background) continue;
+        const urlKey = background.url.toLowerCase();
+        if (seenBackgroundUrls.has(urlKey)) continue;
+        if (seenBackgroundIds.has(background.id)) background.id = createSavedBackgroundImageId();
+        seenBackgroundIds.add(background.id);
+        seenBackgroundUrls.add(urlKey);
+        state.savedBackgroundImages.push(background);
+      }
+      saveSavedBackgroundImages();
     }
     saveSettings();
     applySettings();

@@ -103,6 +103,7 @@ function buildMenu() {
         { type: "separator" },
         { label: "Settings", accelerator: "Ctrl+,", click: () => mainWindow?.webContents.send("cmux-command", "settings.open") },
         { label: "Color Settings", click: () => mainWindow?.webContents.send("cmux-command", "settings.colors") },
+        { label: "Background Settings", click: () => mainWindow?.webContents.send("cmux-command", "settings.backgrounds") },
         { label: "Settings Profiles", click: () => mainWindow?.webContents.send("cmux-command", "settings.profiles") },
         { label: "Command Snippets", click: () => mainWindow?.webContents.send("cmux-command", "settings.commands") },
         { type: "separator" },

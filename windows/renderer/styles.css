@@ -322,6 +322,7 @@ button {
 .settings-preset,
 .terminal-color-preset,
 .saved-color-swatch,
+.saved-background-preview,
 .workspace-starter,
 .empty-workspace-starter,
 .background-preset,
@@ -411,6 +412,7 @@ button {
 .settings-preset:focus-visible,
 .terminal-color-preset:focus-visible,
 .saved-color-swatch:focus-visible,
+.saved-background-preview:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
@@ -437,6 +439,7 @@ button {
 .settings-preset:active,
 .terminal-color-preset:active,
 .saved-color-swatch:active,
+.saved-background-preview:active,
 .workspace-starter:active,
 .empty-workspace-starter:active,
 .settings-command-run:active,
@@ -2231,6 +2234,102 @@ button {
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 12px;
+}
+
+.saved-background-panel {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.saved-background-add {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: var(--space-2);
+}
+
+.saved-background-actions,
+.saved-background-card-actions {
+  min-width: 0;
+}
+
+.saved-background-empty {
+  padding: var(--space-2);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-1);
+  color: var(--color-faint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.saved-background-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.saved-background-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.saved-background-card.is-active {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 68%, transparent);
+}
+
+.saved-background-preview {
+  width: 54px;
+  height: 38px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background-color: var(--color-canvas);
+  background-image: var(--saved-background-image);
+  background-size: cover;
+  background-position: center;
+}
+
+.saved-background-preview:hover {
+  border-color: var(--color-text);
+}
+
+.saved-background-text {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.saved-background-label,
+.saved-background-url {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.saved-background-label {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.saved-background-url {
+  color: var(--color-faint);
+  font: 10px/1 var(--font-mono);
+}
+
+.saved-background-card-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
 }
 
 .terminal-color-preset-grid {
