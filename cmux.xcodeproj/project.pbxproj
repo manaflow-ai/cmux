@@ -285,6 +285,8 @@
 		8E7743000000000000000009 /* HTTPControlServerListenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000008 /* HTTPControlServerListenerTests.swift */; };
 		8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000002 /* HTTPControlSettings.swift */; };
 		8E774300000000000000000F /* HTTPControlSurfaceListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000000E /* HTTPControlSurfaceListTests.swift */; };
+		8E7744000000000000000005 /* HTTPControlUDSListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7744000000000000000004 /* HTTPControlUDSListener.swift */; };
+		8E7744000000000000000007 /* HTTPControlUDSListenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7744000000000000000006 /* HTTPControlUDSListenerTests.swift */; };
 		8E774000000000000000000B /* HTTPParseError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000A /* HTTPParseError.swift */; };
 		8E7740000000000000000009 /* HTTPRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000008 /* HTTPRequest.swift */; };
 		8E774000000000000000000D /* HTTPRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774000000000000000000C /* HTTPRequestParser.swift */; };
@@ -903,6 +905,8 @@
 		8E7743000000000000000008 /* HTTPControlServerListenerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlServerListenerTests.swift; sourceTree = "<group>"; };
 		8E7740000000000000000002 /* HTTPControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlSettings.swift; sourceTree = "<group>"; };
 		8E774300000000000000000E /* HTTPControlSurfaceListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlSurfaceListTests.swift; sourceTree = "<group>"; };
+		8E7744000000000000000004 /* HTTPControlUDSListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlUDSListener.swift; sourceTree = "<group>"; };
+		8E7744000000000000000006 /* HTTPControlUDSListenerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlUDSListenerTests.swift; sourceTree = "<group>"; };
 		8E774000000000000000000A /* HTTPParseError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPParseError.swift; sourceTree = "<group>"; };
 		8E7740000000000000000008 /* HTTPRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequest.swift; sourceTree = "<group>"; };
 		8E774000000000000000000C /* HTTPRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPRequestParser.swift; sourceTree = "<group>"; };
@@ -1275,6 +1279,7 @@
 				8E7743000000000000000002 /* RouteTable.swift */,
 				8E774300000000000000000A /* SurfaceListJSON.swift */,
 				8E7740000000000000000006 /* TerminalController+SurfaceProviderStubs.swift */,
+				8E7744000000000000000004 /* HTTPControlUDSListener.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -1295,6 +1300,7 @@
 				8E7743000000000000000004 /* RouteTableTests.swift */,
 				8E7743000000000000000014 /* Support */,
 				8E7744000000000000000002 /* HTTPTokenChildEnvIsolationTests.swift */,
+				8E7744000000000000000006 /* HTTPControlUDSListenerTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -2331,6 +2337,7 @@
 				8E774300000000000000000D /* HTTPControlRoutes.swift in Sources */,
 				8E7743000000000000000007 /* HTTPControlServer.swift in Sources */,
 				8E7740000000000000000003 /* HTTPControlSettings.swift in Sources */,
+				8E7744000000000000000005 /* HTTPControlUDSListener.swift in Sources */,
 				8E774000000000000000000B /* HTTPParseError.swift in Sources */,
 				8E7740000000000000000009 /* HTTPRequest.swift in Sources */,
 				8E774000000000000000000D /* HTTPRequestParser.swift in Sources */,
@@ -2649,6 +2656,7 @@
 				8E7743000000000000000019 /* HTTPControlScreenRouteTests.swift in Sources */,
 				8E7743000000000000000009 /* HTTPControlServerListenerTests.swift in Sources */,
 				8E774300000000000000000F /* HTTPControlSurfaceListTests.swift in Sources */,
+				8E7744000000000000000007 /* HTTPControlUDSListenerTests.swift in Sources */,
 				8E774000000000000000000F /* HTTPRequestParserTests.swift in Sources */,
 				8E7744000000000000000003 /* HTTPTokenChildEnvIsolationTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,

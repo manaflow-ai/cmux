@@ -30,6 +30,7 @@ public final class HTTPControlServer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var tcpListener: NWListener?
+    private var udsListener: HTTPControlUDSListener?
     private let queue = DispatchQueue(
         label: "cmux.http-control",
         qos: .userInitiated
@@ -95,14 +96,38 @@ public final class HTTPControlServer: @unchecked Sendable {
         return resolved
     }
 
+    /// Binds an AF_UNIX listener at `path`. Mode `0600`. D12 — uses
+    /// the POSIX path through ``HTTPControlUDSListener`` rather than
+    /// `NWEndpoint.unix(path:)`.
+    ///
+    /// The same route dispatch, auth, and body cap as the TCP path
+    /// apply; the `Host` header check is short-circuited (UDS has no
+    /// Host concept) and replaced by the file-permission check.
+    public func startUDS(path: String) throws {
+        let listener = HTTPControlUDSListener(
+            path: path,
+            queue: queue
+        ) { [weak self] cfd in
+            guard let self else { Darwin.close(cfd); return }
+            self.acceptRawFD(cfd)
+        }
+        try listener.start()
+        lock.lock()
+        self.udsListener = listener
+        lock.unlock()
+    }
+
     /// Stops the listener and cancels any pending accepts.
     public func stop() {
         lock.lock()
         let l = tcpListener
+        let u = udsListener
         tcpListener = nil
+        udsListener = nil
         _boundPort = 0
         lock.unlock()
         l?.cancel()
+        u?.stop()
     }
 
     private func accept(_ conn: NWConnection) {
@@ -221,6 +246,116 @@ public final class HTTPControlServer: @unchecked Sendable {
         conn.send(content: data, completion: .contentProcessed { _ in
             if close { conn.cancel() }
         })
+    }
+
+    // MARK: - UDS accept path
+
+    /// Wraps an accepted UDS client fd in `DispatchIO`, parses one
+    /// request, dispatches it through the route table, and writes
+    /// the response. Mirrors ``handle(_:connection:)`` for TCP; the
+    /// UDS path uses port `0` for the Host allowlist (clients send
+    /// `localhost:0`).
+    private func acceptRawFD(_ fd: Int32) {
+        let io = DispatchIO(
+            type: .stream,
+            fileDescriptor: fd,
+            queue: queue,
+            cleanupHandler: { _ in Darwin.close(fd) }
+        )
+        io.setLimit(lowWater: 1)
+        let state = ConnectionState()
+        readUDS(io: io, state: state)
+    }
+
+    private func readUDS(io: DispatchIO, state: ConnectionState) {
+        io.read(offset: 0, length: 64 * 1024, queue: queue) { [weak self] _, data, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                state.parser.feed(Data(data))
+                do {
+                    switch try state.parser.next() {
+                    case .complete(let req):
+                        Task { await self.handleUDS(req, io: io) }
+                        return
+                    case .need:
+                        self.readUDS(io: io, state: state)
+                    }
+                } catch HTTPParseError.bodyTooLarge,
+                        HTTPParseError.headerTooLarge {
+                    self.writeUDS(
+                        JSONResponses.error(.payloadTooLarge),
+                        io: io
+                    )
+                } catch {
+                    self.writeUDS(
+                        JSONResponses.error(
+                            .badRequest(reason: "malformed request")
+                        ),
+                        io: io
+                    )
+                }
+            } else {
+                // EOF or read error — close the fd via DispatchIO cleanup.
+                io.close(flags: .stop)
+            }
+        }
+    }
+
+    private func handleUDS(_ req: HTTPRequest, io: DispatchIO) async {
+        guard isEnabled() else {
+            writeUDS(JSONResponses.error(.featureDisabled), io: io)
+            return
+        }
+        // UDS has no real Host concept, but the parser still required
+        // an HTTP/1.1 Host header. We synthesise port 0 for the
+        // allowlist and let clients send `Host: localhost:0` or
+        // `Host: 127.0.0.1:0`.
+        let allowlist = hostAllowlistFor(0)
+        switch allowlist.evaluate(
+            host: req.header("host"),
+            origin: req.header("origin")
+        ) {
+        case .missingHost:
+            writeUDS(
+                JSONResponses.error(.badRequest(reason: "missing Host")),
+                io: io
+            )
+            return
+        case .forbiddenHost:
+            writeUDS(
+                JSONResponses.error(.forbidden(reason: "host not allowed")),
+                io: io
+            )
+            return
+        case .forbiddenOrigin:
+            writeUDS(
+                JSONResponses.error(.forbidden(reason: "origin not allowed")),
+                io: io
+            )
+            return
+        case .ok:
+            break
+        }
+        if auth.evaluate(authorizationHeader: req.header("authorization")) != .ok {
+            writeUDS(JSONResponses.error(.unauthorized), io: io)
+            return
+        }
+        let resp = await routeTable.dispatch(req)
+        writeUDS(resp, io: io)
+    }
+
+    private func writeUDS(_ resp: JSONResponses.Response, io: DispatchIO) {
+        var head = "HTTP/1.1 \(resp.status) \(Self.reasonPhrase(resp.status))\r\n"
+        for (k, v) in resp.headers { head += "\(k): \(v)\r\n" }
+        head += "Connection: close\r\n\r\n"
+        var bytes = Data(head.utf8)
+        bytes.append(resp.body)
+        let dd = bytes.withUnsafeBytes { raw in
+            DispatchData(bytes: raw)
+        }
+        io.write(offset: 0, data: dd, queue: queue) { _, _, _ in
+            io.close(flags: .stop)
+        }
     }
 
     private static func reasonPhrase(_ status: Int) -> String {
