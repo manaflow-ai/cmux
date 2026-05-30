@@ -1540,9 +1540,6 @@ enum TextBoxMentionCompletionDetector {
         }
 
         let query = String(token.dropFirst())
-        if kind == .skill, query.isEmpty {
-            return nil
-        }
         return TextBoxMentionQuery(kind: kind, range: tokenRange, query: query, trigger: trigger)
     }
 }
@@ -1569,7 +1566,7 @@ private enum TextBoxMentionMarkdown {
 private struct TextBoxMentionCandidate: Sendable {
     let title: String
     let subtitle: String
-    let insertionText: String
+    let targetPath: String
     let systemImageName: String
     let searchKey: String
     let priority: Int
@@ -1582,8 +1579,18 @@ private struct TextBoxMentionCandidate: Sendable {
             displayTitle = title
         }
 
+        let insertionText: String
+        if trigger == "$" {
+            // The $ trigger intentionally inserts the bare skill reference
+            // (e.g. "$skill-name") as a plain-text shorthand. The / and @
+            // triggers insert a markdown link instead.
+            insertionText = displayTitle
+        } else {
+            insertionText = TextBoxMentionMarkdown.link(label: displayTitle, path: targetPath)
+        }
+
         return TextBoxMentionSuggestion(
-            id: insertionText,
+            id: "\(trigger):\(targetPath)",
             title: displayTitle,
             subtitle: subtitle,
             insertionText: insertionText,
@@ -1614,6 +1621,18 @@ private struct TextBoxMentionCandidateIndex: Sendable {
 
     func rankedCandidates(matching rawQuery: String, limit: Int) -> [TextBoxMentionCandidate] {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return corpus
+                .sorted { lhs, rhs in
+                    if lhs.rank != rhs.rank {
+                        return lhs.rank < rhs.rank
+                    }
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                }
+                .prefix(limit)
+                .map(\.payload)
+        }
+
         if let nucleoResults = nucleoIndex?.search(
             query: query,
             resultLimit: limit,
@@ -1640,10 +1659,10 @@ actor TextBoxMentionIndexStore {
         let createdAt: Date
     }
 
-    private static let fileIndexTTL: TimeInterval = 2
+    private static let fileIndexTTL: TimeInterval = 30
     private static let maxIndexedFiles = 6000
     private static let maxIndexedSkills = 800
-    private static let suggestionLimit = 8
+    private static let suggestionLimit = 500
     private static let skippedDirectoryNames: Set<String> = [
         ".build",
         ".git",
@@ -1656,8 +1675,26 @@ actor TextBoxMentionIndexStore {
         "Pods",
         "vendor"
     ]
+    private static let skippedPackageDirectorySuffixes = [
+        ".app",
+        ".appex",
+        ".bundle",
+        ".dSYM",
+        ".framework",
+        ".kext",
+        ".mdimporter",
+        ".plugin",
+        ".prefPane",
+        ".qlgenerator",
+        ".rtfd",
+        ".xcframework",
+        ".xcodeproj",
+        ".xcworkspace",
+        ".playground"
+    ]
 
     private var fileIndexesByRoot: [String: CachedIndex] = [:]
+    private var fileIndexRefreshTasks: [String: Task<TextBoxMentionCandidateIndex, Never>] = [:]
     private var skillIndexesByRootKey: [String: TextBoxMentionCandidateIndex] = [:]
 
     func suggestions(
@@ -1667,7 +1704,7 @@ actor TextBoxMentionIndexStore {
         switch query.kind {
         case .file:
             guard let rootDirectory = Self.normalizedDirectory(rootDirectory) else { return [] }
-            return fileSuggestions(for: query, rootDirectory: rootDirectory)
+            return await fileSuggestions(for: query, rootDirectory: rootDirectory)
         case .skill:
             let index = skillIndex(rootDirectory: Self.normalizedDirectory(rootDirectory))
             return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
@@ -1675,38 +1712,92 @@ actor TextBoxMentionIndexStore {
         }
     }
 
+    func warmIndexes(rootDirectory: String?) {
+        let normalizedRootDirectory = Self.normalizedDirectory(rootDirectory)
+        _ = skillIndex(rootDirectory: normalizedRootDirectory)
+    }
+
     private func fileSuggestions(
         for query: TextBoxMentionQuery,
         rootDirectory: String
-    ) -> [TextBoxMentionSuggestion] {
+    ) async -> [TextBoxMentionSuggestion] {
+        if query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return Self.scanRootFiles(rootURL: URL(fileURLWithPath: rootDirectory, isDirectory: true))
+                .prefix(Self.suggestionLimit)
+                .map { $0.suggestion(trigger: query.trigger) }
+        }
+
         let now = Date()
-        let index = fileIndex(rootDirectory: rootDirectory, now: now)
+        let index = await fileIndex(rootDirectory: rootDirectory, now: now)
         var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
         if matches.isEmpty, !query.query.isEmpty {
-            let refreshed = refreshFileIndex(rootDirectory: rootDirectory, now: now)
+            let refreshed = await refreshFileIndex(rootDirectory: rootDirectory, now: now)
             matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
         }
         return matches
             .map { $0.suggestion(trigger: query.trigger) }
     }
 
+    private static func scanRootFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
+        let fileManager = FileManager.default
+        let rootPath = rootURL.standardizedFileURL.path
+        guard let children = try? fileManager.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return children.compactMap { child -> TextBoxMentionCandidate? in
+            let standardizedURL = child.standardizedFileURL
+            guard (try? standardizedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                return nil
+            }
+            let relativePath = relativePath(for: standardizedURL.path, rootPath: rootPath)
+            return TextBoxMentionCandidate(
+                title: "@\(relativePath)",
+                subtitle: displayPath(standardizedURL.path),
+                targetPath: standardizedURL.path,
+                systemImageName: "doc",
+                searchKey: "\(relativePath) \(standardizedURL.lastPathComponent)".lowercased(),
+                priority: 0
+            )
+        }
+        .sorted {
+            $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+    }
+
     private func fileIndex(
         rootDirectory: String,
         now: Date
-    ) -> TextBoxMentionCandidateIndex {
+    ) async -> TextBoxMentionCandidateIndex {
         if let cached = fileIndexesByRoot[rootDirectory],
            now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
             return cached.index
         }
-        return refreshFileIndex(rootDirectory: rootDirectory, now: now)
+        return await refreshFileIndex(rootDirectory: rootDirectory, now: now)
     }
 
     private func refreshFileIndex(
         rootDirectory: String,
         now: Date
-    ) -> TextBoxMentionCandidateIndex {
+    ) async -> TextBoxMentionCandidateIndex {
+        // Coalesce concurrent refreshes: while one scan is in flight for a root,
+        // additional keystrokes await the same scan instead of each spawning a
+        // fresh (and expensive) `rg`/filesystem walk. The detached scan is not
+        // cancelled, so a join here is correct even if the caller's lookup task is.
+        if let inFlight = fileIndexRefreshTasks[rootDirectory] {
+            return await inFlight.value
+        }
         let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
-        let index = TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
+        let scanTask = Task<TextBoxMentionCandidateIndex, Never>.detached(priority: .utility) {
+            TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
+        }
+        fileIndexRefreshTasks[rootDirectory] = scanTask
+        let index = await scanTask.value
+        fileIndexRefreshTasks[rootDirectory] = nil
         fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
         return index
     }
@@ -1728,7 +1819,7 @@ actor TextBoxMentionIndexStore {
                 candidates.append(TextBoxMentionCandidate(
                     title: "/\(skillName)",
                     subtitle: Self.displayPath(path),
-                    insertionText: TextBoxMentionMarkdown.link(label: "$\(skillName)", path: path),
+                    targetPath: path,
                     systemImageName: "sparkle.magnifyingglass",
                     searchKey: "\(skillName) \(path)".lowercased(),
                     priority: 0
@@ -1748,6 +1839,10 @@ actor TextBoxMentionIndexStore {
     }
 
     private static func scanFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
+        if let ripgrepCandidates = scanFilesWithRipgrep(rootURL: rootURL) {
+            return ripgrepCandidates
+        }
+
         let fileManager = FileManager.default
         guard let enumerator = fileManager.enumerator(
             at: rootURL,
@@ -1765,7 +1860,7 @@ actor TextBoxMentionIndexStore {
             let name = standardizedURL.lastPathComponent
             let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values?.isDirectory == true {
-                if skippedDirectoryNames.contains(name) {
+                if shouldSkipIndexedDirectoryName(name) {
                     enumerator.skipDescendants()
                 }
                 continue
@@ -1776,7 +1871,7 @@ actor TextBoxMentionIndexStore {
             candidates.append(TextBoxMentionCandidate(
                 title: "@\(relativePath)",
                 subtitle: Self.displayPath(standardizedURL.path),
-                insertionText: TextBoxMentionMarkdown.link(label: "@\(relativePath)", path: standardizedURL.path),
+                targetPath: standardizedURL.path,
                 systemImageName: "doc",
                 searchKey: "\(relativePath) \(name)".lowercased(),
                 priority: min(relativePath.split(separator: "/").count, 20)
@@ -1786,6 +1881,96 @@ actor TextBoxMentionIndexStore {
                 break
             }
         }
+        return candidates.sorted {
+            if $0.priority != $1.priority {
+                return $0.priority < $1.priority
+            }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+    }
+
+    private static func scanFilesWithRipgrep(rootURL: URL) -> [TextBoxMentionCandidate]? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        var arguments = [
+            "rg",
+            "--files",
+            "--color", "never",
+            "--no-messages"
+        ]
+        // Apply the same skip list as the fallback enumerator. rg honors
+        // .gitignore in a git repo, but in a non-git root it would otherwise
+        // descend into node_modules/vendor/Pods/etc. and blow the file budget.
+        for name in skippedDirectoryNames.sorted() {
+            arguments.append("--glob")
+            arguments.append("!\(name)")
+        }
+        for suffix in skippedPackageDirectorySuffixes {
+            arguments.append("--iglob")
+            arguments.append("!*\(suffix)")
+        }
+        process.arguments = arguments
+        process.currentDirectoryURL = rootURL
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        var candidates: [TextBoxMentionCandidate] = []
+        candidates.reserveCapacity(min(maxIndexedFiles, 1024))
+
+        func appendCandidate(relativePath: String) {
+            guard !relativePath.isEmpty, candidates.count < maxIndexedFiles else { return }
+            let fileURL = rootURL.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
+            let name = fileURL.lastPathComponent
+            candidates.append(TextBoxMentionCandidate(
+                title: "@\(relativePath)",
+                subtitle: displayPath(fileURL.path),
+                targetPath: fileURL.path,
+                systemImageName: "doc",
+                searchKey: "\(relativePath) \(name)".lowercased(),
+                priority: min(relativePath.split(separator: "/").count, 20)
+            ))
+        }
+
+        let stdoutHandle = stdout.fileHandleForReading
+        var buffer = Data()
+        let newline: UInt8 = 10
+        while candidates.count < maxIndexedFiles {
+            let chunk = stdoutHandle.readData(ofLength: 64 * 1024)
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+            while let newlineIndex = buffer.firstIndex(of: newline) {
+                let lineData = Data(buffer[..<newlineIndex])
+                if let relativePath = String(data: lineData, encoding: .utf8) {
+                    appendCandidate(relativePath: relativePath)
+                }
+                buffer.removeSubrange(buffer.startIndex...newlineIndex)
+                if candidates.count >= maxIndexedFiles {
+                    break
+                }
+            }
+        }
+
+        let reachedLimit = candidates.count >= maxIndexedFiles
+        if reachedLimit, process.isRunning {
+            process.terminate()
+        } else if !buffer.isEmpty,
+                  let relativePath = String(data: buffer, encoding: .utf8) {
+            appendCandidate(relativePath: relativePath)
+        }
+
+        process.waitUntilExit()
+        guard reachedLimit || process.terminationStatus == 0 || process.terminationStatus == 1 else {
+            return nil
+        }
+
         return candidates.sorted {
             if $0.priority != $1.priority {
                 return $0.priority < $1.priority
@@ -1809,27 +1994,32 @@ actor TextBoxMentionIndexStore {
             includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants],
             errorHandler: { _, _ in true }
-        ) else {
-            return []
-        }
+        ) else { return result }
 
         while let item = enumerator.nextObject() as? URL {
             let standardizedURL = item.standardizedFileURL
-            if standardizedURL.lastPathComponent == "SKILL.md" {
-                result.append(standardizedURL)
-                if result.count >= maxIndexedSkills {
-                    break
+            let name = standardizedURL.lastPathComponent
+            let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isDirectory == true {
+                if shouldSkipIndexedDirectoryName(name) {
+                    enumerator.skipDescendants()
+                    continue
                 }
-                enumerator.skipDescendants()
-                continue
+
+                let skillFile = standardizedURL.appendingPathComponent("SKILL.md", isDirectory: false)
+                if fileManager.fileExists(atPath: skillFile.path) {
+                    result.append(skillFile.standardizedFileURL)
+                    enumerator.skipDescendants()
+                }
+            } else if values?.isRegularFile == true, name == "SKILL.md" {
+                result.append(standardizedURL)
             }
 
-            if let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey]),
-               values.isDirectory == true,
-               skippedDirectoryNames.contains(standardizedURL.lastPathComponent) {
-                enumerator.skipDescendants()
+            if result.count >= maxIndexedSkills {
+                break
             }
         }
+
         return result
     }
 
@@ -1903,6 +2093,16 @@ actor TextBoxMentionIndexStore {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
+    private static func shouldSkipIndexedDirectoryName(_ name: String) -> Bool {
+        if skippedDirectoryNames.contains(name) {
+            return true
+        }
+        let normalizedName = name.lowercased()
+        return skippedPackageDirectorySuffixes.contains { suffix in
+            normalizedName.hasSuffix(suffix.lowercased())
+        }
+    }
+
     private static func skillName(from skillURL: URL) -> String {
         guard let content = try? String(contentsOf: skillURL, encoding: .utf8) else {
             return skillURL.deletingLastPathComponent().lastPathComponent
@@ -1962,29 +2162,61 @@ private final class TextBoxMentionCompletionController {
     @ObservationIgnored
     private var lookupTask: Task<Void, Never>?
     @ObservationIgnored
+    private var suggestionsQuery: TextBoxMentionQuery?
+    @ObservationIgnored
+    private var suggestionsRootDirectory: String?
+    @ObservationIgnored
     var onStateChanged: (() -> Void)?
 
     var hasSuggestions: Bool {
         !suggestions.isEmpty
     }
 
+    var isActive: Bool {
+        activeQuery != nil
+    }
+
+    var hasCurrentSuggestions: Bool {
+        hasSuggestions &&
+            suggestionsQuery == activeQuery &&
+            suggestionsRootDirectory == activeRootDirectory
+    }
+
+    var hasStaleSuggestions: Bool {
+        hasSuggestions && !hasCurrentSuggestions
+    }
+
     var selectedSuggestion: TextBoxMentionSuggestion? {
+        guard hasCurrentSuggestions else { return nil }
         guard suggestions.indices.contains(selectionIndex) else { return nil }
         return suggestions[selectionIndex]
     }
 
     func refresh(for query: TextBoxMentionQuery?, rootDirectory: String?) {
+        if query == nil {
+            guard activeQuery != nil || activeRootDirectory != nil || !suggestions.isEmpty else { return }
+            clear()
+            return
+        }
+        guard let query else { return }
+
         guard activeQuery != query || activeRootDirectory != rootDirectory else { return }
+        let previousActiveQuery = activeQuery
+        let previousRootDirectory = activeRootDirectory
         activeQuery = query
         activeRootDirectory = rootDirectory
         selectionIndex = 0
-        lookupTask?.cancel()
-        suggestions = []
-        onStateChanged?()
-
-        guard let query else {
-            return
+        // Editing within the same trigger keeps the current rows on screen until
+        // the async lookup returns, avoiding a per-keystroke popover flicker.
+        // Switching triggers is a different completion kind, so drop stale rows
+        // immediately rather than showing them under the wrong trigger.
+        if previousActiveQuery?.trigger != query.trigger || previousRootDirectory != rootDirectory {
+            suggestions = []
+            suggestionsQuery = nil
+            suggestionsRootDirectory = nil
         }
+        lookupTask?.cancel()
+        onStateChanged?()
 
         lookupTask = Task { [weak self] in
             let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
@@ -1998,6 +2230,8 @@ private final class TextBoxMentionCompletionController {
                     return
                 }
                 self.suggestions = suggestions
+                self.suggestionsQuery = query
+                self.suggestionsRootDirectory = rootDirectory
                 self.selectionIndex = suggestions.isEmpty ? 0 : min(self.selectionIndex, suggestions.count - 1)
                 self.onStateChanged?()
             }
@@ -2005,15 +2239,18 @@ private final class TextBoxMentionCompletionController {
     }
 
     func moveSelection(delta: Int) {
-        guard !suggestions.isEmpty else { return }
+        guard hasCurrentSuggestions else { return }
         let count = suggestions.count
         selectionIndex = (selectionIndex + delta + count) % count
+        onStateChanged?()
     }
 
     func clear() {
         activeQuery = nil
         activeRootDirectory = nil
         suggestions = []
+        suggestionsQuery = nil
+        suggestionsRootDirectory = nil
         selectionIndex = 0
         lookupTask?.cancel()
         lookupTask = nil
@@ -2034,6 +2271,8 @@ private final class TextBoxMentionCompletionController {
         activeQuery = query
         activeRootDirectory = nil
         suggestions = debugSuggestions
+        suggestionsQuery = query
+        suggestionsRootDirectory = nil
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
         onStateChanged?()
     }
@@ -2041,48 +2280,98 @@ private final class TextBoxMentionCompletionController {
     var debugSuggestionCount: Int {
         suggestions.count
     }
+
+    var debugHasCurrentSuggestions: Bool {
+        hasCurrentSuggestions
+    }
 #endif
 }
 
 private struct TextBoxMentionCompletionPopoverView: View {
-    let controller: TextBoxMentionCompletionController
+    let suggestions: [TextBoxMentionSuggestion]
+    let selectionIndex: Int
+    let searchTerm: String
     let onSelect: (TextBoxMentionSuggestion) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(controller.suggestions.enumerated()), id: \.element.id) { index, suggestion in
-                Button {
-                    onSelect(suggestion)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: suggestion.systemImageName)
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 18)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(suggestion.title)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                        Button {
+                            onSelect(suggestion)
+                        } label: {
+                            Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
                                 .font(.system(size: 12, weight: .semibold))
                                 .lineLimit(1)
-                            Text(suggestion.subtitle)
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
                                 .truncationMode(.middle)
+                                .padding(.horizontal, 8)
+                                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .fill(index == selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
+                                }
                         }
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-                    .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(index == controller.selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
+                        .buttonStyle(.plain)
+                        .id(index)
                     }
                 }
-                .buttonStyle(.plain)
+                .padding(4)
+            }
+            .onChange(of: selectionIndex) { _, newValue in
+                proxy.scrollTo(newValue, anchor: nil)
             }
         }
-        .padding(5)
-        .frame(width: 430)
+        .frame(width: 360)
         .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .transaction { transaction in
+            transaction.animation = nil
+        }
     }
+
+    private static func highlightedTitle(_ title: String, query: String) -> AttributedString {
+        var attributed = AttributedString(title)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return attributed }
+        let positions = subsequenceMatchPositions(query: trimmedQuery, in: title)
+        guard !positions.isEmpty else { return attributed }
+        for position in positions {
+            guard let charIndex = title.index(
+                title.startIndex,
+                offsetBy: position,
+                limitedBy: title.endIndex
+            ),
+            charIndex < title.endIndex,
+            let attrLower = AttributedString.Index(charIndex, within: attributed) else { continue }
+            let nextChar = title.index(after: charIndex)
+            guard let attrUpper = AttributedString.Index(nextChar, within: attributed) else { continue }
+            attributed[attrLower..<attrUpper].foregroundColor = .accentColor
+            attributed[attrLower..<attrUpper].inlinePresentationIntent = .stronglyEmphasized
+        }
+        return attributed
+    }
+
+    private static func subsequenceMatchPositions(query: String, in text: String) -> [Int] {
+        let q = Array(query.lowercased())
+        let t = Array(text.lowercased())
+        guard !q.isEmpty, !t.isEmpty else { return [] }
+        var positions: [Int] = []
+        var qIdx = 0
+        for (tIdx, char) in t.enumerated() {
+            if qIdx < q.count, char == q[qIdx] {
+                positions.append(tIdx)
+                qIdx += 1
+                if qIdx == q.count { return positions }
+            }
+        }
+        return qIdx == q.count ? positions : []
+    }
+}
+
+final class TextBoxMentionCompletionPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 @MainActor
@@ -3839,7 +4128,11 @@ struct TextBoxInputView: NSViewRepresentable {
 
 final class TextBoxInputTextView: NSTextView {
     var terminalTitle = ""
-    var completionRootDirectory: String?
+    var completionRootDirectory: String? {
+        didSet {
+            warmMentionCompletionIndexesIfNeeded()
+        }
+    }
     var onSubmit: () -> Void = {}
     var onEscape: () -> Void = {}
     var onFocusTextBox: () -> Void = {}
@@ -3865,8 +4158,11 @@ final class TextBoxInputTextView: NSTextView {
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
-    private var mentionCompletionPopover: NSPopover?
+    private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
+    private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
+    private var warmedMentionCompletionRootDirectory: String?
+    private var mentionCompletionWarmupTask: Task<Void, Never>?
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
@@ -3887,6 +4183,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     deinit {
+        mentionCompletionWarmupTask?.cancel()
         dismissMentionCompletions()
         removeAttachmentKeyDownMonitor()
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
@@ -3898,6 +4195,7 @@ final class TextBoxInputTextView: NSTextView {
         super.viewDidMoveToWindow()
         if window == nil {
             invalidatePendingAttachmentUploads()
+            dismissMentionCompletions()
         } else {
             notifyMovedToWindowIfAttached()
         }
@@ -4704,37 +5002,80 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func refreshMentionCompletions() {
+        let query = TextBoxMentionCompletionDetector.query(
+            in: attributedString().string,
+            selectedRange: selectedRange()
+        )
         mentionCompletionController.refresh(
-            for: TextBoxMentionCompletionDetector.query(
-                in: attributedString().string,
-                selectedRange: selectedRange()
-            ),
+            for: query,
             rootDirectory: completionRootDirectory
         )
     }
 
+    private func warmMentionCompletionIndexesIfNeeded() {
+        let rootDirectory = completionRootDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = rootDirectory?.isEmpty == false ? rootDirectory : nil
+        guard warmedMentionCompletionRootDirectory != cacheKey else { return }
+        warmedMentionCompletionRootDirectory = cacheKey
+        mentionCompletionWarmupTask?.cancel()
+        mentionCompletionWarmupTask = Task {
+            await TextBoxMentionIndexStore.shared.warmIndexes(rootDirectory: cacheKey)
+        }
+    }
+
     private func handleMentionCompletionKeyEvent(_ event: NSEvent) -> Bool {
-        guard mentionCompletionController.hasSuggestions else { return false }
+        guard mentionCompletionController.isActive else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.command),
-              !flags.contains(.control),
               !flags.contains(.option) else {
             return false
         }
 
+        if flags.contains(.control) {
+            guard let key = controlKey(for: event) else { return false }
+            // Only claim the navigation keys once there are rows to move through;
+            // otherwise (active query still loading or zero hits) let them fall
+            // through to normal text editing instead of being silently swallowed.
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
+            switch key {
+            case "p", "k":
+                if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+                mentionCompletionController.moveSelection(delta: -1)
+                return true
+            case "n", "j":
+                if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+                mentionCompletionController.moveSelection(delta: 1)
+                return true
+            default:
+                return false
+            }
+        }
+
         switch Int(event.keyCode) {
         case kVK_UpArrow:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case kVK_DownArrow:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
             guard !flags.contains(.shift) else { return false }
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassMentionCompletionKeyboardAcceptance() { return false }
+            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case kVK_Tab:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassMentionCompletionKeyboardAcceptance() { return false }
+            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case kVK_Escape:
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            guard mentionCompletionController.hasSuggestions else { return false }
             dismissMentionCompletions()
             return true
         default:
@@ -4743,19 +5084,28 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func handleMentionCompletionCommand(_ commandSelector: Selector) -> Bool {
-        guard mentionCompletionController.hasSuggestions else { return false }
+        guard mentionCompletionController.isActive else { return false }
 
         switch commandSelector {
         case #selector(NSResponder.moveUp(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: -1)
             return true
         case #selector(NSResponder.moveDown(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
         case #selector(NSResponder.insertNewline(_:)),
              #selector(NSResponder.insertTab(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            if shouldBypassMentionCompletionKeyboardAcceptance() { return false }
+            if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case #selector(NSResponder.cancelOperation(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
+            guard mentionCompletionController.hasSuggestions else { return false }
             dismissMentionCompletions()
             return true
         default:
@@ -4763,10 +5113,35 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
+    private func shouldBypassHiddenMentionCompletionKeyboardInteraction() -> Bool {
+        guard let window else { return false }
+        guard NSApp.isActive,
+              window.isKeyWindow,
+              window.firstResponder === self,
+              mentionCompletionPanel?.isVisible == true else {
+            dismissMentionCompletions()
+            return true
+        }
+        return false
+    }
+
+    private func shouldBypassMentionCompletionKeyboardAcceptance() -> Bool {
+        guard let query = mentionCompletionController.activeQuery,
+              query.kind == .skill,
+              query.query.isEmpty else {
+            return false
+        }
+        dismissMentionCompletions()
+        return true
+    }
+
     @discardableResult
     private func acceptMentionCompletion(_ explicitSuggestion: TextBoxMentionSuggestion? = nil) -> Bool {
-        guard let query = mentionCompletionController.activeQuery,
+        guard mentionCompletionController.hasCurrentSuggestions,
+              let query = mentionCompletionController.activeQuery,
               let suggestion = explicitSuggestion ?? mentionCompletionController.selectedSuggestion,
+              explicitSuggestion == nil ||
+                  mentionCompletionController.suggestions.contains(where: { $0.id == suggestion.id }),
               isValidSelectedRange(query.range),
               shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
             return false
@@ -4808,39 +5183,113 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func syncMentionCompletionPopover() {
-        guard mentionCompletionController.hasSuggestions,
+        guard mentionCompletionController.hasSuggestions else {
+            dismissMentionCompletionPopoverOnly()
+            return
+        }
+        guard NSApp.isActive,
               window?.firstResponder === self,
+              let parentWindow = window,
+              parentWindow.isKeyWindow,
               let anchorRect = mentionCompletionAnchorRect() else {
             dismissMentionCompletionPopoverOnly()
             return
         }
 
-        let popover = mentionCompletionPopover ?? makeMentionCompletionPopover()
-        popover.contentSize = NSSize(
-            width: 430,
-            height: CGFloat(mentionCompletionController.suggestions.count) * 36 + 10
+        let rowCount = mentionCompletionController.suggestions.count
+        let maxVisibleRows = 12
+        let visibleRows = min(rowCount, maxVisibleRows)
+        let rowHeight: CGFloat = 25
+        let contentSize = NSSize(
+            width: 360,
+            height: CGFloat(visibleRows) * rowHeight + 8
         )
-        if !popover.isShown {
-            popover.show(relativeTo: anchorRect, of: self, preferredEdge: .maxY)
-            window?.makeFirstResponder(self)
+        let host: NSHostingView<TextBoxMentionCompletionPopoverView>
+        if let existingHost = mentionCompletionPanelHost {
+            existingHost.rootView = mentionCompletionPopoverView()
+            host = existingHost
+        } else {
+            host = NSHostingView(rootView: mentionCompletionPopoverView())
+            host.translatesAutoresizingMaskIntoConstraints = true
+            host.autoresizingMask = []
+            mentionCompletionPanelHost = host
+        }
+        host.frame = NSRect(origin: .zero, size: contentSize)
+
+        let panel = mentionCompletionPanel ?? makeMentionCompletionPanel(host: host)
+        if panel.contentView !== host {
+            panel.contentView = host
+        }
+        panel.setContentSize(contentSize)
+        panel.setFrameOrigin(mentionCompletionPanelOrigin(
+            anchorRect: anchorRect,
+            contentSize: contentSize
+        ))
+
+        if panel.parent !== parentWindow {
+            panel.parent?.removeChildWindow(panel)
+            parentWindow.addChildWindow(panel, ordered: .above)
+        }
+        if !panel.isVisible {
+            panel.orderFront(nil)
         }
     }
 
-    private func makeMentionCompletionPopover() -> NSPopover {
-        let popover = NSPopover()
-        popover.behavior = .semitransient
-        popover.animates = false
-        popover.contentViewController = NSHostingController(
-            rootView: TextBoxMentionCompletionPopoverView(
-                controller: mentionCompletionController,
-                onSelect: { [weak self] suggestion in
-                    self?.window?.makeFirstResponder(self)
-                    self?.acceptMentionCompletion(suggestion)
-                }
-            )
+    private func makeMentionCompletionPanel(
+        host: NSHostingView<TextBoxMentionCompletionPopoverView>
+    ) -> TextBoxMentionCompletionPanel {
+        let panel = TextBoxMentionCompletionPanel(
+            contentRect: NSRect(origin: .zero, size: host.fittingSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
         )
-        mentionCompletionPopover = popover
-        return popover
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.worksWhenModal = true
+        panel.level = .popUpMenu
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.collectionBehavior = [.transient, .fullScreenAuxiliary, .moveToActiveSpace]
+        panel.contentView = host
+        mentionCompletionPanel = panel
+        return panel
+    }
+
+    private func mentionCompletionPanelOrigin(
+        anchorRect: NSRect,
+        contentSize: NSSize
+    ) -> NSPoint {
+        let anchorInWindow = convert(anchorRect, to: nil)
+        guard let window else {
+            return .zero
+        }
+        let anchorOnScreen = window.convertToScreen(anchorInWindow)
+        let screenFrame = window.screen?.visibleFrame ?? anchorOnScreen
+        var x = anchorOnScreen.minX
+        let gap: CGFloat = 4
+        var y = anchorOnScreen.minY - contentSize.height - gap
+        if y < screenFrame.minY + 8 {
+            y = anchorOnScreen.maxY + gap
+        }
+        let maxX = screenFrame.maxX - contentSize.width - 8
+        if x > maxX { x = max(screenFrame.minX + 8, maxX) }
+        if x < screenFrame.minX + 8 { x = screenFrame.minX + 8 }
+        return NSPoint(x: x, y: y)
+    }
+
+    private func mentionCompletionPopoverView() -> TextBoxMentionCompletionPopoverView {
+        TextBoxMentionCompletionPopoverView(
+            suggestions: mentionCompletionController.suggestions,
+            selectionIndex: mentionCompletionController.selectionIndex,
+            searchTerm: mentionCompletionController.activeQuery?.query ?? "",
+            onSelect: { [weak self] suggestion in
+                self?.window?.makeFirstResponder(self)
+                self?.acceptMentionCompletion(suggestion)
+            }
+        )
     }
 
     private func mentionCompletionAnchorRect() -> NSRect? {
@@ -4860,7 +5309,8 @@ final class TextBoxInputTextView: NSTextView {
             )
         }
 
-        let cursor = min(max(0, selectedRange().location), length)
+        let queryCursor = mentionCompletionController.activeQuery.map { NSMaxRange($0.range) }
+        let cursor = min(max(0, queryCursor ?? selectedRange().location), length)
         let characterLocation = max(0, min(cursor, length - 1))
         let glyphRange = layoutManager.glyphRange(
             forCharacterRange: NSRange(location: characterLocation, length: 1),
@@ -4883,8 +5333,12 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func dismissMentionCompletionPopoverOnly() {
-        mentionCompletionPopover?.performClose(nil)
-        mentionCompletionPopover = nil
+        if let panel = mentionCompletionPanel {
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
+        mentionCompletionPanel = nil
+        mentionCompletionPanelHost = nil
     }
 
     private func moveInsertionPointLeft() {
@@ -4950,6 +5404,18 @@ final class TextBoxInputTextView: NSTextView {
 
     func debugMentionSuggestionCount() -> Int {
         mentionCompletionController.debugSuggestionCount
+    }
+
+    func debugMentionSuggestionsAreCurrent() -> Bool {
+        mentionCompletionController.debugHasCurrentSuggestions
+    }
+
+    func debugAcceptMentionCompletion() -> Bool {
+        acceptMentionCompletion()
+    }
+
+    func debugAcceptMentionCompletion(suggestion: TextBoxMentionSuggestion) -> Bool {
+        acceptMentionCompletion(suggestion)
     }
 #endif
 

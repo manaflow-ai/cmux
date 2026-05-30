@@ -7061,16 +7061,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(dollarSkillQuery?.range, NSRange(location: 4, length: 12))
 
         let bareSlashPrompt = "cd /"
-        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+        let bareSlashQuery = TextBoxMentionCompletionDetector.query(
             in: bareSlashPrompt,
             selectedRange: NSRange(location: (bareSlashPrompt as NSString).length, length: 0)
-        ))
+        )
+        XCTAssertEqual(bareSlashQuery?.kind, .skill)
+        XCTAssertEqual(bareSlashQuery?.trigger, "/")
+        XCTAssertEqual(bareSlashQuery?.query, "")
 
         let bareDollarPrompt = "echo $"
-        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+        let bareDollarQuery = TextBoxMentionCompletionDetector.query(
             in: bareDollarPrompt,
             selectedRange: NSRange(location: (bareDollarPrompt as NSString).length, length: 0)
-        ))
+        )
+        XCTAssertEqual(bareDollarQuery?.kind, .skill)
+        XCTAssertEqual(bareDollarQuery?.trigger, "$")
+        XCTAssertEqual(bareDollarQuery?.query, "")
 
         let emailPrompt = "mail lawrence@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
@@ -7113,6 +7119,95 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(suggestions.first?.title, "@Sources/TextBoxInput.swift")
         XCTAssertEqual(suggestions.first?.systemImageName, "doc")
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
+    }
+
+    func testTextBoxMentionFileSuggestionsReturnRootFilesForEmptyQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-empty-file-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(suggestions.first?.title, "@README.md")
+        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@README.md](") == true)
+    }
+
+    func testTextBoxMentionFileSuggestionsSkipPackageContents() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-package-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let packageDirectory = root
+            .appendingPathComponent("Dependencies", isDirectory: true)
+            .appendingPathComponent("GhosttyKit.xcframework", isDirectory: true)
+        try fileManager.createDirectory(at: packageDirectory, withIntermediateDirectories: true)
+        try "internal".write(
+            to: packageDirectory.appendingPathComponent("InternalNeedle.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 15),
+                query: "InternalNeedle",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertFalse(suggestions.contains { $0.title.contains("InternalNeedle.swift") })
+    }
+
+    func testTextBoxMentionFileSuggestionsKeepCaseVariantProjectDirectories() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-library-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let libraryDirectory = root.appendingPathComponent("library", isDirectory: true)
+        try fileManager.createDirectory(at: libraryDirectory, withIntermediateDirectories: true)
+        try "valid".write(
+            to: libraryDirectory.appendingPathComponent("VisibleNeedle.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 14),
+                query: "VisibleNeedle",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertTrue(suggestions.contains { $0.title == "@library/VisibleNeedle.swift" })
     }
 
     func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
@@ -7189,33 +7284,184 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(suggestions.first?.title, "$sample-dollar-skill")
         XCTAssertEqual(suggestions.first?.systemImageName, "sparkle.magnifyingglass")
-        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[$sample-dollar-skill](") == true)
+        // The $ trigger inserts the bare skill reference (not a markdown link),
+        // unlike the / and @ triggers.
+        XCTAssertEqual(suggestions.first?.insertionText, "$sample-dollar-skill")
     }
 
-    func testTextBoxMentionRefreshClearsStaleSuggestionsBeforeLookup() {
+    func testTextBoxMentionSkillSuggestionsUseTypedSlashTriggerForEmptyQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-slash-skills-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillDirectory = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("sample-slash-skill", isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "name: sample-slash-skill\n".write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "/"
+            ),
+            rootDirectory: root.path
+        )
+
+        // An empty query returns the whole skill corpus, which also includes the
+        // machine's global skill roots (~/.codex/skills, etc.), so the temp skill
+        // is not guaranteed to sort first. Assert it is present with the typed
+        // trigger rather than asserting its position.
+        let slashSkill = suggestions.first { $0.title == "/sample-slash-skill" }
+        XCTAssertNotNil(slashSkill)
+        XCTAssertTrue(slashSkill?.insertionText.hasPrefix("[/sample-slash-skill](") == true)
+    }
+
+    func testTextBoxMentionSkillSuggestionsFindNestedSkillPacks() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-nested-skills-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillDirectory = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("team", isDirectory: true)
+            .appendingPathComponent("nested-skill", isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "name: nested-skill\n".write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 13),
+                query: "nested-skill",
+                trigger: "/"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(suggestions.first?.title, "/nested-skill")
+        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[/nested-skill](") == true)
+    }
+
+    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@a"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "alpha",
+            title: "@alpha.txt",
+            subtitle: "alpha.txt",
+            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+            systemImageName: "doc"
+        )
 
         textView.debugSetMentionCompletionState(
             query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
-            suggestions: [
-                TextBoxMentionSuggestion(
-                    id: "alpha",
-                    title: "@alpha.txt",
-                    subtitle: "alpha.txt",
-                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
-                    systemImageName: "doc"
-                )
-            ]
+            suggestions: [staleSuggestion]
         )
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
 
+        // Editing within the same trigger keeps the previous rows visible until
+        // the async lookup returns, avoiding a per-keystroke popover flicker.
         textView.string = "@z"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.refreshMentionCompletions()
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+        XCTAssertFalse(textView.debugMentionSuggestionsAreCurrent())
+        XCTAssertFalse(textView.debugAcceptMentionCompletion())
+        XCTAssertFalse(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+        XCTAssertEqual(textView.string, "@z")
+        var submitCount = 0
+        textView.onSubmit = { submitCount += 1 }
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(submitCount, 0)
+        XCTAssertEqual(textView.string, "@z")
 
+        // Switching the trigger is a different completion kind, so stale rows are
+        // dropped immediately rather than shown under the wrong trigger.
+        textView.string = "/z"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.refreshMentionCompletions()
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+    }
+
+    func testTextBoxMentionEscapeFallsThroughWhenQueryHasNoSuggestions() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@missing"
+        textView.setSelectedRange(NSRange(location: 8, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 8), query: "missing"),
+            suggestions: []
+        )
+        var escapeCount = 0
+        textView.onEscape = { escapeCount += 1 }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+        textView.keyDown(with: escapeEvent)
+        XCTAssertEqual(escapeCount, 1)
+    }
+
+    func testTextBoxMentionBareSkillTriggerReturnSubmitsInsteadOfAcceptingFirstSuggestion() {
+        let scenarios: [(text: String, range: NSRange, trigger: Character, insertionText: String)] = [
+            ("cd /", NSRange(location: 3, length: 1), "/", "[/sample-skill](/tmp/sample-skill/SKILL.md)"),
+            ("echo $", NSRange(location: 5, length: 1), "$", "$sample-skill")
+        ]
+
+        for scenario in scenarios {
+            let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            textView.string = scenario.text
+            textView.setSelectedRange(NSRange(location: (scenario.text as NSString).length, length: 0))
+            textView.debugSetMentionCompletionState(
+                query: TextBoxMentionQuery(
+                    kind: .skill,
+                    range: scenario.range,
+                    query: "",
+                    trigger: scenario.trigger
+                ),
+                suggestions: [
+                    TextBoxMentionSuggestion(
+                        id: "\(scenario.trigger):/tmp/sample-skill/SKILL.md",
+                        title: "\(scenario.trigger)sample-skill",
+                        subtitle: "/tmp/sample-skill/SKILL.md",
+                        insertionText: scenario.insertionText,
+                        systemImageName: "sparkle.magnifyingglass"
+                    )
+                ]
+            )
+            var submitCount = 0
+            textView.onSubmit = { submitCount += 1 }
+
+            textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+
+            XCTAssertEqual(submitCount, 1)
+            XCTAssertEqual(textView.string, scenario.text)
+            XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+        }
     }
 
     func testTextBoxSubmitUsesPastePayloadAndSeparateReturn() throws {
