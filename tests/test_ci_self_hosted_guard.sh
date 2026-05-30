@@ -164,6 +164,16 @@ check_ui_regression_budget() {
     exit 1
   fi
 
+  if grep -Fq 'name: Create persistent virtual display' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must reuse the display-churn virtual display instead of creating a second CGVirtualDisplay"
+    exit 1
+  fi
+
+  if ! grep -Fq 'echo "VDISPLAY_PERSISTENT_PID=$HELPER_PID" >> "$GITHUB_ENV"' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must keep the display-churn helper alive for the browser find regression and final cleanup"
+    exit 1
+  fi
+
   echo "PASS: ui-regressions keeps enough time and cached DerivedData for both UI regressions"
 }
 
