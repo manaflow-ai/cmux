@@ -417,10 +417,16 @@ public struct SettingsWindowRoot: View {
         // makes the section header reliably land at the top. Both passes
         // are generation-guarded so a newer navigation still wins.
         let scroll = {
-            proxy.scrollTo(sectionID, anchor: .top)
-            // Deep row hits also center the specific row; section hits
-            // only need the section-top scroll (the header pulses there).
-            if anchorID != sectionID {
+            // Scroll to exactly one target. A section hit pins the section
+            // header to the top; a row hit centers that row. They must NOT
+            // both run: issuing scrollTo(section, .top) and then
+            // scrollTo(row, .center) in the same tick is ambiguous — the
+            // section-top scroll can win, leaving a row deep in a long
+            // section (e.g. Gemini CLI Integration near the bottom of
+            // Automation) off-screen below the header. Pick one.
+            if anchorID == sectionID {
+                proxy.scrollTo(sectionID, anchor: .top)
+            } else {
                 proxy.scrollTo(anchorID, anchor: .center)
             }
         }
