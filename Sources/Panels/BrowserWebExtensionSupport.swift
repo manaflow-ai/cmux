@@ -2401,16 +2401,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         websiteDataStore: WKWebsiteDataStore,
         targetURL: URL?
     ) async {
-        guard !recordsNeedingAutomaticLoad(runtimeKey: runtimeKey, targetURL: targetURL).isEmpty else {
+        while !recordsNeedingAutomaticLoad(runtimeKey: runtimeKey, targetURL: targetURL).isEmpty {
+            if let task = installedRecordLoadTasksByRuntimeKey[runtimeKey] {
+                await task.value
+                continue
+            }
+            startLoadingInstalledRecordsIfNeeded(
+                runtimeKey: runtimeKey,
+                websiteDataStore: websiteDataStore,
+                targetURL: targetURL
+            )
+            guard let task = installedRecordLoadTasksByRuntimeKey[runtimeKey] else { return }
+            await task.value
             return
         }
-        startLoadingInstalledRecordsIfNeeded(
-            runtimeKey: runtimeKey,
-            websiteDataStore: websiteDataStore,
-            targetURL: targetURL
-        )
-        guard let task = installedRecordLoadTasksByRuntimeKey[runtimeKey] else { return }
-        await task.value
     }
 
     private func startLoadingInstalledRecordsIfNeeded(

@@ -1445,6 +1445,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         BrowserPanel.configureWebViewConfiguration(
             config,
+            profileID: UUID(),
             websiteDataStore: .nonPersistent()
         )
 
