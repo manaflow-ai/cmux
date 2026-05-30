@@ -449,12 +449,12 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
-    static let sidebarTrailingPadding: CGFloat = 8
+    static let sidebarTrailingPadding: CGFloat = 2
     static let hintRightSafetyShift: CGFloat = 6
     static let hintTrailingBaseInset: CGFloat = 4
     static let extraButtonCount = 0
-    static let trafficLightGap: CGFloat = 4
-    static let trafficLightClusterWidth: CGFloat = 58
+    static let trafficLightGap: CGFloat = 2
+    static let trafficLightClusterWidth: CGFloat = 48
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))

@@ -411,6 +411,8 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     # A merged main branch can invalidate the exact DerivedData key and force a
     # full cmux build before the warning, startup, and lag regressions can run.
+    # Extension project and package graph changes have also spent more than 35
+    # minutes in the build step before the lag regression starts.
     # Keep this budget aligned with the full tests job so a cold build can still
     # finish and populate the next cache.
     timeout-minutes: 75

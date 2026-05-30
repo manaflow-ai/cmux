@@ -18,13 +18,11 @@ A group has a `name`, `iconSymbol` (an SF Symbol, default `folder.fill`), and an
 
 ### Pinning
 
-Groups can be pinned independently of individual workspace pins. Pinned groups float above unpinned groups in the sidebar. Individually pinned workspaces (not part of a group) stay above all groups.
+Groups can be pinned independently of individual workspace pins. Pinned top-level rows, whether individual workspaces or groups, stay above unpinned rows. Within each tier, groups and workspaces keep the order you drag them into.
 
 The sidebar layout, top to bottom:
-1. Pinned ungrouped workspaces.
-2. Pinned groups (each one's members in tab order).
-3. Unpinned groups.
-4. Ungrouped unpinned workspaces.
+1. Pinned top-level rows (workspaces and groups).
+2. Unpinned top-level rows (workspaces and groups).
 
 ## Creating a group
 
