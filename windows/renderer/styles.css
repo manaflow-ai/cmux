@@ -1120,6 +1120,19 @@ body.reduce-motion *::after {
   flex-direction: row;
 }
 
+.pane-split {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.pane-split.direction-down {
+  flex-direction: column;
+}
+
 .pane {
   position: relative;
   flex: 1 1 0;
@@ -1142,6 +1155,16 @@ body.reduce-motion *::after {
   min-height: 28px;
 }
 
+.pane-split.direction-right > .pane,
+.pane-split.direction-right > .pane-split {
+  min-width: 32px;
+}
+
+.pane-split.direction-down > .pane,
+.pane-split.direction-down > .pane-split {
+  min-height: 28px;
+}
+
 .pane-splitter {
   flex: 0 0 8px;
   position: relative;
@@ -1152,6 +1175,10 @@ body.reduce-motion *::after {
 }
 
 .pane-grid.direction-down .pane-splitter {
+  cursor: row-resize;
+}
+
+.pane-split.direction-down > .pane-splitter {
   cursor: row-resize;
 }
 
