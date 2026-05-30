@@ -33,11 +33,42 @@
   --dur-med: 170ms;
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: color-mix(in oklch, var(--color-line-strong) 74%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklch, var(--color-muted) 72%, transparent);
   color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 html,
@@ -245,6 +276,18 @@ body.reduce-motion *::after {
 
 .shell.hide-status:not(.hide-tabs) .main {
   grid-template-rows: 44px 34px minmax(0, 1fr);
+}
+
+.shell.workspace-empty .surface-tabs {
+  display: none;
+}
+
+.shell.workspace-empty:not(.hide-status) .main {
+  grid-template-rows: 44px minmax(0, 1fr) 24px;
+}
+
+.shell.workspace-empty.hide-status .main {
+  grid-template-rows: 44px minmax(0, 1fr);
 }
 
 .sidebar {

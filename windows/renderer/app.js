@@ -1746,6 +1746,7 @@ function render(previousState) {
   toggleClassIfChanged(elements.shell, "sidebar-collapsed", state.sidebarCollapsed);
   toggleClassIfChanged(elements.shell, "inspector-open", Boolean(state.inspectorMode));
   toggleClassIfChanged(elements.shell, "pane-zoomed", Boolean(zoomedPanel));
+  toggleClassIfChanged(elements.shell, "workspace-empty", panelCount === 0);
   applySettings();
   renderWorkspaces();
   renderSurfaceTabs(workspace);
@@ -1961,7 +1962,11 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
 
 function renderSurfaceTabs(workspace) {
   if (!workspace) {
-    replaceChildrenIfChanged(elements.surfaceTabs, []);
+    clearSurfaceTabs();
+    return;
+  }
+  if (workspace.panels.length === 0) {
+    clearSurfaceTabs();
     return;
   }
   const validIds = new Set(workspace.panels.map((panel) => panel.id));
@@ -1982,6 +1987,12 @@ function renderSurfaceTabs(workspace) {
   });
   nodes.push(getNewSurfaceTab(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
+}
+
+function clearSurfaceTabs() {
+  for (const tab of state.surfaceTabButtons.values()) tab.remove();
+  state.surfaceTabButtons.clear();
+  replaceChildrenIfChanged(elements.surfaceTabs, []);
 }
 
 function createSurfaceTab() {
