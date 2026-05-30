@@ -8989,6 +8989,63 @@ class TerminalController {
         return result
     }
 
+    private func v2AgentSessionOptions(params: [String: Any]) -> (
+        providerID: AgentSessionProviderID,
+        rendererKind: AgentSessionRendererKind,
+        error: V2CallResult?
+    ) {
+        let providerRaw = v2String(params, "provider_id") ?? v2String(params, "provider")
+        let rendererRaw = v2String(params, "renderer_kind") ?? v2String(params, "renderer")
+
+        let providerID: AgentSessionProviderID
+        if let providerRaw {
+            switch v2NormalizedToken(providerRaw) {
+            case "codex":
+                providerID = .codex
+            case "claude", "claudecode":
+                providerID = .claude
+            case "opencode":
+                providerID = .opencode
+            default:
+                return (
+                    .codex,
+                    .react,
+                    .err(
+                        code: "invalid_params",
+                        message: "Invalid provider (codex|claude|opencode)",
+                        data: ["provider": providerRaw]
+                    )
+                )
+            }
+        } else {
+            providerID = .codex
+        }
+
+        let rendererKind: AgentSessionRendererKind
+        if let rendererRaw {
+            switch v2NormalizedToken(rendererRaw) {
+            case "react":
+                rendererKind = .react
+            case "solid":
+                rendererKind = .solid
+            default:
+                return (
+                    providerID,
+                    .react,
+                    .err(
+                        code: "invalid_params",
+                        message: "Invalid renderer (react|solid)",
+                        data: ["renderer": rendererRaw]
+                    )
+                )
+            }
+        } else {
+            rendererKind = .react
+        }
+
+        return (providerID, rendererKind, nil)
+    }
+
     private func v2SurfaceSplit(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -8998,6 +9055,13 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
         }
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if panelType == .agentSession {
+            return .err(
+                code: "invalid_params",
+                message: "agent-session is only supported by surface.create",
+                data: ["type": panelType.rawValue]
+            )
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -9094,6 +9158,10 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        let agentOptions = v2AgentSessionOptions(params: params)
+        if panelType == .agentSession, let error = agentOptions.error {
+            return error
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -9135,6 +9203,14 @@ class TerminalController {
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
+                )?.id
+            } else if panelType == .agentSession {
+                newPanelId = ws.newAgentSessionSurface(
+                    inPane: paneId,
+                    providerID: agentOptions.providerID,
+                    rendererKind: agentOptions.rendererKind,
+                    workingDirectory: workingDirectory,
+                    focus: focus
                 )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
@@ -10434,6 +10510,13 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if panelType == .agentSession {
+            return .err(
+                code: "invalid_params",
+                message: "agent-session is only supported by surface.create",
+                data: ["type": panelType.rawValue]
+            )
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")

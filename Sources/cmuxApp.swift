@@ -377,6 +377,11 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
+                AgentSessionDebugMenuButtons(
+                    openReact: { appDelegate.openDebugAgentSessionReact(nil) },
+                    openSolid: { appDelegate.openDebugAgentSessionSolid(nil) }
+                )
+
                 Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
@@ -5200,6 +5205,33 @@ enum CmuxUITestCapture {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 }
+
+#if DEBUG
+private struct AgentSessionDebugMenuButtons: View {
+    let openReact: () -> Void
+    let openSolid: () -> Void
+
+    var body: some View {
+        Button(
+            String(
+                localized: "debug.menu.openAgentGuiReact",
+                defaultValue: "Open Agent GUI (React)"
+            )
+        ) {
+            openReact()
+        }
+
+        Button(
+            String(
+                localized: "debug.menu.openAgentGuiSolid",
+                defaultValue: "Open Agent GUI (Solid)"
+            )
+        ) {
+            openSolid()
+        }
+    }
+}
+#endif
 
 enum CmuxRuntimeDebugCapture {
     private struct Configuration {

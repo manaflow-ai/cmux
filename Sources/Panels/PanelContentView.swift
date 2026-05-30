@@ -93,6 +93,17 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .agentSession:
+            if let agentSessionPanel = panel as? AgentSessionPanel {
+                AgentSessionPanelView(
+                    panel: agentSessionPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .project:
             if let projectPanel = panel as? ProjectPanel {
                 ProjectPanelView(
@@ -118,7 +129,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .project:
+        case .markdown, .filePreview, .rightSidebarTool, .agentSession, .project:
             return true
         case .terminal, .browser:
             return false

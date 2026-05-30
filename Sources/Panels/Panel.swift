@@ -9,6 +9,7 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case agentSession
     case project
 
     public init(from decoder: Decoder) throws {
@@ -24,6 +25,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
             self = .rightSidebarTool
+            return
+        }
+        if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
+            self = .agentSession
             return
         }
         throw DecodingError.dataCorruptedError(
