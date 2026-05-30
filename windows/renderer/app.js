@@ -4524,7 +4524,11 @@ function isActiveSettingsPreset(preset) {
 }
 
 function applySettingsPreset(preset) {
-  updateSettings(preset.settings);
+  const changed = updateSettings(preset.settings);
+  if (!changed) {
+    toast(`${preset.label} settings already active.`);
+    return;
+  }
   renderSettingsInspector();
   toast(`${preset.label} settings applied.`);
 }
@@ -4632,7 +4636,11 @@ function defaultSettingsProfileName() {
 function applySavedSettingsProfile(profileId) {
   const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
   if (!profile) return;
-  updateSettings(profile.settings);
+  const changed = updateSettings(profile.settings);
+  if (!changed) {
+    toast(`${profile.label} profile already active.`);
+    return;
+  }
   renderSettingsInspector();
   toast(`${profile.label} profile applied.`);
 }
