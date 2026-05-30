@@ -6862,6 +6862,8 @@ struct SettingsView: View {
                                 )
                         }
 
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             configurationReview: .json("terminal.copyOnSelect"),
                             String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),

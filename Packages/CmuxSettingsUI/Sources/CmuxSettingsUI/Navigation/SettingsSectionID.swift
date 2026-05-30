@@ -33,7 +33,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "Account"
         case .app: return "App"
         case .terminal: return "Terminal"
-        case .textBox: return "TextBox (Beta)"
+        case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sidebarAppearance: return "Sidebar"
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
