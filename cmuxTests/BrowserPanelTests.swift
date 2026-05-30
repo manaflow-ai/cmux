@@ -125,6 +125,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
             isElementFullscreenActive: false,
             isReactGrabActive: false,
             hasPopups: false,
+            hasWebExtensionPageConfiguration: false,
             isCapturingMedia: true
         )
         let manager = BrowserHiddenWebViewDiscardManager()
@@ -306,7 +307,7 @@ final class BrowserWebExtensionActionPopupPositioningTests: XCTestCase {
 }
 
 @MainActor
-final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
+final class BrowserWebExtensionHiddenWebViewDiscardManagerTests: XCTestCase {
     func testWebExtensionPagesBlockHiddenDiscard() {
         let manager = BrowserHiddenWebViewDiscardManager()
         let blockers = manager.blockers(for: blockerSnapshot(hasWebExtensionPageConfiguration: true))
@@ -332,7 +333,8 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
             isElementFullscreenActive: false,
             isReactGrabActive: false,
             hasPopups: false,
-            hasWebExtensionPageConfiguration: hasWebExtensionPageConfiguration
+            hasWebExtensionPageConfiguration: hasWebExtensionPageConfiguration,
+            isCapturingMedia: false
         )
     }
 }
