@@ -35,7 +35,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         switch self {
         case .classic:
             return TitlebarControlsStyleConfig(
-                spacing: 3,
+                spacing: 6,
                 iconSize: HeaderChromeControlMetrics.iconSize,
                 buttonSize: HeaderChromeControlMetrics.buttonSize,
                 badgeSize: 12,
@@ -454,7 +454,7 @@ enum TitlebarControlsLayoutMetrics {
     static let hintTrailingBaseInset: CGFloat = 4
     static let extraButtonCount = 0
     static let trafficLightGap: CGFloat = 2
-    static let trafficLightClusterWidth: CGFloat = 30
+    static let trafficLightClusterWidth: CGFloat = 48
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -468,19 +468,15 @@ enum TitlebarControlsLayoutMetrics {
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
-    static func visibleContentWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        outerLeadingPadding
-            + config.groupPadding.leading
-            + buttonRowWidth(config: config)
-            + config.groupPadding.trailing
-    }
-
     static func contentSize(
         config: TitlebarControlsStyleConfig,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
     ) -> NSSize {
         NSSize(
-            width: visibleContentWidth(config: config)
+            width: outerLeadingPadding
+                + config.groupPadding.leading
+                + buttonRowWidth(config: config)
+                + config.groupPadding.trailing
                 + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset),
             height: max(
                 WindowChromeMetrics.appTitlebarHeight,
@@ -518,7 +514,7 @@ enum TitlebarControlsLayoutMetrics {
     static func minimumSidebarWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
         trafficLightClusterWidth
             + trafficLightGap
-            + visibleContentWidth(config: config)
+            + contentSize(config: config).width
             + sidebarTrailingPadding
     }
 
@@ -2014,7 +2010,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
-        let visibleContentWidth = TitlebarControlsLayoutMetrics.visibleContentWidth(config: style.config)
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
             intrinsicSizeNeedsRefresh = false
@@ -2043,7 +2038,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let accessoryOriginXInWindow = view.convert(view.bounds, to: nil).minX
         let sidebarTrailingEdgeInAccessory = max(0, sidebarTrailingEdge - accessoryOriginXInWindow)
         let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
-            contentWidth: visibleContentWidth,
+            contentWidth: contentSize.width,
             trafficLightFrame: trafficLightFrame,
             debugSnapshot: debugSnapshot,
             sidebarTrailingEdge: sidebarTrailingEdgeInAccessory

@@ -219,7 +219,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsUseDeterministicContentSize() {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
-        XCTAssertEqual(classic.width, 126, accuracy: 0.001)
+        XCTAssertEqual(classic.width, 138, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
@@ -230,7 +230,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testTitlebarControlsMinimumSidebarWidthKeepsButtonsClearOfTrafficLights() {
         XCTAssertEqual(
             TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: TitlebarControlsStyle.classic.config),
-            146,
+            190,
             accuracy: 0.001
         )
     }
