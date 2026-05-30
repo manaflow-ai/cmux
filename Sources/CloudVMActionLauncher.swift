@@ -19,7 +19,11 @@ final class CloudVMActionLauncher {
     }
 
     @discardableResult
-    func start(socketPath: String, preferredWindow: NSWindow?) -> Bool {
+    func start(
+        socketPath: String,
+        preferredWindow: NSWindow?,
+        onTerminated: (() -> Void)? = nil
+    ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
@@ -60,6 +64,7 @@ final class CloudVMActionLauncher {
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
+                onTerminated?()
                 guard terminationStatus != 0, !Self.shared.isShuttingDown else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",

@@ -184,12 +184,12 @@ private struct WorkspaceGroupNewWorkspaceTarget {
 /// Subscribes to `tabManager.$tabs` (the @Published source of truth that
 /// `addWorkspace` updates, regardless of whether a NotificationCenter event
 /// fired) so VM workspaces, dropped attaches, or any other slow async path
-/// is caught. Self-clears on first match or after `timeoutSeconds` (default
-/// 10 minutes so legitimately slow VM provisioning still lands in the
-/// group).
+/// is caught. Self-clears on first match, group disappearance, or the
+/// launching process termination signal supplied by `CloudVMActionLauncher`.
 @MainActor
 final class ConfiguredGroupActionAsyncWorkspaceObserver {
     static var pending: [ObjectIdentifier: ConfiguredGroupActionAsyncWorkspaceObserver] = [:]
+    private let id = UUID()
     private weak var tabManager: TabManager?
     private let storedKey: ObjectIdentifier
     private let groupId: UUID
@@ -197,21 +197,15 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     private let referenceWorkspaceId: UUID?
     private var knownIds: Set<UUID>
     private var subscription: AnyCancellable?
-    private var timeoutTask: Task<Void, Never>?
 
-    /// Default 180s: long enough for typical Cloud VM provisioning but
-    /// short enough that an unrelated workspace created later that session
-    /// usually doesn't land in the watcher's grace window. Best-effort
-    /// correlation; for a tighter guarantee the launcher would need to
-    /// signal back its created workspace id, which is a separate refactor.
+    @discardableResult
     static func install(
         tabManager: TabManager,
         groupId: UUID,
         knownIds: Set<UUID>,
         placement: WorkspaceGroupNewPlacement,
-        referenceWorkspaceId: UUID?,
-        timeoutSeconds: TimeInterval = 180
-    ) {
+        referenceWorkspaceId: UUID?
+    ) -> UUID {
         let key = ObjectIdentifier(tabManager)
         pending[key]?.dispose()
         let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
@@ -227,10 +221,13 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             .sink { [weak watcher] tabs in
                 watcher?.checkForNewWorkspace(in: tabs)
             }
-        watcher.timeoutTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-            watcher.dispose()
-        }
+        return watcher.id
+    }
+
+    static func disposePending(tabManager: TabManager, observerId: UUID) {
+        let key = ObjectIdentifier(tabManager)
+        guard pending[key]?.id == observerId else { return }
+        pending[key]?.dispose()
     }
 
     private init(
@@ -269,8 +266,6 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     private func dispose() {
         subscription?.cancel()
         subscription = nil
-        timeoutTask?.cancel()
-        timeoutTask = nil
         // Remove by the key recorded at install time. The weak `tabManager`
         // may already be nil here (window closed mid-watch), and walking it
         // would silently leak the entry in the static `pending` dictionary
@@ -6841,7 +6836,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performCloudVMAction(
         tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
-        debugSource: String = "cloudVM"
+        debugSource: String = "cloudVM",
+        onTerminated: (() -> Void)? = nil
     ) -> Bool {
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredWindow.flatMap { contextForMainWindow($0) }
@@ -6855,7 +6851,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            onTerminated: onTerminated
         )
     }
 
@@ -6894,6 +6891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+        var asyncObserverId: UUID?
         let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
             if let context,
                let workspaceGroupTarget,
@@ -6911,7 +6909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     break
                 }
                 if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
-                    ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                    asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
                         tabManager: context.tabManager,
                         groupId: workspaceGroupTarget.groupId,
                         knownIds: Set(afterIds),
@@ -6927,11 +6925,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         }
+        let onCloudVMTerminated: (() -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] in
+            guard let context, let asyncObserverId else { return }
+            ConfiguredGroupActionAsyncWorkspaceObserver.disposePending(
+                tabManager: context.tabManager,
+                observerId: asyncObserverId
+            )
+        }
         return executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: window,
-            onExecuted: onExecuted
+            onExecuted: onExecuted,
+            onCloudVMTerminated: onCloudVMTerminated
         )
     }
 
@@ -14504,6 +14510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            tabManager.tabs.contains(where: { $0.id == anchorId }) {
             tabManager.selectedTabId = anchorId
         }
+        var asyncObserverId: UUID?
         let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, groupPlacement, action] in
             guard let tabManager else { return }
             let afterIds = tabManager.tabs.map(\.id)
@@ -14518,14 +14525,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 newlyCreatedId = id
                 break
             }
-            // Async actions (cloudVM in particular) launch a `cmux vm new`
-            // process and return before the workspace appears in tabs[]. The
-            // synchronous diff above misses it, so install a short-lived
-            // observer that joins the first subsequent new workspace to the
-            // group. Capped so a user-cancelled VM never leaves a
-            // lingering subscription.
+            // cloudVM launches a `cmux vm new` process and returns before the
+            // workspace appears in tabs[]. The synchronous diff above misses
+            // it, so watch the tab list until that process exits or a workspace
+            // is joined.
             if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
-                ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
                     tabManager: tabManager,
                     groupId: groupId,
                     knownIds: Set(afterIds),
@@ -14545,11 +14550,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager.selectedTabId = previousSelectedId
             }
         }
+        let onCloudVMTerminated: () -> Void = { [weak tabManager] in
+            guard let tabManager, let asyncObserverId else { return }
+            ConfiguredGroupActionAsyncWorkspaceObserver.disposePending(
+                tabManager: tabManager,
+                observerId: asyncObserverId
+            )
+        }
         let didRun = executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: resolvedWindow(for: context),
-            onExecuted: onExecuted
+            onExecuted: onExecuted,
+            onCloudVMTerminated: onCloudVMTerminated
         )
         // executeConfiguredCmuxAction returns false when the action couldn't
         // start at all (unresolved action ref, missing target terminal, etc.).
@@ -14571,7 +14584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ action: CmuxResolvedConfigAction,
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
-        onExecuted: (() -> Void)? = nil
+        onExecuted: (() -> Void)? = nil,
+        onCloudVMTerminated: (() -> Void)? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
@@ -14584,7 +14598,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let didStart = performCloudVMAction(
                     tabManager: context.tabManager,
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.cloudvm"
+                    debugSource: "configured.cmux.cloudvm",
+                    onTerminated: onCloudVMTerminated
                 )
                 if didStart { onExecuted?() }
                 return didStart
