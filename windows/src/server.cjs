@@ -613,7 +613,6 @@ class CmuxWindowsRuntime {
       workspace.splitDirection = options.direction;
     }
     this.persistAndBroadcast();
-    if (this.eventSockets.size > 0) this.ensureTerminalProcess(panel);
     return panel;
   }
 

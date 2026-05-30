@@ -289,6 +289,7 @@ const state = {
   dragWorkspaceId: null,
   zoomedPanelId: null,
   zoomedPanelIds: new Map(),
+  minimizedPanelIds: new Set(),
   focusedPanelId: null,
   contextMenu: null,
   activeDialog: null,
@@ -1956,6 +1957,8 @@ const commands = [
   { id: "terminal.closeOthers", label: "Close Other Panes", shortcut: "", run: () => closeOtherPanes() },
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
   { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
+  { id: "terminal.minimizePane", label: "Minimize Active Pane", shortcut: "", run: () => minimizeActivePane() },
+  { id: "terminal.restoreMinimized", label: "Restore Minimized Panes", shortcut: "", run: () => restoreMinimizedPanes() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
   { id: "layout.resetChrome", label: "Reset Workspace Chrome", shortcut: "", run: () => resetWorkspaceChrome() },
   { id: "layout.equalPanes", label: "Equalize Panes", shortcut: "", run: () => applyPaneLayoutPreset("equal") },
@@ -1999,22 +2002,37 @@ function activeWorkspace() {
 
 function activePanel() {
   const workspace = activeWorkspace();
-  return workspace?.panels.find((panel) => panel.id === workspace.activePanelId) || workspace?.panels[0];
+  const active = workspace?.panels.find((panel) => panel.id === workspace.activePanelId);
+  if (active && !isPanelMinimized(active)) return active;
+  return workspace?.panels.find((panel) => !isPanelMinimized(panel)) || active || workspace?.panels[0];
 }
 
 function workspaceHasPanelId(workspace, panelId) {
   return Boolean(workspace?.panels?.some((panel) => panel.id === panelId));
 }
 
+function isPanelMinimized(panel) {
+  return Boolean(panel?.id && state.minimizedPanelIds.has(panel.id));
+}
+
+function minimizedPanelCount(workspace = activeWorkspace()) {
+  if (!workspace) return 0;
+  return workspace.panels.filter((panel) => isPanelMinimized(panel)).length;
+}
+
+function firstUnminimizedPanel(workspace, ignoredPanelId = "") {
+  return workspace?.panels.find((panel) => panel.id !== ignoredPanelId && !isPanelMinimized(panel)) || null;
+}
+
 function zoomedPanelIdForWorkspace(workspace = activeWorkspace()) {
   if (!workspace) return null;
   const scopedPanelId = state.zoomedPanelIds.get(workspace.id);
-  if (workspaceHasPanelId(workspace, scopedPanelId)) {
+  if (workspaceHasPanelId(workspace, scopedPanelId) && !state.minimizedPanelIds.has(scopedPanelId)) {
     if (workspace.id === state.data?.activeWorkspaceId) state.zoomedPanelId = scopedPanelId;
     return scopedPanelId;
   }
   if (scopedPanelId) state.zoomedPanelIds.delete(workspace.id);
-  if (workspaceHasPanelId(workspace, state.zoomedPanelId)) {
+  if (workspaceHasPanelId(workspace, state.zoomedPanelId) && !state.minimizedPanelIds.has(state.zoomedPanelId)) {
     state.zoomedPanelIds.set(workspace.id, state.zoomedPanelId);
     return state.zoomedPanelId;
   }
@@ -2053,7 +2071,7 @@ function allPanelIds() {
 }
 
 function visiblePanePanelIds() {
-  return new Set([...elements.paneGrid.querySelectorAll(".pane[data-panel-id]")].map((pane) => pane.dataset.panelId));
+  return new Set([...elements.paneGrid.querySelectorAll(".pane[data-panel-id]:not(.is-minimized)")].map((pane) => pane.dataset.panelId));
 }
 
 function findPanelState(panelId) {
@@ -2072,7 +2090,7 @@ function panelFromElement(target) {
 
 function focusedPanel() {
   const found = state.focusedPanelId ? findPanelState(state.focusedPanelId) : null;
-  if (found && found.workspace.id === state.data?.activeWorkspaceId) return found.panel;
+  if (found && found.workspace.id === state.data?.activeWorkspaceId && !isPanelMinimized(found.panel)) return found.panel;
   return activePanel();
 }
 
@@ -2537,7 +2555,8 @@ function createSurfaceTab() {
   `;
   button.addEventListener("click", () => {
     const panelId = button.dataset.panelId;
-    focusPanel(panelId);
+    if (state.minimizedPanelIds.has(panelId)) restorePane(panelId);
+    else focusPanel(panelId);
     scheduleActiveSurfaceTabIntoView(panelId);
   });
   button.addEventListener("contextmenu", (event) => {
@@ -2578,9 +2597,10 @@ function createSurfaceTab() {
 function updateSurfaceTab(button, workspace, panel) {
   const label = panelDisplayTitle(panel, true);
   const fullTitle = panelDisplayTitle(panel, false);
+  const minimized = isPanelMinimized(panel);
   setDatasetIfChanged(button, "panelId", panel.id);
-  setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${panel.needsAttention ? " has-attention" : ""}`);
-  setTitleIfChanged(button, `${fullTitle} - right-click for pane options`);
+  setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${panel.needsAttention ? " has-attention" : ""}`);
+  setTitleIfChanged(button, `${fullTitle}${minimized ? " - minimized, click to restore" : ""} - right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setTextIfChanged(button.querySelector(".surface-label"), label);
 }
@@ -2643,10 +2663,12 @@ function renderPanes(workspace) {
   const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
   const node = renderPaneTreeNode(tree, workspace, panelById, visiblePanels.length);
   replaceChildrenIfChanged(elements.paneGrid, node ? [node] : []);
-  updateBrowserPaneActivity(panelIds);
-  resumeTerminalOutputAfterActivityChange(panelIds);
+  const liveVisiblePanelIds = new Set(visiblePanels.filter((panel) => !isPanelMinimized(panel)).map((panel) => panel.id));
+  updateBrowserPaneActivity(liveVisiblePanelIds);
+  resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
   requestAnimationFrame(() => {
     for (const panel of visiblePanels) {
+      if (isPanelMinimized(panel)) continue;
       const terminal = state.terminals.get(panel.id);
       if (terminal) scheduleFitTerminal(terminal, true);
     }
@@ -2684,6 +2706,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   toggleClassIfChanged(pane, "has-attention", panel.needsAttention);
   toggleClassIfChanged(pane, "is-browser", panel.type === "browser");
   toggleClassIfChanged(pane, "is-terminal", panel.type === "terminal");
+  toggleClassIfChanged(pane, "is-minimized", isPanelMinimized(panel));
   if (visibleCount <= 1) clearPaneFlex(pane);
   setTextIfChanged(pane.querySelector(".pane-type"), panel.type === "browser" ? "web" : "term");
   const title = panelDisplayTitle(panel, false);
@@ -2693,6 +2716,9 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const zoomButton = pane.querySelector(".zoom");
   setTextIfChanged(zoomButton, zoomed ? "↙" : "□");
   setTitleIfChanged(zoomButton, zoomed ? "Show all panes" : "Focus pane");
+  const minimizeButton = pane.querySelector(".minimize");
+  setTextIfChanged(minimizeButton, isPanelMinimized(panel) ? "+" : "-");
+  setTitleIfChanged(minimizeButton, isPanelMinimized(panel) ? "Restore pane" : "Minimize pane");
   if (panel.type === "terminal") {
     ensureTerminal(panel, pane.querySelector(".pane-body"));
     const terminal = state.terminals.get(panel.id);
@@ -3002,6 +3028,7 @@ function createPane(panel) {
       <div class="pane-toolbar">
         <button class="pane-tool split-right" title="Split right">◫</button>
         <button class="pane-tool split-down" title="Split down">⇣</button>
+        <button class="pane-tool minimize" title="Minimize pane">-</button>
         <button class="pane-tool zoom" title="Focus pane">□</button>
         <button class="pane-tool font-down" title="Smaller terminal text">A-</button>
         <button class="pane-tool font-up" title="Larger terminal text">A+</button>
@@ -3032,6 +3059,10 @@ function createPane(panel) {
   pane.querySelector(".zoom").onclick = (event) => {
     event.stopPropagation();
     togglePaneZoom(pane.dataset.panelId);
+  };
+  pane.querySelector(".minimize").onclick = (event) => {
+    event.stopPropagation();
+    togglePaneMinimized(pane.dataset.panelId);
   };
   pane.querySelector(".font-down").onclick = (event) => {
     event.stopPropagation();
@@ -3182,6 +3213,7 @@ function clearAllDropTargets() {
 function cleanupPanel(panelId) {
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
+  state.minimizedPanelIds.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
     if (zoomedPanelId === panelId) state.zoomedPanelIds.delete(workspaceId);
   }
@@ -7116,6 +7148,7 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Split right", () => splitPanel(panel, "right")),
     contextMenuButton("Split down", () => splitPanel(panel, "down")),
     contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
+    contextMenuButton(isPanelMinimized(panel) ? "Restore pane" : "Minimize pane", () => togglePaneMinimized(panel.id)),
     contextMenuButton("Find", () => openTerminalSearch(panel), !isTerminal),
     contextMenuButton("Find next", () => findNextInTerminal(panel), !isTerminal),
     contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
@@ -7221,6 +7254,8 @@ function showToolbarMenu(event) {
       contextMenuButton("Duplicate active pane", duplicateActivePanel, !panel),
       contextMenuButton("Reopen closed pane", reopenClosedPanel, state.closedPanels.length === 0),
       contextMenuButton(zoomedPanelIdForWorkspace(workspace) ? "Show all panes" : "Focus active pane", () => togglePaneZoom(), !panel),
+      contextMenuButton("Minimize active pane", minimizeActivePane, !panel),
+      contextMenuButton("Restore minimized panes", () => restoreMinimizedPanes(workspace), minimizedPanelCount(workspace) === 0),
       contextMenuButton("Next pane", () => cycleActivePane(1), !multiPane),
       contextMenuButton("Previous pane", () => cycleActivePane(-1), !multiPane)
     ),
@@ -8117,6 +8152,23 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
   });
 }
 
+function schedulePanelCreateReconcile(workspaceId, shouldFocusWorkspace = false) {
+  setTimeout(async () => {
+    try {
+      await loadState();
+      if (shouldFocusWorkspace && workspaceId !== state.data?.activeWorkspaceId) {
+        await focusWorkspace(workspaceId);
+      }
+    } catch {
+      try {
+        await loadState();
+      } catch {
+        // The event stream will reconcile once the server is reachable again.
+      }
+    }
+  }, 0);
+}
+
 async function setWorkspaceColor(color, workspaceId = activeWorkspace()?.id) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
@@ -8197,10 +8249,7 @@ async function createPanel(type, direction = "right", options = {}) {
     optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
     if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
     if (options.reconcile !== false) {
-      await loadState();
-      if (options.focus !== false && workspace.id !== state.data?.activeWorkspaceId) {
-        await focusWorkspace(workspace.id);
-      }
+      schedulePanelCreateReconcile(workspace.id, options.focus !== false && workspace.id !== state.data?.activeWorkspaceId);
     }
     return createdPanel;
   };
@@ -8344,6 +8393,7 @@ function optimisticClosePanel(panelId, renderNow = true) {
   if (!found) return false;
   if (state.zoomedPanelId === panelId) state.zoomedPanelId = null;
   if (state.focusedPanelId === panelId) state.focusedPanelId = null;
+  state.minimizedPanelIds.delete(panelId);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
     if (zoomedPanelId === panelId) state.zoomedPanelIds.delete(workspaceId);
   }
@@ -8624,20 +8674,32 @@ function moveWorkspaceRelative(workspaceId, targetWorkspaceId, placement) {
 async function focusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return;
-  state.focusedPanelId = workspace.activePanelId || null;
+  const previousPanelId = workspace.activePanelId;
+  const focusablePanel = workspace.panels.find((panel) => panel.id === workspace.activePanelId && !isPanelMinimized(panel))
+    || firstUnminimizedPanel(workspace)
+    || workspace.panels.find((panel) => panel.id === workspace.activePanelId)
+    || workspace.panels[0];
+  if (focusablePanel) workspace.activePanelId = focusablePanel.id;
+  state.focusedPanelId = focusablePanel?.id || null;
   if (state.data?.activeWorkspaceId === workspaceId) {
-    focusTerminalSession(workspace.activePanelId);
+    if (workspace.activePanelId !== previousPanelId) render();
+    focusTerminalSession(focusablePanel?.id);
     return;
   }
   optimisticFocusWorkspace(workspaceId);
   queueFocusSync({ type: "workspace", workspaceId });
-  focusTerminalSession(workspace.activePanelId);
+  focusTerminalSession(focusablePanel?.id);
 }
 
 async function focusPanel(panelId) {
   const found = findPanelState(panelId);
-  if (found) state.focusedPanelId = panelId;
+  let wasMinimized = false;
+  if (found) {
+    wasMinimized = state.minimizedPanelIds.delete(panelId);
+    state.focusedPanelId = panelId;
+  }
   if (found && state.data?.activeWorkspaceId === found.workspace.id && found.workspace.activePanelId === panelId) {
+    if (wasMinimized) render();
     focusTerminalSession(panelId);
     return;
   }
@@ -8648,7 +8710,12 @@ async function focusPanel(panelId) {
 
 function cycleActivePane(delta = 1) {
   const workspace = activeWorkspace();
-  const panels = workspace?.panels || [];
+  const allPanels = workspace?.panels || [];
+  const panels = allPanels.filter((panel) => !isPanelMinimized(panel));
+  if (panels.length === 0 && allPanels.length > 0) {
+    restorePane(allPanels[0].id);
+    return true;
+  }
   if (panels.length === 0) return false;
   const activeIndex = panels.findIndex((panel) => panel.id === workspace.activePanelId);
   const currentIndex = activeIndex >= 0 ? activeIndex : 0;
@@ -8710,10 +8777,72 @@ function handleTerminalWheelZoom(event) {
   changeTerminalFontSize(direction * steps, { panel, toast: false });
 }
 
+function setPaneMinimized(panelId, minimized = true) {
+  const found = findPanelState(panelId);
+  if (!found) return false;
+  const shouldMinimize = Boolean(minimized);
+  if (state.minimizedPanelIds.has(panelId) === shouldMinimize) return false;
+  if (shouldMinimize) {
+    state.minimizedPanelIds.add(panelId);
+    if (isPanelZoomed(found.panel, found.workspace)) clearZoomedPanelForWorkspace(found.workspace);
+    if (found.workspace.activePanelId === panelId || state.focusedPanelId === panelId) {
+      const nextPanel = firstUnminimizedPanel(found.workspace, panelId);
+      found.workspace.activePanelId = nextPanel?.id || panelId;
+      state.focusedPanelId = nextPanel?.id || null;
+      if (nextPanel) focusTerminalSession(nextPanel.id);
+    }
+  } else {
+    state.minimizedPanelIds.delete(panelId);
+    found.workspace.activePanelId = panelId;
+    state.data.activeWorkspaceId = found.workspace.id;
+    state.focusedPanelId = panelId;
+  }
+  render();
+  if (!shouldMinimize) focusTerminalSession(panelId);
+  return true;
+}
+
+function togglePaneMinimized(panelId = activePanel()?.id) {
+  if (!panelId) return false;
+  return setPaneMinimized(panelId, !state.minimizedPanelIds.has(panelId));
+}
+
+function restorePane(panelId) {
+  return setPaneMinimized(panelId, false) || focusPanel(panelId);
+}
+
+function minimizeActivePane() {
+  const panel = activePanel();
+  if (!panel) return false;
+  return setPaneMinimized(panel.id, true);
+}
+
+function restoreMinimizedPanes(workspace = activeWorkspace()) {
+  const targetWorkspace = typeof workspace === "string"
+    ? state.data?.workspaces.find((candidate) => candidate.id === workspace)
+    : workspace;
+  if (!targetWorkspace) return false;
+  let restored = false;
+  for (const panel of targetWorkspace.panels) {
+    if (!state.minimizedPanelIds.delete(panel.id)) continue;
+    restored = true;
+  }
+  if (!restored) return false;
+  const active = targetWorkspace.panels.find((panel) => panel.id === targetWorkspace.activePanelId) || targetWorkspace.panels[0];
+  if (active) {
+    targetWorkspace.activePanelId = active.id;
+    state.focusedPanelId = active.id;
+  }
+  render();
+  if (active) focusTerminalSession(active.id);
+  return true;
+}
+
 function togglePaneZoom(panelId = focusedPanel()?.id) {
   if (!panelId) return;
   const found = findPanelState(panelId);
   if (!found) return;
+  state.minimizedPanelIds.delete(panelId);
   const zoomingIn = zoomedPanelIdForWorkspace(found.workspace) !== panelId;
   setZoomedPanelIdForWorkspace(found.workspace, zoomingIn ? panelId : null);
   found.workspace.activePanelId = panelId;

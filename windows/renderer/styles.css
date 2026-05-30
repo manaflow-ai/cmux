@@ -1029,6 +1029,15 @@ body.reduce-motion *::after {
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-warning) 22%, transparent);
 }
 
+.surface-tab.is-minimized {
+  color: var(--color-faint);
+}
+
+.surface-tab.is-minimized .surface-dot {
+  background: transparent;
+  border: 1px solid var(--color-line-strong);
+}
+
 .surface-label {
   min-width: 0;
   overflow: hidden;
@@ -1209,6 +1218,47 @@ body.reduce-motion *::after {
   min-width: 0;
   min-height: 0;
   border-color: var(--color-line-strong);
+}
+
+.pane.is-minimized {
+  flex: 0 0 34px !important;
+  min-width: 34px;
+  min-height: 24px;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.pane-split.direction-right > .pane.is-minimized,
+.pane-grid:not(.direction-down) > .pane.is-minimized {
+  max-width: 42px;
+}
+
+.pane-split.direction-down > .pane.is-minimized,
+.pane-grid.direction-down > .pane.is-minimized {
+  flex-basis: 25px !important;
+  max-height: 30px;
+}
+
+.pane.is-minimized .pane-body {
+  display: none;
+}
+
+.pane.is-minimized .pane-header {
+  display: flex;
+  height: 100%;
+  border-bottom: 0;
+}
+
+.pane.is-minimized .pane-title,
+.pane.is-minimized .pane-type,
+.pane.is-minimized .pane-tool:not(.minimize) {
+  display: none;
+}
+
+.pane.is-minimized .pane-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+  margin-left: auto;
+  max-width: none;
 }
 
 .pane.has-attention {
@@ -1458,6 +1508,10 @@ body.reduce-motion *::after {
 
 .shell.pane-header-hidden .pane-header {
   display: none;
+}
+
+.shell.pane-header-hidden .pane.is-minimized .pane-header {
+  display: flex;
 }
 
 .pane.is-browser .font-down,
