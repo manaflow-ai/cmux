@@ -521,6 +521,8 @@ body.reduce-motion *::after {
 .browser-go:focus-visible,
 .browser-nav:focus-visible,
 .browser-address:focus-visible,
+.browser-tab:focus-visible,
+.browser-tab-new:focus-visible,
 .saved-color-input:focus-visible,
 .dialog-button:focus-visible,
 .dialog-input:focus-visible,
@@ -558,6 +560,8 @@ body.reduce-motion *::after {
 .terminal-search-button:active,
 .browser-go:active,
 .browser-nav:active,
+.browser-tab:active,
+.browser-tab-new:active,
 .dialog-button:active,
 .sidebar-action:active,
 .settings-action:active,
@@ -803,6 +807,8 @@ body.reduce-motion *::after {
 .browser-go,
 .browser-nav,
 .browser-address,
+.browser-tab,
+.browser-tab-new,
 .palette-dialog,
 .sidebar button,
 .inspector button,
@@ -1894,13 +1900,98 @@ body.reduce-motion *::after {
   container-type: inline-size;
   height: 100%;
   display: grid;
-  grid-template-rows: 34px auto minmax(0, 1fr);
+  grid-template-rows: 30px 34px auto minmax(0, 1fr);
+}
+
+.browser-tabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px var(--space-2) 0;
+  border-bottom: 1px solid var(--color-line);
+  background: color-mix(in oklch, var(--color-pane-warm) 78%, var(--color-chrome) 22%);
+}
+
+.browser-tab-list {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: end;
+  gap: var(--space-1);
+  overflow: hidden;
+}
+
+.browser-tab {
+  min-width: 72px;
+  max-width: 176px;
+  flex: 1 1 128px;
+  height: 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 var(--space-2);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  background: color-mix(in oklch, var(--color-pane) 68%, var(--color-chrome) 32%);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.browser-tab:hover {
+  color: var(--color-text);
+  background: var(--color-pane);
+}
+
+.browser-tab.is-active {
+  border-color: var(--color-line);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.browser-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-close {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-1);
+  color: var(--color-faint);
+}
+
+.browser-tab-close:hover {
+  background: color-mix(in oklch, var(--color-line) 56%, transparent);
+  color: var(--color-text);
+}
+
+.browser-tab-new {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+  color: var(--color-muted);
+  background: transparent;
+}
+
+.browser-tab-new:hover {
+  color: var(--color-text);
+  background: var(--color-pane);
 }
 
 .browser-bar {
   min-width: 0;
   display: grid;
-  grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px 26px;
+  grid-template-columns: 24px 24px 24px 24px minmax(0, 1fr) 32px 26px;
   align-items: center;
   gap: var(--space-1);
   padding: 4px var(--space-2);
@@ -1958,7 +2049,6 @@ body.reduce-motion *::after {
   background: var(--color-pane);
 }
 
-.browser-go-new,
 .browser-go-external {
   width: 26px;
   padding: 0;
@@ -1966,7 +2056,7 @@ body.reduce-motion *::after {
 
 @container (max-width: 320px) {
   .browser-bar {
-    grid-template-columns: 24px 24px minmax(0, 1fr) 26px 26px;
+    grid-template-columns: 24px 24px minmax(0, 1fr) 26px;
   }
 
   .browser-forward,

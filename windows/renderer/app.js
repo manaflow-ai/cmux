@@ -28,6 +28,15 @@ import {
   normalizeBrowserPageUrl,
   normalizeUrl
 } from "./browser-utils.js";
+import {
+  browserTabLimit,
+  browserTabSnapshotForPanel,
+  browserTabTitle,
+  loadBrowserTabSnapshots,
+  normalizeBrowserTab,
+  normalizeBrowserTabSnapshot,
+  saveBrowserTabSnapshots
+} from "./browser-tabs.js";
 import { createAppearancePreview } from "./appearance-preview.js";
 import {
   replaceChildrenIfChanged,
@@ -272,6 +281,7 @@ const state = {
   recentFolders: loadRecentFolders(),
   recentCommands: loadRecentCommands(),
   recentBrowserPages: loadRecentBrowserPages(),
+  browserTabSnapshots: loadBrowserTabSnapshots(),
   customCommandSnippets: loadCustomCommandSnippets(),
   savedSettingsProfiles: loadSavedSettingsProfiles(),
   workspaceBlueprints: loadWorkspaceBlueprints(),
@@ -857,6 +867,18 @@ function clearRecentBrowserPages() {
   saveRecentBrowserPages();
   renderSettingsInspector();
   toast("Recent browser pages cleared.");
+}
+
+function cleanupBrowserTabSnapshots() {
+  if (!state.data || state.browserTabSnapshots.size === 0) return;
+  const panelIds = allPanelIds();
+  let changed = false;
+  for (const panelId of [...state.browserTabSnapshots.keys()]) {
+    if (panelIds.has(panelId)) continue;
+    state.browserTabSnapshots.delete(panelId);
+    changed = true;
+  }
+  if (changed) saveBrowserTabSnapshots(state.browserTabSnapshots);
 }
 
 function embeddedBrowserUserAgent() {
@@ -2048,7 +2070,7 @@ const commands = [
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
   { id: "browser.newPane", label: "Open Browser Pane", shortcut: "", run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" }) },
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
-  { id: "browser.newTab", label: "New Browser Tab Beside Active", shortcut: "", run: () => newBrowserTabFromPanel() },
+  { id: "browser.newTab", label: "New Browser Tab", shortcut: "", run: () => newBrowserTabFromPanel() },
   { id: "browser.focusAddress", label: "Focus Browser Address", shortcut: "Ctrl+L", run: () => focusBrowserAddress() },
   { id: "browser.reload", label: "Reload Active Browser", shortcut: "Ctrl+R", run: () => reloadBrowserPanel() },
   { id: "browser.openExternal", label: "Open Active Browser Externally", shortcut: "", run: () => openBrowserPanelExternally() },
@@ -2406,6 +2428,7 @@ function setAppState(nextData, { previousState = state.data, schedule = false } 
   }
   state.data = protectedData;
   state.dataSignature = nextSignature;
+  cleanupBrowserTabSnapshots();
   if (schedule) scheduleRender(previousState);
   else render(previousState);
   return true;
@@ -3741,6 +3764,7 @@ function cleanupPanel(panelId) {
   }
   state.minimizedPanelIds.delete(panelId);
   state.pendingPanels.delete(panelId);
+  if (state.browserTabSnapshots.delete(panelId)) saveBrowserTabSnapshots(state.browserTabSnapshots);
   for (const [workspaceId, zoomedPanelId] of [...state.zoomedPanelIds.entries()]) {
     if (zoomedPanelId === panelId) state.zoomedPanelIds.delete(workspaceId);
   }
@@ -4321,6 +4345,11 @@ async function copyBrowserPanelUrl(panel = focusedPanel()) {
 function newBrowserTabFromPanel(panel = focusedPanel()) {
   const browserPanel = resolveBrowserPanel(panel);
   if (!browserPanel) return createPanel("browser", "right", { url: state.settings.browserHomeUrl });
+  const session = state.browserViews.get(browserPanel.id);
+  if (session) {
+    focusPanel(browserPanel.id);
+    return createBrowserTab(session, state.settings.browserHomeUrl);
+  }
   const found = findPanelState(browserPanel.id);
   return createPanel("browser", "right", {
     workspaceId: found?.workspace.id,
@@ -4341,6 +4370,112 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
   }
 }
 
+function activeBrowserTab(session) {
+  return session?.tabs?.find((tab) => tab.id === session.activeTabId) || session?.tabs?.[0] || null;
+}
+
+function saveBrowserSessionTabs(session) {
+  if (!session?.panelId) return;
+  state.browserTabSnapshots.set(session.panelId, normalizeBrowserTabSnapshot({
+    activeTabId: session.activeTabId,
+    tabs: session.tabs
+  }, state.settings.browserHomeUrl));
+  saveBrowserTabSnapshots(state.browserTabSnapshots);
+}
+
+function renderBrowserTabs(session) {
+  if (!session?.tabList) return;
+  const nodes = session.tabs.map((tab) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`;
+    button.title = tab.url;
+    button.dataset.browserTabId = tab.id;
+    const label = document.createElement("span");
+    label.className = "browser-tab-label";
+    label.textContent = tab.title || browserTabTitle(tab.url);
+    const close = document.createElement("span");
+    close.className = "browser-tab-close";
+    close.title = session.tabs.length <= 1 ? "Reset tab" : "Close tab";
+    close.textContent = "×";
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeBrowserTab(session, tab.id);
+    });
+    button.append(label, close);
+    button.addEventListener("click", () => activateBrowserTab(session, tab.id));
+    return button;
+  });
+  replaceChildrenIfChanged(session.tabList, nodes);
+}
+
+function updateActiveBrowserTabUrl(session, value) {
+  const tab = activeBrowserTab(session);
+  if (!tab) return;
+  const url = normalizeBrowserPageUrl(value || state.settings.browserHomeUrl);
+  if (!url) return;
+  tab.url = url;
+  tab.title = browserTabTitle(url);
+  saveBrowserSessionTabs(session);
+  renderBrowserTabs(session);
+}
+
+function activateBrowserTab(session, tabId) {
+  if (!session) return false;
+  const tab = session.tabs.find((candidate) => candidate.id === tabId);
+  if (!tab) return false;
+  session.activeTabId = tab.id;
+  session.address.value = tab.url;
+  if (session.view.src !== tab.url) {
+    session.view.src = tab.url;
+    session.setStatus?.("Loading");
+  }
+  queueBrowserUrlSync(session.panelId, tab.url);
+  saveBrowserSessionTabs(session);
+  renderBrowserTabs(session);
+  focusPanel(session.panelId);
+  return true;
+}
+
+function createBrowserTab(session, value = state.settings.browserHomeUrl) {
+  if (!session) return false;
+  if (session.tabs.length >= browserTabLimit) {
+    toast(`Browser tab limit is ${browserTabLimit}. Close one first.`);
+    return false;
+  }
+  const tab = normalizeBrowserTab({ url: value }, state.settings.browserHomeUrl);
+  if (!tab) return false;
+  session.tabs.push(tab);
+  activateBrowserTab(session, tab.id);
+  return true;
+}
+
+function closeBrowserTab(session, tabId) {
+  if (!session) return false;
+  const index = session.tabs.findIndex((tab) => tab.id === tabId);
+  if (index < 0) return false;
+  if (session.tabs.length <= 1) {
+    const tab = session.tabs[0];
+    tab.url = normalizeBrowserPageUrl(state.settings.browserHomeUrl) || defaultSettings.browserHomeUrl;
+    tab.title = browserTabTitle(tab.url);
+    session.activeTabId = tab.id;
+    activateBrowserTab(session, tab.id);
+    return true;
+  }
+  const wasActive = session.activeTabId === tabId;
+  session.tabs.splice(index, 1);
+  if (wasActive) {
+    const nextTab = session.tabs[Math.min(index, session.tabs.length - 1)];
+    session.activeTabId = nextTab.id;
+    activateBrowserTab(session, nextTab.id);
+  } else {
+    saveBrowserSessionTabs(session);
+    renderBrowserTabs(session);
+  }
+  return true;
+}
+
 function terminalWheelZoomStateFor(panelId) {
   let zoomState = state.terminalWheelZoomState.get(panelId);
   if (!zoomState) {
@@ -4356,6 +4491,16 @@ function ensureBrowser(panel, body) {
 
   const shell = document.createElement("div");
   shell.className = "browser-shell";
+  const tabStrip = document.createElement("div");
+  tabStrip.className = "browser-tabs";
+  const tabList = document.createElement("div");
+  tabList.className = "browser-tab-list";
+  const tabNew = document.createElement("button");
+  tabNew.className = "browser-tab-new";
+  tabNew.type = "button";
+  tabNew.title = "New browser tab";
+  tabNew.textContent = "+";
+  tabStrip.append(tabList, tabNew);
   const bar = document.createElement("div");
   bar.className = "browser-bar";
   const back = document.createElement("button");
@@ -4380,16 +4525,13 @@ function ensureBrowser(panel, body) {
   home.textContent = "⌂";
   const address = document.createElement("input");
   address.className = "browser-address";
-  address.value = panel.url || state.settings.browserHomeUrl;
+  const tabSnapshot = browserTabSnapshotForPanel(state.browserTabSnapshots, panel, state.settings.browserHomeUrl);
+  const activeTab = tabSnapshot.tabs.find((tab) => tab.id === tabSnapshot.activeTabId) || tabSnapshot.tabs[0];
+  address.value = activeTab?.url || panel.url || state.settings.browserHomeUrl;
   const go = document.createElement("button");
   go.className = "browser-go browser-go-submit";
   go.type = "button";
   go.textContent = "Go";
-  const newTab = document.createElement("button");
-  newTab.className = "browser-go browser-go-new";
-  newTab.type = "button";
-  newTab.title = "New browser tab";
-  newTab.textContent = "+";
   const external = document.createElement("button");
   external.className = "browser-go browser-go-external";
   external.type = "button";
@@ -4398,7 +4540,7 @@ function ensureBrowser(panel, body) {
   const status = document.createElement("div");
   status.className = "browser-status";
   status.textContent = "Loading";
-  bar.append(back, forward, reload, home, address, go, newTab, external);
+  bar.append(back, forward, reload, home, address, go, external);
 
   const view = document.createElement(window.cmuxNative?.electron ? "webview" : "iframe");
   view.className = "browser-view";
@@ -4411,6 +4553,7 @@ function ensureBrowser(panel, body) {
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
   let loadingStatusTimer = 0;
+  let session = null;
 
   const setStatus = (message = "") => {
     if (loadingStatusTimer) {
@@ -4453,11 +4596,12 @@ function ensureBrowser(panel, body) {
     address.value = next;
     view.src = next;
     setStatus("Loading");
+    updateActiveBrowserTabUrl(session, next);
     queueBrowserUrlSync(panel.id, next);
   };
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
-  newTab.onclick = () => newBrowserTabFromPanel(panel);
+  tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
   address.addEventListener("focus", () => markInteractedPanel(panel.id));
   address.addEventListener("keydown", (event) => {
     if (event.ctrlKey && event.key === "Enter") {
@@ -4488,6 +4632,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate", (event) => {
     if (event.url) {
       address.value = event.url;
+      updateActiveBrowserTabUrl(session, event.url);
       queueBrowserUrlSync(panel.id, event.url);
     }
     updateNavState();
@@ -4502,6 +4647,7 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-navigate-in-page", (event) => {
     if (event.url) {
       address.value = event.url;
+      updateActiveBrowserTabUrl(session, event.url);
       queueBrowserUrlSync(panel.id, event.url);
     }
     updateNavState();
@@ -4536,21 +4682,31 @@ function ensureBrowser(panel, body) {
     setStatus("Could not load here. Use Open.");
   });
 
-  shell.append(bar, status, view);
+  shell.append(tabStrip, bar, status, view);
   body.append(shell);
-  state.browserViews.set(panel.id, {
+  session = {
+    panelId: panel.id,
     shell,
+    tabStrip,
+    tabList,
+    tabNew,
+    tabs: tabSnapshot.tabs,
+    activeTabId: tabSnapshot.activeTabId,
+    setStatus,
     view,
     address,
     back,
     forward,
     reload,
     home,
-    newTab,
     external,
     visible: true,
     suspendInactive: state.settings.browserSuspendInactive
-  });
+  };
+  state.browserViews.set(panel.id, session);
+  renderBrowserTabs(session);
+  const activeUrl = activeBrowserTab(session)?.url;
+  if (activeUrl && activeUrl !== panel.url) queueBrowserUrlSync(panel.id, activeUrl);
   updateNavState();
 }
 
