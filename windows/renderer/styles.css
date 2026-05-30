@@ -4747,6 +4747,16 @@ textarea.dialog-input {
   }
 }
 
+@media (max-width: 560px) {
+  .workspace-title-block {
+    display: none;
+  }
+
+  .command-strip {
+    max-width: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
