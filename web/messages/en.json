@@ -45,7 +45,7 @@
     "taglinePrefix": "The terminal built for ",
     "typingCodingAgents": "coding agents",
     "typingMultitasking": "multitasking",
-    "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a socket API for automation.",
+    "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -596,7 +596,8 @@
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
-          "hideTabCloseButton": "Hide tab close buttons in the pane tab bar."
+          "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
+          "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
@@ -781,8 +782,8 @@
       }
     },
     "api": {
-      "title": "API Reference",
-      "metaTitle": "API Reference",
+      "title": "CLI Reference",
+      "metaTitle": "CLI Reference",
       "metaDescription": "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, sidebar metadata, environment variables, and detection methods.",
       "intro": "cmux provides both a CLI tool and a Unix socket for programmatic control. Every command is available through both interfaces.",
       "socket": "Socket",
@@ -1074,7 +1075,7 @@
       "suggestionsCallout": "Keep future skills focused on repeatable workflows with real command sequences. If a skill would only restate product docs, add it to docs instead.",
       "relatedTitle": "Related docs",
       "relatedBrowserAutomation": "Browser Automation",
-      "relatedApi": "API Reference",
+      "relatedApi": "CLI Reference",
       "relatedCustomCommands": "Custom Commands"
     },
     "ssh": {
@@ -1297,7 +1298,7 @@
       "sessionRestore": "Session Restore",
       "customCommands": "Custom Commands",
       "keyboardShortcuts": "Keyboard Shortcuts",
-      "apiReference": "API Reference",
+      "apiReference": "CLI Reference",
       "browserAutomation": "Browser Automation",
       "skills": "Skills",
       "notifications": "Notifications",
