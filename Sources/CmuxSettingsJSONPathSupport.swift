@@ -86,6 +86,8 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.showTextBoxOnNewTerminals",
+        "terminal.focusTextBoxOnNewTerminals",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
