@@ -3051,13 +3051,21 @@ function renderPendingPane(panel, body) {
     pending.className = "pending-pane";
     pending.innerHTML = `
       <span class="pending-pane-pulse"></span>
-      <span class="pending-pane-text"></span>
+      <span class="pending-pane-copy">
+        <span class="pending-pane-text"></span>
+        <span class="pending-pane-meta"></span>
+      </span>
     `;
   }
+  const isBrowser = panel.type === "browser";
+  const meta = isBrowser
+    ? hostnameOf(panel.url || state.settings.browserHomeUrl)
+    : `${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")} / ${panel.cwdShort || "~"}`;
   setTextIfChanged(
     pending.querySelector(".pending-pane-text"),
-    panel.type === "browser" ? "Opening browser..." : "Starting terminal..."
+    isBrowser ? "Opening browser..." : "Starting terminal..."
   );
+  setTextIfChanged(pending.querySelector(".pending-pane-meta"), meta);
   replaceChildrenIfChanged(body, [pending]);
 }
 
@@ -3724,6 +3732,7 @@ function cleanupPanel(panelId) {
   if (terminal) {
     terminal.disposed = true;
     if (terminal.fitFrame) cancelAnimationFrame(terminal.fitFrame);
+    if (terminal.connectionStatusTimer) clearTimeout(terminal.connectionStatusTimer);
     closeSocketQuietly(terminal.socket);
     terminal.resizeObserver?.disconnect();
     terminal.searchResultDisposable?.dispose?.();
@@ -3747,6 +3756,37 @@ function closeSocketQuietly(socket) {
   if (socket.readyState === WebSocket.OPEN) socket.close();
 }
 
+function setTerminalConnectionStatus(session, status, label, clearAfter = 0) {
+  if (!session?.host) return;
+  if (session.connectionStatusTimer) {
+    clearTimeout(session.connectionStatusTimer);
+    session.connectionStatusTimer = 0;
+  }
+  session.host.classList.toggle("is-connecting", status === "connecting");
+  session.host.classList.toggle("is-terminal-ready", status === "ready");
+  session.host.classList.toggle("is-terminal-disconnected", status === "disconnected" || status === "error");
+  session.host.dataset.connectionStatus = label || "";
+  if (clearAfter > 0) {
+    session.connectionStatusTimer = setTimeout(() => clearTerminalConnectionStatus(session), clearAfter);
+  }
+}
+
+function clearTerminalConnectionStatus(session) {
+  if (!session?.host) return;
+  if (session.connectionStatusTimer) {
+    clearTimeout(session.connectionStatusTimer);
+    session.connectionStatusTimer = 0;
+  }
+  session.host.classList.remove("is-connecting", "is-terminal-ready", "is-terminal-disconnected");
+  delete session.host.dataset.connectionStatus;
+}
+
+function markTerminalOutputReady(session) {
+  if (!session || session.hasOutput) return;
+  session.hasOutput = true;
+  clearTerminalConnectionStatus(session);
+}
+
 function ensureTerminal(panel, body) {
   if (state.terminals.has(panel.id)) return;
   body.replaceChildren();
@@ -3759,7 +3799,8 @@ function ensureTerminal(panel, body) {
     return;
   }
   const host = document.createElement("div");
-  host.className = "terminal-host";
+  host.className = "terminal-host is-connecting";
+  host.dataset.connectionStatus = "Connecting shell";
   host.addEventListener("wheel", handleTerminalWheelZoom, { passive: false, capture: true });
   body.appendChild(host);
 
@@ -3806,7 +3847,9 @@ function ensureTerminal(panel, body) {
     searchTerm: "",
     searchCaseSensitive: false,
     searchResultDisposable: null,
-    focusDisposable: null
+    focusDisposable: null,
+    connectionStatusTimer: 0,
+    hasOutput: false
   };
   session.searchOverlay = createTerminalSearchOverlay(panel, session);
   if (session.searchOverlay) host.append(session.searchOverlay);
@@ -3826,11 +3869,21 @@ function ensureTerminal(panel, body) {
     }
   });
 
-  socket.addEventListener("open", () => scheduleFitTerminal(session, true));
+  socket.addEventListener("open", () => {
+    setTerminalConnectionStatus(session, "ready", "Shell ready", 650);
+    scheduleFitTerminal(session, true);
+  });
+  socket.addEventListener("error", () => {
+    if (!session.disposed) setTerminalConnectionStatus(session, "error", "Shell connection failed");
+  });
+  socket.addEventListener("close", () => {
+    if (!session.disposed) setTerminalConnectionStatus(session, "disconnected", "Shell disconnected");
+  });
   socket.addEventListener("message", (event) => {
     if (session.disposed) return;
     const message = JSON.parse(event.data);
     if (message.type === "output") {
+      markTerminalOutputReady(session);
       enqueueTerminalOutput(session, message.data);
     }
   });

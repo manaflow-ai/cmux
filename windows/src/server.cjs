@@ -20,7 +20,6 @@ const defaultPipeName = process.platform === "win32"
   : path.join(os.tmpdir(), "cmux-windows.sock");
 const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
-const terminalPrewarmDelayMs = 0;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -676,18 +675,16 @@ class CmuxWindowsRuntime {
   scheduleTerminalPrewarm(panel) {
     if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
     if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
-    const timer = setTimeout(() => {
-      this.pendingTerminalPrewarms.delete(panel.id);
-      if (this.closed || !this.hasRendererEventSocket()) return;
+    this.pendingTerminalPrewarms.set(panel.id, true);
+    try {
       const found = this.findPanel(panel.id);
       if (!found || found.panel.type !== "terminal" || this.terminals.has(panel.id)) return;
-      try {
-        this.ensureTerminalProcess(found.panel);
-      } catch (error) {
-        console.error(`terminal prewarm failed: ${error.message}`);
-      }
-    }, terminalPrewarmDelayMs);
-    this.pendingTerminalPrewarms.set(panel.id, timer);
+      this.ensureTerminalProcess(found.panel);
+    } catch (error) {
+      console.error(`terminal prewarm failed: ${error.message}`);
+    } finally {
+      this.pendingTerminalPrewarms.delete(panel.id);
+    }
   }
 
   createWorkspace(title) {

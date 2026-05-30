@@ -1630,6 +1630,43 @@ body.reduce-motion *::after {
   font-family: var(--terminal-font-family, var(--font-mono));
 }
 
+.terminal-host::after {
+  content: attr(data-connection-status);
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 6;
+  max-width: calc(100% - var(--space-5));
+  padding: 4px 7px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-chrome) 90%, var(--color-canvas) 10%);
+  color: var(--color-muted);
+  font: 11px/1.2 var(--font-ui);
+  letter-spacing: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.terminal-host.is-connecting::after,
+.terminal-host.is-terminal-ready::after,
+.terminal-host.is-terminal-disconnected::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.terminal-host.is-terminal-ready::after {
+  color: var(--color-success);
+}
+
+.terminal-host.is-terminal-disconnected::after {
+  color: var(--color-warning);
+}
+
 .terminal-host .xterm {
   height: 100%;
 }
@@ -1639,11 +1676,16 @@ body.reduce-motion *::after {
 }
 
 .pending-pane {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
   max-width: calc(100% - var(--space-4));
+  padding: 8px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane-warm) 74%, transparent);
   color: var(--color-muted);
   font: 12px/1.2 var(--font-ui);
 }
@@ -1664,6 +1706,21 @@ body.reduce-motion *::after {
   white-space: nowrap;
 }
 
+.pending-pane-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.pending-pane-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @container (max-width: 160px) {
   .pending-pane {
     justify-content: center;
@@ -1671,6 +1728,10 @@ body.reduce-motion *::after {
   }
 
   .pending-pane-text {
+    display: none;
+  }
+
+  .pending-pane-copy {
     display: none;
   }
 }
