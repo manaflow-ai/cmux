@@ -534,33 +534,6 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
     }
 }
 
-struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
-    final class RegisteredView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if window == nil {
-                MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
-            } else {
-                MinimalModeTitlebarControlHitRegionRegistry.register(self)
-            }
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        deinit {
-            MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
-        }
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        RegisteredView(frame: .zero)
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
-    }
-}
-
 func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint) -> Bool {
     if isMinimalModeSidebarTitlebarControlButtonHit(window: window, locationInWindow: locationInWindow) {
         return true

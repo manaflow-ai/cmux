@@ -17,6 +17,7 @@ struct TitlebarInteractiveControlHost<Content: View>: NSViewRepresentable {
 
     func updateNSView(_ nsView: TitlebarInteractiveHostingView<AnyView>, context: Context) {
         nsView.rootView = hostedRootView
+        MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
     }
 
     private var hostedRootView: AnyView {
