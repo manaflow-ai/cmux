@@ -63,11 +63,11 @@ public struct SettingsWindowRoot: View {
     // Mirrors legacy SettingsView.settingsNavigationGeneration. When
     // multiple navigation requests fire in quick succession (e.g. the
     // sidebar selection changes plus an external app.cmux.settings
-    // navigation post), each scheduled `proxy.scrollTo(...)` runs on
-    // the next main-queue tick. Without a generation guard, a stale
-    // earlier request can win and snap the scroll back to a section
-    // the user has already moved past. The counter is incremented in
-    // `applyScrollNavigation` and re-checked inside `DispatchQueue.main.async`,
+    // navigation post), each `proxy.scrollTo(...)` runs one main-actor
+    // hop later. Without a generation guard, a stale earlier request can
+    // win and snap the scroll back to a section the user has already
+    // moved past. The counter is incremented in `applyScrollNavigation`
+    // and re-checked inside the scheduled `Task { @MainActor in ... }`,
     // so only the most recent request actually scrolls.
     @State private var settingsNavigationGeneration: Int = 0
     // Drives the "flash the navigated-to row" affordance the legacy
@@ -320,15 +320,15 @@ public struct SettingsWindowRoot: View {
         GeometryReader { _ in
             ScrollViewReader { proxy in
                 ScrollView {
-                    // LazyVStack so the ~12 settings sections build their
-                    // bodies on demand as they scroll into view instead of
-                    // eagerly on first render. The eager plain VStack made
-                    // opening the window and the first scroll janky because
-                    // every section (and its nested cards/controls) was
-                    // instantiated up front. Each section keeps its
-                    // `.id(anchorID(for:))` so `proxy.scrollTo(...)` from
-                    // the sidebar/search navigation still resolves anchors.
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    // Eager VStack (not LazyVStack) on purpose: search
+                    // navigation must `scrollTo` any row, including ones in
+                    // a section currently off-screen. A LazyVStack only
+                    // registers a row's `.id` once its section is realized,
+                    // so `scrollTo(deepRow)` silently no-ops while that
+                    // section is scrolled away, stranding the user at the
+                    // top. Building all ~14 sections up front keeps every
+                    // anchor addressable for a single, reliable scroll.
+                    VStack(alignment: .leading, spacing: 14) {
                         sectionStack
                     }
                     // Legacy SettingsView only pads the inner VStack; it
@@ -378,7 +378,7 @@ public struct SettingsWindowRoot: View {
     /// A monotonically increasing `settingsNavigationGeneration`
     /// guards against stale scrolls when navigation requests pile up:
     /// each call captures the current generation, increments it, and
-    /// the dispatched scroll only runs if the captured generation is
+    /// the scheduled scroll only runs if the captured generation is
     /// still the latest — otherwise an earlier request would clobber
     /// the user's most recent navigation.
     private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
@@ -408,41 +408,19 @@ public struct SettingsWindowRoot: View {
                 startedAt: nil
             )
         }
-        // Scroll in two passes. The LazyVStack only realizes off-screen
-        // sections as the first scroll brings them near the viewport, so
-        // a single `scrollTo` to a distant section lands before the
-        // target's geometry is known and the header can settle mid- or
-        // bottom-viewport instead of pinned at the top. Re-issuing the
-        // scroll on the next runloop tick, after the target realizes,
-        // makes the section header reliably land at the top. Both passes
-        // are generation-guarded so a newer navigation still wins.
-        // Two-tick scroll, and the order matters. In the detail `LazyVStack`
-        // only realized sections register their `.id`s, so `scrollTo` to a
-        // row inside an off-screen section (e.g. a row deep in Automation
-        // while the view sits at the top) finds no id and silently no-ops,
-        // leaving the user stranded at the top. So: tick 1 scrolls to the
-        // SECTION (its body is an eager `Group`, so realizing the section
-        // registers every row's id); tick 2 — after that layout pass — then
-        // scrolls to the specific row (now resolvable) and centers it, or
-        // for a section hit re-pins the header to the top.
-        //
-        // DispatchQueue.main.async (vs @MainActor/Task) is deliberate
-        // runloop-tick sequencing — SettingsWindowRoot is already
-        // @MainActor; we need a layout pass *between* the two scrolls, which
-        // `Task.yield()` does not guarantee, so there's no async-native
-        // equivalent. Both ticks are generation-guarded so a newer
-        // navigation still wins.
-        DispatchQueue.main.async {
+        // One scroll, one target. The detail stack is eager (see
+        // `detailScroll`), so every row's `.id` is always registered and a
+        // single `scrollTo` resolves any anchor regardless of where the
+        // viewport currently sits — no "realize the section first" dance.
+        // A section hit pins its header to the top; a row hit centers the
+        // row. The hop off the current update is a main-actor `Task` (not
+        // `DispatchQueue.main.async`, which package policy forbids): it
+        // lets the highlight-state mutation above commit before the scroll
+        // and is generation-guarded so a newer navigation still wins.
+        let anchor: UnitPoint = anchorID == sectionID ? .top : .center
+        Task { @MainActor in
             guard navigationGeneration == settingsNavigationGeneration else { return }
-            proxy.scrollTo(sectionID, anchor: .top)
-            DispatchQueue.main.async {
-                guard navigationGeneration == settingsNavigationGeneration else { return }
-                if anchorID == sectionID {
-                    proxy.scrollTo(sectionID, anchor: .top)
-                } else {
-                    proxy.scrollTo(anchorID, anchor: .center)
-                }
-            }
+            proxy.scrollTo(anchorID, anchor: anchor)
         }
     }
 
