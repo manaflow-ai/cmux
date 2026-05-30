@@ -4,6 +4,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
     case terminal
+    case textBox
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -25,6 +26,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .textBox:
+            return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -56,6 +59,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "gearshape"
         case .terminal:
             return "terminal"
+        case .textBox:
+            return "textformat"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -87,6 +92,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
+        case .textBox:
+            return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -331,11 +338,13 @@ enum SettingsSearchIndex {
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
-        setting(.terminal, "textbox-max-lines", String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"), "terminal textbox text box rich input prompt max height lines grow scroll"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
         setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
+        setting(.textBox, "show-textbox-new-terminals", String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"), "terminal.showTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
+        setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
+        setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "wrap-workspace-titles", String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), "workspace title wrap multiline pr pull request"),
@@ -454,7 +463,9 @@ enum SettingsSearchIndex {
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
-        "terminal.textBoxMaxLines": settingID(for: .terminal, idSuffix: "textbox-max-lines"),
+        "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
+        "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
+        "terminal.textBoxMaxLines": settingID(for: .textBox, idSuffix: "textbox-max-lines"),
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),

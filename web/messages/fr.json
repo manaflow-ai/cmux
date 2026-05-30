@@ -499,7 +499,9 @@
           "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations."
         },
         "terminal": {
-          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic."
+          "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic.",
+          "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
+          "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
         },
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
@@ -920,7 +922,8 @@
       "changelog": "Changelog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (bêta)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1057,21 @@
       "daemonSession": "Gestion des séances",
       "daemonSessionHow": "Maintient les sessions lors des reconnexions, coordonne le redimensionnement du PTY sur plusieurs pièces jointes",
       "daemonPath": "Le binaire du démon est stocké dans ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote sur l'hôte distant et vérifié par rapport à un manifeste SHA-256 intégré dans l'application."
+    },
+    "textBox": {
+      "title": "TextBox (bêta)",
+      "metaTitle": "TextBox (bêta)",
+      "metaDescription": "Configurez l'entrée TextBox bêta de cmux pour les nouveaux onglets, divisions et espaces de travail de terminal.",
+      "intro": "TextBox est la surface de saisie enrichie de cmux pour composer des prompts avant de les envoyer au terminal.",
+      "betaCallout": "TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant les tests.",
+      "defaultsTitle": "Valeurs par défaut",
+      "defaultsDesc": "Les réglages TextBox se trouvent dans Settings > TextBox :",
+      "showSetting": "Show TextBox on New Terminals ouvre les nouveaux espaces de travail, onglets et divisions de terminal avec TextBox visible, tout en gardant le focus dans le terminal.",
+      "focusSetting": "Focus TextBox on New Terminals place le focus clavier dans TextBox. Le focus affiche aussi TextBox.",
+      "maxLinesSetting": "TextBox Max Lines limite la hauteur de TextBox avant que son contenu ne défile.",
+      "configTitle": "cmux.json",
+      "configDesc": "Définissez les mêmes valeurs par défaut dans ~/.config/cmux/cmux.json sous terminal :",
+      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal."
     }
   },
   "legal": {

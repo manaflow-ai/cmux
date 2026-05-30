@@ -5347,8 +5347,9 @@ struct SettingsView: View {
     @Setting(\.app.keepWorkspaceOpenWhenClosingLastSurface) private var closeWorkspaceOnLastSurfaceShortcut
     @Setting(\.app.focusPaneOnFirstClick) private var paneFirstClickFocusEnabled
     @Setting(\.terminal.showScrollBar) private var showTerminalScrollBar
-    @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
-    private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @Setting(\.terminal.showTextBoxOnNewTerminals) private var showTextBoxOnNewTerminals
+    @Setting(\.terminal.focusTextBoxOnNewTerminals) private var focusTextBoxOnNewTerminals
+    @Setting(\.terminal.textBoxMaxLines) private var textBoxMaxLines
     @Setting(\.terminal.copyOnSelect) private var terminalCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
@@ -6864,29 +6865,6 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .json("terminal.textBoxMaxLines"),
-                            String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
-                            subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
-                            controlWidth: pickerColumnWidth
-                        ) {
-                            Stepper(
-                                value: textBoxMaxLinesBinding,
-                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
-                            ) {
-                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
-                                    .monospacedDigit()
-                                    .frame(width: 28, alignment: .trailing)
-                            }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
-                            .accessibilityLabel(
-                                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines")
-                            )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
                             configurationReview: .json("terminal.copyOnSelect"),
                             String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
                             subtitle: terminalCopyOnSelect
@@ -6974,6 +6952,84 @@ struct SettingsView: View {
                     }
 
                     SurfaceResumeApprovalSettingsCard()
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .textBox))
+                    SettingsCard {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.yellow)
+                                .accessibilityHidden(true)
+
+                            Text(String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested."))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showTextBoxOnNewTerminals"),
+                            String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"),
+                            subtitle: showTextBoxOnNewTerminals
+                                ? String(localized: "settings.textBox.showOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces open with the TextBox visible.")
+                                : String(localized: "settings.textBox.showOnNewTerminals.subtitleOff", defaultValue: "New terminals start with the TextBox hidden until you open it.")
+                        ) {
+                            Toggle("", isOn: $showTextBoxOnNewTerminals)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTextBoxShowOnNewTerminalsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.focusTextBoxOnNewTerminals"),
+                            String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"),
+                            subtitle: focusTextBoxOnNewTerminals
+                                ? String(localized: "settings.textBox.focusOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces put keyboard focus in the TextBox.")
+                                : String(localized: "settings.textBox.focusOnNewTerminals.subtitleOff", defaultValue: "New terminals keep keyboard focus in the terminal surface.")
+                        ) {
+                            Toggle("", isOn: $focusTextBoxOnNewTerminals)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTextBoxFocusOnNewTerminalsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.textBoxMaxLines"),
+                            String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"),
+                            subtitle: String(localized: "settings.textBox.maxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Stepper(
+                                value: textBoxMaxLinesBinding,
+                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
+                            ) {
+                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
+                                    .monospacedDigit()
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsTextBoxMaxLinesStepper")
+                            .accessibilityLabel(
+                                String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines")
+                            )
+                        }
+                    }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
@@ -8272,7 +8328,8 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
-        textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+        showTextBoxOnNewTerminals = TerminalTextBoxInputSettings.defaultShowOnNewTerminals
+        focusTextBoxOnNewTerminals = TerminalTextBoxInputSettings.defaultFocusOnNewTerminals
         textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
         let previousTerminalCopyOnSelect = terminalCopyOnSelect
         terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect

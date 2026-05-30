@@ -68,6 +68,8 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {
   //     "enabled": false,
   //     "idleSeconds": 3600,
