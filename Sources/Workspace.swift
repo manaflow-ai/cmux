@@ -7252,8 +7252,11 @@ final class WorkspaceRemoteSessionController {
             }
             return normalizedSSHOptions(configuration.sshOptions)
         }()
-        var args: [String] = [
-            "-o", "ConnectTimeout=6",
+        var args: [String] = []
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
+            args += ["-o", "ConnectTimeout=30"]
+        }
+        args += [
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
         ]
