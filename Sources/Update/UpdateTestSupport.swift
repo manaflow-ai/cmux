@@ -6,6 +6,18 @@ enum UpdateTestSupport {
     static func applyIfNeeded(to viewModel: UpdateViewModel) {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
+
+        if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
+           !detectedVersion.isEmpty {
+            DispatchQueue.main.async {
+                if let item = makeAppcastItem(displayVersion: detectedVersion) {
+                    viewModel.recordDetectedUpdate(item)
+                } else {
+                    viewModel.detectedUpdateVersion = UpdateViewModel.normalizedDetectedUpdateVersion(from: detectedVersion)
+                }
+            }
+        }
+
         guard let state = env["CMUX_UI_TEST_UPDATE_STATE"] else { return }
 
         DispatchQueue.main.async {
@@ -33,7 +45,7 @@ enum UpdateTestSupport {
         UpdateLogStore.shared.append("ui test mock feed check: \(feedURLString)")
         UpdateTestURLProtocol.registerIfNeeded()
         DispatchQueue.main.async {
-            viewModel.state = .checking(.init(cancel: {}))
+            viewModel.applyDriverState(.checking(.init(cancel: {})))
         }
 
         let task = URLSession.shared.dataTask(with: feedURL) { data, _, _ in
@@ -43,9 +55,9 @@ enum UpdateTestSupport {
             let applyState = {
                 if hasItem {
                     let appcastItem = makeAppcastItem(displayVersion: version) ?? SUAppcastItem.empty()
-                    viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: { _ in }))
+                    viewModel.applyDriverState(.updateAvailable(.init(appcastItem: appcastItem, reply: { _ in })))
                 } else {
-                    viewModel.state = .notFound(.init(acknowledgement: {}))
+                    viewModel.applyDriverState(.notFound(.init(acknowledgement: {})))
                 }
             }
             DispatchQueue.main.async {
@@ -64,9 +76,9 @@ enum UpdateTestSupport {
     }
 
     private static func transition(to state: UpdateState, on viewModel: UpdateViewModel) {
-        viewModel.state = .checking(.init(cancel: {}))
+        viewModel.applyDriverState(.checking(.init(cancel: {})))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            viewModel.state = state
+            viewModel.applyDriverState(state)
         }
     }
 
@@ -79,6 +91,7 @@ enum UpdateTestSupport {
         ]
         let dict: [String: Any] = [
             "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)

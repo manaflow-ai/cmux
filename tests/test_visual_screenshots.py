@@ -33,7 +33,7 @@ from typing import Optional, List, Union
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 HTML_REPORT = Path(__file__).parent / "visual_report.html"
 
 # Timing constants
@@ -1368,13 +1368,6 @@ def generate_html_report(changes: list[StateChange]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _is_known_non_blocking_failure(change: StateChange) -> bool:
-    """Return True for known flaky VM-only visual failures we still report but do not gate on."""
-    if change.name == "Nested: Close Top of T-shape" and "VIEW_DETACHED" in (change.error or ""):
-        return True
-    return False
-
-
 def run_visual_tests():
     changes: list[StateChange] = []
 
@@ -1486,25 +1479,20 @@ def run_visual_tests():
     print("=" * 60)
     passed = sum(1 for c in changes if c.passed)
     failed_changes = [c for c in changes if not c.passed]
-    non_blocking_failed = [c for c in failed_changes if _is_known_non_blocking_failure(c)]
-    blocking_failed = [c for c in failed_changes if not _is_known_non_blocking_failure(c)]
 
     print(f"  Passed: {passed}")
     print(f"  Failed: {len(failed_changes)}")
-    if non_blocking_failed:
-        print(f"  Non-blocking failed: {len(non_blocking_failed)}")
     print(f"  Total:  {len(changes)}")
 
     if failed_changes:
         print()
         print("Failed tests:")
         for c in failed_changes:
-            marker = " (non-blocking)" if _is_known_non_blocking_failure(c) else ""
-            print(f"  - {c.name}{marker}: {c.error or 'unknown'}")
+            print(f"  - {c.name}: {c.error or 'unknown'}")
 
     print()
     print(f"Report: {HTML_REPORT}")
-    return 0 if len(blocking_failed) == 0 else 1
+    return 0 if len(failed_changes) == 0 else 1
 
 
 if __name__ == "__main__":

@@ -27,6 +27,21 @@ fi
     # zsh treats unset ZDOTDIR as if it were HOME. We do the same.
     builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zshenv"
     [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
+
+    if [[ -o interactive \
+       && -z "${ZSH_EXECUTION_STRING:-}" \
+       && "${CMUX_SHELL_INTEGRATION:-1}" != "0" \
+       && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" \
+       && -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" \
+       && "${TERM:-}" == "xterm-256color" \
+       && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
+        # Keep startup TERM-compatible prompt/theme selection during shell init,
+        # then restore the managed xterm-256color identity before the first
+        # interactive command executes.
+        builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
+        builtin export TERM="xterm-ghostty"
+        builtin typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=1
+    fi
 } always {
     if [[ -o interactive ]]; then
         # We overwrote GhosttyKit's injected ZDOTDIR, so manually load Ghostty's
@@ -34,8 +49,13 @@ fi
         #
         # We can't rely on GHOSTTY_ZSH_ZDOTDIR here because Ghostty's own zsh
         # bootstrap unsets it before chaining into this cmux wrapper.
-        if [[ "${CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
-            builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
+        if [[ "${CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION:-0}" == "1" ]]; then
+            if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then
+                builtin typeset _cmux_ghostty="$CMUX_SHELL_INTEGRATION_DIR/ghostty-integration.zsh"
+            fi
+            if [[ ! -r "${_cmux_ghostty:-}" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+                builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
+            fi
             [[ -r "$_cmux_ghostty" ]] && builtin source -- "$_cmux_ghostty"
         fi
 

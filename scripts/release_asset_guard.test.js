@@ -11,7 +11,7 @@ const {
 
 test("marks guard as complete and skips build/upload when all immutable assets already exist", () => {
   const result = evaluateReleaseAssetGuard({
-    existingAssetNames: ["cmux-macos.dmg", "appcast.xml", "notes.txt"],
+    existingAssetNames: [...IMMUTABLE_RELEASE_ASSETS, "notes.txt"],
   });
 
   assert.deepEqual(result.conflicts, IMMUTABLE_RELEASE_ASSETS);
@@ -36,12 +36,16 @@ test("marks guard as clear when immutable assets are not present", () => {
 });
 
 test("marks guard as partial when only some immutable assets exist", () => {
+  const partialAssets = ["appcast.xml", "cmuxd-remote-manifest.json"];
   const result = evaluateReleaseAssetGuard({
-    existingAssetNames: ["appcast.xml"],
+    existingAssetNames: partialAssets,
   });
 
-  assert.deepEqual(result.conflicts, ["appcast.xml"]);
-  assert.deepEqual(result.missingImmutableAssets, ["cmux-macos.dmg"]);
+  assert.deepEqual(result.conflicts, partialAssets);
+  assert.deepEqual(
+    result.missingImmutableAssets,
+    IMMUTABLE_RELEASE_ASSETS.filter((assetName) => !partialAssets.includes(assetName)),
+  );
   assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
   assert.equal(result.hasPartialConflict, true);
   assert.equal(result.shouldSkipBuildAndUpload, false);

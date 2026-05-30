@@ -27,7 +27,7 @@ MISSING_ENTRY_OUTPUT="$TMP_DIR/missing-entry.out"
 
 mkdir -p "$FIXTURE_DIR/GhosttyKit.xcframework" "$SUCCESS_DIR" "$MISMATCH_DIR" "$MISSING_ENTRY_DIR" "$BIN_DIR"
 printf 'fixture\n' > "$FIXTURE_DIR/GhosttyKit.xcframework/marker.txt"
-(cd "$FIXTURE_DIR" && tar czf "$TMP_DIR/GhosttyKit.xcframework.tar.gz" GhosttyKit.xcframework)
+(cd "$FIXTURE_DIR" && COPYFILE_DISABLE=1 tar czf "$TMP_DIR/GhosttyKit.xcframework.tar.gz" GhosttyKit.xcframework)
 ACTUAL_SHA256="$(shasum -a 256 "$TMP_DIR/GhosttyKit.xcframework.tar.gz" | awk '{print $1}')"
 printf '%s %s\n' "$FIXTURE_SHA" "$ACTUAL_SHA256" > "$CHECKSUMS_FILE"
 

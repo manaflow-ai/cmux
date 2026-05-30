@@ -374,6 +374,239 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(notifyStdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyStdout) stderr=\(notifyStderr)")
     }
 
+    func testOpenNotificationCLISelectsWorkspaceSurfaceAndMarksRowRead() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for open-notification CLI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 20.0) { data in
+                let tabId2 = data["tabId2"] ?? ""
+                let surfaceId2 = data["surfaceId2"] ?? ""
+                let window2Id = data["window2Id"] ?? ""
+                let socketReady = data["socketReady"] ?? ""
+                return !tabId2.isEmpty &&
+                    !surfaceId2.isEmpty &&
+                    !window2Id.isEmpty &&
+                    !socketReady.isEmpty &&
+                    socketReady != "pending"
+            },
+            "Expected multi-window notification setup data and socket readiness"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing setup data")
+            return
+        }
+        if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        guard setup["socketReady"] == "1" else {
+            XCTFail(
+                "Control socket unavailable in this test environment. expected=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard setup["socketPingResponse"] == "PONG" else {
+            XCTFail(
+                "Control socket ping sanity check failed. path=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        let tabId2 = try XCTUnwrap(setup["tabId2"])
+        let surfaceId2 = try XCTUnwrap(setup["surfaceId2"])
+        let window2Id = try XCTUnwrap(setup["window2Id"])
+
+        let title = "open-cli-\(UUID().uuidString.prefix(8))"
+        let notifyResult = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "notify",
+                "--workspace",
+                tabId2,
+                "--surface",
+                surfaceId2,
+                "--title",
+                title,
+                "--subtitle",
+                "ui-test",
+                "--body",
+                "open-notification",
+            ],
+            responseTimeoutSeconds: 6.0,
+            cliStrategy: .bundledOnly
+        )
+        XCTAssertEqual(notifyResult.terminationStatus, 0, notifyResult.stderr)
+
+        guard let notification = waitForNotification(title: title, timeout: 8.0),
+              let notificationId = notification["id"] as? String,
+              !notificationId.isEmpty else {
+            XCTFail("Expected CLI-created notification to appear in list-notifications")
+            return
+        }
+
+        let beforeToken = loadData()?["focusToken"]
+        let openResult = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "open-notification",
+                "--id",
+                notificationId,
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            responseTimeoutSeconds: 6.0,
+            cliStrategy: .bundledOnly
+        )
+        XCTAssertEqual(openResult.terminationStatus, 0, openResult.stderr)
+        let openPayload = parseJSONObject(openResult.stdout)
+        XCTAssertEqual(openPayload?["workspace_id"] as? String, tabId2)
+        XCTAssertEqual(openPayload?["surface_id"] as? String, surfaceId2)
+
+        XCTAssertTrue(
+            waitForFocusChange(from: beforeToken, timeout: 8.0),
+            "Expected focus record after open-notification CLI command"
+        )
+        guard let afterOpen = loadData() else {
+            XCTFail("Missing focus data after open-notification")
+            return
+        }
+        XCTAssertEqual(afterOpen["focusedWindowId"], window2Id)
+        XCTAssertEqual(afterOpen["focusedTabId"], tabId2)
+        XCTAssertEqual(afterOpen["focusedSurfaceId"], surfaceId2)
+        XCTAssertEqual(afterOpen["focusedSidebarSelection"], "tabs")
+        XCTAssertTrue(
+            waitForNotificationRead(notificationId, timeout: 8.0),
+            "Expected open-notification to mark the opened row read"
+        )
+    }
+
+    func testNewWorkspaceCLIWindowFlagTargetsSpecificWindow() throws {
+        let app = XCUIApplication()
+        let title = "window-route-\(UUID().uuidString.prefix(8))"
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WINDOW_ROUTE_CLI"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_WINDOW_ROUTE_CLI_TITLE"] = title
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for CLI --window workspace routing test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 20.0) { data in
+                let window1Id = data["window1Id"] ?? ""
+                let window2Id = data["window2Id"] ?? ""
+                let tabId1 = data["tabId1"] ?? ""
+                let socketReady = data["socketReady"] ?? ""
+                let routeStatus = data["windowRouteStatus"] ?? ""
+                return !window1Id.isEmpty &&
+                    !window2Id.isEmpty &&
+                    !tabId1.isEmpty &&
+                    !socketReady.isEmpty &&
+                    socketReady != "pending" &&
+                    !routeStatus.isEmpty &&
+                    routeStatus != "pending"
+            },
+            "Expected multi-window setup data, socket readiness, and CLI route result. data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing setup data")
+            return
+        }
+        if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        guard setup["socketReady"] == "1" else {
+            XCTFail(
+                "Control socket unavailable in this test environment. expected=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard setup["socketPingResponse"] == "PONG" else {
+            XCTFail(
+                "Control socket ping sanity check failed. path=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        let window1Id = try XCTUnwrap(setup["window1Id"])
+        let window2Id = try XCTUnwrap(setup["window2Id"])
+        XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+
+        XCTAssertEqual(
+            setup["windowRouteStatus"],
+            "1",
+            "Expected bundled `cmux --window` route test hook to finish. failure=\(setup["windowRouteFailure"] ?? "")"
+        )
+
+        let createExitStatus = setup["windowRouteCreateStatus"] ?? "<missing>"
+        let createStdout = setup["windowRouteCreateStdout"] ?? ""
+        let createStderr = setup["windowRouteCreateStderr"] ?? ""
+        XCTAssertEqual(
+            createExitStatus,
+            "0",
+            "Expected `new-workspace --window` to succeed. stdout=\(createStdout) stderr=\(createStderr)"
+        )
+
+        let window2ExitStatus = setup["windowRouteWindow2Status"] ?? "<missing>"
+        let window2Stdout = setup["windowRouteWindow2Stdout"] ?? ""
+        let window2Stderr = setup["windowRouteWindow2Stderr"] ?? ""
+        XCTAssertEqual(
+            window2ExitStatus,
+            "0",
+            "Expected `list-workspaces --window` for target window to succeed. stdout=\(window2Stdout) stderr=\(window2Stderr)"
+        )
+        guard let window2Payload = parseJSONObject(window2Stdout),
+              let window2Rows = window2Payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Failed to parse target window workspace list. stdout=\(window2Stdout) stderr=\(window2Stderr)")
+            return
+        }
+        XCTAssertTrue(
+            window2Rows.contains { $0["title"] as? String == title },
+            "Expected new workspace '\(title)' in targeted window \(window2Id). stdout=\(window2Stdout)"
+        )
+
+        let window1ExitStatus = setup["windowRouteWindow1Status"] ?? "<missing>"
+        let window1Stdout = setup["windowRouteWindow1Stdout"] ?? ""
+        let window1Stderr = setup["windowRouteWindow1Stderr"] ?? ""
+        XCTAssertEqual(
+            window1ExitStatus,
+            "0",
+            "Expected `list-workspaces --window` for source window to succeed. stdout=\(window1Stdout) stderr=\(window1Stderr)"
+        )
+        guard let window1Payload = parseJSONObject(window1Stdout),
+              let window1Rows = window1Payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Failed to parse source window workspace list. stdout=\(window1Stdout) stderr=\(window1Stderr)")
+            return
+        }
+        XCTAssertFalse(
+            window1Rows.contains { $0["title"] as? String == title },
+            "Expected new workspace '\(title)' not to appear in source window \(window1Id). stdout=\(window1Stdout)"
+        )
+    }
+
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
         app: XCUIApplication,
@@ -399,12 +632,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count >= count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            app.windows.count >= count
         }
-        return app.windows.count >= count
     }
 
     private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -418,6 +648,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return false
     }
 
+    private func waitForAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        return app.state == .runningBackground
+    }
+
     private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
@@ -425,84 +662,88 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func waitForFocusChange(from token: String?, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(),
-               let current = data["focusToken"],
-               !current.isEmpty,
-               current != token {
-                return true
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData(),
+                  let current = data["focusToken"],
+                  !current.isEmpty else {
+                return false
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return current != token
         }
-        if let data = loadData(),
-           let current = data["focusToken"],
-           !current.isEmpty,
-           current != token {
-            return true
-        }
-        return false
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), keys.allSatisfy({ (data[$0] ?? "").isEmpty == false }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return keys.allSatisfy { (data[$0] ?? "").isEmpty == false }
         }
-        if let data = loadData(), keys.allSatisfy({ (data[$0] ?? "").isEmpty == false }) {
-            return true
-        }
-        return false
     }
 
-    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), predicate(data) {
-                return true
+    private func waitForDataMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return predicate(data)
+        }
+    }
+
+    private func waitForNotification(title: String, timeout: TimeInterval) -> [String: Any]? {
+        var matched: [String: Any]?
+        _ = waitForCondition(timeout: timeout) {
+            guard let rows = self.notificationRowsViaCLI() else { return false }
+            matched = rows.first(where: { $0["title"] as? String == title })
+            return matched != nil
+        }
+        return matched
+    }
+
+    private func waitForNotificationRead(_ id: String, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let rows = self.notificationRowsViaCLI(),
+                  let row = rows.first(where: { $0["id"] as? String == id }) else {
+                return false
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return row["is_read"] as? Bool == true
         }
-        if let data = loadData(), predicate(data) {
-            return true
-        }
-        return false
+    }
+
+    private func notificationRowsViaCLI() -> [[String: Any]]? {
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: ["list-notifications", "--json", "--id-format", "uuids"],
+            responseTimeoutSeconds: 4.0,
+            cliStrategy: .bundledOnly
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        guard let data = result.stdout.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data, options: [])) as? [[String: Any]]
+    }
+
+    private func parseJSONObject(_ text: String) -> [String: Any]? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> String? {
-        let deadline = Date().addingTimeInterval(timeout)
         var lastResponse: String?
-        while Date() < deadline {
-            lastResponse = socketCommand("ping")
-            if lastResponse == "PONG" {
-                return "PONG"
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        _ = waitForCondition(timeout: timeout) {
+            lastResponse = self.socketCommand("ping")
+            return lastResponse == "PONG"
         }
-        return socketCommand("ping") ?? lastResponse
+        return lastResponse == "PONG" ? "PONG" : (socketCommand("ping") ?? lastResponse)
     }
 
     private func waitForTerminalFocus(surfaceId: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if socketCommand("is_terminal_focused \(surfaceId)") == "true" {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            self.socketCommand("is_terminal_focused \(surfaceId)") == "true"
         }
-        return socketCommand("is_terminal_focused \(surfaceId)") == "true"
     }
 
     private func waitForCmuxPing(timeout: TimeInterval) -> (stdout: String?, stderr: String?) {
-        let deadline = Date().addingTimeInterval(timeout)
         var lastStdout: String?
         var lastStderr: String?
-        while Date() < deadline {
-            let result = runCmuxCommand(
-                socketPath: socketPath,
+        let didSucceed = waitForCondition(timeout: timeout) {
+            let result = self.runCmuxCommand(
+                socketPath: self.socketPath,
                 arguments: ["ping"],
                 responseTimeoutSeconds: 2.0
             )
@@ -515,24 +756,22 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 lastStderr = stderr
             }
             if result.terminationStatus == 0, stdout == "PONG" {
-                return ("PONG", stderr)
+                return true
             }
-            if isSocketPermissionFailure(stderr),
-               waitForSocketPong(timeout: 0.5) == "PONG" {
-                return ("PONG", stderr)
+            if self.isSocketPermissionFailure(stderr),
+               self.waitForSocketPong(timeout: 0.5) == "PONG" {
+                return true
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
+        }
+        if didSucceed {
+            return ("PONG", lastStderr)
         }
 
-        let result = runCmuxCommand(
-            socketPath: socketPath,
-            arguments: ["ping"],
-            responseTimeoutSeconds: 2.0
-        )
+        let result = runCmuxCommand(socketPath: socketPath, arguments: ["ping"], responseTimeoutSeconds: 2.0)
         let stdout = result.stdout.isEmpty ? nil : result.stdout
         let stderr = result.stderr.isEmpty ? nil : result.stderr
-        if isSocketPermissionFailure(stderr),
-           waitForSocketPong(timeout: 0.5) == "PONG" {
+        if isSocketPermissionFailure(stderr), waitForSocketPong(timeout: 0.5) == "PONG" {
             return ("PONG", stderr)
         }
         return (stdout ?? lastStdout, stderr ?? lastStderr)
@@ -543,41 +782,30 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
         var sawCompletion = false
-        while Date() < deadline {
+        let completed = waitForCondition(timeout: timeout) {
             if app.state == .runningForeground {
                 return false
             }
             if FileManager.default.fileExists(atPath: statusPath) {
                 sawCompletion = true
-                break
+                return true
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
         }
-        guard sawCompletion || FileManager.default.fileExists(atPath: statusPath) else {
+        guard completed || sawCompletion || FileManager.default.fileExists(atPath: statusPath) else {
             return false
         }
 
-        let postCompletionDeadline = Date().addingTimeInterval(0.75)
-        while Date() < postCompletionDeadline {
-            if app.state == .runningForeground {
-                return false
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        return waitForCondition(timeout: 0.75) {
+            app.state != .runningForeground
         }
-        return app.state != .runningForeground
     }
 
     private func waitForAppToLeaveForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.state != .runningForeground {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            app.state != .runningForeground
         }
-        return app.state != .runningForeground
     }
 
     private func firstSurfaceId(forWorkspaceId workspaceId: String) -> String? {
@@ -600,25 +828,29 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func waitForSurfaceId(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let surfaceId = firstSurfaceId(forWorkspaceId: workspaceId) {
-                return surfaceId
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        var surfaceId: String?
+        _ = waitForCondition(timeout: timeout) {
+            surfaceId = self.firstSurfaceId(forWorkspaceId: workspaceId)
+            return surfaceId != nil
         }
-        return firstSurfaceId(forWorkspaceId: workspaceId)
+        return surfaceId ?? firstSurfaceId(forWorkspaceId: workspaceId)
     }
 
     private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let surfaceId = firstSurfaceIdViaCLI(forWorkspaceId: workspaceId) {
-                return surfaceId
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        var surfaceId: String?
+        _ = waitForCondition(timeout: timeout) {
+            surfaceId = self.firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
+            return surfaceId != nil
         }
-        return firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
+        return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
+    }
+
+    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
@@ -938,24 +1170,29 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             fallbackCandidates = []
         }
 
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        var resolvedPath: String?
+        _ = waitForCondition(timeout: timeout) {
             for candidate in primaryCandidates {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
                 // Primary candidate is the explicitly requested CMUX_SOCKET_PATH. If it responds,
                 // prefer it even before workspace contents are fully initialized.
-                if socketRespondsToPing(at: candidate) {
-                    return candidate
+                if self.socketRespondsToPing(at: candidate) {
+                    resolvedPath = candidate
+                    return true
                 }
             }
             for candidate in fallbackCandidates {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                if socketRespondsToPing(at: candidate),
-                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
-                    return candidate
+                if self.socketRespondsToPing(at: candidate),
+                   self.socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                    resolvedPath = candidate
+                    return true
                 }
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
+        }
+        if let resolvedPath {
+            return resolvedPath
         }
         for candidate in primaryCandidates {
             guard FileManager.default.fileExists(atPath: candidate) else { continue }
@@ -982,6 +1219,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if includeGlobalFallback {
             candidates.append(contentsOf: discoverTmpSocketCandidates(limit: 12))
             candidates.append("/tmp/cmux-debug.sock")
+            candidates.append(stableSocketPath())
             candidates.append("/tmp/cmux.sock")
         }
 
@@ -993,6 +1231,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
         }
         return unique
+    }
+
+    private func stableSocketPath() -> String {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path ?? "/tmp/cmux.sock"
     }
 
     private func socketMatchesRequiredWorkspace(_ candidatePath: String, workspaceId: String?) -> Bool {
@@ -1100,6 +1345,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             guard fd >= 0 else { return nil }
             defer { close(fd) }
+            var socketTimeout = timeval(
+                tv_sec: Int(responseTimeout.rounded(.down)),
+                tv_usec: Int32(((responseTimeout - floor(responseTimeout)) * 1_000_000).rounded())
+            )
 
 #if os(macOS)
             var noSigPipe: Int32 = 1
@@ -1113,6 +1362,24 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 )
             }
 #endif
+            _ = withUnsafePointer(to: &socketTimeout) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_RCVTIMEO,
+                    ptr,
+                    socklen_t(MemoryLayout<timeval>.size)
+                )
+            }
+            _ = withUnsafePointer(to: &socketTimeout) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_SNDTIMEO,
+                    ptr,
+                    socklen_t(MemoryLayout<timeval>.size)
+                )
+            }
 
             var addr = sockaddr_un()
             memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
@@ -1156,19 +1423,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
             guard wrote else { return nil }
 
-            let deadline = Date().addingTimeInterval(responseTimeout)
             var buf = [UInt8](repeating: 0, count: 4096)
             var accum = ""
-            while Date() < deadline {
-                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let ready = poll(&pollDescriptor, 1, 100)
-                if ready < 0 {
+            while true {
+                let n = read(fd, &buf, buf.count)
+                if n < 0 {
+                    let code = errno
+                    if code == EAGAIN || code == EWOULDBLOCK {
+                        break
+                    }
                     return nil
                 }
-                if ready == 0 {
-                    continue
-                }
-                let n = read(fd, &buf, buf.count)
                 if n <= 0 { break }
                 if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
                     accum.append(chunk)

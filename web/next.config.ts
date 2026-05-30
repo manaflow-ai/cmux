@@ -1,8 +1,16 @@
 import "./app/env";
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+const webRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
-  skipTrailingSlashRedirect: true,
+  turbopack: {
+    root: webRoot,
+  },
   images: {
     remotePatterns: [
       {
@@ -12,18 +20,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  async rewrites() {
-    return [
-      {
-        source: "/cmuxterm/static/:path*",
-        destination: "https://us-assets.i.posthog.com/static/:path*",
-      },
-      {
-        source: "/cmuxterm/:path*",
-        destination: "https://us.i.posthog.com/:path*",
-      },
-    ];
-  },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);
