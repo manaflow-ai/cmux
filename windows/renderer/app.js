@@ -4,6 +4,7 @@ import {
   defaultSettings,
   settingsCategories,
   settingsPresets,
+  sidebarDetailOptions,
   terminalAppearanceKeys,
   terminalColorDefaults,
   terminalColorPresets,
@@ -296,6 +297,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
+  if (!sidebarDetailOptions.some(([id]) => id === next.sidebarDetailMode)) next.sidebarDetailMode = defaultSettings.sidebarDetailMode;
   if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
     next.toolbarMode = parsed.showAdvanced ? "expanded" : defaultSettings.toolbarMode;
   }
@@ -956,6 +958,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.showStatusbar,
     settings.showAdvanced,
     settings.performanceMode,
+    settings.sidebarDetailMode,
     settings.sidebarWidth,
     settings.inspectorWidth,
     settings.terminalFontFamily,
@@ -980,6 +983,9 @@ function applySettings() {
   elements.shell.style.setProperty("--surface-tab-basis", `${tabMetrics.basis}px`);
   elements.shell.style.setProperty("--surface-tab-max", `${tabMetrics.max}px`);
   elements.shell.classList.toggle("density-compact", state.settings.density === "compact");
+  elements.shell.classList.toggle("workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
+  elements.shell.classList.toggle("workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
+  elements.shell.classList.toggle("workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
   elements.shell.classList.toggle("toolbar-compact", state.settings.toolbarMode === "compact");
   elements.shell.classList.toggle("toolbar-standard", state.settings.toolbarMode === "standard");
   elements.shell.classList.toggle("toolbar-expanded", state.settings.toolbarMode === "expanded");
@@ -2854,6 +2860,17 @@ function renderSettingsInspector() {
     densitySelect.value = state.settings.density;
     densitySelect.onchange = () => updateSettings({ density: densitySelect.value });
     layoutSection.append(settingRow("Density", densitySelect));
+    const sidebarDetailSelect = document.createElement("select");
+    sidebarDetailSelect.className = "setting-select";
+    for (const [value, label] of sidebarDetailOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      sidebarDetailSelect.append(option);
+    }
+    sidebarDetailSelect.value = state.settings.sidebarDetailMode;
+    sidebarDetailSelect.onchange = () => updateSettings({ sidebarDetailMode: sidebarDetailSelect.value });
+    layoutSection.append(settingRow("Workspace rows", sidebarDetailSelect, false, "sidebar workspace row detail compact folder counts metadata"));
     const toolbarSelect = document.createElement("select");
     toolbarSelect.className = "setting-select";
     for (const [value, label] of toolbarModeOptions) {

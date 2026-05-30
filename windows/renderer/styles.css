@@ -194,6 +194,14 @@ button {
   min-height: 64px;
 }
 
+.shell.workspace-detail-compact .workspace-row {
+  min-height: 58px;
+}
+
+.shell.workspace-detail-compact.density-compact .workspace-row {
+  min-height: 52px;
+}
+
 .shell.density-compact .surface-tab {
   height: 30px;
   min-width: var(--surface-tab-min, 112px);
@@ -477,7 +485,7 @@ button {
 .workspace-card {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto auto auto;
   align-content: center;
   gap: 3px;
   padding: var(--space-2) var(--space-3) var(--space-2) 0;
@@ -541,6 +549,24 @@ button {
 }
 
 .workspace-branch {
+  font-family: var(--font-mono);
+}
+
+.shell.workspace-detail-compact .workspace-card {
+  gap: 2px;
+}
+
+.shell.workspace-detail-compact .workspace-meta,
+.shell.workspace-detail-compact .workspace-branch {
+  display: none;
+}
+
+.shell.workspace-detail-compact .workspace-row.has-attention .workspace-meta {
+  display: block;
+}
+
+.shell.workspace-detail-detailed .workspace-path,
+.shell.workspace-detail-detailed .workspace-branch {
   font-family: var(--font-mono);
 }
 

@@ -5,6 +5,7 @@ export const defaultSettings = {
   backgroundOpacity: 16,
   browserHomeUrl: "https://www.bing.com",
   density: "comfortable",
+  sidebarDetailMode: "compact",
   toolbarMode: "compact",
   tabSize: "balanced",
   titleDetailMode: "smart",
@@ -113,6 +114,12 @@ export const toolbarModeOptions = [
   ["expanded", "Expanded", "Show every toolbar shortcut on the top bar."]
 ];
 
+export const sidebarDetailOptions = [
+  ["compact", "Name + folder"],
+  ["balanced", "Name, folder, counts"],
+  ["detailed", "Full details"]
+];
+
 export const tabSizeOptions = [
   ["compact", "Compact"],
   ["balanced", "Balanced"],
@@ -209,6 +216,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 16,
       density: "comfortable",
+      sidebarDetailMode: "compact",
       toolbarMode: "compact",
       tabSize: "balanced",
       titleDetailMode: "smart",
@@ -239,6 +247,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 10,
       density: "compact",
+      sidebarDetailMode: "compact",
       toolbarMode: "compact",
       tabSize: "balanced",
       titleDetailMode: "compact",
@@ -269,6 +278,7 @@ export const settingsPresets = [
       backgroundImage: "",
       backgroundOpacity: 0,
       density: "compact",
+      sidebarDetailMode: "compact",
       toolbarMode: "compact",
       tabSize: "compact",
       titleDetailMode: "compact",
@@ -299,6 +309,7 @@ export const settingsPresets = [
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 24,
       density: "comfortable",
+      sidebarDetailMode: "detailed",
       toolbarMode: "standard",
       tabSize: "roomy",
       titleDetailMode: "detailed",
