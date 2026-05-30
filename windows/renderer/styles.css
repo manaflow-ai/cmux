@@ -8,6 +8,7 @@
   --color-pane-active: oklch(24% 0.012 250);
   --color-line: oklch(31% 0.012 255);
   --color-line-strong: oklch(42% 0.016 255);
+  --color-input: color-mix(in oklch, var(--color-pane) 72%, var(--color-canvas));
   --color-text: oklch(92% 0.006 255);
   --color-muted: oklch(69% 0.012 255);
   --color-faint: oklch(53% 0.011 255);
@@ -1788,7 +1789,7 @@ body.reduce-motion *::after {
   min-width: 0;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: oklch(12% 0.01 110);
+  background: var(--color-input);
   color: var(--color-text);
 }
 

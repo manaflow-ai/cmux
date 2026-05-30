@@ -2006,6 +2006,11 @@ const commands = [
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
   { id: "terminal.fontReset", label: "Reset Terminal Text Size", shortcut: "Ctrl+0", run: () => resetTerminalFontSize() },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
+  { id: "browser.newTab", label: "New Browser Tab Beside Active", shortcut: "", run: () => newBrowserTabFromPanel() },
+  { id: "browser.focusAddress", label: "Focus Browser Address", shortcut: "Ctrl+L", run: () => focusBrowserAddress() },
+  { id: "browser.reload", label: "Reload Active Browser", shortcut: "Ctrl+R", run: () => reloadBrowserPanel() },
+  { id: "browser.openExternal", label: "Open Active Browser Externally", shortcut: "", run: () => openBrowserPanelExternally() },
+  { id: "browser.copyUrl", label: "Copy Active Browser URL", shortcut: "", run: () => copyBrowserPanelUrl() },
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
@@ -3894,6 +3899,114 @@ function stopBrowserLoading(view) {
   }
 }
 
+function resolveBrowserPanel(panel = focusedPanel()) {
+  const found = panel?.id ? findPanelState(panel.id) : null;
+  const candidate = found?.panel || panel;
+  return candidate?.type === "browser" && !isPendingPanel(candidate) ? candidate : null;
+}
+
+function browserPanelUrl(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) return "";
+  const session = state.browserViews.get(browserPanel.id);
+  return normalizeUrl(session?.address?.value || browserPanel.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+}
+
+function focusBrowserAddress(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  focusPanel(browserPanel.id);
+  requestAnimationFrame(() => {
+    const address = state.browserViews.get(browserPanel.id)?.address;
+    if (!address) return;
+    address.focus();
+    address.select();
+  });
+  return true;
+}
+
+function reloadBrowserPanel(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  focusPanel(browserPanel.id);
+  const session = state.browserViews.get(browserPanel.id);
+  if (!session) {
+    toast("Browser pane is not ready.");
+    return false;
+  }
+  const url = browserPanelUrl(browserPanel);
+  if (typeof session.view?.reload === "function" && !session.reload?.disabled) {
+    session.view.reload();
+  } else {
+    session.address.value = url;
+    session.view.src = url;
+  }
+  return true;
+}
+
+function navigateBrowserHistory(delta, panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  const session = browserPanel ? state.browserViews.get(browserPanel.id) : null;
+  if (!browserPanel || !session) return false;
+  focusPanel(browserPanel.id);
+  try {
+    if (delta < 0 && typeof session.view?.goBack === "function" && !session.back?.disabled) {
+      session.view.goBack();
+      return true;
+    }
+    if (delta > 0 && typeof session.view?.goForward === "function" && !session.forward?.disabled) {
+      session.view.goForward();
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function openBrowserPanelExternally(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  focusPanel(browserPanel.id);
+  await openExternalBrowser(browserPanelUrl(browserPanel));
+  return true;
+}
+
+async function copyBrowserPanelUrl(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) {
+    toast("Focus a browser pane first.");
+    return false;
+  }
+  const url = browserPanelUrl(browserPanel);
+  if (await writeClipboardText(url)) {
+    toast("Browser URL copied.");
+    return true;
+  }
+  toast("Clipboard is unavailable.");
+  return false;
+}
+
+function newBrowserTabFromPanel(panel = focusedPanel()) {
+  const browserPanel = resolveBrowserPanel(panel);
+  if (!browserPanel) return openBrowserHome();
+  const found = findPanelState(browserPanel.id);
+  return createPanel("browser", "right", {
+    workspaceId: found?.workspace.id,
+    anchorPanelId: browserPanel.id,
+    url: state.settings.browserHomeUrl
+  });
+}
+
 function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
   for (const [panelId, session] of state.browserViews.entries()) {
     const visible = visiblePanelIds.has(panelId);
@@ -4021,15 +4134,15 @@ function ensureBrowser(panel, body) {
     queueBrowserUrlSync(panel.id, next);
   };
   go.onclick = navigate;
-  external.onclick = () => openExternalBrowser(address.value);
-  newTab.onclick = () => {
-    createPanel("browser", "right", {
-      workspaceId: panel.workspaceId,
-      anchorPanelId: panel.id,
-      url: state.settings.browserHomeUrl
-    });
-  };
+  external.onclick = () => openBrowserPanelExternally(panel);
+  newTab.onclick = () => newBrowserTabFromPanel(panel);
+  address.addEventListener("focus", () => markInteractedPanel(panel.id));
   address.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.key === "Enter") {
+      event.preventDefault();
+      openBrowserPanelExternally(panel);
+      return;
+    }
     if (event.key === "Enter") navigate();
   });
   back.onclick = () => {
@@ -4103,7 +4216,19 @@ function ensureBrowser(panel, body) {
 
   shell.append(bar, status, view);
   body.append(shell);
-  state.browserViews.set(panel.id, { shell, view, address, back, forward, reload, home, visible: true, suspendInactive: state.settings.browserSuspendInactive });
+  state.browserViews.set(panel.id, {
+    shell,
+    view,
+    address,
+    back,
+    forward,
+    reload,
+    home,
+    newTab,
+    external,
+    visible: true,
+    suspendInactive: state.settings.browserSuspendInactive
+  });
   updateNavState();
 }
 
@@ -7419,23 +7544,40 @@ function showPanelContextMenu(event, panel) {
   const actions = document.createElement("div");
   actions.className = "context-actions";
   const isTerminal = panel.type === "terminal";
+  const isBrowser = panel.type === "browser";
   actions.append(
     contextMenuButton("Rename", () => renamePanel(panel)),
     contextMenuButton("Duplicate", () => duplicatePanel(panel)),
     contextMenuButton("Split right", () => splitPanel(panel, "right")),
     contextMenuButton("Split down", () => splitPanel(panel, "down")),
     contextMenuButton("Set pane size", () => promptPanelLayoutPercent(panel), found.workspace.panels.length <= 1),
-    contextMenuButton(isPanelMinimized(panel) ? "Restore pane" : "Minimize pane", () => togglePaneMinimized(panel.id)),
-    contextMenuButton("Find", () => openTerminalSearch(panel), !isTerminal),
-    contextMenuButton("Find next", () => findNextInTerminal(panel), !isTerminal),
-    contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
-    contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), !isTerminal),
-    contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), !isTerminal),
-    contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1), !isTerminal),
-    contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1), !isTerminal),
-    contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !isTerminal || !panelHasTerminalFontSize(panel)),
-    contextMenuButton("Restart terminal", () => restartPanel(panel.id), !isTerminal),
-    contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), !isTerminal),
+    contextMenuButton(isPanelMinimized(panel) ? "Restore pane" : "Minimize pane", () => togglePaneMinimized(panel.id))
+  );
+  if (isTerminal) {
+    actions.append(
+      contextMenuButton("Find", () => openTerminalSearch(panel)),
+      contextMenuButton("Find next", () => findNextInTerminal(panel)),
+      contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel)),
+      contextMenuButton("Paste", () => pasteClipboardToTerminal(panel)),
+      contextMenuButton("Clear terminal", () => clearTerminalPanel(panel)),
+      contextMenuButton("Text larger", () => changePaneTerminalFontSize(panel.id, 1)),
+      contextMenuButton("Text smaller", () => changePaneTerminalFontSize(panel.id, -1)),
+      contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !panelHasTerminalFontSize(panel)),
+      contextMenuButton("Restart terminal", () => restartPanel(panel.id)),
+      contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"))
+    );
+  }
+  if (isBrowser) {
+    actions.append(
+      contextMenuButton("Focus address", () => focusBrowserAddress(panel)),
+      contextMenuButton("Reload page", () => reloadBrowserPanel(panel)),
+      contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel)),
+      contextMenuButton("Open externally", () => openBrowserPanelExternally(panel)),
+      contextMenuButton("Copy URL", () => copyBrowserPanelUrl(panel)),
+      contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
+    );
+  }
+  actions.append(
     contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
     contextMenuButton("Move left", () => movePanelLeft(found.workspace, index), index <= 0),
     contextMenuButton("Move right", () => movePanelRight(found.workspace, index), index >= found.workspace.panels.length - 1),
@@ -7520,6 +7662,7 @@ function showToolbarMenu(event) {
   const multiPane = Boolean(panel && workspace?.panels.length > 1);
   const multiWorkspace = (state.data?.workspaces.length || 0) > 1;
   const terminalActive = panel?.type === "terminal";
+  const browserActive = panel?.type === "browser";
   const latestBrowserPage = state.recentBrowserPages[0] || "";
   const title = document.createElement("div");
   title.className = "context-title";
@@ -7565,6 +7708,11 @@ function showToolbarMenu(event) {
     contextMenuSectionTitle("Browser"),
     contextMenuActionGroup(
       contextMenuButton("Open browser", () => openBrowserPrompt(workspace?.id)),
+      contextMenuButton("New browser tab", () => newBrowserTabFromPanel(panel), !browserActive),
+      contextMenuButton("Focus address", () => focusBrowserAddress(panel), !browserActive),
+      contextMenuButton("Reload active page", () => reloadBrowserPanel(panel), !browserActive),
+      contextMenuButton("Open active externally", () => openBrowserPanelExternally(panel), !browserActive),
+      contextMenuButton("Copy active URL", () => copyBrowserPanelUrl(panel), !browserActive),
       contextMenuButton("Open home page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: state.settings.browserHomeUrl }), !workspace),
       contextMenuButton(latestBrowserPage ? `Open recent: ${hostnameOf(latestBrowserPage)}` : "Open recent page", () => createPanel("browser", "right", { workspaceId: workspace?.id, url: latestBrowserPage }), !latestBrowserPage || !workspace),
       contextMenuButton("Browser settings", () => openSettingsCategory("browser"))
@@ -9978,6 +10126,22 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && event.shiftKey && key === "l") {
     consumeGlobalShortcut(event);
     openBrowserHome();
+  } else if (event.ctrlKey && key === "l") {
+    const panel = actionPanelFromEvent(event);
+    if (resolveBrowserPanel(panel)) {
+      consumeGlobalShortcut(event);
+      focusBrowserAddress(panel);
+    }
+  } else if (event.ctrlKey && key === "r") {
+    const panel = actionPanelFromEvent(event);
+    if (resolveBrowserPanel(panel)) {
+      consumeGlobalShortcut(event);
+      reloadBrowserPanel(panel);
+    }
+  } else if (event.altKey && event.key === "ArrowLeft") {
+    if (navigateBrowserHistory(-1, actionPanelFromEvent(event))) consumeGlobalShortcut(event);
+  } else if (event.altKey && event.key === "ArrowRight") {
+    if (navigateBrowserHistory(1, actionPanelFromEvent(event))) consumeGlobalShortcut(event);
   } else if (event.ctrlKey && key === "i") {
     consumeGlobalShortcut(event);
     openInspector("notifications");
