@@ -1749,11 +1749,11 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    /// Cold-attach/self-heal replay. Prefer the Mac's authoritative VT
-    /// active-screen snapshot, replacing the local iOS terminal state before
-    /// live bytes resume. The raw byte ring remains a fallback, but is not
-    /// reliable as a snapshot for TUIs because a tail can start after the
-    /// program's clear/redraw sequence.
+    /// Cold-attach/self-heal replay. Prefer the Mac's bounded render-grid
+    /// snapshot, replacing the local iOS terminal state before live bytes
+    /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
+    /// is the target architecture: a byte tail is not a complete screen state
+    /// for TUIs, and a VT export is still a replay stream rather than state.
     private func requestTerminalReplay(surfaceID: String) {
         guard let client = remoteClient else {
             #if DEBUG
@@ -1792,12 +1792,16 @@ public final class CMUXMobileShellStore {
                 let bytes = b64.flatMap { Data(base64Encoded: $0) }
                 let snapshotB64 = payload?["snapshot_data_b64"] as? String
                 let snapshotBytes = snapshotB64.flatMap { Data(base64Encoded: $0) }
-                let replaySeq = (payload?["seq"] as? NSNumber)?.uint64Value
+                let decodedRenderGrid = payload?["render_grid"].flatMap {
+                    try? MobileTerminalRenderGridFrame.decodeJSONObject($0)
+                }
+                let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
+                let replaySeq = renderGrid?.stateSeq ?? (payload?["seq"] as? NSNumber)?.uint64Value
                 #if DEBUG
                 let seq = replaySeq ?? 0
                 let cols = (payload?["columns"] as? NSNumber)?.intValue ?? -1
                 let rows = (payload?["rows"] as? NSNumber)?.intValue ?? -1
-                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
                 #endif
                 if let replaySeq,
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
@@ -1806,7 +1810,10 @@ public final class CMUXMobileShellStore {
                     return
                 }
                 let deliverBytes: Data?
-                if let snapshotBytes, !snapshotBytes.isEmpty {
+                if let renderGrid {
+                    deliverBytes = renderGrid.vtReplacementBytes()
+                    liveAnchormuxLog("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
+                } else if let snapshotBytes, !snapshotBytes.isEmpty {
                     deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
                     liveAnchormuxLog("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
                 } else {

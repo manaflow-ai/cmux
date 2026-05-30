@@ -9605,6 +9605,30 @@ class TerminalController {
         return output
     }
 
+    private func mobileTerminalRenderGridFrame(
+        terminalPanel: TerminalPanel,
+        surfaceID: UUID,
+        seq: UInt64,
+        size: ghostty_surface_size_s
+    ) -> MobileTerminalRenderGridFrame? {
+        guard size.columns > 0, size.rows > 0 else { return nil }
+        guard let text = readTerminalTextFromVTExportForSnapshot(
+            terminalPanel: terminalPanel,
+            bindingAction: "write_active_file:copy,plain",
+            lineLimit: nil,
+            normalizeLineEndings: false
+        ) else {
+            return nil
+        }
+        return try? MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: surfaceID.uuidString,
+            stateSeq: seq,
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            text: text
+        )
+    }
+
     private func readPlainTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
@@ -21363,6 +21387,8 @@ class TerminalController {
             lineLimit: nil,
             normalizeLineEndings: false
         )?.data(using: .utf8) ?? Data()
+        let surfaceSize = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay")
+            .map { ghostty_surface_size($0) }
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) bufferBytes=\(data.count) snapshotBytes=\(snapshotData.count) seq=\(seq) hasState=\(state != nil)")
         #endif
@@ -21376,10 +21402,18 @@ class TerminalController {
             payload["snapshot_format"] = "ghostty.active.vt"
             payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
         }
-        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
-            let size = ghostty_surface_size(surface)
+        if let size = surfaceSize {
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
+            if let renderGrid = mobileTerminalRenderGridFrame(
+                terminalPanel: terminalPanel,
+                surfaceID: surfaceId,
+                seq: seq,
+                size: size
+            ),
+               let renderGridObject = try? renderGrid.jsonObject() {
+                payload["render_grid"] = renderGridObject
+            }
         }
         return .ok(payload)
     }

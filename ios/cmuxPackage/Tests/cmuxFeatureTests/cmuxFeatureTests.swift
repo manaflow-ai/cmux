@@ -2127,6 +2127,8 @@ import UIKit
     store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
         deliveredText.append(String(data: data, encoding: .utf8) ?? "")
     }
+    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
+    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
     for _ in 0..<200 where deliveredText.count < 1 {
@@ -2142,8 +2144,8 @@ import UIKit
     }
 
     #expect(deliveredText == [
-        terminalSnapshotReplacementText("old"),
-        terminalSnapshotReplacementText("current"),
+        oldGridText,
+        currentGridText,
     ])
 }
 
@@ -2384,24 +2386,44 @@ private func rpcWorkspaceListFrame(
     )
 }
 
-private func terminalSnapshotReplacementText(_ text: String) -> String {
-    "\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J\(text)"
+private func terminalRenderGridReplacementText(seq: UInt64, text: String) throws -> String {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "live-terminal",
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        text: text
+    )
+    return try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
 }
 
 private func rpcTerminalReplayFrame(
     seq: UInt64,
     rawText: String,
-    snapshotText: String? = nil
+    snapshotText: String? = nil,
+    renderGridText: String? = nil
 ) throws -> Data {
     var result: [String: Any] = [
         "workspace_id": "live-workspace",
         "surface_id": "live-terminal",
         "seq": NSNumber(value: seq),
         "data_b64": Data(rawText.utf8).base64EncodedString(),
+        "columns": 16,
+        "rows": 4,
     ]
     if let snapshotText {
         result["snapshot_format"] = "ghostty.active.vt"
         result["snapshot_data_b64"] = Data(snapshotText.utf8).base64EncodedString()
+    }
+    if let renderGridText {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "live-terminal",
+            stateSeq: seq,
+            columns: 16,
+            rows: 4,
+            text: renderGridText
+        )
+        result["render_grid"] = try frame.jsonObject()
     }
     return try rpcResultFrame(
         result: result
@@ -2851,13 +2873,15 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
                 return try rpcTerminalReplayFrame(
                     seq: 4,
                     rawText: "stale-old-tail",
-                    snapshotText: "old"
+                    snapshotText: "old",
+                    renderGridText: "old"
                 )
             }
             return try rpcTerminalReplayFrame(
                 seq: 12,
                 rawText: "stale-current-tail",
-                snapshotText: "current"
+                snapshotText: "current",
+                renderGridText: "current"
             )
         case "terminal.input":
             return try rpcResultFrame(

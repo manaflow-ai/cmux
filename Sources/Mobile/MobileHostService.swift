@@ -142,8 +142,14 @@ private enum MobileHostPublicStatusCache {
         lock.unlock()
         return .ok([
             "routes": cachedRoutes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "ghostty_bytes",
-            "capabilities": ["events.v1", "terminal.bytes.v1", "terminal.replay.v1", "terminal.viewport.v1"],
+            "terminal_fidelity": "render_grid",
+            "capabilities": [
+                "events.v1",
+                "terminal.bytes.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "terminal.viewport.v1",
+            ],
         ])
     }
 }
@@ -385,8 +391,14 @@ final class MobileHostService {
         let status = await publicStatusSnapshot()
         return .ok([
             "routes": status.routes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "ghostty_bytes",
-            "capabilities": ["events.v1", "terminal.bytes.v1", "terminal.replay.v1", "terminal.viewport.v1"],
+            "terminal_fidelity": "render_grid",
+            "capabilities": [
+                "events.v1",
+                "terminal.bytes.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "terminal.viewport.v1",
+            ],
         ])
     }
 

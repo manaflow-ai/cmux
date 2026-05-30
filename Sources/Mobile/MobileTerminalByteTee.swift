@@ -9,9 +9,9 @@ private let mobileTerminalByteTeeLog = Logger(
 /// Captures raw PTY-output bytes from every cmux terminal surface and
 /// publishes them to subscribed mobile clients as `terminal.bytes`
 /// events. Provides a per-surface ring buffer that mobile clients can
-/// replay from as a fallback; the primary mobile replay path uses an
-/// authoritative VT snapshot from the Mac's Ghostty surface because a byte
-/// tail is not a complete screen state for TUIs.
+/// replay from as a fallback; the primary mobile replay path sends a
+/// bounded render-grid snapshot because a byte tail is not a complete
+/// screen state for TUIs.
 ///
 /// The byte source is libghostty's `ghostty_surface_set_pty_tee_cb`
 /// callback (cmux fork addition). The callback fires on the IO read
