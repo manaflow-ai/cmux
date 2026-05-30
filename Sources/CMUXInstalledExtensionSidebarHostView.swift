@@ -119,6 +119,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var browserAnchorView: NSView?
     @State private var xpcHost = CMUXSidebarExtensionHostXPC()
     @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
+    @State private var isShowingExtensionDetails = false
 
     var body: some View {
         Group {
@@ -241,6 +242,17 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     .help(String(localized: "sidebar.extensions.access.statusLimited.help", defaultValue: "This extension has limited access."))
             }
             Button {
+                isShowingExtensionDetails = true
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.plain)
+            .controlSize(.small)
+            .help(String(localized: "sidebar.extensions.details.help", defaultValue: "Show extension details"))
+            .popover(isPresented: $isShowingExtensionDetails, arrowEdge: .top) {
+                extensionDetailsPopover(activeIdentity: activeIdentity)
+            }
+            Button {
                 onUseDefaultSidebar()
             } label: {
                 Image(systemName: "sidebar.left")
@@ -263,6 +275,123 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TitlebarControlAnchorView { browserAnchorView = $0 })
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.86))
+    }
+
+    private func extensionDetailsPopover(activeIdentity: AppExtensionIdentity?) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "puzzlepiece.extension")
+                    .font(.system(size: 18, weight: .medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                    Text(String(localized: "sidebar.extensions.details.runtime", defaultValue: "ExtensionKit host, XPC connection"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                detailRow(
+                    title: String(localized: "sidebar.extensions.details.status", defaultValue: "Status"),
+                    value: activeIdentity == nil
+                        ? String(localized: "sidebar.extensions.details.statusWaiting", defaultValue: "Waiting for an enabled extension")
+                        : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Hosted out of process")
+                )
+                if let activeIdentity {
+                    detailRow(
+                        title: String(localized: "sidebar.extensions.details.bundle", defaultValue: "Bundle"),
+                        value: activeIdentity.bundleIdentifier
+                    )
+                }
+                if let manifest = effectiveGrant?.manifest {
+                    detailRow(
+                        title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Manifest"),
+                        value: "\(manifest.id) · API \(manifest.minimumAPIVersion.major).\(manifest.minimumAPIVersion.minor)"
+                    )
+                }
+            }
+
+            if let effectiveGrant {
+                Divider()
+                permissionSection(effectiveGrant: effectiveGrant)
+            }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                if let activeIdentity, effectiveGrant?.needsAdditionalApproval == true {
+                    Button(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access")) {
+                        xpcHost.grantRequestedAccess(bundleIdentifier: activeIdentity.bundleIdentifier)
+                        self.effectiveGrant = xpcHost.currentEffectiveGrant
+                        xpcHost.sendSnapshotDidChange()
+                    }
+                    .controlSize(.small)
+                }
+                Button(String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage")) {
+                    isShowingExtensionDetails = false
+                    presentExtensionBrowser()
+                }
+                .controlSize(.small)
+                Button(String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")) {
+                    isShowingExtensionDetails = false
+                    onUseDefaultSidebar()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(14)
+        .frame(width: 340, alignment: .leading)
+    }
+
+    private func detailRow(title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 64, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func permissionSection(effectiveGrant: CMUXSidebarExtensionEffectiveGrant) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "sidebar.extensions.details.permissions", defaultValue: "Permissions"))
+                .font(.system(size: 12, weight: .semibold))
+            ForEach(effectiveGrant.manifest.requestedScopes, id: \.self) { scope in
+                permissionRow(
+                    title: scope.displayName,
+                    isGranted: effectiveGrant.readScopes.contains(scope)
+                )
+            }
+            ForEach(effectiveGrant.manifest.requestedActionScopes, id: \.self) { scope in
+                permissionRow(
+                    title: scope.displayName,
+                    isGranted: effectiveGrant.actionScopes.contains(scope)
+                )
+            }
+        }
+    }
+
+    private func permissionRow(title: String, isGranted: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isGranted ? .green : .secondary)
+            Text(title)
+                .font(.system(size: 11))
+            Spacer()
+            Text(isGranted
+                ? String(localized: "sidebar.extensions.details.granted", defaultValue: "Granted")
+                : String(localized: "sidebar.extensions.details.pending", defaultValue: "Pending"))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder
@@ -474,6 +603,36 @@ private final class MonitorContinuationBox: @unchecked Sendable {
         self.continuation = nil
         lock.unlock()
         continuation?.resume()
+    }
+}
+
+private extension CMUXExtensionScope {
+    var displayName: String {
+        switch self {
+        case .workspaceMetadata:
+            return String(localized: "sidebar.extensions.scope.workspaceMetadata", defaultValue: "Workspace metadata")
+        case .workspacePaths:
+            return String(localized: "sidebar.extensions.scope.workspacePaths", defaultValue: "Workspace paths")
+        case .notifications:
+            return String(localized: "sidebar.extensions.scope.notifications", defaultValue: "Notifications")
+        case .networkPorts:
+            return String(localized: "sidebar.extensions.scope.networkPorts", defaultValue: "Network ports")
+        case .pullRequests:
+            return String(localized: "sidebar.extensions.scope.pullRequests", defaultValue: "Pull requests")
+        }
+    }
+}
+
+private extension CMUXExtensionActionScope {
+    var displayName: String {
+        switch self {
+        case .selectWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.selectWorkspace", defaultValue: "Select workspaces")
+        case .closeWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.closeWorkspace", defaultValue: "Close workspaces")
+        case .openURL:
+            return String(localized: "sidebar.extensions.actionScope.openURL", defaultValue: "Open URLs")
+        }
     }
 }
 
