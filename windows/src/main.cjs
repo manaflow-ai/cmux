@@ -308,6 +308,14 @@ async function createWindow() {
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     log(`render-process-gone ${JSON.stringify(details)}`);
   });
+  mainWindow.webContents.setZoomFactor(1);
+  mainWindow.webContents.setVisualZoomLevelLimits(1, 1).catch((error) => {
+    log(`setVisualZoomLevelLimits failed: ${error?.message || error}`);
+  });
+  mainWindow.webContents.on("zoom-changed", (event) => {
+    event.preventDefault();
+    mainWindow?.webContents.setZoomFactor(1);
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };

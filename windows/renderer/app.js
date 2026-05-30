@@ -9035,7 +9035,7 @@ function setPaneMinimized(panelId, minimized = true) {
   return true;
 }
 
-function togglePaneMinimized(panelId = activePanel()?.id) {
+function togglePaneMinimized(panelId = focusedPanel()?.id) {
   if (!panelId) return false;
   return setPaneMinimized(panelId, !state.minimizedPanelIds.has(panelId));
 }
@@ -9045,7 +9045,7 @@ function restorePane(panelId) {
 }
 
 function minimizeActivePane() {
-  const panel = activePanel();
+  const panel = focusedPanel();
   if (!panel) return false;
   return setPaneMinimized(panel.id, true);
 }
@@ -9615,7 +9615,7 @@ async function resetSettings() {
 }
 
 async function restartActiveTerminal() {
-  const panel = activePanel();
+  const panel = focusedPanel();
   if (panel?.type === "terminal") await restartPanel(panel.id);
 }
 
@@ -9626,7 +9626,7 @@ async function restartPanel(panelId) {
 }
 
 async function closeActivePanel() {
-  const panel = activePanel();
+  const panel = focusedPanel();
   if (panel) await closePanel(panel.id);
 }
 
@@ -9810,10 +9810,10 @@ window.addEventListener("keydown", (event) => {
     consumeGlobalShortcut(event);
     togglePaneZoom(actionPanelFromEvent(event)?.id);
   } else if (event.ctrlKey && key === "w") {
-    const workspace = activeWorkspace();
-    if (workspace?.activePanelId) {
+    const panel = actionPanelFromEvent(event);
+    if (panel) {
       consumeGlobalShortcut(event);
-      closePanel(workspace.activePanelId);
+      closePanel(panel.id);
     }
   }
 }, true);
