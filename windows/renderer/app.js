@@ -3189,11 +3189,97 @@ function getPaneSplitter(workspace, splitNode) {
     splitter.className = "pane-splitter";
     splitter.dataset.splitterKey = key;
     splitter.dataset.splitId = splitNode.id;
-    splitter.title = "Resize panes";
+    splitter.tabIndex = 0;
+    splitter.setAttribute("role", "separator");
     splitter.addEventListener("pointerdown", (event) => startPaneResize(event, splitter));
+    splitter.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      equalizePaneSplitter(splitter);
+    });
+    splitter.addEventListener("keydown", handlePaneSplitterKeydown);
   }
   setDatasetIfChanged(splitter, "splitId", splitNode.id);
+  const direction = paneTreeDirection(splitNode.direction);
+  setDatasetIfChanged(splitter, "orientation", direction);
+  setSplitterResizePercent(splitter, Math.round(paneTreeRatio(splitNode.ratio) * 100), direction);
+  setTitleIfChanged(splitter, "Resize panes. Double-click to equalize. Arrow keys adjust.");
   return splitter;
+}
+
+function setSplitterResizePercent(splitter, percent, direction = splitter?.dataset.orientation || "right") {
+  if (!splitter) return 50;
+  const nextPercent = clampPaneLayoutPercent(percent);
+  const label = `${nextPercent}% / ${100 - nextPercent}%`;
+  setDatasetIfChanged(splitter, "resizePercent", String(nextPercent));
+  setDatasetIfChanged(splitter, "resizeLabel", label);
+  splitter.setAttribute("aria-label", "Resize pane split");
+  splitter.setAttribute("aria-valuemin", String(paneLayoutPercentMin));
+  splitter.setAttribute("aria-valuemax", String(paneLayoutPercentMax));
+  splitter.setAttribute("aria-valuenow", String(nextPercent));
+  splitter.setAttribute("aria-valuetext", label);
+  splitter.setAttribute("aria-orientation", direction === "down" ? "horizontal" : "vertical");
+  return nextPercent;
+}
+
+function setPaneSplitterPercent(splitter, percent, options = {}) {
+  const workspace = activeWorkspace();
+  const splitId = splitter?.dataset.splitId || "";
+  if (!workspace || !splitId) return false;
+  const tree = paneTreeForWorkspace(workspace);
+  if (!tree) return false;
+  const nextPercent = clampPaneLayoutPercent(percent);
+  let changed = false;
+  const nextTree = updatePaneTreeSplit(tree, splitId, (split) => {
+    const currentPercent = Math.round(paneTreeRatio(split.ratio) * 100);
+    if (currentPercent === nextPercent) return split;
+    changed = true;
+    return {
+      ...split,
+      ratio: paneTreeRatio(nextPercent / 100)
+    };
+  });
+  const direction = splitter?.dataset.orientation || "right";
+  setSplitterResizePercent(splitter, nextPercent, direction);
+  if (!changed) return false;
+  state.paneTrees.set(workspace.id, nextTree);
+  savePaneTreeLayouts(state.paneTrees);
+  render();
+  requestAnimationFrame(() => fitWorkspaceTerminals(workspace.id));
+  if (options.toast) toast(`Split ${nextPercent}% / ${100 - nextPercent}%.`);
+  return true;
+}
+
+function equalizePaneSplitter(splitter) {
+  return setPaneSplitterPercent(splitter, 50, { toast: true });
+}
+
+function handlePaneSplitterKeydown(event) {
+  const splitter = event.currentTarget;
+  const direction = splitter?.dataset.orientation === "down" ? "down" : "right";
+  const key = event.key;
+  const growsFirst = direction === "down" ? key === "ArrowDown" : key === "ArrowRight";
+  const shrinksFirst = direction === "down" ? key === "ArrowUp" : key === "ArrowLeft";
+  if (key === "Enter" || key === " ") {
+    event.preventDefault();
+    event.stopPropagation();
+    equalizePaneSplitter(splitter);
+    return;
+  }
+  if (!growsFirst && !shrinksFirst) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const step = event.shiftKey ? 10 : event.altKey ? 1 : 2;
+  const currentPercent = clampPaneLayoutPercent(Number(splitter.dataset.resizePercent || 50));
+  setPaneSplitterPercent(splitter, currentPercent + (growsFirst ? step : -step));
+}
+
+function fitWorkspaceTerminals(workspaceId) {
+  const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
+  for (const panel of workspace?.panels || []) {
+    const terminal = state.terminals.get(panel.id);
+    if (terminal) scheduleFitTerminal(terminal, true);
+  }
 }
 
 function startPaneResize(event, splitter) {
@@ -3238,6 +3324,7 @@ function startPaneResize(event, splitter) {
       ])
     ]
   };
+  setSplitterResizePercent(splitter, Math.round((previousSize / Math.max(1, previousSize + nextSize)) * 100), vertical ? "down" : "right");
 }
 
 function continuePaneResize(event) {
@@ -3267,6 +3354,7 @@ function applyPaneResize(resize = state.resizing) {
   const nextNext = pairTotal - nextPrevious;
   previousPane.style.flex = `0 0 ${nextPrevious}px`;
   nextPane.style.flex = `0 0 ${nextNext}px`;
+  setSplitterResizePercent(resize.splitter, Math.round((nextPrevious / pairTotal) * 100), vertical ? "down" : "right");
   for (const panelId of panelIds) {
     const terminal = state.terminals.get(panelId);
     if (terminal) scheduleFitTerminal(terminal);

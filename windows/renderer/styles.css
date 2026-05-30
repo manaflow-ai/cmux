@@ -1188,11 +1188,12 @@ body.reduce-motion *::after {
 }
 
 .pane-splitter {
-  flex: 0 0 8px;
+  flex: 0 0 10px;
   position: relative;
   z-index: 4;
-  background: var(--color-terminal-gutter);
+  background: color-mix(in oklch, var(--color-terminal-gutter) 86%, var(--color-line) 14%);
   cursor: col-resize;
+  outline: 0;
   touch-action: none;
 }
 
@@ -1207,14 +1208,59 @@ body.reduce-motion *::after {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 0 -4px;
-  background: transparent;
-  transition: background var(--dur-fast) var(--ease-out);
+  inset: 18% 3px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-line) 68%, transparent);
+  opacity: .6;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.pane-split.direction-down > .pane-splitter::before,
+.pane-grid.direction-down > .pane-splitter::before {
+  inset: 3px 18%;
 }
 
 .pane-splitter:hover::before,
+.pane-splitter:focus-visible::before,
 .pane-splitter.is-dragging::before {
-  background: var(--color-line-strong);
+  background: var(--color-accent);
+  opacity: 1;
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 36%, transparent);
+}
+
+.pane-splitter:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.pane-splitter::after {
+  content: attr(data-resize-label);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  min-width: max-content;
+  padding: 3px 6px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-chrome) 92%, var(--color-canvas) 8%);
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.pane-splitter:hover::after,
+.pane-splitter:focus-visible::after,
+.pane-splitter.is-dragging::after {
+  opacity: 1;
 }
 
 .shell.pane-resizing,
