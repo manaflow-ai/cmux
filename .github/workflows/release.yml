@@ -165,15 +165,31 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
+      - name: Build Ghostty CLI helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .ci-artifacts
+          ./scripts/build-ghostty-cli-helper.sh --universal --output "$PWD/.ci-artifacts/ghostty"
+          file "$PWD/.ci-artifacts/ghostty"
+          lipo "$PWD/.ci-artifacts/ghostty" -verify_arch arm64 x86_64
+
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Install Ghostty CLI helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          install -m 755 "$PWD/.ci-artifacts/ghostty" "$HELPER_BINARY"
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
