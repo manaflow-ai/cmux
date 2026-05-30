@@ -30164,7 +30164,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// blocks waiting for a user decision. Claude Code owns decisions
     /// through its native PermissionRequest hook. Its PreToolUse hook is
     /// telemetry/status only.
-    private static func classifyFeedEvent(
+    static func classifyFeedEvent(
         source: String,
         event: String,
         toolName: String
