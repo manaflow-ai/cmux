@@ -205,7 +205,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    extensionControlStrip(activeIdentity: nil)
                     if isLoading {
                         ProgressView()
                             .controlSize(.small)
@@ -368,10 +367,17 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             extensionIdentityControl(activeIdentity: activeIdentity)
             Spacer(minLength: 8)
             if effectiveGrant?.needsAdditionalApproval == true {
-                Image(systemName: "lock")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "sidebar.extensions.access.statusLimited.help", defaultValue: "This extension has limited access."))
+                Button {
+                    isShowingAccessReview = true
+                } label: {
+                    Label(
+                        String(localized: "sidebar.extensions.access.statusLimited", defaultValue: "Limited"),
+                        systemImage: "lock"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .help(String(localized: "sidebar.extensions.access.statusLimited.help", defaultValue: "This extension has limited access."))
             }
             Button {
                 isShowingExtensionDetails = true
@@ -402,7 +408,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     Text(activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"))
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
-                    Text(String(localized: "sidebar.extensions.details.runtime", defaultValue: "ExtensionKit host, XPC connection"))
+                    Text(String(localized: "sidebar.extensions.details.runtime", defaultValue: "Secure extension connection"))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -413,7 +419,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     title: String(localized: "sidebar.extensions.details.status", defaultValue: "Status"),
                     value: blockedManifestReason.map(blockedStatusText(reason:)) ?? (activeIdentity == nil
                         ? String(localized: "sidebar.extensions.details.statusWaiting", defaultValue: "Waiting for an enabled extension")
-                        : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Hosted out of process"))
+                        : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Connected"))
                 )
                 if let activeIdentity {
                     detailRow(
@@ -423,7 +429,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 }
                 if let manifest = effectiveGrant?.manifest {
                     detailRow(
-                        title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Manifest"),
+                        title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
                         value: "\(manifest.id) · API \(manifest.minimumAPIVersion.major).\(manifest.minimumAPIVersion.minor)"
                     )
                 }
@@ -544,28 +550,28 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         case "connectionInterrupted":
             return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
         case "manifestTimedOut":
-            return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, manifest timed out")
+            return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, configuration timed out")
         case "missingManifest":
-            return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing manifest")
+            return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing configuration")
         case "invalidManifest":
-            return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid manifest")
+            return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid configuration")
         default:
-            return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, manifest unavailable")
+            return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, configuration unavailable")
         }
     }
 
     private func blockedDetailText(reason: String) -> String {
         switch reason {
         case "connectionInterrupted":
-            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension's XPC connection. No workspace data or actions are being shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension connection. No workspace data or actions are being shared.")
         case "manifestTimedOut":
-            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's manifest in time. No workspace data or actions are being shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's configuration in time. No workspace data or actions are being shared.")
         case "missingManifest":
-            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension manifest, so no workspace data or actions were shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
         case "invalidManifest":
-            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's manifest. No workspace data or actions were shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's configuration. No workspace data or actions were shared.")
         default:
-            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's manifest. No workspace data or actions were shared.")
+            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's configuration. No workspace data or actions were shared.")
         }
     }
 
@@ -590,25 +596,34 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             ForEach(effectiveGrant.manifest.requestedScopes, id: \.self) { scope in
                 permissionRow(
                     title: scope.displayName,
+                    detail: permissionDescription(scope: scope),
                     isGranted: effectiveGrant.readScopes.contains(scope)
                 )
             }
             ForEach(effectiveGrant.manifest.requestedActionScopes, id: \.self) { scope in
                 permissionRow(
                     title: scope.displayName,
+                    detail: permissionDescription(actionScope: scope),
                     isGranted: effectiveGrant.actionScopes.contains(scope)
                 )
             }
         }
     }
 
-    private func permissionRow(title: String, isGranted: Bool) -> some View {
-        HStack(spacing: 6) {
+    private func permissionRow(title: String, detail: String, isGranted: Bool) -> some View {
+        HStack(alignment: .top, spacing: 6) {
             Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(isGranted ? .green : .secondary)
-            Text(title)
-                .font(.system(size: 11))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                Text(detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Spacer()
             Text(isGranted
                 ? String(localized: "sidebar.extensions.details.granted", defaultValue: "Granted")
@@ -749,7 +764,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 detailRow(
-                    title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Manifest"),
+                    title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
                     value: "\(effectiveGrant.manifest.id) · API \(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)"
                 )
                 Divider()
@@ -1317,7 +1332,7 @@ private final class CMUXSidebarExtensionHostXPC {
         { [weak self] action in
             guard let self,
                   self.currentManifest != nil,
-                  self.allowedActionScopes.contains(action.requiredScope) else {
+                  self.allowedActionScopes.isSuperset(of: action.requiredScopes) else {
                 return CMUXExtensionActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.scopeRejected", defaultValue: "Extension action is not granted")

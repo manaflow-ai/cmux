@@ -50,4 +50,35 @@ public enum CMUXSidebarAction: Codable, Equatable, Sendable {
             return .openURL
         }
     }
+
+    public var requiredScopes: Set<CMUXExtensionActionScope> {
+        switch self {
+        case .createWorkspace:
+            return [.createWorkspace]
+        case .selectWorkspace:
+            return [.selectWorkspace]
+        case .closeWorkspace:
+            return [.closeWorkspace]
+        case .selectNextWorkspace, .selectPreviousWorkspace:
+            return [.navigateWorkspace]
+        case .createTerminalSurface:
+            return [.createSurface]
+        case .createBrowserSurface(_, let url):
+            return url == nil ? [.createSurface] : [.createSurface, .openURL]
+        case .selectSurface:
+            return [.selectSurface]
+        case .selectNextSurface, .selectPreviousSurface:
+            return [.navigateSurface]
+        case .closeSurface:
+            return [.closeSurface]
+        case .splitTerminal:
+            return [.splitSurface]
+        case .splitBrowser(_, _, _, let url):
+            return url == nil ? [.splitSurface] : [.splitSurface, .openURL]
+        case .toggleSurfaceZoom:
+            return [.zoomSurface]
+        case .openURL:
+            return [.openURL]
+        }
+    }
 }

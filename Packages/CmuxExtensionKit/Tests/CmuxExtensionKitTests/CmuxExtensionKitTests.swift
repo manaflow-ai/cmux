@@ -274,6 +274,17 @@ struct CMUXExtensionKitTests {
     }
 
     @Test
+    func testURLBearingBrowserActionsRequireOpenURLScope() {
+        let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let surfaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+
+        #expect(CMUXSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: nil).requiredScopes == [.createSurface])
+        #expect(CMUXSidebarAction.createBrowserSurface(workspaceID: workspaceID, url: "https://example.com").requiredScopes == [.createSurface, .openURL])
+        #expect(CMUXSidebarAction.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: .right, url: nil).requiredScopes == [.splitSurface])
+        #expect(CMUXSidebarAction.splitBrowser(workspaceID: workspaceID, surfaceID: surfaceID, direction: .right, url: "https://example.com").requiredScopes == [.splitSurface, .openURL])
+    }
+
+    @Test
     @MainActor
     func testSidebarHostCancelsPendingAsyncAction() async {
         let cancellationBox = CancellationBox()
