@@ -208,6 +208,55 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testGeneratedFallbackShellBootstrapPrependsCmuxBinOnce() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fallback-shell-bootstrap-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
+        let capturedPath = root.appendingPathComponent("path.txt")
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableShellFile(
+            at: bin.appendingPathComponent("fish"),
+            body: """
+            #!/bin/sh
+            printf '%s\\n' "$PATH" > "$CMUX_CAPTURE_PATH"
+            """
+        )
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 0,
+            shellFeatures: ""
+        )
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "SHELL=\(bin.appendingPathComponent("fish").path)",
+                "PATH=/usr/bin:/bin",
+                "TERM=xterm-256color",
+                "USER=\(NSUserName())",
+                "CMUX_CAPTURE_PATH=\(capturedPath.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let path = try String(contentsOf: capturedPath, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cmuxBinEntries = path.split(separator: ":")
+            .filter { $0 == "\(home.path)/.cmux/bin" }
+        XCTAssertEqual(cmuxBinEntries.count, 1, path)
+    }
+
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")

@@ -101,7 +101,6 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "    ;;",
             "  *)",
         ]
-        outerLines.append(contentsOf: commonShellExportLines)
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
             "exec \"$CMUX_LOGIN_SHELL\" -i",
