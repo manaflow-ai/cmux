@@ -278,6 +278,8 @@
 		8E7740000000000000000015 /* HTTPAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000014 /* HTTPAuth.swift */; };
 		8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7740000000000000000016 /* HTTPAuthTests.swift */; };
 		8E774300000000000000001D /* HTTPControlInputRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000001E /* HTTPControlInputRouteTests.swift */; };
+		8E774400000000000000000F /* HTTPControlLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774400000000000000000E /* HTTPControlLifecycle.swift */; };
+		8E7744000000000000000011 /* HTTPControlLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7744000000000000000010 /* HTTPControlLifecycleTests.swift */; };
 		8E774300000000000000001B /* HTTPControlRateKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000001C /* HTTPControlRateKeys.swift */; };
 		8E774300000000000000000D /* HTTPControlRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000000C /* HTTPControlRoutes.swift */; };
 		8E7743000000000000000019 /* HTTPControlScreenRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E774300000000000000001A /* HTTPControlScreenRouteTests.swift */; };
@@ -901,6 +903,8 @@
 		8E7740000000000000000014 /* HTTPAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuth.swift; sourceTree = "<group>"; };
 		8E7740000000000000000016 /* HTTPAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPAuthTests.swift; sourceTree = "<group>"; };
 		8E774300000000000000001E /* HTTPControlInputRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlInputRouteTests.swift; sourceTree = "<group>"; };
+		8E774400000000000000000E /* HTTPControlLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlLifecycle.swift; sourceTree = "<group>"; };
+		8E7744000000000000000010 /* HTTPControlLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlLifecycleTests.swift; sourceTree = "<group>"; };
 		8E774300000000000000001C /* HTTPControlRateKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlRateKeys.swift; sourceTree = "<group>"; };
 		8E774300000000000000000C /* HTTPControlRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlRoutes.swift; sourceTree = "<group>"; };
 		8E774300000000000000001A /* HTTPControlScreenRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPControlScreenRouteTests.swift; sourceTree = "<group>"; };
@@ -1288,6 +1292,7 @@
 				8E7744000000000000000004 /* HTTPControlUDSListener.swift */,
 				8E7744000000000000000008 /* HTTPControlSettingsViewModel.swift */,
 				8E774400000000000000000A /* HTTPControlSettingsView.swift */,
+				8E774400000000000000000E /* HTTPControlLifecycle.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -1310,6 +1315,7 @@
 				8E7744000000000000000002 /* HTTPTokenChildEnvIsolationTests.swift */,
 				8E7744000000000000000006 /* HTTPControlUDSListenerTests.swift */,
 				8E774400000000000000000C /* HTTPControlSettingsViewModelTests.swift */,
+				8E7744000000000000000010 /* HTTPControlLifecycleTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -2342,6 +2348,7 @@
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				8E7740000000000000000019 /* HostAllowlist.swift in Sources */,
 				8E7740000000000000000015 /* HTTPAuth.swift in Sources */,
+				8E774400000000000000000F /* HTTPControlLifecycle.swift in Sources */,
 				8E774300000000000000001B /* HTTPControlRateKeys.swift in Sources */,
 				8E774300000000000000000D /* HTTPControlRoutes.swift in Sources */,
 				8E7743000000000000000007 /* HTTPControlServer.swift in Sources */,
@@ -2664,6 +2671,7 @@
 				8E774000000000000000001B /* HostAllowlistTests.swift in Sources */,
 				8E7740000000000000000017 /* HTTPAuthTests.swift in Sources */,
 				8E774300000000000000001D /* HTTPControlInputRouteTests.swift in Sources */,
+				8E7744000000000000000011 /* HTTPControlLifecycleTests.swift in Sources */,
 				8E7743000000000000000019 /* HTTPControlScreenRouteTests.swift in Sources */,
 				8E7743000000000000000009 /* HTTPControlServerListenerTests.swift in Sources */,
 				8E774400000000000000000D /* HTTPControlSettingsViewModelTests.swift in Sources */,

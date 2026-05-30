@@ -71,11 +71,16 @@ public final class HTTPControlSettings {
         set { defaults.set(newValue.rawValue, forKey: Self.kTransport) }
     }
 
-    /// TCP loopback port. Defaults to `49100` when unset.
+    /// TCP loopback port. Defaults to `49100` when the key has
+    /// never been written; an explicit `0` is honoured as "request
+    /// an ephemeral port from the kernel" so tests can rely on a
+    /// free port.
     public var tcpPort: Int {
         get {
-            let v = defaults.integer(forKey: Self.kTcpPort)
-            return v > 0 ? v : 49100
+            guard let value = defaults.object(forKey: Self.kTcpPort) as? Int else {
+                return 49100
+            }
+            return value
         }
         set { defaults.set(newValue, forKey: Self.kTcpPort) }
     }
