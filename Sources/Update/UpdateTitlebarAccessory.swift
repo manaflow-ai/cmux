@@ -449,9 +449,9 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
-    static let sidebarTrailingPadding: CGFloat = 16
-    static let hintRightSafetyShift: CGFloat = 10
-    static let hintTrailingBaseInset: CGFloat = 14
+    static let sidebarTrailingPadding: CGFloat = 8
+    static let hintRightSafetyShift: CGFloat = 6
+    static let hintTrailingBaseInset: CGFloat = 4
     static let extraButtonCount = 0
     static let trafficLightGap: CGFloat = 8
 
@@ -2031,11 +2031,13 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             titlebarHeight: titlebarHeight
         )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let accessoryOriginXInWindow = view.convert(view.bounds, to: nil).minX
+        let sidebarTrailingEdgeInAccessory = max(0, sidebarTrailingEdge - accessoryOriginXInWindow)
         let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
             contentWidth: contentSize.width,
             trafficLightFrame: trafficLightFrame,
             debugSnapshot: debugSnapshot,
-            sidebarTrailingEdge: sidebarTrailingEdge
+            sidebarTrailingEdge: sidebarTrailingEdgeInAccessory
         )
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: contentSize.height,
