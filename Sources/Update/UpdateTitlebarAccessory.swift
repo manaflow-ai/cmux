@@ -468,15 +468,19 @@ enum TitlebarControlsLayoutMetrics {
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
+    static func visibleContentWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+        outerLeadingPadding
+            + config.groupPadding.leading
+            + buttonRowWidth(config: config)
+            + config.groupPadding.trailing
+    }
+
     static func contentSize(
         config: TitlebarControlsStyleConfig,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
     ) -> NSSize {
         NSSize(
-            width: outerLeadingPadding
-                + config.groupPadding.leading
-                + buttonRowWidth(config: config)
-                + config.groupPadding.trailing
+            width: visibleContentWidth(config: config)
                 + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset),
             height: max(
                 WindowChromeMetrics.appTitlebarHeight,
@@ -514,7 +518,7 @@ enum TitlebarControlsLayoutMetrics {
     static func minimumSidebarWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
         trafficLightClusterWidth
             + trafficLightGap
-            + contentSize(config: config).width
+            + visibleContentWidth(config: config)
             + sidebarTrailingPadding
     }
 
@@ -2010,6 +2014,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
+        let visibleContentWidth = TitlebarControlsLayoutMetrics.visibleContentWidth(config: style.config)
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
             intrinsicSizeNeedsRefresh = false
@@ -2038,7 +2043,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let accessoryOriginXInWindow = view.convert(view.bounds, to: nil).minX
         let sidebarTrailingEdgeInAccessory = max(0, sidebarTrailingEdge - accessoryOriginXInWindow)
         let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
-            contentWidth: contentSize.width,
+            contentWidth: visibleContentWidth,
             trafficLightFrame: trafficLightFrame,
             debugSnapshot: debugSnapshot,
             sidebarTrailingEdge: sidebarTrailingEdgeInAccessory
