@@ -154,8 +154,8 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 860,
-    minWidth: 940,
-    minHeight: 620,
+    minWidth: 480,
+    minHeight: 400,
     title: "cmux Windows",
     backgroundColor: "#111316",
     frame: false,
