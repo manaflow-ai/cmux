@@ -101,6 +101,7 @@ function buildMenu() {
         { label: "Open Browser", accelerator: "Ctrl+Shift+L", click: () => mainWindow?.webContents.send("cmux-command", "browser.new") },
         { type: "separator" },
         { label: "Settings", accelerator: "Ctrl+,", click: () => mainWindow?.webContents.send("cmux-command", "settings.open") },
+        { label: "Settings Profiles", click: () => mainWindow?.webContents.send("cmux-command", "settings.profiles") },
         { label: "Command Snippets", click: () => mainWindow?.webContents.send("cmux-command", "settings.commands") },
         { type: "separator" },
         { role: "quit" }

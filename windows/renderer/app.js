@@ -33,9 +33,11 @@ const paneLayoutStorageKey = "cmux.paneLayout";
 const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
 const recentCommandsStorageKey = "cmux.recentTerminalCommands";
 const customCommandSnippetsStorageKey = "cmux.customTerminalCommandSnippets";
+const savedSettingsProfilesStorageKey = "cmux.savedSettingsProfiles";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
 const customCommandSnippetsLimit = 20;
+const savedSettingsProfilesLimit = 12;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -87,6 +89,7 @@ const state = {
   recentFolders: loadRecentFolders(),
   recentCommands: loadRecentCommands(),
   customCommandSnippets: loadCustomCommandSnippets(),
+  savedSettingsProfiles: loadSavedSettingsProfiles(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -478,6 +481,80 @@ function upsertCustomCommandSnippet(snippet) {
   return state.customCommandSnippets[0];
 }
 
+function normalizeSettingsProfileLabel(label) {
+  return String(label || "").replace(/\s+/g, " ").trim().slice(0, 48);
+}
+
+function createSettingsProfileId() {
+  return `profile_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeSavedSettingsProfile(entry) {
+  const settings = normalizeSettings(entry?.settings);
+  const label = normalizeSettingsProfileLabel(entry?.label);
+  if (!label) return null;
+  const id = /^[a-z0-9_-]+$/i.test(entry?.id || "") ? entry.id : createSettingsProfileId();
+  return {
+    id,
+    label,
+    settings,
+    createdAt: Number(entry?.createdAt) || Date.now()
+  };
+}
+
+function loadSavedSettingsProfiles() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(savedSettingsProfilesStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const profiles = [];
+    const seenIds = new Set();
+    for (const entry of parsed) {
+      const profile = normalizeSavedSettingsProfile(entry);
+      if (!profile) continue;
+      if (seenIds.has(profile.id)) profile.id = createSettingsProfileId();
+      seenIds.add(profile.id);
+      profiles.push(profile);
+      if (profiles.length >= savedSettingsProfilesLimit) break;
+    }
+    return profiles;
+  } catch {
+    return [];
+  }
+}
+
+function saveSavedSettingsProfiles() {
+  localStorage.setItem(savedSettingsProfilesStorageKey, JSON.stringify(state.savedSettingsProfiles));
+}
+
+function upsertSavedSettingsProfile(profile) {
+  const normalized = normalizeSavedSettingsProfile(profile);
+  if (!normalized) return null;
+  const replacing = state.savedSettingsProfiles.some((candidate) => candidate.id === normalized.id);
+  if (!replacing && state.savedSettingsProfiles.length >= savedSettingsProfilesLimit) {
+    toast(`Profile limit is ${savedSettingsProfilesLimit}. Delete one first.`);
+    return null;
+  }
+  state.savedSettingsProfiles = [
+    normalized,
+    ...state.savedSettingsProfiles.filter((candidate) => candidate.id !== normalized.id)
+  ];
+  saveSavedSettingsProfiles();
+  return state.savedSettingsProfiles[0];
+}
+
+function settingsProfileSummary(settings) {
+  const normalized = normalizeSettings(settings);
+  const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
+  const toolbar = toolbarModeOptions.find(([id]) => id === normalized.toolbarMode)?.[1] || normalized.toolbarMode;
+  return [
+    theme,
+    normalized.density,
+    toolbar,
+    normalized.performanceMode ? "performance" : "balanced",
+    `${normalized.terminalFontSize}px`
+  ].join(" / ");
+}
+
 function settingsRenderSignature(settings = state.settings) {
   return [
     settings.theme,
@@ -857,6 +934,8 @@ const commands = [
   { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
   { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
+  { id: "settings.profiles", label: "Open Settings Profiles", shortcut: "", run: () => openSettingsCategory("profiles") },
+  { id: "settings.saveProfile", label: "Save Current Settings Profile", shortcut: "", run: () => saveCurrentSettingsProfile() },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -2150,6 +2229,12 @@ function renderSettingsInspector() {
     nodes.push(quickSection);
   }
 
+  if (shouldBuildSection("profiles")) {
+    const profilesSection = settingsSection("Profiles", "saved settings profile preset apply save rename delete appearance layout terminal performance");
+    profilesSection.append(settingsProfilesPanel());
+    nodes.push(profilesSection);
+  }
+
   if (shouldBuildSection("workspace")) {
     const workspaceSection = settingsSection("Workspace");
     const titleInput = document.createElement("input");
@@ -3249,6 +3334,143 @@ function applySettingsPresetById(presetId) {
   applySettingsPreset(preset);
 }
 
+function settingsProfilesPanel() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "settings-profile-list";
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("saved settings profile preset appearance layout terminal performance apply save rename delete");
+
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Saved profiles";
+  const save = settingsActionButton("Save", saveCurrentSettingsProfile, "", "save current settings profile preset");
+  save.disabled = state.savedSettingsProfiles.length >= savedSettingsProfilesLimit;
+  header.append(title, save);
+  wrapper.append(header);
+
+  if (state.savedSettingsProfiles.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Save your current colors, layout, terminal, and performance settings as a reusable profile.";
+    wrapper.append(empty);
+  } else {
+    for (const profile of state.savedSettingsProfiles) {
+      wrapper.append(settingsProfileCard(profile));
+    }
+  }
+
+  const builtInTitle = document.createElement("div");
+  builtInTitle.className = "command-snippet-group-title";
+  builtInTitle.textContent = "Built-in profiles";
+  wrapper.append(builtInTitle, settingsPresetGrid());
+  return wrapper;
+}
+
+function settingsProfileCard(profile) {
+  const card = document.createElement("div");
+  card.className = "recent-folder-card settings-profile-card";
+  card.dataset.settingsSearch = normalizeSettingsQuery(`saved settings profile preset apply rename delete ${profile.label} ${settingsProfileSummary(profile.settings)}`);
+
+  const text = document.createElement("div");
+  text.className = "recent-folder-text";
+  const name = document.createElement("div");
+  name.className = "recent-folder-name";
+  name.textContent = profile.label;
+  name.title = profile.label;
+  const summary = document.createElement("div");
+  summary.className = "recent-folder-path settings-profile-summary";
+  summary.textContent = settingsProfileSummary(profile.settings);
+  summary.title = summary.textContent;
+  text.append(name, summary);
+
+  const actions = document.createElement("div");
+  actions.className = "recent-folder-actions settings-profile-actions";
+  actions.append(
+    settingsActionButton("Apply", () => applySavedSettingsProfile(profile.id), "", `apply settings profile ${profile.label}`),
+    settingsActionButton("Rename", () => renameSavedSettingsProfile(profile.id), "", `rename settings profile ${profile.label}`),
+    settingsActionButton("Delete", () => deleteSavedSettingsProfile(profile.id), "danger", `delete settings profile ${profile.label}`)
+  );
+  card.append(text, actions);
+  return card;
+}
+
+async function saveCurrentSettingsProfile() {
+  const label = await showTextDialog({
+    title: "Save settings profile",
+    message: "Save the current look, layout, terminal, and performance settings.",
+    value: defaultSettingsProfileName(),
+    placeholder: "Work setup",
+    confirmLabel: "Save"
+  });
+  if (!label) return;
+  const saved = upsertSavedSettingsProfile({
+    id: createSettingsProfileId(),
+    label,
+    settings: state.settings,
+    createdAt: Date.now()
+  });
+  if (!saved) return;
+  renderSettingsInspector();
+  toast("Settings profile saved.");
+}
+
+function defaultSettingsProfileName() {
+  const base = "My profile";
+  if (!state.savedSettingsProfiles.some((profile) => profile.label.toLowerCase() === base.toLowerCase())) {
+    return base;
+  }
+  for (let index = 2; index <= savedSettingsProfilesLimit + 1; index += 1) {
+    const label = `${base} ${index}`;
+    if (!state.savedSettingsProfiles.some((profile) => profile.label.toLowerCase() === label.toLowerCase())) {
+      return label;
+    }
+  }
+  return base;
+}
+
+function applySavedSettingsProfile(profileId) {
+  const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
+  if (!profile) return;
+  updateSettings(profile.settings);
+  renderSettingsInspector();
+  toast(`${profile.label} profile applied.`);
+}
+
+async function renameSavedSettingsProfile(profileId) {
+  const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
+  if (!profile) return;
+  const label = await showTextDialog({
+    title: "Rename settings profile",
+    value: profile.label,
+    placeholder: "Profile name",
+    confirmLabel: "Rename"
+  });
+  if (!label) return;
+  const renamed = upsertSavedSettingsProfile({
+    ...profile,
+    label,
+    createdAt: profile.createdAt
+  });
+  if (!renamed) return;
+  renderSettingsInspector();
+  toast("Settings profile renamed.");
+}
+
+async function deleteSavedSettingsProfile(profileId) {
+  const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
+  if (!profile) return;
+  if (!await showConfirmDialog({
+    title: "Delete profile",
+    message: `Delete "${profile.label}"?`,
+    confirmLabel: "Delete",
+    danger: true
+  })) return;
+  state.savedSettingsProfiles = state.savedSettingsProfiles.filter((candidate) => candidate.id !== profileId);
+  saveSavedSettingsProfiles();
+  renderSettingsInspector();
+  toast("Settings profile deleted.");
+}
+
 function ensureContextMenu() {
   if (state.contextMenu) return state.contextMenu;
   const menu = document.createElement("div");
@@ -3405,6 +3627,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
     contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
     contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
+    contextMenuButton("Settings profiles", () => openSettingsCategory("profiles")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
     contextMenuButton("Reset session", resetSession, false, "danger")
@@ -3866,6 +4089,16 @@ function paletteEntries() {
       shortcut: "Snippet",
       search: normalizeSettingsQuery(`terminal command snippet shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
       run: () => runTerminalCommandSnippet(snippet.id)
+    });
+  }
+  for (const profile of state.savedSettingsProfiles) {
+    entries.push({
+      id: `settingsProfile.${profile.id}`,
+      label: `Profile: ${profile.label}`,
+      meta: settingsProfileSummary(profile.settings),
+      shortcut: "Profile",
+      search: normalizeSettingsQuery(`settings profile preset saved apply ${profile.label} ${settingsProfileSummary(profile.settings)}`),
+      run: () => applySavedSettingsProfile(profile.id)
     });
   }
   for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
@@ -4598,9 +4831,10 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 
 async function exportSettings() {
   const payload = JSON.stringify({
-    version: 2,
+    version: 3,
     settings: state.settings,
-    commandSnippets: state.customCommandSnippets
+    commandSnippets: state.customCommandSnippets,
+    settingsProfiles: state.savedSettingsProfiles
   }, null, 2);
   if (await writeClipboardText(payload)) {
     toast("Settings copied to clipboard.");
@@ -4644,6 +4878,19 @@ async function importSettings() {
         state.customCommandSnippets.push(snippet);
       }
       saveCustomCommandSnippets();
+    }
+    if (Array.isArray(parsed?.settingsProfiles)) {
+      state.savedSettingsProfiles = [];
+      const seenProfileIds = new Set();
+      for (const entry of parsed.settingsProfiles) {
+        if (state.savedSettingsProfiles.length >= savedSettingsProfilesLimit) break;
+        const profile = normalizeSavedSettingsProfile(entry);
+        if (!profile) continue;
+        if (seenProfileIds.has(profile.id)) profile.id = createSettingsProfileId();
+        seenProfileIds.add(profile.id);
+        state.savedSettingsProfiles.push(profile);
+      }
+      saveSavedSettingsProfiles();
     }
     saveSettings();
     applySettings();
