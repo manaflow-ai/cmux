@@ -180,6 +180,14 @@ _cmux_now() {
     if [[ -n "${EPOCHSECONDS:-}" ]]; then
         print -r -- "$EPOCHSECONDS"
     else
+        print -r -- "$SECONDS"
+    fi
+}
+
+_cmux_epoch_seconds() {
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        print -r -- "$EPOCHSECONDS"
+    else
         /bin/date +%s 2>/dev/null || print -r -- "$SECONDS"
     fi
 }
@@ -257,7 +265,7 @@ typeset -g _CMUX_LAST_PR_TARGET=""
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
-typeset -g _CMUX_SHELL_ACTIVITY_SEQ=${_CMUX_SHELL_ACTIVITY_SEQ:-$(( $(_cmux_now) * 1000000 ))}
+typeset -g _CMUX_SHELL_ACTIVITY_SEQ=${_CMUX_SHELL_ACTIVITY_SEQ:-$(( $(_cmux_epoch_seconds) * 1000000 ))}
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0

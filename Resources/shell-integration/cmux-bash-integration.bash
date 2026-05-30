@@ -206,6 +206,14 @@ _cmux_now() {
     if [[ -n "${EPOCHSECONDS:-}" ]]; then
         printf '%s\n' "$EPOCHSECONDS"
     else
+        printf '%s\n' "$SECONDS"
+    fi
+}
+
+_cmux_epoch_seconds() {
+    if [[ -n "${EPOCHSECONDS:-}" ]]; then
+        printf '%s\n' "$EPOCHSECONDS"
+    else
         /bin/date +%s 2>/dev/null || printf '%s\n' "$SECONDS"
     fi
 }
@@ -234,7 +242,7 @@ _CMUX_BASH_HISTORY_LAST_FILE="${_CMUX_BASH_HISTORY_LAST_FILE:-${TMPDIR:-/tmp}/cm
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
-_CMUX_SHELL_ACTIVITY_SEQ="${_CMUX_SHELL_ACTIVITY_SEQ:-$(( $(_cmux_now) * 1000000 ))}"
+_CMUX_SHELL_ACTIVITY_SEQ="${_CMUX_SHELL_ACTIVITY_SEQ:-$(( $(_cmux_epoch_seconds) * 1000000 ))}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
