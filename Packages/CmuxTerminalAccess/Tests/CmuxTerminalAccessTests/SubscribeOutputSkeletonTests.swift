@@ -100,7 +100,7 @@ import Testing
         #expect(cap.openCount(for: .ref(kind: "surface", ordinal: 999)) == 0)
     }
 
-    @Test func perSurfaceCapExhaustionThrowsRateLimited() async throws {
+    @Test func perSurfaceCapExhaustionThrowsTooManyStreams() async throws {
         let cap = StreamCap(maxPerSurface: 1)
         let (svc, _) = await makeService(cap: cap)
         let first = try await svc.subscribeOutput(
@@ -111,8 +111,11 @@ import Testing
                 StreamSubscriptionOptions(handle: handle(), mode: .cells)
             ) { _ in }
             Issue.record("expected second subscribe to be capped")
-        } catch let err as TerminalAccessError {
-            #expect(err == .rateLimited)
+        } catch let TerminalAccessError.unsupported(reason) {
+            // D7 + Task 2.23 — HTTP layer matches this exact reason
+            // string and maps to 503; package-level callers receive
+            // .unsupported with the reason intact.
+            #expect(reason == "too_many_streams")
         } catch {
             Issue.record("unexpected error \(error)")
         }

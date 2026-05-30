@@ -244,8 +244,11 @@ public final class DefaultTerminalAccessService: TerminalAccessService, @uncheck
         onEvent: @escaping @Sendable (OutputEvent) -> Void
     ) async throws -> OutputSubscription {
         guard let capToken = streamCap.acquire(surface: options.handle) else {
-            // D7 — per-surface cap exhausted; transports map to 503.
-            throw TerminalAccessError.rateLimited
+            // D7 / Task 2.23 — per-surface cap exhausted. The HTTP
+            // layer matches on this reason and maps to 503 Service
+            // Unavailable; the .unsupported case keeps the wire codes
+            // small while preserving a recognizable reason string.
+            throw TerminalAccessError.unsupported(reason: "too_many_streams")
         }
         let info: SurfaceInfo
         do {
