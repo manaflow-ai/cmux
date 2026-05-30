@@ -138,6 +138,25 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func topLevelReorderPinnedClampReportsNoMove() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let pinnedWorkspace = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(pinnedWorkspace, pinned: true)
+        let orderBefore = manager.tabs.map(\.id)
+
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: originalIds[1],
+            toIndex: 0,
+            isDragOperation: true,
+            usesTopLevelRows: true
+        )
+
+        #expect(!moved)
+        #expect(manager.tabs.map(\.id) == orderBefore)
+    }
+
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

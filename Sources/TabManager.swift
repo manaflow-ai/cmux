@@ -5693,7 +5693,7 @@ class TabManager: ObservableObject {
             targetIndex: targetIndex,
             topLevelIds: topLevelIds
         )
-        guard fromIndex != clampedTarget else { return true }
+        guard fromIndex != clampedTarget else { return false }
 
         var desiredTopLevelIds = topLevelIds
         let movedId = desiredTopLevelIds.remove(at: fromIndex)
@@ -6475,16 +6475,6 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    private func moveWorkspaceGroupSlotToTierStart(groupId: UUID) -> Bool {
-        guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return false }
-        let isPinnedTier = workspaceGroups[currentIndex].isPinned
-        guard let tierFirstIndex = workspaceGroups.firstIndex(where: { $0.isPinned == isPinnedTier }) else {
-            return false
-        }
-        return moveWorkspaceGroupSlot(groupId: groupId, toIndex: tierFirstIndex)
-    }
-
-    @discardableResult
     private func moveWorkspaceGroupSlot(groupId: UUID, toIndex targetIndex: Int) -> Bool {
         guard let currentIndex = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return false }
         let isPinned = workspaceGroups[currentIndex].isPinned
@@ -6508,11 +6498,33 @@ class TabManager: ObservableObject {
     private func applyWorkspaceGroupSlotOrderToTabs() {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let topLevelIds = sidebarTopLevelWorkspaceIds()
-        let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
-        let tieredTopLevelIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
-            + topLevelIds.filter { !pinnedTopLevelIds.contains($0) }
-        let pinnedAnchors = workspaceGroups.filter(\.isPinned).map(\.anchorWorkspaceId)
-        let unpinnedAnchors = workspaceGroups.filter { !$0.isPinned }.map(\.anchorWorkspaceId)
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+
+        var pinnedTopLevelIds: [UUID] = []
+        var unpinnedTopLevelIds: [UUID] = []
+        pinnedTopLevelIds.reserveCapacity(topLevelIds.count)
+        unpinnedTopLevelIds.reserveCapacity(topLevelIds.count)
+        for id in topLevelIds {
+            let isPinned = groupsByAnchorId[id]?.isPinned ?? (tabsById[id]?.isPinned == true)
+            if isPinned {
+                pinnedTopLevelIds.append(id)
+            } else {
+                unpinnedTopLevelIds.append(id)
+            }
+        }
+        let tieredTopLevelIds = pinnedTopLevelIds + unpinnedTopLevelIds
+
+        var pinnedAnchors: [UUID] = []
+        var unpinnedAnchors: [UUID] = []
+        pinnedAnchors.reserveCapacity(workspaceGroups.count)
+        unpinnedAnchors.reserveCapacity(workspaceGroups.count)
+        for group in workspaceGroups {
+            if group.isPinned {
+                pinnedAnchors.append(group.anchorWorkspaceId)
+            } else {
+                unpinnedAnchors.append(group.anchorWorkspaceId)
+            }
+        }
         var pinnedAnchorIndex = 0
         var unpinnedAnchorIndex = 0
         let desiredIds = tieredTopLevelIds.map { id -> UUID in
