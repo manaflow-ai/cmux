@@ -9702,7 +9702,6 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
     @Published var layoutMode: WorkspaceLayoutMode = .bonsplit
     @Published var paperLayoutState: PaperLayoutState?
-    private var isRunningBonsplitLifecycleForPaperSplit = false
 
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
@@ -9744,7 +9743,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
         if layoutMode == .paper,
-           !isRunningBonsplitLifecycleForPaperSplit,
            let tabId = paperLayoutState?.focusedPane?.selectedTabId {
             return panelIdFromSurfaceId(TabID(uuid: tabId))
         }
@@ -10015,7 +10013,6 @@ final class Workspace: Identifiable, ObservableObject {
             PaperPoint(x: max(0, $0.frame.minX), y: max(0, $0.frame.minY))
         } ?? tentativeOrigin
         paperState.viewportOrigin = newOrigin
-        objectWillChange.send()
         paperLayoutState = paperState
 
         cmuxDebugLog(
@@ -13516,12 +13513,6 @@ final class Workspace: Identifiable, ObservableObject {
             guard let sourcePane = paperState.pane(containingTabId: sourceTabId.uuid) else { return nil }
             paperLayoutState = paperState
             paperSplitSourcePane = sourcePane
-            isRunningBonsplitLifecycleForPaperSplit = true
-        }
-        defer {
-            if shouldMirrorPaperSplit {
-                isRunningBonsplitLifecycleForPaperSplit = false
-            }
         }
 
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
@@ -13615,11 +13606,11 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
-        let previousFocusedPanelId = focusedPanelId
+        let previousFocusedPanelId = shouldMirrorPaperSplit ? panelId : focusedPanelId
 
         // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
         // so we can hand it to focusPanel as the "move focus FROM" view.
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = terminalPanel(for: panelId)?.hostedView ?? focusedTerminalPanel?.hostedView
 
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
@@ -13684,7 +13675,12 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView,
                 reason: "workspace.terminalSplitReparent"
             )
-            focusPanel(newPanel.id, previousHostedView: previousHostedView)
+            focusPanel(
+                newPanel.id,
+                previousHostedView: previousHostedView,
+                forceBonsplitFocusPath: shouldMirrorPaperSplit,
+                currentlyFocusedPanelIdOverride: previousFocusedPanelId
+            )
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -15251,7 +15247,9 @@ final class Workspace: Identifiable, ObservableObject {
         _ panelId: UUID,
         previousHostedView: GhosttySurfaceScrollView? = nil,
         trigger: FocusPanelTrigger = .standard,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        forceBonsplitFocusPath: Bool = false,
+        currentlyFocusedPanelIdOverride: UUID? = nil
     ) {
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
@@ -15263,7 +15261,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-        if layoutMode == .paper, !isRunningBonsplitLifecycleForPaperSplit {
+        if layoutMode == .paper, !forceBonsplitFocusPath {
             let previouslyFocusedPanelId = focusedPanelId
             focusPaperPanel(tabId: tabId, panelId: panelId)
             if previouslyFocusedPanelId != panelId {
@@ -15278,7 +15276,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return
         }
-        let currentlyFocusedPanelId = focusedPanelId
+        let currentlyFocusedPanelId = currentlyFocusedPanelIdOverride ?? focusedPanelId
 
         // Capture the currently focused terminal view so we can explicitly move AppKit first
         // responder when focusing another terminal (helps avoid "highlighted but typing goes to
