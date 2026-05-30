@@ -1059,7 +1059,6 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
-    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey) private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
@@ -1581,23 +1580,10 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        Self.effectiveMinimumSidebarWidth(
-            configuredMinimum: CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting)),
-            titlebarControlsMinimum: TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: titlebarControlsConfig),
-            selectedExtensionSidebarProviderId: selectedExtensionSidebarProviderId
+        max(
+            CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting)),
+            TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: titlebarControlsConfig)
         )
-    }
-
-    static func effectiveMinimumSidebarWidth(
-        configuredMinimum: CGFloat,
-        titlebarControlsMinimum: CGFloat,
-        selectedExtensionSidebarProviderId: String
-    ) -> CGFloat {
-        var minimumWidth = max(configuredMinimum, titlebarControlsMinimum)
-        if selectedExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
-            minimumWidth = max(minimumWidth, CMUXInstalledExtensionSidebarHostView.minimumSidebarWidth)
-        }
-        return minimumWidth
     }
 
     private enum SidebarResizerHandle: Hashable {

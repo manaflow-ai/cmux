@@ -454,6 +454,7 @@ enum TitlebarControlsLayoutMetrics {
     static let hintTrailingBaseInset: CGFloat = 4
     static let extraButtonCount = 0
     static let trafficLightGap: CGFloat = 8
+    static let trafficLightClusterWidth: CGFloat = 58
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -512,8 +513,10 @@ enum TitlebarControlsLayoutMetrics {
 
     static func minimumSidebarWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
         MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
-            + contentSize(config: config).width
+            + trafficLightClusterWidth
             + trafficLightGap
+            + contentSize(config: config).width
+            + sidebarTrailingPadding
     }
 
     static func yOffset(
@@ -2017,7 +2020,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         guard contentSize.width > 0, contentSize.height > 0 else { return }
         let closeButton = view.window?.standardWindowButton(.closeButton)
         let titlebarView = closeButton?.superview
-        let trafficLightFrame = closeButton?.frame
+        let trafficLightFrame = closeButton.map { button in
+            view.convert(button.convert(button.bounds, to: nil), from: nil)
+        }
 #if DEBUG
         TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: view.window)
 #endif
