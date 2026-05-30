@@ -437,6 +437,7 @@ enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
     static let hintRightSafetyShift: CGFloat = 10
     static let hintTrailingBaseInset: CGFloat = 8
+    static let trafficLightGap: CGFloat = 2
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -469,6 +470,19 @@ enum TitlebarControlsLayoutMetrics {
 
     static func containerHeight(contentHeight: CGFloat, titlebarHeight: CGFloat) -> CGFloat {
         max(contentHeight, titlebarHeight)
+    }
+
+    static func leadingOffset(
+        trafficLightFrame: NSRect?,
+        debugSnapshot: MinimalModeTitlebarDebugSnapshot
+    ) -> CGFloat {
+        let debugOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+            leadingInset: debugSnapshot.leftControlsLeadingInset
+        )
+        guard let trafficLightFrame, !trafficLightFrame.isEmpty else {
+            return debugOffset
+        }
+        return max(debugOffset, trafficLightFrame.maxX + trafficLightGap)
     }
 
     static func yOffset(
@@ -1971,7 +1985,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         guard contentSize.width > 0, contentSize.height > 0 else { return }
         let closeButton = view.window?.standardWindowButton(.closeButton)
         let titlebarView = closeButton?.superview
-        let trafficLightFrame = closeButton?.frame
+        let trafficLightFrame = closeButton.map { button in
+            view.convert(button.convert(button.bounds, to: nil), from: nil)
+        }
 #if DEBUG
         TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: view.window)
 #endif
@@ -1985,8 +2001,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             titlebarHeight: titlebarHeight
         )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
-            leadingInset: debugSnapshot.leftControlsLeadingInset
+        let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
+            trafficLightFrame: trafficLightFrame,
+            debugSnapshot: debugSnapshot
         )
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: contentSize.height,

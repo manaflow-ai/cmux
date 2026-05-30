@@ -227,6 +227,43 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 
+    func testTitlebarControlsLeadingOffsetSticksToTrafficLights() {
+        let snapshot = MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
+        let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
+
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.leadingOffset(
+                trafficLightFrame: trafficLightFrame,
+                debugSnapshot: snapshot
+            ),
+            trafficLightFrame.maxX + TitlebarControlsLayoutMetrics.trafficLightGap,
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarControlsLeadingOffsetDoesNotFollowSidebarTrailingEdge() {
+        let snapshot = MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: 150,
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
+
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.leadingOffset(
+                trafficLightFrame: NSRect(x: 18, y: 7, width: 14, height: 14),
+                debugSnapshot: snapshot
+            ),
+            78,
+            accuracy: 0.001
+        )
+    }
+
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
