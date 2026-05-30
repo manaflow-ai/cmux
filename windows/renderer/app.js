@@ -1568,12 +1568,13 @@ function render(previousState) {
   elements.workspaceSubheading.textContent = workspace
     ? `${workspace.cwdShort || "no directory"}`
     : "Ready";
-  elements.statusSummary.textContent = operationLabel || (workspace
-    ? `${workspace.title} · ${zoomedPanel ? "focus" : panelCount ? `${panelCount} panel${panelCount === 1 ? "" : "s"}` : "home"} · ${attentionCount} attention`
-    : "cmux Windows");
+  elements.statusSummary.textContent = operationLabel || defaultStatusSummary(workspace, {
+    attentionCount,
+    panelCount,
+    zoomedPanel
+  });
   elements.statusSummary.classList.toggle("is-busy", Boolean(operationLabel));
-  elements.statusPipe.textContent = state.data.pipeName || "pipe unavailable";
-  elements.statusPty.textContent = state.data.ptyAvailable ? "ConPTY ready" : "process pipe fallback";
+  updateRuntimeStatusLabels();
 
   elements.shell.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
   elements.shell.classList.toggle("inspector-open", Boolean(state.inspectorMode));
@@ -1638,12 +1639,27 @@ function isUiOperationActive(key) {
   return state.uiOperations.has(key);
 }
 
-function defaultStatusSummary(workspace = activeWorkspace()) {
+function defaultStatusSummary(workspace = activeWorkspace(), options = {}) {
   if (!workspace) return "cmux Windows";
-  const panelCount = workspace.panels.length;
-  const attentionCount = allAttentionPanels().length;
-  const zoomedPanel = zoomedPanelForWorkspace(workspace);
-  return `${workspace.title} · ${zoomedPanel ? "focus" : panelCount ? `${panelCount} panel${panelCount === 1 ? "" : "s"}` : "home"} · ${attentionCount} attention`;
+  const panelCount = options.panelCount ?? workspace.panels.length;
+  const attentionCount = options.attentionCount ?? allAttentionPanels().length;
+  const zoomedPanel = options.zoomedPanel ?? zoomedPanelForWorkspace(workspace);
+  const parts = [
+    workspace.title || "Workspace",
+    zoomedPanel ? "focus" : panelCount ? `${panelCount} pane${panelCount === 1 ? "" : "s"}` : "home"
+  ];
+  if (attentionCount > 0) parts.push(`${attentionCount} attention`);
+  return parts.join(" · ");
+}
+
+function updateRuntimeStatusLabels() {
+  const pipeName = state.data?.pipeName || "";
+  elements.statusPipe.textContent = pipeName ? "pipe" : "pipe unavailable";
+  elements.statusPipe.title = pipeName || "Control pipe unavailable";
+  elements.statusPty.textContent = state.data?.ptyAvailable ? "ConPTY" : "fallback";
+  elements.statusPty.title = state.data?.ptyAvailable
+    ? "ConPTY terminal backend ready"
+    : "Process pipe fallback terminal backend";
 }
 
 function updateOperationChrome() {
