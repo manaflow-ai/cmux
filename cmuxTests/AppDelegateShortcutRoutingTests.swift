@@ -2060,20 +2060,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testCmdWTargetsFocusedWindowWhenEventWindowMetadataIsStale() {
-        assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
-            actionName: "Cmd+W",
-            modifiers: [.command],
-            expectedAction: .closeTab
-        )
-    }
-
-    func testCmdShiftWTargetsFocusedWindowWhenEventWindowMetadataIsStale() {
-        assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
-            actionName: "Cmd+Shift+W",
-            modifiers: [.command, .shift],
-            expectedAction: .closeWorkspace
-        )
+    func testCloseShortcutsTargetFocusedWindowWhenEventWindowMetadataIsStale() {
+        assertCloseShortcutsTargetFocusedWindowWhenEventWindowMetadataIsStale([
+            (actionName: "Cmd+W", modifiers: [.command], expectedAction: .closeTab),
+            (actionName: "Cmd+Shift+W", modifiers: [.command, .shift], expectedAction: .closeWorkspace),
+        ])
     }
 
     func testRemappedCloseTabDoesNotLetCmdWReachGhosttyCloseSurfaceFallback() throws {
@@ -9245,10 +9236,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 
-    private func assertCloseShortcutTargetsFocusedWindowWhenEventWindowMetadataIsStale(
-        actionName: String,
-        modifiers: NSEvent.ModifierFlags,
-        expectedAction: KeyboardShortcutSettings.Action,
+    private func assertCloseShortcutsTargetFocusedWindowWhenEventWindowMetadataIsStale(
+        _ shortcuts: [
+            (
+                actionName: String,
+                modifiers: NSEvent.ModifierFlags,
+                expectedAction: KeyboardShortcutSettings.Action
+            )
+        ],
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -9257,9 +9252,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        guard expectedAction == .closeTab || expectedAction == .closeWorkspace else {
-            XCTFail("Unexpected close shortcut action \(expectedAction)", file: file, line: line)
-            return
+        for shortcut in shortcuts {
+            guard shortcut.expectedAction == .closeTab || shortcut.expectedAction == .closeWorkspace else {
+                XCTFail("Unexpected close shortcut action \(shortcut.expectedAction)", file: file, line: line)
+                return
+            }
         }
 
 #if DEBUG
@@ -9284,7 +9281,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             waitForCondition(timeout: 1.0) {
                 focusedWindow.isVisible && NSApp.keyWindow === focusedWindow
             },
-            "Expected focused test window to become key before \(actionName)",
+            "Expected focused test window to become key before close shortcut routing assertions",
             file: file,
             line: line
         )
@@ -9293,35 +9290,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // but the key event still carries the original window number.
         appDelegate.tabManager = originalManager
 
-        guard let event = makeKeyDownEvent(
-            key: "w",
-            modifiers: modifiers,
-            keyCode: 13,
-            windowNumber: originalWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct \(actionName) event", file: file, line: line)
-            return
+        for shortcut in shortcuts {
+            guard let event = makeKeyDownEvent(
+                key: "w",
+                modifiers: shortcut.modifiers,
+                keyCode: 13,
+                windowNumber: originalWindow.windowNumber
+            ) else {
+                XCTFail("Failed to construct \(shortcut.actionName) event", file: file, line: line)
+                return
+            }
+
+            XCTAssertTrue(
+                KeyboardShortcutSettings.shortcut(for: shortcut.expectedAction).matches(event: event),
+                "\(shortcut.actionName) should match \(shortcut.expectedAction)",
+                file: file,
+                line: line
+            )
+
+            XCTAssertTrue(
+                appDelegate.debugMainWindowForFocusedCloseShortcut(event: event) === focusedWindow,
+                "\(shortcut.actionName) should resolve the focused window before stale event-window metadata",
+                file: file,
+                line: line
+            )
+            XCTAssertTrue(
+                appDelegate.debugTabManagerForFocusedCloseShortcut(event: event) === focusedManager,
+                "\(shortcut.actionName) should route through the focused window's tab manager",
+                file: file,
+                line: line
+            )
         }
-
-        XCTAssertTrue(
-            KeyboardShortcutSettings.shortcut(for: expectedAction).matches(event: event),
-            "\(actionName) should match \(expectedAction)",
-            file: file,
-            line: line
-        )
-
-        XCTAssertTrue(
-            appDelegate.debugMainWindowForFocusedCloseShortcut(event: event) === focusedWindow,
-            "\(actionName) should resolve the focused window before stale event-window metadata",
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(
-            appDelegate.debugTabManagerForFocusedCloseShortcut(event: event) === focusedManager,
-            "\(actionName) should route through the focused window's tab manager",
-            file: file,
-            line: line
-        )
 #else
         XCTFail("focused close shortcut debug routing hooks are only available in DEBUG", file: file, line: line)
 #endif
