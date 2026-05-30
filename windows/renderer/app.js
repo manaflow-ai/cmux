@@ -1966,6 +1966,7 @@ const commands = [
   { id: "layout.activePercent", label: "Set Active Pane Size", shortcut: "", run: () => promptActivePaneLayoutPercent() },
   { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
   { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
+  { id: "terminal.fontReset", label: "Reset Terminal Text Size", shortcut: "Ctrl+0", run: () => resetTerminalFontSize() },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
@@ -7120,6 +7121,7 @@ function showPanelContextMenu(event, panel) {
     contextMenuButton("Copy selection", () => copyActiveTerminalSelection(panel), !isTerminal),
     contextMenuButton("Paste", () => pasteClipboardToTerminal(panel), !isTerminal),
     contextMenuButton("Clear terminal", () => clearTerminalPanel(panel), !isTerminal),
+    contextMenuButton("Reset text size", () => resetPaneTerminalFontSize(panel.id), !isTerminal || !panelHasTerminalFontSize(panel)),
     contextMenuButton("Restart terminal", () => restartPanel(panel.id), !isTerminal),
     contextMenuButton("Terminal settings", () => openSettingsCategory("terminal"), !isTerminal),
     contextMenuButton(isPanelZoomed(panel, found.workspace) ? "Show all panes" : "Focus pane", () => togglePaneZoom(panel.id)),
@@ -8891,7 +8893,8 @@ async function promptActivePaneLayoutPercent() {
 function queueTerminalFontSizeSync(panelId, fontSize) {
   const found = findPanelState(panelId);
   if (!found || found.panel.type !== "terminal") return false;
-  state.pendingTerminalFontSizeSync.set(panelId, normalizeTerminalFontSize(fontSize, state.settings.terminalFontSize));
+  const size = Number(fontSize);
+  state.pendingTerminalFontSizeSync.set(panelId, Number.isFinite(size) && size <= 0 ? 0 : normalizeTerminalFontSize(fontSize, state.settings.terminalFontSize));
   if (state.terminalFontSizeSyncTimer) clearTimeout(state.terminalFontSizeSyncTimer);
   state.terminalFontSizeSyncTimer = setTimeout(flushTerminalFontSizeSync, 220);
   return true;
@@ -8938,6 +8941,33 @@ function changePaneTerminalFontSize(panelId, delta) {
   if (!found || found.panel.type !== "terminal") return false;
   focusPanel(panelId);
   return changeTerminalFontSize(delta, { panel: found.panel });
+}
+
+function resetTerminalFontSize(options = {}) {
+  const panel = resolveTerminalPanel(options.panel || panelFromElement(options.event?.target) || focusedPanel());
+  if (!panel) return false;
+  if (!panelHasTerminalFontSize(panel)) {
+    if (options.toast !== false) toast(`Pane text already uses ${state.settings.terminalFontSize}px default.`);
+    return false;
+  }
+  panel.terminalFontSize = 0;
+  const nextSize = terminalFontSizeForPanel(panel);
+  const session = state.terminals.get(panel.id);
+  if (session) {
+    session.fontSize = nextSize;
+    session.term.options.fontSize = nextSize;
+    scheduleFitTerminal(session, true);
+  }
+  queueTerminalFontSizeSync(panel.id, 0);
+  if (options.toast !== false) toast(`Pane text reset to ${nextSize}px.`);
+  return true;
+}
+
+function resetPaneTerminalFontSize(panelId) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "terminal") return false;
+  focusPanel(panelId);
+  return resetTerminalFontSize({ panel: found.panel });
 }
 
 async function writeClipboardText(text) {
@@ -9408,6 +9438,9 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && event.key === "-") {
     consumeGlobalShortcut(event);
     changeTerminalFontSize(-1, { event });
+  } else if (event.ctrlKey && event.key === "0") {
+    consumeGlobalShortcut(event);
+    resetTerminalFontSize({ event });
   } else if (event.ctrlKey && event.shiftKey && key === "r") {
     consumeGlobalShortcut(event);
     restartActiveTerminal();
