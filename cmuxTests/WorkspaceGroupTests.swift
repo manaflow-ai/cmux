@@ -241,7 +241,7 @@ struct WorkspaceGroupTests {
 
         manager.moveTabToTop(originalIds[1])
 
-        #expect(manager.tabs.map(\.id).prefix(3) == [
+        #expect(Array(manager.tabs.map(\.id).prefix(3)) == [
             pinnedGroup.anchorWorkspaceId,
             originalIds[2],
             unpinnedGroup.anchorWorkspaceId,
@@ -261,7 +261,7 @@ struct WorkspaceGroupTests {
 
         manager.moveTabToTopForNotification(originalIds[2])
 
-        #expect(manager.tabs.map(\.id).prefix(4) == [
+        #expect(Array(manager.tabs.map(\.id).prefix(4)) == [
             secondGroup.anchorWorkspaceId,
             originalIds[2],
             firstGroup.anchorWorkspaceId,
