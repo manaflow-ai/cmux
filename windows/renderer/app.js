@@ -182,6 +182,8 @@ const state = {
   newTabButton: null,
   paletteOpen: false,
   paletteIndex: 0,
+  paletteRenderFrame: 0,
+  paletteRenderTimer: 0,
   dragPanelId: null,
   zoomedPanelId: null,
   contextMenu: null,
@@ -5357,6 +5359,28 @@ function movePanelRight(workspace, index) {
   }
 }
 
+function schedulePaletteRender() {
+  if (state.paletteRenderFrame || state.paletteRenderTimer) return;
+  const run = () => {
+    if (state.paletteRenderFrame) cancelAnimationFrame(state.paletteRenderFrame);
+    if (state.paletteRenderTimer) clearTimeout(state.paletteRenderTimer);
+    state.paletteRenderFrame = 0;
+    state.paletteRenderTimer = 0;
+    renderPalette();
+  };
+  state.paletteRenderFrame = requestAnimationFrame(run);
+  state.paletteRenderTimer = setTimeout(run, 50);
+}
+
+function flushPaletteRender() {
+  if (!state.paletteRenderFrame && !state.paletteRenderTimer) return;
+  if (state.paletteRenderFrame) cancelAnimationFrame(state.paletteRenderFrame);
+  if (state.paletteRenderTimer) clearTimeout(state.paletteRenderTimer);
+  state.paletteRenderFrame = 0;
+  state.paletteRenderTimer = 0;
+  renderPalette();
+}
+
 function renderPalette() {
   elements.palette.classList.toggle("is-open", state.paletteOpen);
   elements.palette.setAttribute("aria-hidden", String(!state.paletteOpen));
@@ -6697,19 +6721,22 @@ document.getElementById("closeWindowButton").onclick = () => window.cmuxNative?.
 
 elements.paletteInput.addEventListener("input", () => {
   state.paletteIndex = 0;
-  renderPalette();
+  schedulePaletteRender();
 });
 elements.paletteInput.addEventListener("keydown", (event) => {
   if (event.key === "ArrowDown") {
     event.preventDefault();
+    flushPaletteRender();
     movePaletteSelection(1);
   }
   if (event.key === "ArrowUp") {
     event.preventDefault();
+    flushPaletteRender();
     movePaletteSelection(-1);
   }
   if (event.key === "Enter") {
     event.preventDefault();
+    flushPaletteRender();
     elements.paletteList.children[state.paletteIndex]?.click();
   }
   if (event.key === "Escape") {
