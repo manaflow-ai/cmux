@@ -45,7 +45,7 @@
     "taglinePrefix": "La terminal diseñada para ",
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarea",
-    "subtitle": "App nativa de macOS basada en Ghostty. Pestañas verticales, anillos de notificación cuando los agentes necesitan atención, paneles divididos y una API de socket para automatización.",
+    "subtitle": "App nativa de macOS basada en Ghostty. Pestañas verticales, anillos de notificación cuando los agentes necesitan atención, paneles divididos y una <cliLink>CLI</cliLink> para programabilidad.",
     "features": "Características",
     "faq": "FAQ",
     "communitySection": "Comunidad",
@@ -673,7 +673,7 @@
       "metaTitle": "Atajos de teclado"
     },
     "api": {
-      "title": "Referencia de API",
+      "title": "Referencia de CLI",
       "metaDescription": "Referencia de la CLI y API de socket Unix de cmux. Gestión de workspaces, paneles divididos, control de entrada, notificaciones, metadatos de barra lateral, variables de entorno y métodos de detección.",
       "intro": "cmux proporciona tanto una herramienta CLI como un socket Unix para control programático. Cada comando está disponible a través de ambas interfaces.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Cliente Python",
       "shellScript": "Script de shell",
       "buildScriptNotification": "Script de compilación con notificación",
-      "metaTitle": "Referencia API"
+      "metaTitle": "Referencia de CLI"
     },
     "notifications": {
       "title": "Notificaciones",
@@ -895,7 +895,7 @@
       "authoringCallout": "Al agregar una habilidad nueva, incluye <code>agents/openai.yaml</code> para que el instalador exponga un nombre claro, una descripción breve y un prompt predeterminado.",
       "relatedTitle": "Documentación relacionada",
       "relatedBrowserAutomation": "Automatización del navegador",
-      "relatedApi": "Referencia de API",
+      "relatedApi": "Referencia de CLI",
       "relatedCustomCommands": "Comandos personalizados"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Restauración de sesión",
       "customCommands": "Comandos personalizados",
       "keyboardShortcuts": "Atajos de teclado",
-      "apiReference": "Referencia de API",
+      "apiReference": "Referencia de CLI",
       "browserAutomation": "Automatización del navegador",
       "skills": "Habilidades",
       "notifications": "Notificaciones",

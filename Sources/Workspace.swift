@@ -532,6 +532,7 @@ extension Workspace {
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -601,6 +602,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
@@ -612,6 +614,7 @@ extension Workspace {
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                isMuted: browserPanel.isMuted,
                 omnibarVisible: browserPanel.isOmnibarVisible,
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
@@ -619,6 +622,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -626,6 +630,7 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
             terminalSnapshot = nil
@@ -633,6 +638,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
             terminalSnapshot = nil
@@ -640,6 +646,21 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
+            projectSnapshot = nil
+        case .project:
+            guard let projectPanel = panel as? ProjectPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            projectSnapshot = SessionProjectPanelSnapshot(
+                projectPath: projectPanel.projectURL.path,
+                selectedNodePath: projectPanel.selectedFilePath,
+                activeTab: projectPanel.activeTab.rawValue,
+                selectedSchemeName: projectPanel.selectedSchemeName,
+                selectedConfigurationName: projectPanel.selectedConfigurationName
+            )
         }
 
         return SessionPanelSnapshot(
@@ -660,7 +681,8 @@ extension Workspace {
             browser: browserSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
-            rightSidebarTool: rightSidebarToolSnapshot
+            rightSidebarTool: rightSidebarToolSnapshot,
+            project: projectSnapshot
         )
     }
 
@@ -1754,6 +1776,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
+        case .project:
+            guard let projectPath = snapshot.project?.projectPath,
+                  let projectPanel = newProjectSurface(
+                    inPane: paneId,
+                    projectPath: projectPath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
+            return projectPanel.id
         }
     }
 
@@ -2025,6 +2058,17 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+
+        case .project:
+            if let panel = newProjectSurface(
+                inPane: paneId,
+                projectPath: surface.url ?? surface.cwd ?? "",
+                focus: false
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
     }
 
@@ -2055,6 +2099,16 @@ extension Workspace {
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
+            ) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+
+        case .project:
+            if let panel = newProjectSurface(
+                inPane: paneId,
+                projectPath: surface.url ?? surface.cwd ?? "",
+                focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -10119,6 +10173,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let markdown = "markdown"
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
+        static let project = "project"
     }
 
     enum PanelShellActivityState: String {
@@ -10872,15 +10927,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let subscription = Publishers.CombineLatest4(
+        let browserChromeState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
+        let subscription = Publishers.CombineLatest(
+            browserChromeState,
+            browserPanel.$isMuted.removeDuplicates()
+        )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
+        .sink { [weak self, weak browserPanel] browserChromeState, isMuted in
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+            let (_, _, isLoading, favicon) = browserChromeState
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
@@ -10891,13 +10951,15 @@ final class Workspace: Identifiable, ObservableObject {
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
             let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
-            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil else { return }
+            let muteUpdate: Bool? = existing.isAudioMuted == isMuted ? nil : isMuted
+            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || muteUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
                 iconImageData: faviconUpdate,
                 hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
-                isLoading: loadingUpdate
+                isLoading: loadingUpdate,
+                isAudioMuted: muteUpdate
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
@@ -11052,6 +11114,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.filePreview
         case .rightSidebarTool:
             return SurfaceKind.rightSidebarTool
+        case .project:
+            return SurfaceKind.project
         }
     }
 
@@ -13932,6 +13996,58 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func newProjectSurface(
+        inPane paneId: PaneID,
+        projectPath: String,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> ProjectPanel? {
+        guard !projectPath.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let projectPanel = ProjectPanel(projectURL: url)
+        panels[projectPanel.id] = projectPanel
+        panelTitles[projectPanel.id] = projectPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: projectPanel.displayTitle,
+            icon: projectPanel.displayIcon,
+            kind: SurfaceKind.project,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: projectPanel.id)
+            panelTitles.removeValue(forKey: projectPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = projectPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(projectPanel.id, paneId: paneId, kind: SurfaceKind.project, origin: "project_tab", focused: shouldFocusNewTab)
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: projectPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        projectPanel.reload()
+        return projectPanel
+    }
+
+    @discardableResult
     func openOrFocusMarkdownSurface(
         inPane paneId: PaneID,
         filePath: String,
@@ -16279,6 +16395,7 @@ final class Workspace: Identifiable, ObservableObject {
             omnibarVisible: browser.isOmnibarVisible,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
         ) else { return nil }
+        newPanel.setMuted(browser.isMuted)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
         return newPanel
     }
@@ -17214,7 +17331,7 @@ extension Workspace: BonsplitDelegate {
         switch intent {
         case .browser(.addressBar), .browser(.findField), .terminal(.findField), .terminal(.textBoxInput):
             return true
-        case .panel, .browser(.webView), .terminal(.surface), .filePreview:
+        case .panel, .browser(.webView), .terminal(.surface), .filePreview, .project:
             return false
         }
     }
@@ -18064,6 +18181,16 @@ extension Workspace: BonsplitDelegate {
         case .duplicate:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = duplicateBrowserToRight(panelId: panelId)
+        case .toggleAudioMute:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let browser = browserPanel(for: panelId) else { return }
+#if DEBUG
+            cmuxDebugLog(
+                "browser.audioMute.toggle.contextMenu panel=\(panelId.uuidString.prefix(5)) " +
+                "targetMuted=\(!browser.isMuted ? 1 : 0)"
+            )
+#endif
+            browser.toggleMute()
         case .togglePin:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)

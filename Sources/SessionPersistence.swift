@@ -1496,9 +1496,57 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var isMuted: Bool
     var omnibarVisible: Bool? = nil
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+
+    init(
+        urlString: String?,
+        profileID: UUID?,
+        shouldRenderWebView: Bool,
+        pageZoom: Double,
+        developerToolsVisible: Bool,
+        isMuted: Bool = false,
+        omnibarVisible: Bool? = nil,
+        backHistoryURLStrings: [String]?,
+        forwardHistoryURLStrings: [String]?
+    ) {
+        self.urlString = urlString
+        self.profileID = profileID
+        self.shouldRenderWebView = shouldRenderWebView
+        self.pageZoom = pageZoom
+        self.developerToolsVisible = developerToolsVisible
+        self.isMuted = isMuted
+        self.omnibarVisible = omnibarVisible
+        self.backHistoryURLStrings = backHistoryURLStrings
+        self.forwardHistoryURLStrings = forwardHistoryURLStrings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case urlString
+        case profileID
+        case shouldRenderWebView
+        case pageZoom
+        case developerToolsVisible
+        case isMuted
+        case omnibarVisible
+        case backHistoryURLStrings
+        case forwardHistoryURLStrings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
+        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
+        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
+        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
+        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+    }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
@@ -1523,6 +1571,28 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let raw = try container.decodeIfPresent(String.self, forKey: .mode)
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+    }
+}
+
+struct SessionProjectPanelSnapshot: Codable, Sendable {
+    var projectPath: String
+    var selectedNodePath: String?
+    var activeTab: String?
+    var selectedSchemeName: String?
+    var selectedConfigurationName: String?
+
+    init(
+        projectPath: String,
+        selectedNodePath: String? = nil,
+        activeTab: String? = nil,
+        selectedSchemeName: String? = nil,
+        selectedConfigurationName: String? = nil
+    ) {
+        self.projectPath = projectPath
+        self.selectedNodePath = selectedNodePath
+        self.activeTab = activeTab
+        self.selectedSchemeName = selectedSchemeName
+        self.selectedConfigurationName = selectedConfigurationName
     }
 }
 
@@ -1605,6 +1675,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var project: SessionProjectPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

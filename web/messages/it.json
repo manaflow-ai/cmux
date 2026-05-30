@@ -45,7 +45,7 @@
     "taglinePrefix": "Il terminale progettato per ",
     "typingCodingAgents": "agenti di codice",
     "typingMultitasking": "multitasking",
-    "subtitle": "App macOS nativa basata su Ghostty. Tab verticali, notifiche quando gli agenti hanno bisogno di attenzione, pannelli divisi e un'API socket per l'automazione.",
+    "subtitle": "App macOS nativa basata su Ghostty. Tab verticali, notifiche quando gli agenti hanno bisogno di attenzione, pannelli divisi e una <cliLink>CLI</cliLink> per la programmabilità.",
     "features": "Funzionalità",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -673,7 +673,7 @@
       "metaTitle": "Scorciatoie da tastiera"
     },
     "api": {
-      "title": "Riferimento API",
+      "title": "Riferimento CLI",
       "metaDescription": "Riferimento API CLI e socket Unix di cmux. Gestione workspace, pannelli divisi, controllo input, notifiche, metadati della barra laterale, variabili d'ambiente e metodi di rilevamento.",
       "intro": "cmux fornisce sia uno strumento CLI che un socket Unix per il controllo programmatico. Ogni comando è disponibile tramite entrambe le interfacce.",
       "socket": "Socket",
@@ -752,7 +752,7 @@
       "pythonClient": "Client Python",
       "shellScript": "Script shell",
       "buildScriptNotification": "Script di build con notifica",
-      "metaTitle": "Riferimento API"
+      "metaTitle": "Riferimento CLI"
     },
     "notifications": {
       "title": "Notifiche",
@@ -895,7 +895,7 @@
       "authoringCallout": "Quando aggiungi una nuova competenza, includi <code>agents/openai.yaml</code> così l’installer espone un nome chiaro, una descrizione breve e un prompt predefinito.",
       "relatedTitle": "Documentazione correlata",
       "relatedBrowserAutomation": "Automazione del browser",
-      "relatedApi": "Riferimento API",
+      "relatedApi": "Riferimento CLI",
       "relatedCustomCommands": "Comandi personalizzati"
     },
     "changelog": {
@@ -910,7 +910,7 @@
       "sessionRestore": "Ripristino sessione",
       "customCommands": "Comandi personalizzati",
       "keyboardShortcuts": "Scorciatoie da tastiera",
-      "apiReference": "Riferimento API",
+      "apiReference": "Riferimento CLI",
       "browserAutomation": "Automazione del browser",
       "skills": "Competenze",
       "notifications": "Notifiche",
