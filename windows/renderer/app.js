@@ -2137,11 +2137,11 @@ function clearZoomedPanelForWorkspace(workspace = activeWorkspace()) {
   setZoomedPanelIdForWorkspace(workspace, null);
 }
 
-function syncZoomedPanelToFocus(workspace, panelId) {
-  if (!workspace || !workspaceHasPanelId(workspace, panelId) || state.minimizedPanelIds.has(panelId)) return false;
+function clearDifferentZoomedPanelOnFocus(workspace, panelId) {
+  if (!workspace || !workspaceHasPanelId(workspace, panelId)) return false;
   const zoomedPanelId = zoomedPanelIdForWorkspace(workspace);
   if (!zoomedPanelId || zoomedPanelId === panelId) return false;
-  setZoomedPanelIdForWorkspace(workspace, panelId);
+  setZoomedPanelIdForWorkspace(workspace, null);
   return true;
 }
 
@@ -2153,6 +2153,17 @@ function zoomedPanelForWorkspace(workspace = activeWorkspace()) {
   const panelId = zoomedPanelIdForWorkspace(workspace);
   if (!workspace || !panelId) return null;
   return workspace.panels.find((panel) => panel.id === panelId) || null;
+}
+
+function focusablePanelForWorkspace(workspace) {
+  if (!workspace) return null;
+  const zoomedPanel = zoomedPanelForWorkspace(workspace);
+  if (zoomedPanel && !isPanelMinimized(zoomedPanel)) return zoomedPanel;
+  return workspace.panels.find((panel) => panel.id === workspace.activePanelId && !isPanelMinimized(panel))
+    || firstUnminimizedPanel(workspace)
+    || workspace.panels.find((panel) => panel.id === workspace.activePanelId)
+    || workspace.panels[0]
+    || null;
 }
 
 function allPanels() {
@@ -2245,11 +2256,12 @@ function markInteractedPanel(panelId) {
   if (!wasActive) rememberPreviousPanel(found.workspace, found.workspace.activePanelId);
   state.lastInteractedPanelId = panelId;
   state.focusedPanelId = panelId;
-  syncZoomedPanelToFocus(found.workspace, panelId);
+  const zoomChanged = clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   if (!wasActive) {
     found.workspace.activePanelId = panelId;
     queueFocusSync({ type: "panel", panelId });
   }
+  if (zoomChanged) render();
   return found.panel;
 }
 
@@ -9228,7 +9240,7 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
     rememberPreviousPanel(workspace, previousPanelId);
     if (activeWorkspaceId !== workspace.id) rememberPreviousWorkspace(activeWorkspaceId);
     state.lastInteractedPanelId = nextPanel.id;
-    syncZoomedPanelToFocus(workspace, nextPanel.id);
+    clearDifferentZoomedPanelOnFocus(workspace, nextPanel.id);
   }
   workspace.cwd = nextPanel.cwd || workspace.cwd;
   if (options.direction === "down" || options.direction === "right") {
@@ -9244,13 +9256,15 @@ function optimisticAddPanel(panel, workspaceId, options = {}) {
 function optimisticFocusWorkspace(workspaceId) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   if (!workspace) return false;
-  const zoomChanged = workspace.activePanelId ? syncZoomedPanelToFocus(workspace, workspace.activePanelId) : false;
-  state.focusedPanelId = workspace.activePanelId || null;
-  state.lastInteractedPanelId = workspace.activePanelId || null;
+  const previousPanelId = workspace.activePanelId;
+  const panel = focusablePanelForWorkspace(workspace);
+  if (panel) workspace.activePanelId = panel.id;
+  state.focusedPanelId = panel?.id || null;
+  state.lastInteractedPanelId = panel?.id || null;
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
     render();
-  } else if (zoomChanged) {
+  } else if (workspace.activePanelId !== previousPanelId) {
     render();
   }
   return true;
@@ -9261,7 +9275,7 @@ function optimisticFocusPanel(panelId) {
   if (!found) return false;
   state.focusedPanelId = panelId;
   state.lastInteractedPanelId = panelId;
-  syncZoomedPanelToFocus(found.workspace, panelId);
+  clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
   render();
@@ -9636,16 +9650,12 @@ async function focusWorkspace(workspaceId) {
   const switchingWorkspace = currentWorkspaceId !== workspaceId;
   if (switchingWorkspace) rememberPreviousWorkspace(currentWorkspaceId);
   const previousPanelId = workspace.activePanelId;
-  const focusablePanel = workspace.panels.find((panel) => panel.id === workspace.activePanelId && !isPanelMinimized(panel))
-    || firstUnminimizedPanel(workspace)
-    || workspace.panels.find((panel) => panel.id === workspace.activePanelId)
-    || workspace.panels[0];
+  const focusablePanel = focusablePanelForWorkspace(workspace);
   if (focusablePanel) workspace.activePanelId = focusablePanel.id;
-  const zoomChanged = focusablePanel ? syncZoomedPanelToFocus(workspace, focusablePanel.id) : false;
   state.focusedPanelId = focusablePanel?.id || null;
   state.lastInteractedPanelId = focusablePanel?.id || null;
   if (state.data?.activeWorkspaceId === workspaceId) {
-    if (workspace.activePanelId !== previousPanelId || zoomChanged) render();
+    if (workspace.activePanelId !== previousPanelId) render();
     focusTerminalSession(focusablePanel?.id);
     return;
   }
@@ -9674,7 +9684,7 @@ async function focusPanel(panelId) {
     wasMinimized = state.minimizedPanelIds.delete(panelId);
     state.focusedPanelId = panelId;
     state.lastInteractedPanelId = panelId;
-    zoomChanged = syncZoomedPanelToFocus(found.workspace, panelId);
+    zoomChanged = clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   }
   const shouldShowPaneHud = Boolean(found && (!wasAlreadyFocused || wasMinimized || zoomChanged));
   if (wasAlreadyFocused) {
@@ -9848,7 +9858,7 @@ function setPaneMinimized(panelId, minimized = true) {
     state.data.activeWorkspaceId = found.workspace.id;
     state.focusedPanelId = panelId;
     state.lastInteractedPanelId = panelId;
-    syncZoomedPanelToFocus(found.workspace, panelId);
+    clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   }
   render();
   if (!shouldMinimize) {
@@ -9889,6 +9899,7 @@ function restoreMinimizedPanes(workspace = activeWorkspace()) {
     targetWorkspace.activePanelId = active.id;
     state.focusedPanelId = active.id;
     state.lastInteractedPanelId = active.id;
+    clearDifferentZoomedPanelOnFocus(targetWorkspace, active.id);
   }
   render();
   if (active) focusTerminalSession(active.id);
