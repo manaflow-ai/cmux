@@ -2638,10 +2638,6 @@ struct ContentView: View {
         )
     }
 
-    private var workspaceTitlebarLeadingOffset: CGFloat {
-        sidebarState.isVisible ? sidebarWidth : 0
-    }
-
     var body: some View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
@@ -2655,17 +2651,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
                     if !isMinimalMode {
-                        HStack(spacing: 0) {
-                            Color.clear
-                                .frame(width: workspaceTitlebarLeadingOffset)
-                                .allowsHitTesting(false)
-                            customTitlebar(appearance: appearance)
-                            if rightSidebarVisible {
-                                Color.clear
-                                    .frame(width: rightSidebarWidth)
-                                    .allowsHitTesting(false)
-                            }
-                        }
+                        customTitlebar(appearance: appearance)
                     }
                 }
                 .overlay(alignment: .topLeading) {
