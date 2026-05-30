@@ -363,6 +363,8 @@
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		FE0031A3 /* RightSidebarToolPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0030A3 /* RightSidebarToolPanel.swift */; };
+		8E7743000000000000000003 /* RouteTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000002 /* RouteTable.swift */; };
+		8E7743000000000000000005 /* RouteTableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7743000000000000000004 /* RouteTableTests.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
@@ -960,6 +962,8 @@
 			FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 			FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
+		8E7743000000000000000002 /* RouteTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTable.swift; sourceTree = "<group>"; };
+		8E7743000000000000000004 /* RouteTableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTableTests.swift; sourceTree = "<group>"; };
 		F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevHookConfigTests.swift; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
 		F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevSessionIndexTests.swift; sourceTree = "<group>"; };
@@ -1235,6 +1239,7 @@
 				8E7740000000000000000008 /* HTTPRequest.swift */,
 				8E774000000000000000000C /* HTTPRequestParser.swift */,
 				8E7740000000000000000010 /* JSONResponses.swift */,
+				8E7743000000000000000002 /* RouteTable.swift */,
 				8E7740000000000000000006 /* TerminalController+SurfaceProviderStubs.swift */,
 			);
 			name = HTTPControl;
@@ -1248,6 +1253,7 @@
 				8E7740000000000000000016 /* HTTPAuthTests.swift */,
 				8E774000000000000000000E /* HTTPRequestParserTests.swift */,
 				8E7740000000000000000012 /* JSONResponsesTests.swift */,
+				8E7743000000000000000004 /* RouteTableTests.swift */,
 			);
 			name = HTTPControl;
 			path = HTTPControl;
@@ -2319,6 +2325,7 @@
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
+				8E7743000000000000000003 /* RouteTable.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
@@ -2604,6 +2611,7 @@
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
 					F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
+				8E7743000000000000000005 /* RouteTableTests.swift in Sources */,
 				F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */,
 					F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
