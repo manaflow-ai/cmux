@@ -1715,6 +1715,10 @@ button {
   gap: var(--space-2);
 }
 
+.recent-command-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .recent-folder-actions .settings-action {
   height: 26px;
 }

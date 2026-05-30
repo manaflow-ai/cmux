@@ -31,7 +31,9 @@ const terminalSearchDecorations = {
 };
 const paneLayoutStorageKey = "cmux.paneLayout";
 const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
+const recentCommandsStorageKey = "cmux.recentTerminalCommands";
 const recentFoldersLimit = 8;
+const recentCommandsLimit = 8;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -58,6 +60,14 @@ const workspaceStarters = [
   }
 ];
 
+const terminalCommandSnippets = [
+  { id: "listFiles", label: "List Workspace Files", command: "dir" },
+  { id: "gitStatus", label: "Git Status", command: "git status" },
+  { id: "npmScripts", label: "Show NPM Scripts", command: "npm run" },
+  { id: "ghPrStatus", label: "GH PR Status", command: "gh pr status" },
+  { id: "ghPrChecks", label: "GH PR Checks", command: "gh pr checks" }
+];
+
 const initialSettings = loadSettings();
 
 const state = {
@@ -69,6 +79,7 @@ const state = {
   paneCache: new Map(),
   paneLayouts: loadPaneLayouts(),
   recentFolders: loadRecentFolders(),
+  recentCommands: loadRecentCommands(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -329,6 +340,52 @@ function clearRecentFolders() {
   saveRecentFolders();
   renderSettingsInspector();
   toast("Recent folders cleared.");
+}
+
+function normalizeTerminalCommand(command) {
+  return String(command || "").replace(/\r?\n/g, " ").trim().slice(0, 1000);
+}
+
+function loadRecentCommands() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentCommandsStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const unique = [];
+    const seen = new Set();
+    for (const entry of parsed) {
+      const command = normalizeTerminalCommand(entry);
+      const key = command.toLowerCase();
+      if (!command || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(command);
+      if (unique.length >= recentCommandsLimit) break;
+    }
+    return unique;
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentCommands() {
+  localStorage.setItem(recentCommandsStorageKey, JSON.stringify(state.recentCommands));
+}
+
+function rememberRecentCommand(command) {
+  const normalized = normalizeTerminalCommand(command);
+  if (!normalized) return;
+  const key = normalized.toLowerCase();
+  state.recentCommands = [
+    normalized,
+    ...state.recentCommands.filter((candidate) => candidate.toLowerCase() !== key)
+  ].slice(0, recentCommandsLimit);
+  saveRecentCommands();
+}
+
+function clearRecentCommands() {
+  state.recentCommands = [];
+  saveRecentCommands();
+  renderSettingsInspector();
+  toast("Recent commands cleared.");
 }
 
 function settingsRenderSignature(settings = state.settings) {
@@ -677,6 +734,12 @@ const commands = [
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
   { id: "terminal.nextPane", label: "Next Pane", shortcut: "Ctrl+Tab", run: () => cycleActivePane(1) },
   { id: "terminal.previousPane", label: "Previous Pane", shortcut: "Ctrl+Shift+Tab", run: () => cycleActivePane(-1) },
+  { id: "terminal.runCommand", label: "Run Command in Active Terminal", shortcut: "Ctrl+Shift+Enter", run: () => promptRunTerminalCommand() },
+  { id: "terminal.runListFiles", label: "Run List Workspace Files", shortcut: "", run: () => runTerminalCommandSnippet("listFiles") },
+  { id: "terminal.runGitStatus", label: "Run Git Status", shortcut: "", run: () => runTerminalCommandSnippet("gitStatus") },
+  { id: "terminal.runNpmScripts", label: "Run NPM Scripts", shortcut: "", run: () => runTerminalCommandSnippet("npmScripts") },
+  { id: "terminal.runGhPrStatus", label: "Run GH PR Status", shortcut: "", run: () => runTerminalCommandSnippet("ghPrStatus") },
+  { id: "terminal.runGhPrChecks", label: "Run GH PR Checks", shortcut: "", run: () => runTerminalCommandSnippet("ghPrChecks") },
   { id: "terminal.find", label: "Find in Active Terminal", shortcut: "Ctrl+F", run: () => openTerminalSearch() },
   { id: "terminal.findNext", label: "Find Next in Terminal", shortcut: "F3", run: () => findNextInTerminal() },
   { id: "terminal.findPrevious", label: "Find Previous in Terminal", shortcut: "Shift+F3", run: () => findPreviousInTerminal() },
@@ -2353,6 +2416,7 @@ function renderSettingsInspector() {
       settingsActionButton("Reset", resetSettings, "danger")
     );
     actionsSection.append(actions);
+    actionsSection.append(recentCommandsSettings());
     nodes.push(actionsSection);
   }
 
@@ -2808,6 +2872,55 @@ function recentFoldersSettings() {
   return section;
 }
 
+function recentCommandsSettings() {
+  const section = document.createElement("div");
+  section.className = "recent-folder-list";
+  section.dataset.settingsSearch = normalizeSettingsQuery("recent terminal commands shell command history run clear snippets");
+
+  const header = document.createElement("div");
+  header.className = "recent-folder-header";
+  const title = document.createElement("span");
+  title.textContent = "Recent terminal commands";
+  const clear = settingsActionButton("Clear", clearRecentCommands, "danger", "recent terminal commands clear history");
+  clear.disabled = state.recentCommands.length === 0;
+  header.append(title, clear);
+  section.append(header);
+
+  if (state.recentCommands.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Commands run from cmux will appear here.";
+    section.append(empty);
+    return section;
+  }
+
+  for (const command of state.recentCommands) {
+    const card = document.createElement("div");
+    card.className = "recent-folder-card";
+    card.dataset.settingsSearch = normalizeSettingsQuery(`recent terminal command shell run ${command}`);
+    const text = document.createElement("div");
+    text.className = "recent-folder-text";
+    const name = document.createElement("div");
+    name.className = "recent-folder-name";
+    name.textContent = command;
+    name.title = command;
+    const path = document.createElement("div");
+    path.className = "recent-folder-path";
+    path.textContent = "Active terminal";
+    text.append(name, path);
+
+    const actions = document.createElement("div");
+    actions.className = "recent-folder-actions recent-command-actions";
+    const run = settingsActionButton("Run", () => runTerminalCommand(command), "", `recent terminal command run ${command}`);
+    run.dataset.recentCommandAction = "run";
+    actions.append(run);
+    card.append(text, actions);
+    section.append(card);
+  }
+
+  return section;
+}
+
 function workspaceStarterGrid() {
   const section = document.createElement("div");
   section.className = "workspace-starter-list";
@@ -3035,6 +3148,9 @@ function showToolbarMenu(event) {
     contextMenuButton("Previous pane", () => cycleActivePane(-1), !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Next workspace", () => cycleWorkspace(1), (state.data?.workspaces.length || 0) <= 1),
     contextMenuButton("Previous workspace", () => cycleWorkspace(-1), (state.data?.workspaces.length || 0) <= 1),
+    contextMenuButton("Run command...", promptRunTerminalCommand, panel?.type !== "terminal"),
+    contextMenuButton("Git status", () => runTerminalCommandSnippet("gitStatus"), panel?.type !== "terminal"),
+    contextMenuButton("GH PR status", () => runTerminalCommandSnippet("ghPrStatus"), panel?.type !== "terminal"),
     contextMenuButton("Reset split layout", resetActivePaneLayout, !panel || activeWorkspace()?.panels.length <= 1),
     contextMenuButton("Close other panes", () => closeOtherPanes(), !panel || activeWorkspace()?.panels.length <= 1, "danger"),
     contextMenuButton("Rename workspace", renameActiveWorkspace),
@@ -3393,6 +3509,16 @@ function paletteEntries() {
       shortcut: "Recent",
       search: normalizeSettingsQuery(`recent folder workspace use current change choose ${folderIndex + 1} ${name} ${shortPath} ${folder}`),
       run: () => setWorkspaceFolderFromRecent(folder)
+    });
+  }
+  for (const [commandIndex, command] of state.recentCommands.entries()) {
+    entries.push({
+      id: `recentCommand.${commandIndex}`,
+      label: `Run recent: ${command}`,
+      meta: "Terminal command",
+      shortcut: "Recent",
+      search: normalizeSettingsQuery(`recent terminal command shell run ${commandIndex + 1} ${command}`),
+      run: () => runTerminalCommand(command)
     });
   }
   for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
@@ -4038,6 +4164,49 @@ async function sendTerminalInput(panelId, text) {
   }
 }
 
+async function runTerminalCommand(command, panel = activePanel(), options = {}) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Focus a terminal pane first.");
+    return false;
+  }
+  const normalized = normalizeTerminalCommand(command);
+  if (!normalized) return false;
+  const ok = await sendTerminalInput(terminalPanel.id, `${normalized}\r`);
+  if (!ok) {
+    toast("Terminal is not ready.");
+    return false;
+  }
+  rememberRecentCommand(normalized);
+  if (options.renderSettings) renderSettingsInspector();
+  focusPanel(terminalPanel.id);
+  focusTerminalSession(terminalPanel.id);
+  return true;
+}
+
+async function promptRunTerminalCommand(panel = activePanel()) {
+  const terminalPanel = resolveTerminalPanel(panel);
+  if (!terminalPanel) {
+    toast("Focus a terminal pane first.");
+    return false;
+  }
+  const command = await showTextDialog({
+    title: "Run command",
+    message: "Send a command to the active terminal.",
+    value: state.recentCommands[0] || "",
+    placeholder: "npm run dev",
+    confirmLabel: "Run"
+  });
+  if (command === null) return false;
+  return runTerminalCommand(command, terminalPanel, { renderSettings: state.inspectorMode === "settings" });
+}
+
+function runTerminalCommandSnippet(snippetId) {
+  const snippet = terminalCommandSnippets.find((candidate) => candidate.id === snippetId);
+  if (!snippet) return false;
+  return runTerminalCommand(snippet.command);
+}
+
 async function copyActiveTerminalSelection(panel = activePanel()) {
   const terminalPanel = resolveTerminalPanel(panel);
   if (!terminalPanel) {
@@ -4263,6 +4432,9 @@ window.addEventListener("keydown", (event) => {
   if (event.ctrlKey && key === "f") {
     consumeGlobalShortcut(event);
     openTerminalSearch();
+  } else if (event.ctrlKey && event.shiftKey && event.key === "Enter") {
+    consumeGlobalShortcut(event);
+    promptRunTerminalCommand();
   } else if (event.ctrlKey && key === "tab") {
     consumeGlobalShortcut(event);
     cycleActivePane(event.shiftKey ? -1 : 1);

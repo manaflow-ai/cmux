@@ -92,6 +92,7 @@ function buildMenu() {
         { label: "New Workspace", accelerator: "Ctrl+N", click: () => mainWindow?.webContents.send("cmux-command", "workspace.new") },
         { label: "Rename Workspace", click: () => mainWindow?.webContents.send("cmux-command", "workspace.rename") },
         { label: "New Terminal", accelerator: "Ctrl+T", click: () => mainWindow?.webContents.send("cmux-command", "terminal.new") },
+        { label: "Run Command in Active Terminal", accelerator: "Ctrl+Shift+Enter", click: () => mainWindow?.webContents.send("cmux-command", "terminal.runCommand") },
         { label: "Reopen Closed Pane", accelerator: "Ctrl+Shift+T", click: () => mainWindow?.webContents.send("cmux-command", "terminal.reopenClosed") },
         { label: "Copy Terminal Selection", accelerator: "Ctrl+Shift+C", click: () => mainWindow?.webContents.send("cmux-command", "terminal.copySelection") },
         { label: "Paste Clipboard to Terminal", accelerator: "Ctrl+Shift+V", click: () => mainWindow?.webContents.send("cmux-command", "terminal.pasteClipboard") },
