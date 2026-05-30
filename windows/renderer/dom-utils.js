@@ -36,6 +36,14 @@ export function toggleClassIfChanged(node, className, enabled) {
   return true;
 }
 
+export function setHiddenIfChanged(node, hidden) {
+  if (!node) return false;
+  const next = Boolean(hidden);
+  if (node.hidden === next) return false;
+  node.hidden = next;
+  return true;
+}
+
 export function setDatasetIfChanged(node, key, value) {
   if (!node) return false;
   const next = String(value ?? "");

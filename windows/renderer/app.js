@@ -26,6 +26,7 @@ import {
   replaceChildrenIfChanged,
   setClassNameIfChanged,
   setDatasetIfChanged,
+  setHiddenIfChanged,
   setStylePropertyIfChanged,
   setTextIfChanged,
   setTitleIfChanged,
@@ -202,6 +203,7 @@ const state = {
   settingsSaveTimer: 0,
   settingsSavePending: false,
   terminalAppearanceFrame: 0,
+  settingsFilterFrame: 0,
   renderStats: {
     count: 0,
     lastMs: 0,
@@ -3322,7 +3324,7 @@ function renderSettingsInspector(options = {}) {
   unmountSettingsChrome();
   elements.inspectorBody.replaceChildren(...nodes);
   renderSettingsChrome(settingsChrome);
-  if (searching) applySettingsFilter();
+  if (searching) scheduleSettingsFilter();
 }
 
 function settingsInspectorSignature() {
@@ -3428,7 +3430,7 @@ function renderSettingsChrome(host) {
         scheduleSettingsSearchFocus();
       } else {
         renderSettingsChrome(host);
-        applySettingsFilter();
+        scheduleSettingsFilter();
       }
     },
     onClear: () => {
@@ -3456,7 +3458,7 @@ function settingsSearch() {
       restoreSettingsSearchFocus();
       return;
     }
-    applySettingsFilter();
+    scheduleSettingsFilter();
   });
   const clear = document.createElement("button");
   clear.className = "settings-search-clear";
@@ -3536,38 +3538,52 @@ function normalizeSettingsQuery(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function settingsSearchTokens(value) {
+  return normalizeSettingsQuery(value).split(/\s+/).filter(Boolean);
+}
+
+function scheduleSettingsFilter() {
+  if (state.settingsFilterFrame) return;
+  state.settingsFilterFrame = requestAnimationFrame(() => {
+    state.settingsFilterFrame = 0;
+    applySettingsFilter();
+  });
+}
+
 function applySettingsFilter() {
   const query = normalizeSettingsQuery(state.settingsQuery);
+  const tokens = settingsSearchTokens(query);
   let visibleSections = 0;
   for (const section of elements.inspectorBody.querySelectorAll(".settings-section")) {
     const items = [...section.querySelectorAll("[data-settings-search]")].filter((item) => item !== section);
-    let sectionVisible = settingsSearchMatches(section.dataset.settingsSearch, query);
+    const sectionMatches = settingsSearchMatches(section.dataset.settingsSearch, tokens);
+    let sectionVisible = sectionMatches;
     for (const item of items) {
-      const visible = settingsSearchMatches(item.dataset.settingsSearch, query) || settingsSearchMatches(section.dataset.settingsSearch, query);
-      item.hidden = !visible;
+      const visible = settingsSearchMatches(item.dataset.settingsSearch, tokens) || sectionMatches;
+      setHiddenIfChanged(item, !visible);
       sectionVisible ||= visible;
     }
     for (const group of section.querySelectorAll(".settings-command-group")) {
       const cardVisible = [...group.querySelectorAll(".settings-command-card")].some((card) => !card.hidden);
       const groupVisible = cardVisible
-        || settingsSearchMatches(group.dataset.settingsSearch, query)
-        || settingsSearchMatches(section.dataset.settingsSearch, query);
-      group.hidden = !groupVisible;
+        || settingsSearchMatches(group.dataset.settingsSearch, tokens)
+        || sectionMatches;
+      setHiddenIfChanged(group, !groupVisible);
       sectionVisible ||= groupVisible;
     }
-    section.hidden = !sectionVisible;
+    setHiddenIfChanged(section, !sectionVisible);
     if (sectionVisible) visibleSections += 1;
   }
   const empty = elements.inspectorBody.querySelector(".settings-empty");
-  if (empty) empty.hidden = !query || visibleSections > 0;
+  if (empty) setHiddenIfChanged(empty, !query || visibleSections > 0);
   const clear = elements.inspectorBody.querySelector(".settings-search-clear");
   if (clear) clear.disabled = !query;
 }
 
-function settingsSearchMatches(searchText, query) {
-  if (!query) return true;
+function settingsSearchMatches(searchText, tokens) {
+  if (!tokens.length) return true;
   const haystack = normalizeSettingsQuery(searchText);
-  return query.split(/\s+/).every((token) => haystack.includes(token));
+  return tokens.every((token) => haystack.includes(token));
 }
 
 function formatMs(value) {
