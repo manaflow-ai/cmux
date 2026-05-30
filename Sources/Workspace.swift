@@ -1683,7 +1683,11 @@ extension Workspace {
                 (restoredBindingLaunch != nil && resumeBinding?.isAgentHookBinding == true)
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
-            let localWorkingDirectory = remoteStartupCommand == nil && !startupHandlesWorkingDirectory
+            let restoresRemoteTerminalSurface = remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
+            let localWorkingDirectory = remoteStartupCommand == nil &&
+                restoredRemotePTYAttachCommand == nil &&
+                !restoresRemoteTerminalSurface &&
+                !startupHandlesWorkingDirectory
                 ? workingDirectory
                 : nil
             let restoredAgentWillRunStartupCommand = restorableAgent != nil && (

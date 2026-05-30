@@ -2015,6 +2015,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/persistent-project")
         let expectedSessionID = Workspace.defaultSSHPTYSessionID(
             workspaceId: remoteWorkspace.id,
             panelId: remotePanelId
@@ -2090,6 +2091,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             Self.decodedSSHPTYCommandB64(in: terminalStartupCommand)
         )
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        XCTAssertEqual(restoredWorkspace.panelDirectories[restoredPanelId], "/home/dev/persistent-project")
+        XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertTrue(
             restoredDefaultRemoteCommand.contains("export CMUX_SOCKET_PATH=127.0.0.1:64003"),
             restoredDefaultRemoteCommand

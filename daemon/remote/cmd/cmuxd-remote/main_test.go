@@ -830,42 +830,49 @@ func TestPersistentDaemonPTYReattachSurvivesClientDisconnect(t *testing.T) {
 	}
 }
 
-func TestWaitForPersistentDaemonDialWaitsForPeerStartup(t *testing.T) {
-	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-race-*")
+func TestPersistentDaemonReadySignalAllowsImmediateDial(t *testing.T) {
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-ready-*")
 	if err != nil {
 		t.Fatalf("create short socket dir: %v", err)
 	}
 	defer os.RemoveAll(socketDir)
 	socketPath := filepath.Join(socketDir, "rpc.sock")
-
-	type listenerResult struct {
-		listener net.Listener
-		err      error
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
 	}
-	listenerCh := make(chan listenerResult, 1)
+
+	readyReader, readyWriter, err := os.Pipe()
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("create ready pipe: %v", err)
+	}
+	defer readyReader.Close()
+	t.Setenv(persistentDaemonReadyFDEnv, strconv.Itoa(int(readyWriter.Fd())))
+	signalPersistentDaemonReady()
+	line, err := bufio.NewReader(readyReader).ReadString('\n')
+	if err != nil {
+		_ = listener.Close()
+		t.Fatalf("read ready signal: %v", err)
+	}
+	if strings.TrimSpace(line) != "ready" {
+		_ = listener.Close()
+		t.Fatalf("ready signal = %q, want ready", strings.TrimSpace(line))
+	}
+
 	done := make(chan error, 1)
 	go func() {
-		time.Sleep(50 * time.Millisecond)
-		listener, listenErr := net.Listen("unix", socketPath)
-		listenerCh <- listenerResult{listener: listener, err: listenErr}
-		if listenErr != nil {
-			done <- listenErr
-			return
-		}
-		done <- servePersistentDaemonWithVerifier(listener, persistentDaemonFixedTokenVerifier("race-token"), io.Discard)
+		done <- servePersistentDaemonWithVerifier(listener, persistentDaemonFixedTokenVerifier("ready-token"), io.Discard)
 	}()
 
-	conn, err := waitForPersistentDaemonDial(socketPath, "race-token", time.Second)
+	conn, err := dialPersistentDaemon(socketPath, "ready-token")
 	if err != nil {
-		t.Fatalf("waitForPersistentDaemonDial returned error: %v", err)
+		_ = listener.Close()
+		t.Fatalf("dial persistent daemon after ready signal: %v", err)
 	}
 	_ = conn.Close()
 
-	gotListener := <-listenerCh
-	if gotListener.err != nil {
-		t.Fatalf("listen unix: %v", gotListener.err)
-	}
-	_ = gotListener.listener.Close()
+	_ = listener.Close()
 	select {
 	case err := <-done:
 		if err != nil {

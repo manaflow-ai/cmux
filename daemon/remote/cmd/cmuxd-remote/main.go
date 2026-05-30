@@ -319,7 +319,6 @@ var errPersistentDaemonAuthFailed = errors.New("persistent daemon authentication
 
 const (
 	persistentDaemonStartupTimeout    = 5 * time.Second
-	persistentDaemonDialPollInterval  = 25 * time.Millisecond
 	persistentDaemonEmptyIdleTimeout  = 5 * time.Minute
 	persistentDaemonEmptyIdlePollStep = time.Second
 )
@@ -743,11 +742,7 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 	_ = cmd.Process.Release()
 
 	if err := waitPersistentDaemonReady(readyReader, paths.logFile); err != nil {
-		if conn, dialErr := waitForPersistentDaemonDial(
-			paths.socket,
-			token,
-			persistentDaemonStartupTimeout,
-		); dialErr == nil {
+		if conn, dialErr := dialPersistentDaemon(paths.socket, token); dialErr == nil {
 			_ = conn.Close()
 			return nil
 		}
@@ -757,7 +752,7 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 		return err
 	}
 
-	conn, err := waitForPersistentDaemonDial(paths.socket, token, persistentDaemonStartupTimeout)
+	conn, err := dialPersistentDaemon(paths.socket, token)
 	if err == nil {
 		_ = conn.Close()
 		return nil
@@ -766,23 +761,6 @@ func ensurePersistentDaemonRunning(paths persistentDaemonPaths, token string, st
 		_, _ = fmt.Fprintf(stderr, "persistent daemon log: %s\n", paths.logFile)
 	}
 	return err
-}
-
-func waitForPersistentDaemonDial(socketPath string, token string, timeout time.Duration) (net.Conn, error) {
-	deadline := time.Now().Add(timeout)
-	var lastErr error
-	for {
-		conn, err := dialPersistentDaemon(socketPath, token)
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return nil, lastErr
-		}
-		time.Sleep(minDuration(remaining, persistentDaemonDialPollInterval))
-	}
 }
 
 func shouldRemovePersistentSocketAfterDialError(err error) bool {
