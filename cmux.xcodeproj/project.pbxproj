@@ -1792,6 +1792,7 @@
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A5354305A5354305A5354305 /* CMUXSocketPathDomain */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
+				CA1A0002A1B2C3D4E5F60718 /* CmuxTerminalAccess */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 			);
 			productName = cmux;
@@ -1924,6 +1925,7 @@
 				F53000A1A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentVault" */,
 				A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */,
 				A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */,
+				CA1A0001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CmuxTerminalAccess" */,
 				A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 			);
@@ -2991,6 +2993,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXDebugLog;
 		};
+		CA1A0001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CmuxTerminalAccess" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxTerminalAccess;
+		};
 		A5354304A5354304A5354304 /* XCLocalSwiftPackageReference "CMUXSocketPathDomain" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXSocketPathDomain;
@@ -3071,6 +3077,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
 			productName = CMUXDebugLog;
+		};
+		CA1A0002A1B2C3D4E5F60718 /* CmuxTerminalAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA1A0001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CmuxTerminalAccess" */;
+			productName = CmuxTerminalAccess;
 		};
 		A5354305A5354305A5354305 /* CMUXSocketPathDomain */ = {
 			isa = XCSwiftPackageProductDependency;
