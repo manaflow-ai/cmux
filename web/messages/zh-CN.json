@@ -499,12 +499,20 @@
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。"
         },
         "terminal": {
-          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。"
+          "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
+          "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
+          "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的全局默认位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。",
+          "byCwd": {
+            "newWorkspacePlacement": "按 cwd 覆盖组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。省略时回退到全局默认值。"
+          }
         }
       }
     },
@@ -920,7 +928,8 @@
       "changelog": "更新日志",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox（测试版）"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1063,21 @@
       "daemonSession": "会话管理",
       "daemonSessionHow": "在重新连接时保留会话，协调跨多个附件的 PTY 大小调整",
       "daemonPath": "守护程序二进制文件存储在远程主机上的 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote 中，并根据应用程序中嵌入的 SHA-256 清单进行验证。"
+    },
+    "textBox": {
+      "title": "TextBox（测试版）",
+      "metaTitle": "TextBox（测试版）",
+      "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
+      "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
+      "defaultsTitle": "默认值",
+      "defaultsDesc": "TextBox 设置位于 Settings > TextBox：",
+      "showSetting": "Show TextBox on New Terminals 会让新的工作区、终端标签页和终端分屏在打开时显示 TextBox，同时将焦点保留在终端中。",
+      "focusSetting": "Focus TextBox on New Terminals 会将键盘焦点放入 TextBox。启用焦点也会显示 TextBox。",
+      "maxLinesSetting": "TextBox Max Lines 会限制 TextBox 在内容滚动前的最大高度。",
+      "configTitle": "cmux.json",
+      "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下设置相同默认值：",
+      "focusNote": "恢复的会话会保留已保存的 TextBox 可见性和焦点状态。这些默认值只适用于新建的终端界面。"
     }
   },
   "legal": {

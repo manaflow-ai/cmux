@@ -6491,7 +6491,7 @@ class TerminalController {
         // Placement resolution: explicit `placement` param wins, then the
         // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
         // global default. The CLI exposes this as
-        // `cmux workspace-group new-workspace <group> --placement <top|end>`.
+        // `cmux workspace-group new-workspace <group> --placement <afterCurrent|top|end>`.
         let placementRaw = v2String(params, "placement")
         let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
         if let raw = placementRaw,
@@ -6499,7 +6499,7 @@ class TerminalController {
            explicitPlacement == nil {
             return .err(
                 code: "invalid_params",
-                message: "placement must be one of: top, end",
+                message: "placement must be one of: afterCurrent, top, end",
                 data: ["placement": raw]
             )
         }

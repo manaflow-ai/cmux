@@ -60,11 +60,15 @@ extension Array where Element == CuratedSettingEntry {
 
             // Terminal
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
-            .init(section: .terminal, id: "textbox-max-lines", title: "Text Box Max Lines", synonyms: "textbox text box rich input prompt max height lines grow scroll"),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
+
+            // TextBox
+            .init(section: .textBox, id: "show-textbox-new-terminals", title: "Show TextBox on New Terminals", synonyms: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
+            .init(section: .textBox, id: "focus-textbox-new-terminals", title: "Focus TextBox on New Terminals", synonyms: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
+            .init(section: .textBox, id: "textbox-max-lines", title: "TextBox Max Lines", synonyms: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
 
             // Sidebar appearance + sidebar workspace row details
             .init(section: .sidebarAppearance, id: "match-terminal", title: "Match Terminal Background", synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
