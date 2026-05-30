@@ -188,6 +188,8 @@ class FakeCmuxState:
                 return {"ok": True}
             if method == "pane.resize":
                 return {"ok": True}
+            if method == "workspace.equalize_splits":
+                return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
             raise RuntimeError(f"Unsupported fake cmux method: {method}")

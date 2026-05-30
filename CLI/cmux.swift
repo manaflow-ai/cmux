@@ -3793,30 +3793,51 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
         case "new-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let type = optionValue(commandArgs, name: "--type")
-            let direction = optionValue(commandArgs, name: "--direction") ?? "right"
-            let url = optionValue(commandArgs, name: "--url")
-            let focusOpt = optionValue(commandArgs, name: "--focus")
+            let (wsOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (type, rem1) = parseOption(rem0, name: "--type")
+            let (directionOpt, rem2) = parseOption(rem1, name: "--direction")
+            let (url, rem3) = parseOption(rem2, name: "--url")
+            let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
+            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+            let (commandOpt, rem6) = parseOption(rem5, name: "--command")
+            let (cwdOpt, remaining) = parseOption(rem6, name: "--cwd")
+            let filteredRemaining = remaining.filter { $0 != "--" }
+            if let unexpected = filteredRemaining.first {
+                throw CLIError(message: "new-pane: unexpected argument '\(unexpected)'. Known flags: --type <terminal|browser>, --direction <left|right|up|down>, --workspace <id|ref|index>, --window <id|ref|index>, --url <url>, --command <text>, --cwd <path>, --focus <true|false>")
+            }
+            let direction = directionOpt ?? "right"
+            let windowRaw = windowOpt ?? windowId
+            let workspaceArg = wsOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             var params: [String: Any] = ["direction": direction]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
+            let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let cwdOpt { params["working_directory"] = resolvePath(cwdOpt) }
+            if let commandOpt { params["initial_command"] = commandOpt }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let type = optionValue(commandArgs, name: "--type")
-            let paneRaw = optionValue(commandArgs, name: "--pane")
-            let url = optionValue(commandArgs, name: "--url")
-            let focusOpt = optionValue(commandArgs, name: "--focus")
+            let (wsOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (type, rem1) = parseOption(rem0, name: "--type")
+            let (paneRaw, rem2) = parseOption(rem1, name: "--pane")
+            let (url, rem3) = parseOption(rem2, name: "--url")
+            let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
+            let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+            let (commandOpt, rem6) = parseOption(rem5, name: "--command")
+            let (cwdOpt, remaining) = parseOption(rem6, name: "--cwd")
+            let filteredRemaining = remaining.filter { $0 != "--" }
+            if let unexpected = filteredRemaining.first {
+                throw CLIError(message: "new-surface: unexpected argument '\(unexpected)'. Known flags: --type <terminal|browser>, --pane <id|ref|index>, --workspace <id|ref|index>, --window <id|ref|index>, --url <url>, --command <text>, --cwd <path>, --focus <true|false>")
+            }
+            let windowRaw = windowOpt ?? windowId
+            let workspaceArg = wsOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             var params: [String: Any] = [:]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
+            let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
@@ -3824,6 +3845,8 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let cwdOpt { params["working_directory"] = resolvePath(cwdOpt) }
+            if let commandOpt { params["initial_command"] = commandOpt }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
@@ -13528,11 +13551,14 @@ struct CMUXCLI {
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
+              --cwd <path>                        Working directory for terminal panes
+              --command <text>                    Launch command for terminal panes
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --command "npm test"
             """
         case "new-surface":
             return """
@@ -13546,11 +13572,14 @@ struct CMUXCLI {
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
+              --cwd <path>                Working directory for terminal surfaces
+              --command <text>            Launch command for terminal surfaces
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --command "npm test"
             """
         case "close-surface":
             return """
@@ -19586,9 +19615,12 @@ struct CMUXCLI {
                !cwd.isEmpty {
                 splitParams["working_directory"] = resolvePath(cwd)
             }
-            let startupScript = isOMXHud
-                ? tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
-                : nil
+            // If tmux split-window includes a command, run it as the new terminal's
+            // startup command instead of typing into the pane after creation. Agent
+            // launchers often spawn a split and immediately exec their CLI; sending
+            // text after surface creation can race the shell startup and leave the
+            // new tab/pane blank.
+            let startupScript = tmuxStartupScript(commandTokens: parsed.positional, cwd: parsed.value("-c"))
             if let startupScript {
                 splitParams["initial_command"] = startupScript
             }

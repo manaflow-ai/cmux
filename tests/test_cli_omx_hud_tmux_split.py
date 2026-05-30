@@ -16,6 +16,7 @@ from pathlib import Path
 from claude_teams_test_utils import resolve_cmux_cli
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 HUD_PANE_ID = "66666666-6666-4666-8666-666666666666"
@@ -41,6 +42,17 @@ class FakeCmuxState:
                         "ref": "workspace:1",
                         "index": 1,
                         "title": "demo",
+                    }
+                ]
+            }
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": WINDOW_ID,
+                        "ref": "window:1",
+                        "workspace_id": WORKSPACE_ID,
+                        "workspace_ref": "workspace:1",
                     }
                 ]
             }
@@ -267,6 +279,63 @@ def assert_omx_hud_splits_down_with_compact_size(
         raise AssertionError(f"expected HUD tmux start command metadata, got {split!r}")
     if state.sent_text:
         raise AssertionError(f"HUD command should not be typed into a shell: {state.sent_text!r}")
+
+
+def assert_regular_tmux_split_command_launches_as_initial_command(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    cwd: Path,
+    state: FakeCmuxState,
+) -> None:
+    split_baseline = len(state.split_params)
+    sent_text_baseline = len(state.sent_text)
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "split-window",
+            "-h",
+            "-d",
+            "-c",
+            str(cwd),
+            "-P",
+            "-F",
+            "#{pane_id}",
+            "printf regular-agent-ready",
+        ],
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            "regular split command returned non-zero\n"
+            f"stdout={proc.stdout.strip()}\n"
+            f"stderr={proc.stderr.strip()}"
+        )
+    if proc.stdout.strip() != f"%{HUD_PANE_ID}":
+        raise AssertionError(
+            f"expected split-window to print %{HUD_PANE_ID}, got {proc.stdout.strip()!r}"
+        )
+    new_splits = state.split_params[split_baseline:]
+    if len(new_splits) != 1:
+        raise AssertionError(f"expected one regular split command, got {new_splits!r}")
+    split = new_splits[0]
+    startup_script = split.get("initial_command")
+    if not isinstance(startup_script, str) or not startup_script:
+        raise AssertionError(f"expected regular tmux split command to launch as an initial command, got {split!r}")
+    startup_path = Path(startup_script)
+    if not startup_path.exists():
+        raise AssertionError(f"expected generated regular startup script to exist: {startup_script}")
+    startup_text = startup_path.read_text(encoding="utf-8")
+    if f"cd -- '{cwd}'" not in startup_text:
+        raise AssertionError(f"expected regular startup script to cd to project cwd, got {startup_text!r}")
+    if "printf regular-agent-ready" not in startup_text:
+        raise AssertionError(f"expected regular startup script to run the agent command, got {startup_text!r}")
+    if split.get("tmux_start_command") != "printf regular-agent-ready":
+        raise AssertionError(f"expected regular split start command metadata, got {split!r}")
+    if len(state.sent_text) != sent_text_baseline:
+        raise AssertionError(f"regular command should not be typed into a shell: {state.sent_text!r}")
 
 
 def assert_omx_hud_is_visible_to_tmux_pane_formats(
@@ -549,6 +618,13 @@ def main() -> int:
                     cli_path,
                     socket_path,
                     fake_home,
+                    state,
+                )
+                assert_regular_tmux_split_command_launches_as_initial_command(
+                    cli_path,
+                    socket_path,
+                    fake_home,
+                    cwd,
                     state,
                 )
             finally:

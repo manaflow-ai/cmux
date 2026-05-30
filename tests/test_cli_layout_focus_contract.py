@@ -244,11 +244,66 @@ def main() -> int:
                 {"workspace_id": WORKSPACE_ID, "direction": "down", "focus": False},
             )
 
+            command_cwd = str(Path(tmp).resolve())
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "new-pane",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--direction",
+                    "down",
+                    "--cwd",
+                    command_cwd,
+                    "--command",
+                    "printf pane-ready",
+                ],
+            )
+            assert_last_call(
+                state,
+                "pane.create",
+                {
+                    "workspace_id": WORKSPACE_ID,
+                    "direction": "down",
+                    "working_directory": command_cwd,
+                    "initial_command": "printf pane-ready",
+                    "focus": False,
+                },
+            )
+
             run_cli(cli, socket_path, ["new-surface", "--workspace", WORKSPACE_ID, "--pane", PANE_ID])
             assert_last_call(
                 state,
                 "surface.create",
                 {"workspace_id": WORKSPACE_ID, "pane_id": PANE_ID, "focus": False},
+            )
+
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "new-surface",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--pane",
+                    PANE_ID,
+                    "--cwd",
+                    command_cwd,
+                    "--command",
+                    "printf surface-ready",
+                ],
+            )
+            assert_last_call(
+                state,
+                "surface.create",
+                {
+                    "workspace_id": WORKSPACE_ID,
+                    "pane_id": PANE_ID,
+                    "working_directory": command_cwd,
+                    "initial_command": "printf surface-ready",
+                    "focus": False,
+                },
             )
 
             run_cli(cli, socket_path, ["reorder-surface", "--surface", SURFACE_ID, "--index", "0"])
@@ -284,6 +339,8 @@ def main() -> int:
             )
 
             assert_cli_fails(cli, socket_path, ["new-split", "--bogus"], "new-split requires a direction")
+            assert_cli_fails(cli, socket_path, ["new-pane", "--bogus"], "new-pane: unexpected argument")
+            assert_cli_fails(cli, socket_path, ["new-surface", "--bogus"], "new-surface: unexpected argument")
             assert_cli_fails(cli, socket_path, ["split-off", "--surface", SURFACE_ID, "--bogus"], "split-off requires a direction")
             assert_cli_fails(cli, socket_path, ["break-pane", "--focus", "true", "--no-focus"], "--focus and --no-focus cannot be used together")
             assert_cli_fails(cli, socket_path, ["move-surface", "--workspace", WORKSPACE_ID], "move-surface requires --surface")
