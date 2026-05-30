@@ -2497,6 +2497,12 @@ function createWorkspaceRow() {
     </span>
   `;
   button.addEventListener("click", () => focusWorkspace(button.dataset.workspaceId));
+  button.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const workspace = state.data?.workspaces.find((candidate) => candidate.id === button.dataset.workspaceId);
+    if (workspace) renameWorkspaceById(workspace.id, workspace.title);
+  });
   button.addEventListener("dragstart", (event) => {
     state.dragWorkspaceId = button.dataset.workspaceId;
     state.dragPanelId = null;
@@ -2556,7 +2562,7 @@ function updateWorkspaceRow(button, workspace, index, activeId) {
   setDatasetIfChanged(button, "workspaceId", workspace.id);
   setClassNameIfChanged(button, `workspace-row${workspace.id === activeId ? " is-active" : ""}${hasAttention ? " has-attention" : ""}`);
   setStylePropertyIfChanged(button, "--workspace-color", workspace.color || state.data.palette?.[0] || "");
-  setTitleIfChanged(button, `${title} - ${cwd} - ${paneSummary}`);
+  setTitleIfChanged(button, `${title} - ${cwd} - ${paneSummary} - double-click to rename`);
   setTextIfChanged(button.querySelector(".workspace-name"), title);
   setTextIfChanged(button.querySelector(".workspace-badge"), hasAttention ? String(attentionTotal) : "");
   setTextIfChanged(button.querySelector(".workspace-meta"), workspace.latestNotification || "");
@@ -2698,6 +2704,13 @@ function createSurfaceTab() {
     else focusPanel(panelId);
     scheduleActiveSurfaceTabIntoView(panelId);
   });
+  button.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".surface-close")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const found = findPanelState(button.dataset.panelId);
+    if (found && !isPendingPanel(found.panel)) renamePanel(found.panel);
+  });
   button.addEventListener("contextmenu", (event) => {
     const found = findPanelState(button.dataset.panelId);
     if (found) showPanelContextMenu(event, found.panel);
@@ -2740,7 +2753,7 @@ function updateSurfaceTab(button, workspace, panel) {
   const pending = isPendingPanel(panel);
   setDatasetIfChanged(button, "panelId", panel.id);
   setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
-  setTitleIfChanged(button, `${fullTitle}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - right-click for pane options`);
+  setTitleIfChanged(button, `${fullTitle}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - double-click to rename, right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setTextIfChanged(button.querySelector(".surface-label"), label);
 }
@@ -2854,6 +2867,7 @@ function renderPaneNode(panel, workspace, visibleCount) {
   const titleNode = pane.querySelector(".pane-title");
   setTextIfChanged(titleNode, title);
   setTitleIfChanged(titleNode, title);
+  setTitleIfChanged(pane.querySelector(".pane-header"), `${title} - double-click to rename`);
   const zoomButton = pane.querySelector(".zoom");
   setTextIfChanged(zoomButton, zoomed ? "↙" : "□");
   setTitleIfChanged(zoomButton, zoomed ? "Show all panes" : "Focus pane");
@@ -3240,6 +3254,13 @@ function createPane(panel) {
       return;
     }
     focusPanel(pane.dataset.panelId);
+  });
+  header.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".pane-toolbar, .pane-tool")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const found = findPanelState(pane.dataset.panelId);
+    if (found && !isPendingPanel(found.panel)) renamePanel(found.panel);
   });
   header.addEventListener("pointerdown", (event) => startPanePointerDrag(event, pane));
   pane.querySelector(".split-right").onclick = (event) => {
