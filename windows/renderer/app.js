@@ -68,6 +68,18 @@ const appearancePreviewKeys = new Set([
   "terminalForeground",
   "terminalCursorColor"
 ]);
+const terminalSettingsPreviewKeys = new Set([
+  "terminalFontFamily",
+  "terminalFontSize",
+  "terminalLineHeight",
+  "terminalPadding",
+  "terminalScrollback",
+  "terminalCursorStyle",
+  "terminalCursorBlink",
+  "terminalBackground",
+  "terminalForeground",
+  "terminalCursorColor"
+]);
 const terminalSearchDecorations = {
   matchBackground: "#5f4b1a",
   activeMatchBackground: "#9d6b20",
@@ -220,6 +232,7 @@ const state = {
   settingsSavePending: false,
   terminalAppearanceFrame: 0,
   appearancePreviewFrame: 0,
+  terminalSettingsPreviewFrame: 0,
   settingsFilterFrame: 0,
   renderStats: {
     count: 0,
@@ -1166,6 +1179,9 @@ function updateSettings(updates, options = {}) {
   }
   if (changedKeys.some((key) => appearancePreviewKeys.has(key))) {
     scheduleAppearancePreviewRefresh();
+  }
+  if (changedKeys.some((key) => terminalSettingsPreviewKeys.has(key))) {
+    scheduleTerminalSettingsPreviewRefresh();
   }
   if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
@@ -3258,6 +3274,7 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("terminal")) {
     const terminalSection = settingsSection("Terminal");
+    terminalSection.append(terminalSettingsPreviewPanel());
     const fontSelect = document.createElement("select");
     fontSelect.className = "setting-select";
     fontSelect.dataset.settingControl = "terminalFontFamily";
@@ -4241,6 +4258,58 @@ function refreshTerminalFontChoices() {
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   }
+}
+
+function terminalSettingsPreviewPanel() {
+  const panel = document.createElement("div");
+  const colors = terminalTheme();
+  const cursorStyle = state.settings.terminalCursorStyle || defaultSettings.terminalCursorStyle;
+  panel.className = `terminal-settings-preview cursor-${cursorStyle}${state.settings.terminalCursorBlink ? " cursor-blink" : ""}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery("terminal preview font size line height padding cursor blink color scrollback shell");
+  panel.style.setProperty("--terminal-preview-background", colors.background);
+  panel.style.setProperty("--terminal-preview-foreground", colors.foreground);
+  panel.style.setProperty("--terminal-preview-cursor", colors.cursor);
+  panel.style.setProperty("--terminal-preview-font", terminalFontStack());
+  panel.style.setProperty("--terminal-preview-font-size", `${state.settings.terminalFontSize}px`);
+  panel.style.setProperty("--terminal-preview-line-height", String(state.settings.terminalLineHeight));
+  panel.style.setProperty("--terminal-preview-padding", `${state.settings.terminalPadding}px`);
+  panel.innerHTML = `
+    <div class="terminal-preview-screen" aria-hidden="true">
+      <span class="terminal-preview-line prompt">PS C:\\app&gt; cmux status</span>
+      <span class="terminal-preview-line ok">workspace ready · panes warm</span>
+      <span class="terminal-preview-line">git status --short</span>
+      <span class="terminal-preview-cursor"></span>
+    </div>
+    <div class="terminal-preview-meta">
+      <span><b>Font</b><em data-terminal-preview-font></em></span>
+      <span><b>Size</b><em data-terminal-preview-size></em></span>
+      <span><b>Line</b><em data-terminal-preview-line></em></span>
+      <span><b>Padding</b><em data-terminal-preview-padding></em></span>
+      <span><b>Cursor</b><em data-terminal-preview-cursor></em></span>
+      <span><b>History</b><em data-terminal-preview-history></em></span>
+    </div>
+  `;
+  panel.querySelector("[data-terminal-preview-font]").textContent = optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono");
+  panel.querySelector("[data-terminal-preview-size]").textContent = `${state.settings.terminalFontSize}px`;
+  panel.querySelector("[data-terminal-preview-line]").textContent = formatLineHeight(state.settings.terminalLineHeight);
+  panel.querySelector("[data-terminal-preview-padding]").textContent = `${state.settings.terminalPadding}px`;
+  panel.querySelector("[data-terminal-preview-cursor]").textContent = `${optionLabel(terminalCursorStyles, cursorStyle, "Block")}${state.settings.terminalCursorBlink ? " blink" : ""}`;
+  panel.querySelector("[data-terminal-preview-history]").textContent = String(state.settings.terminalScrollback);
+  return panel;
+}
+
+function scheduleTerminalSettingsPreviewRefresh() {
+  if (state.terminalSettingsPreviewFrame) return;
+  state.terminalSettingsPreviewFrame = requestAnimationFrame(() => {
+    state.terminalSettingsPreviewFrame = 0;
+    refreshTerminalSettingsPreview();
+  });
+}
+
+function refreshTerminalSettingsPreview() {
+  const preview = elements.inspectorBody.querySelector(".terminal-settings-preview");
+  if (preview) preview.replaceWith(terminalSettingsPreviewPanel());
+  if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
 }
 
 function colorPicker(activeColor, onPick, fallback = "#5d8cff") {

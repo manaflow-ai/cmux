@@ -2622,6 +2622,110 @@ body.reduce-motion *::after {
   font-weight: 720;
 }
 
+.terminal-settings-preview {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 84%, var(--color-rail) 16%);
+}
+
+.terminal-preview-screen {
+  min-width: 0;
+  min-height: 116px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  overflow: hidden;
+  padding: max(8px, var(--terminal-preview-padding));
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background: var(--terminal-preview-background);
+  color: var(--terminal-preview-foreground);
+  font-family: var(--terminal-preview-font);
+  font-size: var(--terminal-preview-font-size);
+  line-height: var(--terminal-preview-line-height);
+}
+
+.terminal-preview-line {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.terminal-preview-line.prompt {
+  color: color-mix(in oklch, var(--terminal-preview-cursor) 78%, var(--terminal-preview-foreground) 22%);
+}
+
+.terminal-preview-line.ok {
+  color: color-mix(in oklch, var(--color-success) 78%, var(--terminal-preview-foreground) 22%);
+}
+
+.terminal-preview-cursor {
+  width: .68em;
+  height: 1.1em;
+  display: block;
+  background: var(--terminal-preview-cursor);
+}
+
+.terminal-settings-preview.cursor-bar .terminal-preview-cursor {
+  width: 2px;
+}
+
+.terminal-settings-preview.cursor-underline .terminal-preview-cursor {
+  width: .9em;
+  height: 2px;
+}
+
+.terminal-settings-preview.cursor-blink .terminal-preview-cursor {
+  animation: terminal-preview-blink 1s steps(2, start) infinite;
+}
+
+.terminal-preview-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.terminal-preview-meta span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+}
+
+.terminal-preview-meta b,
+.terminal-preview-meta em {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-style: normal;
+}
+
+.terminal-preview-meta b {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.terminal-preview-meta em {
+  color: var(--color-text);
+  font-size: 12px;
+}
+
+@keyframes terminal-preview-blink {
+  50% {
+    opacity: .18;
+  }
+}
+
 .color-picker {
   min-width: 0;
   display: grid;
