@@ -1866,9 +1866,60 @@ body.reduce-motion *::after {
   text-align: center;
 }
 
-.empty-workspace img {
-  width: 118px;
-  height: 118px;
+.empty-workspace-logo {
+  width: 104px;
+  height: 104px;
+  display: block;
+  color: var(--color-text);
+  filter: drop-shadow(0 14px 28px color-mix(in oklch, var(--color-canvas) 50%, transparent));
+}
+
+.empty-workspace-logo svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.empty-logo-shell {
+  fill: color-mix(in oklch, var(--color-pane-warm) 84%, var(--color-canvas) 16%);
+}
+
+.empty-logo-window {
+  fill: var(--color-pane);
+  stroke: var(--color-line-strong);
+  stroke-width: 2;
+}
+
+.empty-logo-accent {
+  fill: var(--color-accent);
+}
+
+.empty-logo-line {
+  fill: var(--color-muted);
+  opacity: .42;
+}
+
+.empty-logo-line.strong {
+  opacity: .76;
+}
+
+.empty-logo-stand {
+  fill: none;
+  stroke: var(--color-line-strong);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.empty-logo-dot {
+  fill: var(--color-warning);
+}
+
+.empty-logo-check {
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .empty-workspace-title {
@@ -5056,6 +5107,19 @@ textarea.dialog-input {
 
   .empty-workspace-starters {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .empty-workspace {
+    padding: var(--space-4);
+  }
+
+  .empty-workspace-inner {
+    gap: var(--space-2);
+  }
+
+  .empty-workspace-logo {
+    width: 60px;
+    height: 60px;
   }
 
   .terminal-search {

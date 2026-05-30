@@ -294,6 +294,7 @@ const state = {
   zoomedPanelIds: new Map(),
   minimizedPanelIds: new Set(),
   pendingPanels: new Map(),
+  pendingClosedPanelIds: new Set(),
   focusedPanelId: null,
   contextMenu: null,
   activeDialog: null,
@@ -2197,6 +2198,22 @@ function applyPendingPanelsToState(nextData) {
   return nextData;
 }
 
+function applyPendingClosedPanelsToState(nextData) {
+  if (state.pendingClosedPanelIds.size === 0 || !Array.isArray(nextData?.workspaces)) return nextData;
+  for (const workspace of nextData.workspaces) {
+    const panels = workspace.panels || [];
+    const filtered = panels.filter((panel) => !state.pendingClosedPanelIds.has(panel.id));
+    if (filtered.length === panels.length) continue;
+    workspace.panels = filtered;
+    if (state.pendingClosedPanelIds.has(workspace.activePanelId)) {
+      workspace.activePanelId = filtered[0]?.id || null;
+    }
+    workspace.terminalCount = filtered.filter((panel) => panel.type === "terminal").length;
+    workspace.browserCount = filtered.filter((panel) => panel.type === "browser").length;
+  }
+  return nextData;
+}
+
 function applyPendingTerminalFontSizesToState(nextData) {
   if (state.pendingTerminalFontSizeSync.size === 0 || !Array.isArray(nextData?.workspaces)) return nextData;
   for (const workspace of nextData.workspaces) {
@@ -2211,7 +2228,9 @@ function applyPendingTerminalFontSizesToState(nextData) {
 
 function setAppState(nextData, { previousState = state.data, schedule = false } = {}) {
   const protectedData = applyPendingTerminalFontSizesToState(
-    applyPendingPanelsToState(applyPendingFocusToState(nextData))
+    applyPendingClosedPanelsToState(
+      applyPendingPanelsToState(applyPendingFocusToState(nextData))
+    )
   );
   const nextSignature = appStateSignature(protectedData);
   if (nextSignature && nextSignature === state.dataSignature) {
@@ -2860,12 +2879,37 @@ function browserUrlChangeNeedsRender(panel, nextUrl) {
     || panelDisplayTitle(panel, false) !== panelDisplayTitle(nextPanel, false);
 }
 
+function createEmptyWorkspaceLogo() {
+  const logo = document.createElement("div");
+  logo.className = "empty-workspace-logo";
+  logo.setAttribute("role", "img");
+  logo.setAttribute("aria-label", "cmux Windows");
+  logo.innerHTML = `
+    <svg viewBox="0 0 180 180" aria-hidden="true" focusable="false">
+      <rect class="empty-logo-shell" width="180" height="180" rx="28"></rect>
+      <rect class="empty-logo-window" x="34" y="38" width="112" height="88" rx="10"></rect>
+      <rect class="empty-logo-accent" x="46" y="54" width="54" height="8" rx="4"></rect>
+      <rect class="empty-logo-line strong" x="46" y="74" width="86" height="8" rx="4"></rect>
+      <rect class="empty-logo-line" x="46" y="94" width="66" height="8" rx="4"></rect>
+      <path class="empty-logo-stand" d="M64 142h52M90 126v18"></path>
+      <circle class="empty-logo-dot" cx="129" cy="54" r="5"></circle>
+      <path class="empty-logo-check" d="M57 119 72 134l34-42"></path>
+    </svg>
+  `;
+  return logo;
+}
+
+function ensureEmptyWorkspaceLogo(node) {
+  const inner = node?.querySelector(".empty-workspace-inner");
+  if (!inner || inner.querySelector(".empty-workspace-logo")) return;
+  inner.prepend(createEmptyWorkspaceLogo());
+}
+
 function createEmptyWorkspace(workspace) {
   const node = document.createElement("div");
   node.className = "empty-workspace";
   node.innerHTML = `
     <div class="empty-workspace-inner">
-      <img src="/assets/cmux-empty.svg" alt="cmux Windows">
       <div class="empty-workspace-title"></div>
       <div class="empty-workspace-body">Start with a pane or build a ready workspace layout.</div>
       <div class="empty-workspace-actions">
@@ -2875,6 +2919,7 @@ function createEmptyWorkspace(workspace) {
       <div class="empty-workspace-starters"></div>
     </div>
   `;
+  ensureEmptyWorkspaceLogo(node);
   node.querySelector(".empty-workspace-title").textContent = "cmux";
   node.querySelector(".new-terminal").onclick = () => createPanel("terminal", "right");
   node.querySelector(".new-browser").onclick = () => openBrowserHome(workspace?.id);
@@ -2887,6 +2932,7 @@ function renderEmptyWorkspace(workspace) {
   if (!node) {
     node = createEmptyWorkspace(workspace);
   } else {
+    ensureEmptyWorkspaceLogo(node);
     node.querySelector(".empty-workspace-title").textContent = "cmux";
     renderEmptyWorkspaceStarters(node, workspace);
   }
@@ -8741,6 +8787,7 @@ async function reopenClosedPanel() {
 async function closePanel(panelId) {
   if (!panelId || isUiOperationActive(`close-panel:${panelId}`)) return;
   return withUiOperation(`close-panel:${panelId}`, "close-panel", "Closing pane...", async () => {
+    state.pendingClosedPanelIds.add(panelId);
     rememberClosedPanel(panelId);
     removePanelFromAllPaneTrees(panelId);
     optimisticClosePanel(panelId);
@@ -8748,8 +8795,11 @@ async function closePanel(panelId) {
       await api(`/api/panels/${panelId}`, { method: "DELETE" });
       await loadState();
     } catch {
+      state.pendingClosedPanelIds.delete(panelId);
       await loadState();
+      return;
     }
+    state.pendingClosedPanelIds.delete(panelId);
   });
 }
 
@@ -8760,6 +8810,7 @@ async function closePanelsById(panelIds) {
   if (isUiOperationActive(key)) return;
   const label = ids.length === 1 ? "Closing pane..." : `Closing ${ids.length} panes...`;
   return withUiOperation(key, "close-panel", label, async () => {
+    for (const panelId of ids) state.pendingClosedPanelIds.add(panelId);
     let changed = false;
     for (const panelId of ids) {
       rememberClosedPanel(panelId);
@@ -8769,9 +8820,13 @@ async function closePanelsById(panelIds) {
     if (changed) render();
     try {
       await Promise.all(ids.map((panelId) => api(`/api/panels/${panelId}`, { method: "DELETE" })));
-    } finally {
       await loadState();
+    } catch {
+      for (const panelId of ids) state.pendingClosedPanelIds.delete(panelId);
+      await loadState();
+      return;
     }
+    for (const panelId of ids) state.pendingClosedPanelIds.delete(panelId);
   });
 }
 
