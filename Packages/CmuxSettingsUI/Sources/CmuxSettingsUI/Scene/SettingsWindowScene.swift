@@ -391,10 +391,11 @@ public struct SettingsWindowRoot: View {
         let sectionID = self.anchorID(for: target)
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
-        // Arm (or clear) the row highlight before the scroll so the
-        // pulse is already live when the target row lands in view.
-        // Mirrors legacy SettingsView.applySettingsNavigation.
-        if shouldHighlight && anchorID != sectionID {
+        // Arm (or clear) the highlight before the scroll so the pulse is
+        // already live when the target lands in view. A section hit
+        // (anchorID == sectionID) highlights the section header; a row
+        // hit highlights that row. Mirrors legacy applySettingsNavigation.
+        if shouldHighlight {
             searchHighlight = SettingsSearchHighlightState(
                 anchorID: anchorID,
                 token: searchHighlight.token + 1,
@@ -410,7 +411,9 @@ public struct SettingsWindowRoot: View {
         DispatchQueue.main.async {
             guard navigationGeneration == settingsNavigationGeneration else { return }
             proxy.scrollTo(sectionID, anchor: .top)
-            if shouldHighlight && anchorID != sectionID {
+            // Deep row hits also center the specific row; section hits
+            // only need the section-top scroll (the header pulses there).
+            if anchorID != sectionID {
                 proxy.scrollTo(anchorID, anchor: .center)
             }
         }

@@ -14,7 +14,7 @@ public struct BetaFeaturesSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"))
+            SettingsSectionHeader(String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features"), section: .betaFeatures)
             SettingsCard {
                 BetaFeaturesWarningNote(
                     String(localized: "settings.betaFeatures.warning", defaultValue: "Dock is unstable and may change or break. Enable it only when you are testing it.")

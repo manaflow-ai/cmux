@@ -26,7 +26,7 @@ public struct AccountSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.account", defaultValue: "Account"))
+            SettingsSectionHeader(String(localized: "settings.section.account", defaultValue: "Account"), section: .account)
             SettingsCard {
                 AccountIdentityCard(flow: accountFlow)
             }

@@ -36,7 +36,7 @@ public struct GlobalHotkeySection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"))
+            SettingsSectionHeader(String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), section: .globalHotkey)
                 .accessibilityIdentifier("SettingsGlobalHotkeySection")
             mainCard
             SettingsCardNote(

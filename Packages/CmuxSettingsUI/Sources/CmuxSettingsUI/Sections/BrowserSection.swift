@@ -67,7 +67,7 @@ public struct BrowserSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"))
+            SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"), section: .browser)
                 .accessibilityIdentifier("SettingsBrowserSection")
             mainCard
         }
@@ -267,6 +267,7 @@ public struct BrowserSection: View {
                 onImport: { hostActions.openBrowserImportFlow() }
             )
             .id(importAnchorID ?? "section:browserImport.inline")
+            .settingsSearchHighlight(importAnchorID.map { [$0] } ?? [])
             SettingsCardDivider()
 
             // React Grab Version

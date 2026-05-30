@@ -41,7 +41,7 @@ public struct KeyboardShortcutsSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+            SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
                 chordsRow

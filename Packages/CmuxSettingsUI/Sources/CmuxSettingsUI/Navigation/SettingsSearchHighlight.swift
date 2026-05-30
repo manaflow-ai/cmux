@@ -92,6 +92,20 @@ extension View {
             self
         }
     }
+
+    /// Eligible for the highlight pulse without claiming a `scrollTo`
+    /// `.id`. Used by section headers, whose enclosing section already
+    /// owns the `section:<raw>` scroll anchor — applying `.id` here too
+    /// would create a duplicate id and break scroll resolution.
+    @ViewBuilder
+    func settingsSearchHighlight(_ anchorIDs: [String]) -> some View {
+        let filteredAnchorIDs = anchorIDs.filter { !$0.isEmpty }
+        if filteredAnchorIDs.isEmpty {
+            self
+        } else {
+            self.modifier(SettingsSearchHighlightModifier(anchorIDs: filteredAnchorIDs))
+        }
+    }
 }
 
 /// Renders the pulsing accent border behind a row while it is the

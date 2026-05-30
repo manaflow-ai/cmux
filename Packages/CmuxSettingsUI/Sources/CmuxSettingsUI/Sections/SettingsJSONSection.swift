@@ -16,7 +16,7 @@ public struct SettingsJSONSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"))
+            SettingsSectionHeader(String(localized: "settings.section.settingsJSON", defaultValue: "cmux.json"), section: .settingsJSON)
                 .accessibilityIdentifier("SettingsJSONSection")
             SettingsCard {
                 userConfigFileRow

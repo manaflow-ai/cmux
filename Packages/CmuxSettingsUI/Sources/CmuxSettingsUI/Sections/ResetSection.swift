@@ -19,7 +19,7 @@ public struct ResetSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.reset", defaultValue: "Reset"))
+            SettingsSectionHeader(String(localized: "settings.section.reset", defaultValue: "Reset"), section: .reset)
             SettingsCard {
                 HStack {
                     Spacer(minLength: 0)
