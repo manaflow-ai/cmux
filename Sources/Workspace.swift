@@ -13184,6 +13184,18 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontPoints = fontPoints
     }
 
+    private func terminalConfigTemplateForStartupCommand(
+        _ configTemplate: CmuxSurfaceConfigTemplate?,
+        clearsWorkingDirectory: Bool
+    ) -> CmuxSurfaceConfigTemplate {
+        var template = configTemplate ?? CmuxSurfaceConfigTemplate()
+        template.waitAfterCommand = true
+        if clearsWorkingDirectory {
+            template.workingDirectory = nil
+        }
+        return template
+    }
+
     private func resolvedTerminalInheritanceFontPoints(
         for terminalPanel: TerminalPanel,
         sourceSurface: ghostty_surface_t,
@@ -13384,6 +13396,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let usesRemoteTerminalStartupCommand = explicitInitialCommand == nil && remoteTerminalStartupCommand != nil
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // Hold the pane open after the remote session ends so the user can read the
         // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
@@ -13391,9 +13404,10 @@ final class Workspace: Identifiable, ObservableObject {
         // to $SHELL), and a dead VM looks identical to a healthy workspace with a
         // local prompt — which is what we saw during dogfood.
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = terminalConfigTemplateForStartupCommand(
+                inheritedConfig,
+                clearsWorkingDirectory: usesRemoteTerminalStartupCommand
+            )
         }
 #if DEBUG
         dlog(
@@ -13424,6 +13438,7 @@ final class Workspace: Identifiable, ObservableObject {
             let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             return workspaceDirectory.isEmpty ? nil : workspaceDirectory
         }()
+        let terminalWorkingDirectory = usesRemoteTerminalStartupCommand ? nil : splitWorkingDirectory
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -13435,7 +13450,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
+            workingDirectory: terminalWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -13444,6 +13459,10 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if usesRemoteTerminalStartupCommand,
+           let splitWorkingDirectory {
+            updatePanelDirectory(panelId: newPanel.id, directory: splitWorkingDirectory)
+        }
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
@@ -13485,6 +13504,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panelDirectories.removeValue(forKey: newPanel.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -13559,14 +13579,16 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let usesRemoteTerminalStartupCommand = explicitInitialCommand == nil && remoteTerminalStartupCommand != nil
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = terminalConfigTemplateForStartupCommand(
+                inheritedConfig,
+                clearsWorkingDirectory: usesRemoteTerminalStartupCommand
+            )
         }
 
         // Create new terminal panel
@@ -13574,7 +13596,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: usesRemoteTerminalStartupCommand ? nil : workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -13584,6 +13606,10 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if usesRemoteTerminalStartupCommand,
+           let workingDirectory {
+            updatePanelDirectory(panelId: newPanel.id, directory: workingDirectory)
+        }
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
@@ -13606,6 +13632,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            panelDirectories.removeValue(forKey: newPanel.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -16620,16 +16647,18 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = terminalConfigTemplateForStartupCommand(
+                inheritedConfig,
+                clearsWorkingDirectory: true
+            )
         }
+        let terminalWorkingDirectory = startupCommand == nil ? workingDirectory : nil
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: terminalWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput
@@ -16637,6 +16666,10 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if startupCommand != nil,
+           let workingDirectory {
+            updatePanelDirectory(panelId: newPanel.id, directory: workingDirectory)
+        }
         if startupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
@@ -16657,6 +16690,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panelDirectories.removeValue(forKey: newPanel.id)
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -17853,9 +17887,19 @@ extension Workspace: BonsplitDelegate {
             "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
         )
 #endif
-        let rearmBrowserPortalHostReplacement: (PaneID, String) -> Void = { paneId, reason in
+        var rearmedBrowserPanelIds: Set<UUID> = []
+        for paneId in controller.allPaneIds {
+            let reason: String
+            if paneId == originalPane {
+                reason = "workspace.didSplit.original"
+            } else if paneId == newPane {
+                reason = "workspace.didSplit.new"
+            } else {
+                reason = "workspace.didSplit.topology"
+            }
             for tab in controller.tabs(inPane: paneId) {
                 guard let panelId = self.panelIdFromSurfaceId(tab.id),
+                      rearmedBrowserPanelIds.insert(panelId).inserted,
                       let browserPanel = self.browserPanel(for: panelId) else {
                     continue
                 }
@@ -17865,8 +17909,6 @@ extension Workspace: BonsplitDelegate {
                 )
             }
         }
-        rearmBrowserPortalHostReplacement(originalPane, "workspace.didSplit.original")
-        rearmBrowserPortalHostReplacement(newPane, "workspace.didSplit.new")
 
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
