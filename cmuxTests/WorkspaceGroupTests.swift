@@ -500,13 +500,19 @@ struct WorkspaceGroupTests {
         ])
     }
 
-    @Test func workspaceGroupNewPlacementParsesConfigSpellings() {
-        #expect(WorkspaceGroupNewPlacement(rawString: "afterCurrent") == .afterCurrent)
-        #expect(WorkspaceGroupNewPlacement(rawString: "after-current") == .afterCurrent)
-        #expect(WorkspaceGroupNewPlacement(rawString: "after_current") == .afterCurrent)
-        #expect(WorkspaceGroupNewPlacement(rawString: "top") == .top)
-        #expect(WorkspaceGroupNewPlacement(rawString: "end") == .end)
-        #expect(WorkspaceGroupNewPlacement(rawString: "middle") == nil)
+    @Test(arguments: [
+        ("afterCurrent", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
+        ("after-current", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
+        ("after_current", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
+        ("top", WorkspaceGroupNewPlacement?.some(.top)),
+        ("end", WorkspaceGroupNewPlacement?.some(.end)),
+        ("middle", nil),
+    ])
+    func workspaceGroupNewPlacementParsesConfigSpellings(
+        input: String,
+        expected: WorkspaceGroupNewPlacement?
+    ) {
+        #expect(WorkspaceGroupNewPlacement(rawString: input) == expected)
     }
 
     @Test func removeNonAnchorPreservesGroup() {

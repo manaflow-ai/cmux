@@ -169,7 +169,8 @@
           "type": "string",
           "enum": ["afterCurrent", "top", "end"],
           "default": "afterCurrent",
-          "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member)."
+          "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
+          "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
         },
         "byCwd": {
           "type": "object",
@@ -199,7 +200,8 @@
               "newWorkspacePlacement": {
                 "type": "string",
                 "enum": ["afterCurrent", "top", "end"],
-                "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted."
+                "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted.",
+                "descriptionKey": "schemaDescriptions.workspaceGroups.byCwd.newWorkspacePlacement"
               }
             }
           }
