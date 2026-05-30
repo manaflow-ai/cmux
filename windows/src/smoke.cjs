@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { WebSocket } = require("ws");
 const { createCmuxWindowsRuntime } = require("./server.cjs");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}-`));
@@ -28,6 +29,26 @@ function pipeRoundTrip(command) {
     });
     socket.on("error", reject);
   });
+}
+
+function waitForWebSocketOpen(socket) {
+  return new Promise((resolve, reject) => {
+    if (socket.readyState === WebSocket.OPEN) {
+      resolve();
+      return;
+    }
+    socket.once("open", resolve);
+    socket.once("error", reject);
+  });
+}
+
+async function waitForCondition(label, probe, timeoutMs = 3000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (probe()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`${label} timed out`);
 }
 
 (async () => {
@@ -136,6 +157,39 @@ function pipeRoundTrip(command) {
   assert(defaultBrowserResponse.ok, "default browser create failed");
   const defaultBrowser = await defaultBrowserResponse.json();
   assert(defaultBrowser.url === "https://www.google.com", "default browser should open Google");
+
+  const eventSocket = new WebSocket(`${info.url.replace(/^http/, "ws")}events`);
+  await waitForWebSocketOpen(eventSocket);
+  const originalEnsureTerminalProcess = runtime.ensureTerminalProcess.bind(runtime);
+  const prewarmedPanelIds = new Set();
+  runtime.ensureTerminalProcess = (panel) => {
+    prewarmedPanelIds.add(panel.id);
+    return { closed: false, close() {} };
+  };
+  try {
+    const prewarmWorkspaceResponse = await fetch(`${info.url}api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Prewarm Smoke" })
+    });
+    assert(prewarmWorkspaceResponse.ok, "prewarm workspace create failed");
+    const prewarmWorkspace = await prewarmWorkspaceResponse.json();
+    const prewarmInitialTerminal = prewarmWorkspace.panels[0];
+    assert(prewarmInitialTerminal?.type === "terminal", "prewarm workspace should start with a terminal");
+    await waitForCondition("initial workspace terminal prewarm", () => prewarmedPanelIds.has(prewarmInitialTerminal.id));
+
+    const prewarmTerminalResponse = await fetch(`${info.url}api/panels`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: prewarmWorkspace.id, type: "terminal", direction: "right" })
+    });
+    assert(prewarmTerminalResponse.ok, "prewarm terminal create failed");
+    const prewarmTerminal = await prewarmTerminalResponse.json();
+    await waitForCondition("created terminal prewarm", () => prewarmedPanelIds.has(prewarmTerminal.id));
+  } finally {
+    runtime.ensureTerminalProcess = originalEnsureTerminalProcess;
+    eventSocket.close();
+  }
 
   const restartResponse = await fetch(`${info.url}api/panels/${terminal.id}/restart`, {
     method: "POST"

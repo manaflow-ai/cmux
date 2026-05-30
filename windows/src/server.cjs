@@ -20,7 +20,7 @@ const defaultPipeName = process.platform === "win32"
   : path.join(os.tmpdir(), "cmux-windows.sock");
 const defaultBrowserHomeUrl = "https://www.google.com";
 const terminalMetadataBroadcastDelayMs = 160;
-const terminalPrewarmDelayMs = 60;
+const terminalPrewarmDelayMs = 0;
 
 const workspaceColors = [
   "oklch(62% 0.22 255)",
@@ -666,6 +666,7 @@ class CmuxWindowsRuntime {
     this.state.workspaces.push(workspace);
     this.state.activeWorkspaceId = workspace.id;
     this.persistAndBroadcast();
+    this.scheduleTerminalPrewarm(workspace.panels[0]);
     return workspace;
   }
 
@@ -680,6 +681,7 @@ class CmuxWindowsRuntime {
     this.state.workspaces.push(workspace);
     this.state.activeWorkspaceId = workspace.id;
     this.persistAndBroadcast();
+    this.scheduleTerminalPrewarm(workspace.panels[0]);
     return workspace;
   }
 
