@@ -250,6 +250,7 @@ export const settingsCategories = [
   ["layout", "Layout"],
   ["performance", "Performance"],
   ["actions", "Actions"],
+  ["commands", "Commands"],
   ["terminal", "Terminal"],
   ["data", "Data"]
 ];

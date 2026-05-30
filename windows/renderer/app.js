@@ -32,8 +32,10 @@ const terminalSearchDecorations = {
 const paneLayoutStorageKey = "cmux.paneLayout";
 const recentFoldersStorageKey = "cmux.recentWorkspaceFolders";
 const recentCommandsStorageKey = "cmux.recentTerminalCommands";
+const customCommandSnippetsStorageKey = "cmux.customTerminalCommandSnippets";
 const recentFoldersLimit = 8;
 const recentCommandsLimit = 8;
+const customCommandSnippetsLimit = 20;
 const paneLayoutScale = 1000;
 const paneLayoutMaxWeight = 10000;
 const settingsSaveDelay = 140;
@@ -60,12 +62,16 @@ const workspaceStarters = [
   }
 ];
 
-const terminalCommandSnippets = [
+const builtInTerminalCommandSnippets = [
   { id: "listFiles", label: "List Workspace Files", command: "dir" },
   { id: "gitStatus", label: "Git Status", command: "git status" },
+  { id: "gitPull", label: "Git Pull", command: "git pull --ff-only" },
+  { id: "gitPush", label: "Git Push", command: "git push" },
   { id: "npmScripts", label: "Show NPM Scripts", command: "npm run" },
   { id: "ghPrStatus", label: "GH PR Status", command: "gh pr status" },
-  { id: "ghPrChecks", label: "GH PR Checks", command: "gh pr checks" }
+  { id: "ghPrChecks", label: "GH PR Checks", command: "gh pr checks" },
+  { id: "ghPrViewWeb", label: "GH PR View in Browser", command: "gh pr view --web" },
+  { id: "ghPrMergeHelp", label: "GH PR Merge Help", command: "gh pr merge --help" }
 ];
 
 const initialSettings = loadSettings();
@@ -80,6 +86,7 @@ const state = {
   paneLayouts: loadPaneLayouts(),
   recentFolders: loadRecentFolders(),
   recentCommands: loadRecentCommands(),
+  customCommandSnippets: loadCustomCommandSnippets(),
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
@@ -386,6 +393,89 @@ function clearRecentCommands() {
   saveRecentCommands();
   renderSettingsInspector();
   toast("Recent commands cleared.");
+}
+
+function normalizeSnippetLabel(label, command = "") {
+  const value = String(label || "").replace(/\s+/g, " ").trim();
+  if (value) return value.slice(0, 56);
+  const fallback = normalizeTerminalCommand(command);
+  return (fallback || "Command").slice(0, 56);
+}
+
+function createCustomCommandSnippetId() {
+  return `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeCustomCommandSnippet(entry) {
+  const command = normalizeTerminalCommand(entry?.command);
+  if (!command) return null;
+  const id = /^[a-z0-9_-]+$/i.test(entry?.id || "") ? entry.id : createCustomCommandSnippetId();
+  return {
+    id,
+    label: normalizeSnippetLabel(entry?.label, command),
+    command
+  };
+}
+
+function loadCustomCommandSnippets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(customCommandSnippetsStorageKey) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const snippets = [];
+    const seenCommands = new Set();
+    const seenIds = new Set();
+    for (const entry of parsed) {
+      const snippet = normalizeCustomCommandSnippet(entry);
+      if (!snippet) continue;
+      const commandKey = snippet.command.toLowerCase();
+      if (seenCommands.has(commandKey)) continue;
+      if (seenIds.has(snippet.id)) snippet.id = createCustomCommandSnippetId();
+      seenCommands.add(commandKey);
+      seenIds.add(snippet.id);
+      snippets.push(snippet);
+      if (snippets.length >= customCommandSnippetsLimit) break;
+    }
+    return snippets;
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomCommandSnippets() {
+  localStorage.setItem(customCommandSnippetsStorageKey, JSON.stringify(state.customCommandSnippets));
+}
+
+function allTerminalCommandSnippets() {
+  return [
+    ...builtInTerminalCommandSnippets.map((snippet) => ({ ...snippet, builtIn: true })),
+    ...state.customCommandSnippets.map((snippet) => ({ ...snippet, builtIn: false }))
+  ];
+}
+
+function findTerminalCommandSnippet(snippetId) {
+  return allTerminalCommandSnippets().find((candidate) => candidate.id === snippetId);
+}
+
+function upsertCustomCommandSnippet(snippet) {
+  const normalized = normalizeCustomCommandSnippet(snippet);
+  if (!normalized) return null;
+  const commandKey = normalized.command.toLowerCase();
+  const id = normalized.id || createCustomCommandSnippetId();
+  const replacing = state.customCommandSnippets.some((candidate) => (
+    candidate.id === id || candidate.command.toLowerCase() === commandKey
+  ));
+  if (!replacing && state.customCommandSnippets.length >= customCommandSnippetsLimit) {
+    toast(`Snippet limit is ${customCommandSnippetsLimit}. Delete one first.`);
+    return null;
+  }
+  state.customCommandSnippets = [
+    { ...normalized, id },
+    ...state.customCommandSnippets.filter((candidate) => (
+      candidate.id !== id && candidate.command.toLowerCase() !== commandKey
+    ))
+  ];
+  saveCustomCommandSnippets();
+  return state.customCommandSnippets[0];
 }
 
 function settingsRenderSignature(settings = state.settings) {
@@ -737,9 +827,13 @@ const commands = [
   { id: "terminal.runCommand", label: "Run Command in Active Terminal", shortcut: "Ctrl+Shift+Enter", run: () => promptRunTerminalCommand() },
   { id: "terminal.runListFiles", label: "Run List Workspace Files", shortcut: "", run: () => runTerminalCommandSnippet("listFiles") },
   { id: "terminal.runGitStatus", label: "Run Git Status", shortcut: "", run: () => runTerminalCommandSnippet("gitStatus") },
+  { id: "terminal.runGitPull", label: "Run Git Pull", shortcut: "", run: () => runTerminalCommandSnippet("gitPull") },
+  { id: "terminal.runGitPush", label: "Run Git Push", shortcut: "", run: () => runTerminalCommandSnippet("gitPush") },
   { id: "terminal.runNpmScripts", label: "Run NPM Scripts", shortcut: "", run: () => runTerminalCommandSnippet("npmScripts") },
   { id: "terminal.runGhPrStatus", label: "Run GH PR Status", shortcut: "", run: () => runTerminalCommandSnippet("ghPrStatus") },
   { id: "terminal.runGhPrChecks", label: "Run GH PR Checks", shortcut: "", run: () => runTerminalCommandSnippet("ghPrChecks") },
+  { id: "terminal.runGhPrViewWeb", label: "Run GH PR View in Browser", shortcut: "", run: () => runTerminalCommandSnippet("ghPrViewWeb") },
+  { id: "terminal.runGhPrMergeHelp", label: "Run GH PR Merge Help", shortcut: "", run: () => runTerminalCommandSnippet("ghPrMergeHelp") },
   { id: "terminal.find", label: "Find in Active Terminal", shortcut: "Ctrl+F", run: () => openTerminalSearch() },
   { id: "terminal.findNext", label: "Find Next in Terminal", shortcut: "F3", run: () => findNextInTerminal() },
   { id: "terminal.findPrevious", label: "Find Previous in Terminal", shortcut: "Shift+F3", run: () => findPreviousInTerminal() },
@@ -762,6 +856,7 @@ const commands = [
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
+  { id: "settings.commands", label: "Open Command Snippets", shortcut: "", run: () => openSettingsCategory("commands") },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -2266,6 +2361,12 @@ function renderSettingsInspector() {
     nodes.push(actionsSection);
   }
 
+  if (shouldBuildSection("commands")) {
+    const snippetsSection = settingsSection("Command snippets", "terminal command snippets saved custom git github gh cli run add edit delete palette");
+    snippetsSection.append(commandSnippetsSettings());
+    nodes.push(snippetsSection);
+  }
+
   if (shouldBuildSection("terminal")) {
     const terminalSection = settingsSection("Terminal");
     const fontSelect = document.createElement("select");
@@ -2921,6 +3022,142 @@ function recentCommandsSettings() {
   return section;
 }
 
+function commandSnippetsSettings() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "command-snippet-list";
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("command snippets terminal launcher saved built in custom git github gh cli add edit delete run");
+
+  const customHeader = document.createElement("div");
+  customHeader.className = "recent-folder-header";
+  const customTitle = document.createElement("span");
+  customTitle.textContent = "Saved snippets";
+  const add = settingsActionButton("Add", addCustomCommandSnippet, "", "custom terminal command snippet add create");
+  add.disabled = state.customCommandSnippets.length >= customCommandSnippetsLimit;
+  customHeader.append(customTitle, add);
+  wrapper.append(customHeader);
+
+  if (state.customCommandSnippets.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "recent-folder-empty";
+    empty.textContent = "Save commands you run often. They stay searchable from Settings and the command palette.";
+    wrapper.append(empty);
+  } else {
+    for (const snippet of state.customCommandSnippets) {
+      wrapper.append(commandSnippetCard({ ...snippet, builtIn: false }));
+    }
+  }
+
+  const builtInHeader = document.createElement("div");
+  builtInHeader.className = "command-snippet-group-title";
+  builtInHeader.textContent = "Built-in snippets";
+  wrapper.append(builtInHeader);
+  for (const snippet of builtInTerminalCommandSnippets) {
+    wrapper.append(commandSnippetCard({ ...snippet, builtIn: true }));
+  }
+
+  return wrapper;
+}
+
+function commandSnippetCard(snippet) {
+  const card = document.createElement("div");
+  card.className = "recent-folder-card command-snippet-card";
+  card.dataset.settingsSearch = normalizeSettingsQuery(`command snippet terminal shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`);
+
+  const text = document.createElement("div");
+  text.className = "recent-folder-text";
+  const name = document.createElement("div");
+  name.className = "recent-folder-name";
+  name.textContent = snippet.label;
+  name.title = snippet.label;
+  const command = document.createElement("div");
+  command.className = "recent-folder-path command-snippet-command";
+  command.textContent = snippet.command;
+  command.title = snippet.command;
+  text.append(name, command);
+
+  const actions = document.createElement("div");
+  actions.className = `recent-folder-actions command-snippet-actions${snippet.builtIn ? " is-built-in" : ""}`;
+  actions.append(settingsActionButton("Run", () => runTerminalCommand(snippet.command), "", `run command snippet ${snippet.label} ${snippet.command}`));
+  if (snippet.builtIn) {
+    actions.append(settingsActionButton("Save", () => saveBuiltInCommandSnippet(snippet), "", `save built in command snippet ${snippet.label}`));
+  } else {
+    actions.append(
+      settingsActionButton("Edit", () => editCustomCommandSnippet(snippet.id), "", `edit custom command snippet ${snippet.label}`),
+      settingsActionButton("Delete", () => deleteCustomCommandSnippet(snippet.id), "danger", `delete custom command snippet ${snippet.label}`)
+    );
+  }
+
+  card.append(text, actions);
+  return card;
+}
+
+async function addCustomCommandSnippet() {
+  const details = await showCommandSnippetDialog({
+    title: "Add command snippet",
+    confirmLabel: "Save"
+  });
+  if (!details) return;
+  const saved = upsertCustomCommandSnippet({
+    id: createCustomCommandSnippetId(),
+    label: details.label,
+    command: details.command
+  });
+  if (!saved) return;
+  renderSettingsInspector();
+  toast("Command snippet saved.");
+}
+
+async function editCustomCommandSnippet(snippetId) {
+  const snippet = state.customCommandSnippets.find((candidate) => candidate.id === snippetId);
+  if (!snippet) return;
+  const details = await showCommandSnippetDialog({
+    title: "Edit command snippet",
+    label: snippet.label,
+    command: snippet.command,
+    confirmLabel: "Save"
+  });
+  if (!details) return;
+  const saved = upsertCustomCommandSnippet({
+    id: snippet.id,
+    label: details.label,
+    command: details.command
+  });
+  if (!saved) return;
+  renderSettingsInspector();
+  toast("Command snippet updated.");
+}
+
+async function deleteCustomCommandSnippet(snippetId) {
+  const snippet = state.customCommandSnippets.find((candidate) => candidate.id === snippetId);
+  if (!snippet) return;
+  if (!await showConfirmDialog({
+    title: "Delete snippet",
+    message: `Delete "${snippet.label}"?`,
+    confirmLabel: "Delete",
+    danger: true
+  })) return;
+  state.customCommandSnippets = state.customCommandSnippets.filter((candidate) => candidate.id !== snippetId);
+  saveCustomCommandSnippets();
+  renderSettingsInspector();
+  toast("Command snippet deleted.");
+}
+
+function saveBuiltInCommandSnippet(snippet) {
+  const commandKey = snippet.command.toLowerCase();
+  if (state.customCommandSnippets.some((candidate) => candidate.command.toLowerCase() === commandKey)) {
+    toast("Snippet is already saved.");
+    return;
+  }
+  const saved = upsertCustomCommandSnippet({
+    id: createCustomCommandSnippetId(),
+    label: snippet.label,
+    command: snippet.command
+  });
+  if (!saved) return;
+  renderSettingsInspector();
+  toast("Command snippet saved.");
+}
+
 function workspaceStarterGrid() {
   const section = document.createElement("div");
   section.className = "workspace-starter-list";
@@ -3167,6 +3404,7 @@ function showToolbarMenu(event) {
     contextMenuButton("Performance settings", () => openSettingsCategory("performance")),
     contextMenuButton("Apply speed preset", () => applySettingsPresetById("performance")),
     contextMenuButton("Actions settings", () => openSettingsCategory("actions")),
+    contextMenuButton("Command snippets", () => openSettingsCategory("commands")),
     contextMenuButton("Notifications", () => openInspector("notifications")),
     contextMenuButton("Session tools", () => openInspector("session")),
     contextMenuButton("Reset session", resetSession, false, "danger")
@@ -3282,6 +3520,105 @@ function showTextDialog({
       input.select();
     });
   });
+}
+
+function showCommandSnippetDialog({
+  title = "Command snippet",
+  label = "",
+  command = "",
+  confirmLabel = "Save",
+  cancelLabel = "Cancel"
+} = {}) {
+  if (state.activeDialog) state.activeDialog.close(null);
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement("div");
+  overlay.className = "dialog-backdrop";
+  overlay.innerHTML = `
+    <div class="app-dialog" role="dialog" aria-modal="true">
+      <div class="dialog-title"></div>
+      <div class="dialog-message"></div>
+      <div class="dialog-field dialog-field-grid"></div>
+      <div class="dialog-actions">
+        <button class="dialog-button dialog-cancel" type="button"></button>
+        <button class="dialog-button primary dialog-confirm" type="button"></button>
+      </div>
+    </div>
+  `;
+  overlay.querySelector(".dialog-title").textContent = title;
+  const message = overlay.querySelector(".dialog-message");
+  message.textContent = "Name the command and keep the exact shell text you want to send.";
+  const field = overlay.querySelector(".dialog-field");
+  const cancel = overlay.querySelector(".dialog-cancel");
+  const confirm = overlay.querySelector(".dialog-confirm");
+  cancel.textContent = cancelLabel;
+  confirm.textContent = confirmLabel;
+
+  const nameInput = document.createElement("input");
+  nameInput.className = "dialog-input";
+  nameInput.type = "text";
+  nameInput.placeholder = "Git push";
+  nameInput.value = label;
+  const commandInput = document.createElement("input");
+  commandInput.className = "dialog-input";
+  commandInput.type = "text";
+  commandInput.placeholder = "git push";
+  commandInput.value = command;
+  field.append(
+    dialogInputRow("Name", nameInput),
+    dialogInputRow("Command", commandInput)
+  );
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      overlay.remove();
+      state.activeDialog = null;
+      if (previousFocus?.focus) previousFocus.focus();
+      resolve(result);
+    };
+    const submit = () => {
+      const normalizedCommand = normalizeTerminalCommand(commandInput.value);
+      if (!normalizedCommand) {
+        commandInput.focus();
+        toast("Enter a command first.");
+        return;
+      }
+      cleanup({
+        label: normalizeSnippetLabel(nameInput.value, normalizedCommand),
+        command: normalizedCommand
+      });
+    };
+    state.activeDialog = { close: cleanup };
+    cancel.onclick = () => cleanup(null);
+    confirm.onclick = submit;
+    overlay.addEventListener("mousedown", (event) => {
+      if (event.target === overlay) cleanup(null);
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup(null);
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submit();
+      }
+    });
+    document.body.append(overlay);
+    requestAnimationFrame(() => {
+      nameInput.focus();
+      nameInput.select();
+    });
+  });
+}
+
+function dialogInputRow(label, input) {
+  const row = document.createElement("label");
+  row.className = "dialog-field-row";
+  const text = document.createElement("span");
+  text.className = "dialog-field-label";
+  text.textContent = label;
+  row.append(text, input);
+  return row;
 }
 
 function showConfirmDialog({
@@ -3519,6 +3856,16 @@ function paletteEntries() {
       shortcut: "Recent",
       search: normalizeSettingsQuery(`recent terminal command shell run ${commandIndex + 1} ${command}`),
       run: () => runTerminalCommand(command)
+    });
+  }
+  for (const snippet of allTerminalCommandSnippets()) {
+    entries.push({
+      id: `commandSnippet.${snippet.id}`,
+      label: `Snippet: ${snippet.label}`,
+      meta: snippet.builtIn ? "Built-in terminal snippet" : "Saved terminal snippet",
+      shortcut: "Snippet",
+      search: normalizeSettingsQuery(`terminal command snippet shell run ${snippet.builtIn ? "built in" : "custom saved"} ${snippet.label} ${snippet.command}`),
+      run: () => runTerminalCommandSnippet(snippet.id)
     });
   }
   for (const [id, label] of settingsCategories.filter(([id]) => id !== "all")) {
@@ -4202,7 +4549,7 @@ async function promptRunTerminalCommand(panel = activePanel()) {
 }
 
 function runTerminalCommandSnippet(snippetId) {
-  const snippet = terminalCommandSnippets.find((candidate) => candidate.id === snippetId);
+  const snippet = findTerminalCommandSnippet(snippetId);
   if (!snippet) return false;
   return runTerminalCommand(snippet.command);
 }
@@ -4250,7 +4597,11 @@ async function pasteClipboardToTerminal(panel = activePanel()) {
 }
 
 async function exportSettings() {
-  const payload = JSON.stringify(state.settings, null, 2);
+  const payload = JSON.stringify({
+    version: 2,
+    settings: state.settings,
+    commandSnippets: state.customCommandSnippets
+  }, null, 2);
   if (await writeClipboardText(payload)) {
     toast("Settings copied to clipboard.");
     return;
@@ -4278,8 +4629,22 @@ async function importSettings() {
   });
   if (raw === null) return;
   try {
-    state.settings = normalizeSettings(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    state.settings = normalizeSettings(parsed?.settings && typeof parsed.settings === "object" ? parsed.settings : parsed);
     state.terminalFontSize = state.settings.terminalFontSize;
+    if (Array.isArray(parsed?.commandSnippets)) {
+      state.customCommandSnippets = [];
+      for (const entry of parsed.commandSnippets) {
+        if (state.customCommandSnippets.length >= customCommandSnippetsLimit) break;
+        const snippet = normalizeCustomCommandSnippet(entry);
+        if (!snippet) continue;
+        if (state.customCommandSnippets.some((candidate) => (
+          candidate.command.toLowerCase() === snippet.command.toLowerCase()
+        ))) continue;
+        state.customCommandSnippets.push(snippet);
+      }
+      saveCustomCommandSnippets();
+    }
     saveSettings();
     applySettings();
     scheduleTerminalAppearanceRefresh();

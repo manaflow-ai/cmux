@@ -1719,6 +1719,27 @@ button {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.command-snippet-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.command-snippet-group-title {
+  padding-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.command-snippet-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.command-snippet-actions.is-built-in {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .recent-folder-actions .settings-action {
   height: 26px;
 }
@@ -2257,6 +2278,27 @@ button {
 
 .dialog-field {
   min-width: 0;
+}
+
+.dialog-field-grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.dialog-field-row {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.dialog-field-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .dialog-input {
