@@ -994,7 +994,11 @@ function upsertSavedBackgroundImage(background, options = {}) {
 function applySavedBackgroundImage(backgroundId) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return;
-  updateSettings({ backgroundImage: background.url });
+  const changed = updateSettings({ backgroundImage: background.url });
+  if (!changed) {
+    toast(`${background.label} background already active.`);
+    return;
+  }
   renderSettingsInspector();
   toast(`${background.label} background applied.`);
 }
@@ -4001,7 +4005,11 @@ function backgroundPresetGrid() {
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
     button.onclick = () => {
-      updateSettings({ backgroundImage: preset.value });
+      const changed = updateSettings({ backgroundImage: preset.value });
+      if (!changed) {
+        toast(`${preset.label} background already active.`);
+        return;
+      }
       renderSettingsInspector();
     };
     grid.append(button);
@@ -4099,11 +4107,15 @@ function isActiveTerminalColorPreset(preset) {
 
 function applyTerminalColorPreset(preset) {
   if (!preset) return;
-  updateSettings({
+  const changed = updateSettings({
     terminalBackground: preset.background,
     terminalForeground: preset.foreground,
     terminalCursorColor: preset.cursor
   });
+  if (!changed) {
+    toast(`${preset.label} terminal colors already active.`);
+    return;
+  }
   renderSettingsInspector();
   toast(`${preset.label} terminal colors applied.`);
 }
