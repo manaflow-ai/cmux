@@ -66,15 +66,18 @@ final class HTTPControlUDSListener: @unchecked Sendable {
             close(s)
             throw HTTPControlUDSListenerError.pathTooLong
         }
-        let bindRC = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr -> Int32 in
+        // Write the path bytes into sun_path FIRST, in its own pointer scope,
+        // then call bind() in a separate scope — overlapping access to `addr`
+        // via nested `withUnsafe…(to: &addr…)` is an exclusivity violation.
+        withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in
             for (i, byte) in pathBytes.enumerated() {
                 ptr.advanced(by: i).pointee = Int8(bitPattern: byte)
             }
             ptr.advanced(by: pathBytes.count).pointee = 0
-            return withUnsafePointer(to: &addr) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    bind(s, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-                }
+        }
+        let bindRC = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(s, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         guard bindRC == 0 else {
