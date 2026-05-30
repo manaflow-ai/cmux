@@ -150,6 +150,24 @@ check_split_theme_regression_timeout() {
   echo "PASS: split-theme XCTest regression uses noninteractive xcodebuild with timeout"
 }
 
+check_tests_deriveddata_cache() {
+  if ! awk '
+    /^  tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /path: ~\/Library\/Developer\/Xcode\/DerivedData\/cmux-tests/ { saw_cache_path=1 }
+    in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
+    in_job && in_restore && /deriveddata-tests-/ { saw_restore=1 }
+    in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
+    in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data += 1 }
+    END { exit(saw_cache_path && saw_restore && saw_derived_data >= 2 ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests job must cache and reuse an explicit DerivedData path across split-theme and unit XCTest steps"
+    exit 1
+  fi
+
+  echo "PASS: tests job reuses explicit cached DerivedData across XCTest steps"
+}
+
 check_ui_regression_budget() {
   local timeout_minutes
   timeout_minutes="$(
@@ -259,6 +277,7 @@ check_xcode_selection
 check_release_build_signal
 check_no_xctest_quarantines
 check_split_theme_regression_timeout
+check_tests_deriveddata_cache
 check_ui_regression_budget
 check_build_and_lag_budget
 check_zig_release_build_runner "$CI_FILE" "release-build"

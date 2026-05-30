@@ -246,8 +246,11 @@ jobs:
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
+          path: ~/Library/Developer/Xcode/DerivedData/cmux-tests
           key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -280,10 +283,15 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
           run_split_theme_tests() {
+            # A merged main branch can force this narrow XCTest step to do the
+            # full Debug compile before the four regression tests run. Keep it
+            # bounded without using the shorter warm-build unit-test budget.
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
@@ -293,7 +301,7 @@ jobs:
               -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
               test 2>&1 &
             local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS:-900}"
+            local timeout_seconds="${CMUX_SPLIT_THEME_TEST_TIMEOUT_SECONDS:-2700}"
             local deadline=$((SECONDS + timeout_seconds))
             while kill -0 "$xcodebuild_pid" 2>/dev/null; do
               if [ "$SECONDS" -ge "$deadline" ]; then
@@ -315,6 +323,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
           run_unit_tests() {
             # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
             # intermittently crash inside XCTest's post-test memory checker or
@@ -325,6 +334,7 @@ jobs:
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
