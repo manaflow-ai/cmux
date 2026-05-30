@@ -45,7 +45,11 @@ public final class AppSurfaceProvider: SurfaceProvider, @unchecked Sendable {
     /// once at launch, before any HTTP request can arrive. Idempotent
     /// when called with the same instance (Phase 1's lazy fallback in
     /// ``TerminalController.terminalAccessService`` relies on this).
-    public func setController(_ controller: TerminalController) {
+    ///
+    /// Access is `internal` because ``TerminalController`` is internal to
+    /// the app target — `public` on a method that takes an internal type
+    /// is rejected at compile time.
+    internal func setController(_ controller: TerminalController) {
         lock.lock(); defer { lock.unlock() }
         self.controller = controller
     }
