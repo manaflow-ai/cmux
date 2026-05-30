@@ -418,6 +418,97 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func createWorkspaceInGroupAfterCurrentPlacesAfterReferenceMember() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let inserted = try #require(manager.createWorkspaceInGroup(
+            groupId: groupId,
+            placement: .afterCurrent,
+            referenceWorkspaceId: originalIds[2],
+            select: false
+        ))
+
+        #expect(inserted.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            inserted.id,
+            originalIds[3],
+        ])
+    }
+
+    @Test func createWorkspaceInGroupAfterCurrentAnchorReferenceFallsBackToTop() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let inserted = try #require(manager.createWorkspaceInGroup(
+            groupId: groupId,
+            placement: .afterCurrent,
+            referenceWorkspaceId: group.anchorWorkspaceId,
+            select: false
+        ))
+
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            inserted.id,
+            originalIds[1],
+            originalIds[2],
+        ])
+    }
+
+    @Test func addingExistingWorkspaceToGroupHonorsPlacementReference() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        manager.addWorkspaceToGroup(
+            workspaceId: originalIds[0],
+            groupId: groupId,
+            placement: .afterCurrent,
+            referenceWorkspaceId: originalIds[1]
+        )
+
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[0],
+            originalIds[2],
+        ])
+    }
+
+    @Test func workspaceGroupNewPlacementParsesConfigSpellings() {
+        #expect(WorkspaceGroupNewPlacement(rawString: "afterCurrent") == .afterCurrent)
+        #expect(WorkspaceGroupNewPlacement(rawString: "after-current") == .afterCurrent)
+        #expect(WorkspaceGroupNewPlacement(rawString: "after_current") == .afterCurrent)
+        #expect(WorkspaceGroupNewPlacement(rawString: "top") == .top)
+        #expect(WorkspaceGroupNewPlacement(rawString: "end") == .end)
+        #expect(WorkspaceGroupNewPlacement(rawString: "middle") == nil)
+    }
+
     @Test func removeNonAnchorPreservesGroup() {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)

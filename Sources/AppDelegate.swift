@@ -171,6 +171,12 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
+private struct WorkspaceGroupNewWorkspaceTarget {
+    let groupId: UUID
+    let referenceWorkspaceId: UUID
+    let placement: WorkspaceGroupNewPlacement
+}
+
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -187,6 +193,8 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     private weak var tabManager: TabManager?
     private let storedKey: ObjectIdentifier
     private let groupId: UUID
+    private let placement: WorkspaceGroupNewPlacement
+    private let referenceWorkspaceId: UUID?
     private var knownIds: Set<UUID>
     private var subscription: AnyCancellable?
     private var timeoutTask: Task<Void, Never>?
@@ -196,12 +204,21 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     /// usually doesn't land in the watcher's grace window. Best-effort
     /// correlation; for a tighter guarantee the launcher would need to
     /// signal back its created workspace id, which is a separate refactor.
-    static func install(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>, timeoutSeconds: TimeInterval = 180) {
+    static func install(
+        tabManager: TabManager,
+        groupId: UUID,
+        knownIds: Set<UUID>,
+        placement: WorkspaceGroupNewPlacement,
+        referenceWorkspaceId: UUID?,
+        timeoutSeconds: TimeInterval = 180
+    ) {
         let key = ObjectIdentifier(tabManager)
         pending[key]?.dispose()
         let watcher = ConfiguredGroupActionAsyncWorkspaceObserver(
             tabManager: tabManager,
             groupId: groupId,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceId,
             knownIds: knownIds
         )
         pending[key] = watcher
@@ -216,10 +233,18 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
         }
     }
 
-    private init(tabManager: TabManager, groupId: UUID, knownIds: Set<UUID>) {
+    private init(
+        tabManager: TabManager,
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement,
+        referenceWorkspaceId: UUID?,
+        knownIds: Set<UUID>
+    ) {
         self.tabManager = tabManager
         self.storedKey = ObjectIdentifier(tabManager)
         self.groupId = groupId
+        self.placement = placement
+        self.referenceWorkspaceId = referenceWorkspaceId
         self.knownIds = knownIds
     }
 
@@ -230,7 +255,12 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             return
         }
         for tab in tabs where !knownIds.contains(tab.id) {
-            tabManager.addWorkspaceToGroup(workspaceId: tab.id, groupId: groupId)
+            tabManager.addWorkspaceToGroup(
+                workspaceId: tab.id,
+                groupId: groupId,
+                placement: placement,
+                referenceWorkspaceId: referenceWorkspaceId
+            )
             dispose()
             return
         }
@@ -6757,9 +6787,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         if let context,
-           executeConfiguredNewWorkspaceActionIfAvailable(in: context, debugSource: debugSource) {
+           executeConfiguredNewWorkspaceActionIfAvailable(
+               in: context,
+               debugSource: debugSource,
+               workspaceGroupTarget: workspaceGroupTarget
+           ) {
             return true
+        }
+
+        if let context, let workspaceGroupTarget {
+            return context.tabManager.createWorkspaceInGroup(
+                groupId: workspaceGroupTarget.groupId,
+                placement: workspaceGroupTarget.placement,
+                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+            ) != nil
         }
 
         if let preferredTabManager,
@@ -6812,7 +6855,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func executeConfiguredNewWorkspaceActionIfAvailable(
         in context: MainWindowContext,
         debugSource: String,
-        replacingInitialWorkspace initialWorkspace: Workspace? = nil
+        replacingInitialWorkspace initialWorkspace: Workspace? = nil,
+        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
     ) -> Bool {
         guard let cmuxConfigStore = context.cmuxConfigStore,
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
@@ -6829,17 +6873,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         let initialWorkspaceId = initialWorkspace?.id
-        let onExecuted: (() -> Void)? = action.workspaceCommandName == nil ? nil : { [weak self, weak context] in
-            self?.closeInitialWorkspaceIfNeeded(
-                initialWorkspaceId: initialWorkspaceId,
-                in: context
-            )
+        if let workspaceGroupTarget,
+           case .builtIn(.newWorkspace) = action.action {
+            return context.tabManager.createWorkspaceInGroup(
+                groupId: workspaceGroupTarget.groupId,
+                placement: workspaceGroupTarget.placement,
+                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+            ) != nil
+        }
+
+        let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+        let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+            if let context,
+               let workspaceGroupTarget,
+               let beforeIds {
+                let afterIds = context.tabManager.tabs.map(\.id)
+                var newlyCreatedId: UUID?
+                for id in afterIds where !beforeIds.contains(id) {
+                    context.tabManager.addWorkspaceToGroup(
+                        workspaceId: id,
+                        groupId: workspaceGroupTarget.groupId,
+                        placement: workspaceGroupTarget.placement,
+                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                    )
+                    newlyCreatedId = id
+                    break
+                }
+                if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
+                    ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                        tabManager: context.tabManager,
+                        groupId: workspaceGroupTarget.groupId,
+                        knownIds: Set(afterIds),
+                        placement: workspaceGroupTarget.placement,
+                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                    )
+                }
+            }
+            if action.workspaceCommandName != nil {
+                self?.closeInitialWorkspaceIfNeeded(
+                    initialWorkspaceId: initialWorkspaceId,
+                    in: context
+                )
+            }
         }
         return executeConfiguredCmuxAction(
             action,
             context: context,
             preferredWindow: window,
             onExecuted: onExecuted
+        )
+    }
+
+    private func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
+        let tabManager = context.tabManager
+        guard let selectedWorkspaceId = tabManager.selectedTabId,
+              let selectedWorkspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }),
+              let groupId = selectedWorkspace.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
+            return nil
+        }
+        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+        return WorkspaceGroupNewWorkspaceTarget(
+            groupId: groupId,
+            referenceWorkspaceId: selectedWorkspaceId,
+            placement: configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
         )
     }
 
@@ -14329,21 +14427,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) else {
             return false
         }
+        let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
+        let groupPlacement: WorkspaceGroupNewPlacement = {
+            let cwd = anchorId.flatMap { id in
+                tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
+            }
+            let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
+            return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+        }()
         // Short-circuit the built-in `newWorkspace` action: it must go through
         // createWorkspaceInGroup so the new workspace inherits the anchor's
-        // cwd and honors the group's per-cwd placement (top/end), matching
+        // cwd and honors the group's configured placement, matching
         // the bare `+` button. The generic executor below uses addWorkspace()
         // which skips both behaviors.
         if case .builtIn(.newWorkspace) = action.action {
-            let placement: WorkspaceGroupNewPlacement = {
-                let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
-                let cwd = anchorId.flatMap { id in
-                    tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
-                }
-                let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
-                return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
-            }()
-            return tabManager.createWorkspaceInGroup(groupId: groupId, placement: placement) != nil
+            return tabManager.createWorkspaceInGroup(
+                groupId: groupId,
+                placement: groupPlacement,
+                referenceWorkspaceId: anchorId
+            ) != nil
         }
         // Snapshot tab ids BEFORE the action fires so the onExecuted callback
         // (which runs after any confirmation/authorization flow completes) can
@@ -14361,18 +14463,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // had a different workspace focused before, restore it once the
         // action's onExecuted fires. Skipped when no action workspace was
         // created so we don't strand selection on the anchor.
-        let anchorId = tabManager.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId
         let previousSelectedId = tabManager.selectedTabId
         if let anchorId, anchorId != previousSelectedId,
            tabManager.tabs.contains(where: { $0.id == anchorId }) {
             tabManager.selectedTabId = anchorId
         }
-        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, action] in
+        let onExecuted: () -> Void = { [weak tabManager, groupId, beforeIds, previousSelectedId, anchorId, groupPlacement, action] in
             guard let tabManager else { return }
             let afterIds = tabManager.tabs.map(\.id)
             var newlyCreatedId: UUID?
             for id in afterIds where !beforeIds.contains(id) {
-                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
+                tabManager.addWorkspaceToGroup(
+                    workspaceId: id,
+                    groupId: groupId,
+                    placement: groupPlacement,
+                    referenceWorkspaceId: anchorId
+                )
                 newlyCreatedId = id
                 break
             }
@@ -14380,13 +14486,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // process and return before the workspace appears in tabs[]. The
             // synchronous diff above misses it, so install a short-lived
             // observer that joins the first subsequent new workspace to the
-            // group. Capped at ~60s so a user-cancelled VM never leaves a
+            // group. Capped so a user-cancelled VM never leaves a
             // lingering subscription.
             if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
                 ConfiguredGroupActionAsyncWorkspaceObserver.install(
                     tabManager: tabManager,
                     groupId: groupId,
-                    knownIds: Set(afterIds)
+                    knownIds: Set(afterIds),
+                    placement: groupPlacement,
+                    referenceWorkspaceId: anchorId
                 )
             }
             // Restore the prior selection if the action didn't create a new
@@ -14400,7 +14508,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                tabManager.tabs.contains(where: { $0.id == previousSelectedId }) {
                 tabManager.selectedTabId = previousSelectedId
             }
-            _ = anchorId
         }
         let didRun = executeConfiguredCmuxAction(
             action,

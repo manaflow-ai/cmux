@@ -5341,6 +5341,8 @@ struct SettingsView: View {
     @Setting(\.app.renameSelectsExistingName) private var commandPaletteRenameSelectAllOnFocus
     @Setting(\.app.commandPaletteSearchesAllSurfaces) private var commandPaletteSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceGroupNewWorkspacePlacementSettings.key)
+    private var workspaceGroupNewWorkspacePlacement = WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue
     @AppStorage(AgentConversationForkDefaultSettings.key)
     private var forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
     @Setting(\.app.workspaceInheritWorkingDirectory) private var workspaceInheritWorkingDirectory
@@ -6358,6 +6360,13 @@ struct SettingsView: View {
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
                         }
+
+                        SettingsCardDivider()
+
+                        WorkspaceGroupNewWorkspacePlacementSettingsRow(
+                            controlWidth: pickerColumnWidth,
+                            selection: $workspaceGroupNewWorkspacePlacement
+                        )
 
                         SettingsCardDivider()
 
@@ -8257,6 +8266,7 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceGroupNewWorkspacePlacement = WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue
         forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
         workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
@@ -8521,6 +8531,29 @@ private struct AuthSettingsRow: View {
             }
         } else {
             authManager.beginSignIn()
+        }
+    }
+}
+
+private struct WorkspaceGroupNewWorkspacePlacementSettingsRow: View {
+    let controlWidth: CGFloat
+    @Binding var selection: String
+
+    private var selectedPlacement: WorkspaceGroupNewPlacement {
+        WorkspaceGroupNewPlacement(rawString: selection) ?? WorkspaceGroupNewWorkspacePlacementSettings.defaultValue
+    }
+
+    var body: some View {
+        SettingsPickerRow(
+            configurationReview: .json("workspaceGroups.newWorkspacePlacement"),
+            String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"),
+            subtitle: selectedPlacement.settingsDescription,
+            controlWidth: controlWidth,
+            selection: $selection
+        ) {
+            ForEach(WorkspaceGroupNewPlacement.allCases) { placement in
+                Text(placement.displayName).tag(placement.rawValue)
+            }
         }
     }
 }
