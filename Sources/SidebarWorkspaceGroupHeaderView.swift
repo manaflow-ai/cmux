@@ -2,7 +2,34 @@ import AppKit
 import SwiftUI
 
 /// Collapsible group header that doubles as the anchor workspace row.
-struct SidebarWorkspaceGroupHeaderView: View {
+struct SidebarWorkspaceGroupHeaderView: View, Equatable {
+    // Closures and delegate factories are excluded because they are recreated
+    // by the parent on each evaluation. The scalar snapshots below are the
+    // header's render and behavior inputs under the LazyVStack.
+    nonisolated static func == (lhs: SidebarWorkspaceGroupHeaderView, rhs: SidebarWorkspaceGroupHeaderView) -> Bool {
+        lhs.groupId == rhs.groupId &&
+            lhs.anchorWorkspaceId == rhs.anchorWorkspaceId &&
+            lhs.name == rhs.name &&
+            lhs.iconSymbol == rhs.iconSymbol &&
+            lhs.tintHex == rhs.tintHex &&
+            lhs.isCollapsed == rhs.isCollapsed &&
+            lhs.isPinned == rhs.isPinned &&
+            lhs.isAnchorActive == rhs.isAnchorActive &&
+            lhs.memberCount == rhs.memberCount &&
+            lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
+            lhs.shortcutDigit == rhs.shortcutDigit &&
+            lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
+            lhs.showsShortcutHint == rhs.showsShortcutHint &&
+            lhs.shortcutHintXOffset == rhs.shortcutHintXOffset &&
+            lhs.shortcutHintYOffset == rhs.shortcutHintYOffset &&
+            lhs.cwdContextMenuItems == rhs.cwdContextMenuItems &&
+            lhs.newWorkspacePlacement == rhs.newWorkspacePlacement &&
+            lhs.rowSpacing == rhs.rowSpacing &&
+            lhs.isFirstRow == rhs.isFirstRow &&
+            lhs.isBeingDragged == rhs.isBeingDragged &&
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+    }
+
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
@@ -19,6 +46,7 @@ struct SidebarWorkspaceGroupHeaderView: View {
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
+    let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat
     let isFirstRow: Bool
     let isBeingDragged: Bool

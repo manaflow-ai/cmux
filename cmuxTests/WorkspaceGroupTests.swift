@@ -157,6 +157,45 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.map(\.id) == orderBefore)
     }
 
+    @Test func collapsedGroupRenderItemCarriesMembersWithoutRenderingChildren() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+
+        var groupMemberIds: [UUID] = []
+        var visibleWorkspaceIds: [UUID] = []
+        for item in items {
+            switch item {
+            case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
+                groupMemberIds = memberWorkspaceIds
+            case .groupHeader:
+                break
+            case .workspace(let workspace):
+                visibleWorkspaceIds.append(workspace.id)
+            }
+        }
+
+        #expect(groupMemberIds == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+        ])
+        #expect(!visibleWorkspaceIds.contains(originalIds[1]))
+        #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+    }
+
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

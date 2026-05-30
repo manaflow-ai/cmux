@@ -5,22 +5,21 @@ extension VerticalTabsSidebar {
     @ViewBuilder
     func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
-        memberCount: Int,
+        memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
+        let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
-                return tabManager.tabs.reduce(0) { partial, tab in
-                    tab.groupId == group.id
-                        ? partial + notificationStore.unreadCount(forTabId: tab.id)
-                        : partial
+                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                    partial + notificationStore.unreadCount(forTabId: workspaceId)
                 }
             }
             return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
@@ -80,7 +79,7 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            memberCount: memberCount,
+            memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
@@ -88,6 +87,7 @@ extension VerticalTabsSidebar {
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             cwdContextMenuItems: cwdContextMenuItems,
+            newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
@@ -108,7 +108,7 @@ extension VerticalTabsSidebar {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex
                 }
             },
-            onTapPlus: { [weak tabManager, groupId = group.id, placement = resolvedConfig?.newWorkspacePlacement] in
+            onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }
                 let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
                 _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
@@ -135,9 +135,9 @@ extension VerticalTabsSidebar {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name] in
+            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount = memberWorkspaceIds.count] in
                 guard let tabManager else { return }
-                let otherMemberCount = max(tabManager.tabs.filter { $0.groupId == groupId }.count - 1, 0)
+                let otherMemberCount = max(memberCount - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
                 tabManager.deleteWorkspaceGroup(groupId: groupId)
             },
@@ -148,6 +148,7 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
+        .equatable()
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
