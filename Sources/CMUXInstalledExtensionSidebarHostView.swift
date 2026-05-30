@@ -477,6 +477,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func blockedStatusText(reason: String) -> String {
         switch reason {
+        case "connectionInterrupted":
+            return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
         case "missingManifest":
             return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing manifest")
         case "invalidManifest":
@@ -488,6 +490,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func blockedDetailText(reason: String) -> String {
         switch reason {
+        case "connectionInterrupted":
+            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension's XPC connection. No workspace data or actions are being shared.")
         case "missingManifest":
             return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension manifest, so no workspace data or actions were shared.")
         case "invalidManifest":
@@ -892,6 +896,8 @@ private final class CMUXSidebarExtensionHostXPC {
     private func clearProxy(ifCurrentGeneration generation: UInt64) {
         guard connectionGeneration == generation else { return }
         extensionProxy = nil
+        blockUntrustedExtension(reason: "connectionInterrupted")
+        updateExportedSnapshotFilter()
     }
 
     private func clearConnection(ifCurrentGeneration generation: UInt64) {
