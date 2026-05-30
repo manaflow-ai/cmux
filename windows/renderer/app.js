@@ -1,5 +1,7 @@
 import {
   accentOptions,
+  backgroundFitOptions,
+  backgroundPositionOptions,
   backgroundPresets,
   browserHomePresets,
   defaultSettings,
@@ -98,6 +100,8 @@ const appearancePreviewKeys = new Set([
   "accent",
   "backgroundImage",
   "backgroundOpacity",
+  "backgroundFit",
+  "backgroundPosition",
   "terminalFontFamily",
   "terminalBackground",
   "terminalForeground",
@@ -440,6 +444,8 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalFontSize = clamp(next.terminalFontSize, terminalFontSizeMin, terminalFontSizeMax);
   next.terminalLineHeight = clamp(next.terminalLineHeight, 1, 1.5);
   next.backgroundOpacity = clamp(next.backgroundOpacity, 0, 42);
+  if (!backgroundFitOptions.some(([id]) => id === next.backgroundFit)) next.backgroundFit = defaultSettings.backgroundFit;
+  if (!backgroundPositionOptions.some(([id]) => id === next.backgroundPosition)) next.backgroundPosition = defaultSettings.backgroundPosition;
   if (!themeOptions.some(([id]) => id === next.theme)) next.theme = defaultSettings.theme;
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
@@ -608,6 +614,18 @@ function backgroundCss(value) {
   if (preset) return preset.css;
   const url = backgroundImageUrl(normalized);
   return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
+}
+
+function backgroundSizeCss(value) {
+  if (value === "contain") return "contain";
+  if (value === "stretch") return "100% 100%";
+  if (value === "auto") return "auto";
+  return "cover";
+}
+
+function backgroundPositionCss(value) {
+  if (["top", "bottom", "left", "right", "center"].includes(value)) return value;
+  return "center";
 }
 
 async function validateBackgroundImageValue(value) {
@@ -1371,6 +1389,8 @@ function settingsRenderSignature(settings = state.settings) {
     settings.accent,
     settings.backgroundImage,
     settings.backgroundOpacity,
+    settings.backgroundFit,
+    settings.backgroundPosition,
     settings.density,
     settings.toolbarMode,
     settings.tabSize,
@@ -1430,6 +1450,8 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "has-background", css !== "none");
   elements.shell.style.setProperty("--background-image", css);
   elements.shell.style.setProperty("--background-opacity", String(state.settings.backgroundOpacity / 100));
+  elements.shell.style.setProperty("--background-size", backgroundSizeCss(state.settings.backgroundFit));
+  elements.shell.style.setProperty("--background-position", backgroundPositionCss(state.settings.backgroundPosition));
   scheduleCommandStripOverflowRefresh();
   return true;
 }
@@ -3980,6 +4002,32 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(imageActions);
     appearanceSection.append(settingRow("Saved backgrounds", savedBackgroundImagesPanel(), true, "saved background image wallpaper library apply rename delete save"));
 
+    const fitSelect = document.createElement("select");
+    fitSelect.className = "setting-select";
+    fitSelect.dataset.settingControl = "backgroundFit";
+    for (const [value, label] of backgroundFitOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      fitSelect.append(option);
+    }
+    fitSelect.value = state.settings.backgroundFit;
+    fitSelect.onchange = () => updateSettings({ backgroundFit: fitSelect.value });
+    appearanceSection.append(settingRow("Image fit", fitSelect, false, "background image fit cover contain stretch original wallpaper size"));
+
+    const positionSelect = document.createElement("select");
+    positionSelect.className = "setting-select";
+    positionSelect.dataset.settingControl = "backgroundPosition";
+    for (const [value, label] of backgroundPositionOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      positionSelect.append(option);
+    }
+    positionSelect.value = state.settings.backgroundPosition;
+    positionSelect.onchange = () => updateSettings({ backgroundPosition: positionSelect.value });
+    appearanceSection.append(settingRow("Image position", positionSelect, false, "background image position center top bottom left right wallpaper align"));
+
     const opacityInput = document.createElement("input");
     opacityInput.className = "setting-control";
     opacityInput.type = "range";
@@ -4676,8 +4724,8 @@ function appearanceBackgroundLabel(value) {
   const normalized = normalizeBackgroundValue(value);
   if (!normalized) return "None";
   const preset = backgroundPresetMap.get(normalized);
-  if (preset) return preset.label;
-  return defaultBackgroundLabel(normalized);
+  const label = preset ? preset.label : defaultBackgroundLabel(normalized);
+  return `${label} / ${optionLabel(backgroundFitOptions, state.settings.backgroundFit, "Fill")}`;
 }
 
 function appearancePreviewPanel() {
@@ -4689,7 +4737,9 @@ function appearancePreviewPanel() {
     terminalFontLabel: optionLabel(terminalFontOptions, state.settings.terminalFontFamily, "Mono"),
     terminalFontStack: terminalFontStack(),
     terminalTheme: terminalTheme(),
-    backgroundImage: backgroundCss(state.settings.backgroundImage)
+    backgroundImage: backgroundCss(state.settings.backgroundImage),
+    backgroundSize: backgroundSizeCss(state.settings.backgroundFit),
+    backgroundPosition: backgroundPositionCss(state.settings.backgroundPosition)
   });
   preview.dataset.settingsSearch = normalizeSettingsQuery("appearance visual preview theme gallery accent background image strength terminal colors font");
   return preview;

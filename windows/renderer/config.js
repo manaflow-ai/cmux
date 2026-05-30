@@ -3,6 +3,8 @@ export const defaultSettings = {
   accent: "oklch(61% 0.22 255)",
   backgroundImage: "",
   backgroundOpacity: 16,
+  backgroundFit: "cover",
+  backgroundPosition: "center",
   browserHomeUrl: "https://www.google.com",
   externalBrowserProfileId: "system",
   browserSuspendInactive: true,
@@ -154,6 +156,21 @@ export const backgroundPresets = [
     preview: "linear-gradient(120deg, color-mix(in oklch, var(--color-accent) 24%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent)",
     css: "linear-gradient(120deg, color-mix(in oklch, var(--color-accent) 18%, transparent) 1px, transparent 1px), linear-gradient(180deg, color-mix(in oklch, var(--color-text) 6%, transparent), transparent)"
   }
+];
+
+export const backgroundFitOptions = [
+  ["cover", "Fill"],
+  ["contain", "Fit"],
+  ["stretch", "Stretch"],
+  ["auto", "Original"]
+];
+
+export const backgroundPositionOptions = [
+  ["center", "Center"],
+  ["top", "Top"],
+  ["bottom", "Bottom"],
+  ["left", "Left"],
+  ["right", "Right"]
 ];
 
 export const browserHomePresets = [
@@ -327,6 +344,8 @@ export const settingsPresets = [
       accent: "oklch(61% 0.22 255)",
       backgroundImage: "",
       backgroundOpacity: 16,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
       density: "comfortable",
       paneHeaderMode: "compact",
       sidebarDetailMode: "compact",
@@ -362,6 +381,8 @@ export const settingsPresets = [
       accent: "oklch(66% 0.13 175)",
       backgroundImage: "",
       backgroundOpacity: 10,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
       density: "compact",
       paneHeaderMode: "hidden",
       sidebarDetailMode: "compact",
@@ -397,6 +418,8 @@ export const settingsPresets = [
       accent: "oklch(72% 0.17 230)",
       backgroundImage: "",
       backgroundOpacity: 0,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
       density: "compact",
       paneHeaderMode: "hidden",
       sidebarDetailMode: "compact",
@@ -432,6 +455,8 @@ export const settingsPresets = [
       accent: "oklch(74% 0.18 305)",
       backgroundImage: "preset:soft-aurora",
       backgroundOpacity: 24,
+      backgroundFit: "cover",
+      backgroundPosition: "center",
       density: "comfortable",
       paneHeaderMode: "full",
       sidebarDetailMode: "detailed",

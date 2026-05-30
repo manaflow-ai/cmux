@@ -179,8 +179,8 @@ button {
   z-index: 0;
   pointer-events: none;
   background-image: var(--background-image, none);
-  background-size: cover;
-  background-position: center;
+  background-size: var(--background-size, cover);
+  background-position: var(--background-position, center);
   opacity: 0;
   transition: opacity var(--dur-med) var(--ease-out);
 }
@@ -2207,8 +2207,8 @@ body.reduce-motion *::after {
   inset: 0;
   opacity: var(--preview-background-opacity);
   background-image: var(--preview-background-image);
-  background-size: cover;
-  background-position: center;
+  background-size: var(--preview-background-size, cover);
+  background-position: var(--preview-background-position, center);
   pointer-events: none;
 }
 
