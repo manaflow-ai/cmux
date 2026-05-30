@@ -1,15 +1,16 @@
 import Foundation
 
-@objc public protocol CMUXSidebarHostXPC: NSObjectProtocol {
+@_spi(CmuxHostTransport) @objc public protocol CMUXSidebarHostXPC: NSObjectProtocol {
     func requestSidebarSnapshot(reply: @escaping (NSData?, NSString?) -> Void)
     func performSidebarAction(_ payload: NSData, reply: @escaping (NSData?, NSString?) -> Void)
 }
 
-@objc public protocol CMUXSidebarExtensionXPC: NSObjectProtocol {
+@_spi(CmuxHostTransport) @objc public protocol CMUXSidebarExtensionXPC: NSObjectProtocol {
     @objc optional func requestExtensionManifest(reply: @escaping (NSData?, NSString?) -> Void)
     func sidebarSnapshotDidChange(_ payload: NSData)
 }
 
+@_spi(CmuxHostTransport)
 public enum CMUXSidebarXPCCodec {
     public static let maximumSnapshotPayloadBytes = 512 * 1024
     public static let maximumManifestPayloadBytes = 64 * 1024

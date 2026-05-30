@@ -39,6 +39,9 @@
       location = "container:Examples"
       name = "Examples">
       <FileRef
+         location = "group:TabsVisibleSidebar/TabsVisibleSidebar.xcodeproj">
+      </FileRef>
+      <FileRef
          location = "group:SampleSidebarExtensionApp/SampleSidebarExtensionApp.xcodeproj">
       </FileRef>
       <FileRef

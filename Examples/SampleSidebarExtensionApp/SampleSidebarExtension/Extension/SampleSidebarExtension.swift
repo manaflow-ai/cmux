@@ -1,26 +1,38 @@
-import ExtensionFoundation
-import ExtensionKit
-import SwiftUI
 import CmuxExtensionKit
+import SwiftUI
 
 @main
-final class SampleSidebarExtension: AppExtension {
+final class SampleSidebarExtension: CmuxSidebarExtension {
+    static let manifest = CMUXExtensionManifest(
+        id: "co.manaflow.CMUXExtKitSampleSidebarApp.Extension",
+        displayName: "CMUX Sample Sidebar Extension",
+        requestedScopes: [
+            .workspaceList,
+            .workspaceMetadata,
+            .surfaceMetadata,
+        ],
+        requestedActionScopes: [
+            .createSurface,
+            .selectWorkspace,
+            .selectSurface,
+            .navigateWorkspace,
+            .navigateSurface,
+        ]
+    )
+
+    private let model = SidebarConnectionModel()
+
     required init() {}
 
-    @AppExtensionPoint.Bind
-    var boundExtensionPoint: AppExtensionPoint {
-        AppExtensionPoint.Identifier("com.manaflow.cmux.sidebar")
+    var body: some View {
+        SampleSidebarView(model: model)
     }
 
-    var configuration: AppExtensionSceneConfiguration {
-        AppExtensionSceneConfiguration(self.body)
+    func update(context: CmuxSidebarContext) {
+        model.update(context: context)
     }
 
-    var body: some AppExtensionScene {
-        PrimitiveAppExtensionScene(id: "sidebar") {
-            SampleSidebarView(model: SidebarConnectionModel.shared)
-        } onConnection: { connection in
-            SidebarConnectionModel.shared.accept(connection: connection)
-        }
+    func connectionErrorDidChange(_ message: String?) {
+        model.connectionErrorDidChange(message)
     }
 }

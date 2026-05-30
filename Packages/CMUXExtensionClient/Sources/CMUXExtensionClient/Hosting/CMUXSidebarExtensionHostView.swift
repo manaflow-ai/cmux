@@ -1,15 +1,16 @@
 import ExtensionFoundation
 import ExtensionKit
+import CmuxExtensionKit
 import Foundation
 import SwiftUI
 
 @available(macOS 14.0, *)
 /// SwiftUI bridge that hosts a sidebar extension scene through ExtensionKit.
-public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
+@_spi(CmuxHostTransport) public struct CMUXSidebarExtensionHostView: NSViewControllerRepresentable {
     public typealias NSViewControllerType = EXHostViewController
 
     /// Tracks the configuration currently installed on the host view controller.
-    public final class Coordinator: NSObject, EXHostViewControllerDelegate {
+    @_spi(CmuxHostTransport) public final class Coordinator: NSObject, EXHostViewControllerDelegate {
         fileprivate var currentKey: HostConfigurationKey?
         private let onConnection: (@MainActor (NSXPCConnection) -> Void)?
         private let onDeactivation: (@MainActor (Error?) -> Void)?

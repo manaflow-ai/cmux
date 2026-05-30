@@ -783,7 +783,6 @@ private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWind
 
 enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
-    case sidebarProvider
     case showNotifications
     case newTab
     case focusHistoryBack
@@ -793,8 +792,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "titlebarControl.toggleSidebar"
-        case .sidebarProvider:
-            return "titlebarControl.sidebarProvider"
         case .showNotifications:
             return "titlebarControl.showNotifications"
         case .newTab:
@@ -810,8 +807,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")
-        case .sidebarProvider:
-            return String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")
         case .showNotifications:
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
@@ -827,8 +822,6 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "toggleSidebar"
-        case .sidebarProvider:
-            return "sidebarProvider"
         case .showNotifications:
             return "showNotifications"
         case .newTab:
@@ -842,7 +835,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .sidebarProvider, .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .newTab, .focusHistoryBack, .focusHistoryForward:
             return true
         case .toggleSidebar, .showNotifications:
             return false

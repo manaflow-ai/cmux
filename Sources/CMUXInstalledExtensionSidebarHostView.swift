@@ -1,5 +1,5 @@
-import CMUXExtensionClient
-import CmuxExtensionKit
+@_spi(CmuxHostTransport) import CMUXExtensionClient
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import ExtensionFoundation
 import Observation
 import SwiftUI
@@ -29,7 +29,7 @@ private struct CMUXSidebarExtensionEffectiveGrant: Equatable {
 }
 
 private struct CMUXSidebarExtensionGrantStore {
-    static let defaultReadScopes: Set<CMUXExtensionScope> = [.workspaceMetadata]
+    static let defaultReadScopes: Set<CMUXExtensionScope> = []
     static let defaultActionScopes: Set<CMUXExtensionActionScope> = []
 
     private static let defaultsKey = "cmuxExtensionSidebar.grants.v1"
@@ -105,8 +105,35 @@ private struct CMUXSidebarExtensionGrantStore {
     }
 }
 
+private struct CMUXSidebarExtensionLimitedChoiceStore {
+    private static let defaultsKey = "cmuxExtensionSidebar.limitedChoices.v1"
+
+    var defaults: UserDefaults = .standard
+
+    func choices() -> Set<String> {
+        Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
+    }
+
+    func insert(_ key: String) {
+        var choices = choices()
+        choices.insert(key)
+        save(choices)
+    }
+
+    func remove(_ key: String) {
+        var choices = choices()
+        choices.remove(key)
+        save(choices)
+    }
+
+    private func save(_ choices: Set<String>) {
+        defaults.set(choices.sorted(), forKey: Self.defaultsKey)
+    }
+}
+
 struct CMUXInstalledExtensionSidebarHostView: View {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
+    private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
     var snapshotProvider: @MainActor () -> CMUXSidebarSnapshot
     var snapshotUpdateToken: UInt64 = 0
@@ -127,6 +154,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
     @State private var blockedManifestReason: String?
     @State private var isShowingExtensionDetails = false
+    @State private var isShowingAccessReview = false
+    @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
     @State private var hostReloadToken: UInt64 = 0
 
     var body: some View {
@@ -134,7 +163,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             if let identity {
                 VStack(alignment: .leading, spacing: 0) {
                     extensionControlStrip(activeIdentity: identity)
-                    if let effectiveGrant, effectiveGrant.needsAdditionalApproval {
+                    if let effectiveGrant, shouldShowAccessBanner(identity: identity, effectiveGrant: effectiveGrant) {
                         extensionAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
                     }
                     CMUXSidebarExtensionHostView(
@@ -156,9 +185,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         onDeactivation: { error in
                             xpcHost.invalidate()
                             effectiveGrant = nil
-                            blockedManifestReason = nil
                             if self.identity?.bundleIdentifier == identity.bundleIdentifier {
-                                self.identity = nil
+                                blockedManifestReason = "connectionInterrupted"
                             }
                             errorText = error?.localizedDescription
                         },
@@ -220,6 +248,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         .onDisappear {
             xpcHost.invalidate()
+        }
+        .sheet(isPresented: $isShowingAccessReview) {
+            if let identity, let effectiveGrant {
+                accessReviewSheet(identity: identity, effectiveGrant: effectiveGrant)
+            }
         }
     }
 
@@ -341,22 +374,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             .popover(isPresented: $isShowingExtensionDetails, arrowEdge: .top) {
                 extensionDetailsPopover(activeIdentity: activeIdentity)
             }
-            Button {
-                onUseDefaultSidebar()
-            } label: {
-                Image(systemName: "sidebar.left")
-            }
-            .buttonStyle(.plain)
-            .controlSize(.small)
-            .help(String(localized: "sidebar.extensions.useDefault", defaultValue: "Use Workspace Sidebar"))
-            Button {
-                presentExtensionBrowser()
-            } label: {
-                Image(systemName: "puzzlepiece.extension")
-            }
-            .buttonStyle(.plain)
-            .controlSize(.small)
-            .help(String(localized: "sidebar.extensions.manage", defaultValue: "Manage Sidebar Extensions..."))
         }
         .padding(.horizontal, 12)
         .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 8)
@@ -418,10 +435,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let activeIdentity, let effectiveGrant {
                     HStack(spacing: 8) {
-                        Button(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access")) {
-                            xpcHost.grantRequestedAccess(bundleIdentifier: activeIdentity.bundleIdentifier)
-                            self.effectiveGrant = xpcHost.currentEffectiveGrant
-                            xpcHost.sendSnapshotDidChange()
+                        Button(String(localized: "sidebar.extensions.access.review", defaultValue: "Review Access...")) {
+                            isShowingAccessReview = true
                         }
                         .controlSize(.small)
                         .disabled(!effectiveGrant.needsAdditionalApproval)
@@ -638,7 +653,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)
             Text(String.localizedStringWithFormat(
-                String(localized: "sidebar.extensions.access.detail", defaultValue: "%@ is using metadata-only access until you grant its requested data and actions."),
+                String(localized: "sidebar.extensions.access.detail", defaultValue: "%@ will not receive workspace data or run actions until you grant its requested access."),
                 effectiveGrant.manifest.displayName
             ))
             .font(.system(size: 11))
@@ -655,29 +670,116 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             .padding(.top, 2)
             HStack(spacing: 8) {
                 Button {
-                    xpcHost.grantRequestedAccess(bundleIdentifier: identity.bundleIdentifier)
-                    self.effectiveGrant = xpcHost.currentEffectiveGrant
-                    xpcHost.sendSnapshotDidChange()
+                    isShowingAccessReview = true
                 } label: {
-                    Text(String(localized: "sidebar.extensions.access.grant", defaultValue: "Grant Requested Access"))
+                    Text(String(localized: "sidebar.extensions.access.review", defaultValue: "Review Access..."))
                 }
                 .controlSize(.small)
-                if effectiveGrant.hasSensitiveAccess {
-                    Button {
-                        xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
-                        self.effectiveGrant = xpcHost.currentEffectiveGrant
-                        xpcHost.sendSnapshotDidChange()
-                    } label: {
-                        Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
-                    }
-                    .controlSize(.small)
+                Button {
+                    keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
+                } label: {
+                    Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
                 }
+                .controlSize(.small)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 8)
+        .padding(.top, 8)
         .padding(.bottom, 10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.88))
+    }
+
+    private func accessReviewSheet(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "puzzlepiece.extension")
+                    .font(.system(size: 22, weight: .medium))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String.localizedStringWithFormat(
+                        String(localized: "sidebar.extensions.access.review.title", defaultValue: "Review access for %@"),
+                        effectiveGrant.manifest.displayName
+                    ))
+                    .font(.system(size: 15, weight: .semibold))
+                    Text(identity.bundleIdentifier)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Text(String(localized: "sidebar.extensions.access.review.detail", defaultValue: "CMUX will only share the following data and actions if you allow this request."))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                detailRow(
+                    title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Manifest"),
+                    value: "\(effectiveGrant.manifest.id) · API \(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)"
+                )
+                Divider()
+                permissionSection(effectiveGrant: effectiveGrant)
+            }
+
+            HStack(spacing: 8) {
+                Spacer()
+                Button(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited")) {
+                    keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
+                    isShowingAccessReview = false
+                }
+                .keyboardShortcut(.cancelAction)
+                Button(String(localized: "sidebar.extensions.access.allow", defaultValue: "Allow Requested Access")) {
+                    grantRequestedAccess(identity: identity, effectiveGrant: effectiveGrant)
+                    isShowingAccessReview = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 420, alignment: .leading)
+    }
+
+    private func shouldShowAccessBanner(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> Bool {
+        effectiveGrant.needsAdditionalApproval && !keptLimitedManifestKeys.contains(limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant))
+    }
+
+    private func grantRequestedAccess(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) {
+        let key = limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant)
+        keptLimitedManifestKeys.remove(key)
+        CMUXSidebarExtensionLimitedChoiceStore().remove(key)
+        xpcHost.grantRequestedAccess(bundleIdentifier: identity.bundleIdentifier)
+        self.effectiveGrant = xpcHost.currentEffectiveGrant
+        xpcHost.sendSnapshotDidChange()
+    }
+
+    private func keepLimitedAccess(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) {
+        let key = limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant)
+        keptLimitedManifestKeys.insert(key)
+        CMUXSidebarExtensionLimitedChoiceStore().insert(key)
+        xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
+        self.effectiveGrant = xpcHost.currentEffectiveGrant
+        xpcHost.sendSnapshotDidChange()
+    }
+
+    private func limitedChoiceKey(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> String {
+        let readScopes = effectiveGrant.manifest.requestedScopes.map(\.rawValue).sorted().joined(separator: ",")
+        let actionScopes = effectiveGrant.manifest.requestedActionScopes.map(\.rawValue).sorted().joined(separator: ",")
+        return "\(identity.bundleIdentifier)|\(effectiveGrant.manifest.id)|\(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)|\(readScopes)|\(actionScopes)"
     }
 
     private func pendingPermissionDescriptions(
@@ -695,8 +797,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(scope: CMUXExtensionScope) -> String {
         switch scope {
+        case .workspaceList:
+            return String(localized: "sidebar.extensions.permission.workspaceList.detail", defaultValue: "Read workspace IDs and names")
         case .workspaceMetadata:
             return String(localized: "sidebar.extensions.permission.workspaceMetadata.detail", defaultValue: "Read workspace names, branches, unread counts, and selection")
+        case .surfaceMetadata:
+            return String(localized: "sidebar.extensions.permission.surfaceMetadata.detail", defaultValue: "Read surfaces nested inside each workspace")
         case .workspacePaths:
             return String(localized: "sidebar.extensions.permission.workspacePaths.detail", defaultValue: "Read local workspace and project paths")
         case .notifications:
@@ -710,10 +816,26 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(actionScope: CMUXExtensionActionScope) -> String {
         switch actionScope {
+        case .createWorkspace:
+            return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
         case .selectWorkspace:
             return String(localized: "sidebar.extensions.permission.selectWorkspace.detail", defaultValue: "Select a workspace when you click in the extension")
         case .closeWorkspace:
             return String(localized: "sidebar.extensions.permission.closeWorkspace.detail", defaultValue: "Close workspaces from the extension")
+        case .createSurface:
+            return String(localized: "sidebar.extensions.permission.createSurface.detail", defaultValue: "Create terminal and browser surfaces")
+        case .selectSurface:
+            return String(localized: "sidebar.extensions.permission.selectSurface.detail", defaultValue: "Select surfaces inside a workspace")
+        case .closeSurface:
+            return String(localized: "sidebar.extensions.permission.closeSurface.detail", defaultValue: "Close surfaces inside a workspace")
+        case .splitSurface:
+            return String(localized: "sidebar.extensions.permission.splitSurface.detail", defaultValue: "Create split surfaces")
+        case .zoomSurface:
+            return String(localized: "sidebar.extensions.permission.zoomSurface.detail", defaultValue: "Toggle surface zoom")
+        case .navigateWorkspace:
+            return String(localized: "sidebar.extensions.permission.navigateWorkspace.detail", defaultValue: "Navigate between workspaces")
+        case .navigateSurface:
+            return String(localized: "sidebar.extensions.permission.navigateSurface.detail", defaultValue: "Navigate between surfaces")
         case .openURL:
             return String(localized: "sidebar.extensions.permission.openURL.detail", defaultValue: "Open links from the extension")
         }
@@ -754,19 +876,20 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
-        let sortedIdentities = identities.sorted { $0.localizedName < $1.localizedName }
+        let sortedIdentities = deduplicatedExtensionIdentities(identities)
         enabledIdentities = sortedIdentities
         let nextIdentity: AppExtensionIdentity?
         if let selectedExtensionBundleID,
            let selectedIdentity = sortedIdentities.first(where: { $0.bundleIdentifier == selectedExtensionBundleID }) {
             nextIdentity = selectedIdentity
-        } else if sortedIdentities.count == 1 {
+        } else if selectedExtensionBundleID == nil, sortedIdentities.count == 1 {
             nextIdentity = sortedIdentities[0]
             selectedExtensionBundleID = nextIdentity?.bundleIdentifier
             UserDefaults.standard.set(nextIdentity?.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
         } else {
             nextIdentity = nil
         }
+        updateSelectedExtensionName(nextIdentity)
         if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
             xpcHost.invalidate()
             effectiveGrant = nil
@@ -776,10 +899,32 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         errorText = nil
     }
 
+    private func deduplicatedExtensionIdentities(_ identities: [AppExtensionIdentity]) -> [AppExtensionIdentity] {
+        let sortedIdentities = identities.sorted {
+            if $0.localizedName == $1.localizedName {
+                return $0.bundleIdentifier < $1.bundleIdentifier
+            }
+            return $0.localizedName < $1.localizedName
+        }
+        var seenBundleIdentifiers = Set<String>()
+        return sortedIdentities.filter { identity in
+            seenBundleIdentifiers.insert(identity.bundleIdentifier).inserted
+        }
+    }
+
     private func selectExtension(_ selectedIdentity: AppExtensionIdentity) {
         selectedExtensionBundleID = selectedIdentity.bundleIdentifier
         UserDefaults.standard.set(selectedIdentity.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
+        UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
         applyEnabledExtensionIdentities(enabledIdentities)
+    }
+
+    private func updateSelectedExtensionName(_ selectedIdentity: AppExtensionIdentity?) {
+        if let selectedIdentity {
+            UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
+        } else if selectedExtensionBundleID == nil {
+            UserDefaults.standard.removeObject(forKey: Self.selectedExtensionNameDefaultsKey)
+        }
     }
 
     @available(macOS 26.0, *)
@@ -849,8 +994,12 @@ private final class MonitorContinuationBox: @unchecked Sendable {
 private extension CMUXExtensionScope {
     var displayName: String {
         switch self {
+        case .workspaceList:
+            return String(localized: "sidebar.extensions.scope.workspaceList", defaultValue: "Workspace list")
         case .workspaceMetadata:
             return String(localized: "sidebar.extensions.scope.workspaceMetadata", defaultValue: "Workspace metadata")
+        case .surfaceMetadata:
+            return String(localized: "sidebar.extensions.scope.surfaceMetadata", defaultValue: "Surface metadata")
         case .workspacePaths:
             return String(localized: "sidebar.extensions.scope.workspacePaths", defaultValue: "Workspace paths")
         case .notifications:
@@ -866,10 +1015,26 @@ private extension CMUXExtensionScope {
 private extension CMUXExtensionActionScope {
     var displayName: String {
         switch self {
+        case .createWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.createWorkspace", defaultValue: "Create workspaces")
         case .selectWorkspace:
             return String(localized: "sidebar.extensions.actionScope.selectWorkspace", defaultValue: "Select workspaces")
         case .closeWorkspace:
             return String(localized: "sidebar.extensions.actionScope.closeWorkspace", defaultValue: "Close workspaces")
+        case .createSurface:
+            return String(localized: "sidebar.extensions.actionScope.createSurface", defaultValue: "Create surfaces")
+        case .selectSurface:
+            return String(localized: "sidebar.extensions.actionScope.selectSurface", defaultValue: "Select surfaces")
+        case .closeSurface:
+            return String(localized: "sidebar.extensions.actionScope.closeSurface", defaultValue: "Close surfaces")
+        case .splitSurface:
+            return String(localized: "sidebar.extensions.actionScope.splitSurface", defaultValue: "Split surfaces")
+        case .zoomSurface:
+            return String(localized: "sidebar.extensions.actionScope.zoomSurface", defaultValue: "Zoom surfaces")
+        case .navigateWorkspace:
+            return String(localized: "sidebar.extensions.actionScope.navigateWorkspace", defaultValue: "Navigate workspaces")
+        case .navigateSurface:
+            return String(localized: "sidebar.extensions.actionScope.navigateSurface", defaultValue: "Navigate surfaces")
         case .openURL:
             return String(localized: "sidebar.extensions.actionScope.openURL", defaultValue: "Open URLs")
         }
@@ -1021,7 +1186,7 @@ private final class CMUXSidebarExtensionHostXPC {
                 if let payload {
                     do {
                         let manifest = try CMUXSidebarXPCCodec.decodeManifest(payload)
-                        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+                        try validateSidebarManifest(manifest)
                         self.applyManifest(manifest)
                     } catch {
                         self.blockUntrustedExtension(reason: "invalidManifest")
@@ -1097,7 +1262,7 @@ private final class CMUXSidebarExtensionHostXPC {
     }
 
     private func filteredSnapshot(from snapshotProvider: () -> CMUXSidebarSnapshot) -> CMUXSidebarSnapshot {
-        snapshotProvider().filtered(for: allowedScopes)
+        snapshotProvider().filtered(for: allowedScopes, actionScopes: allowedActionScopes)
     }
 
     private func updateExportedSnapshotFilter() {

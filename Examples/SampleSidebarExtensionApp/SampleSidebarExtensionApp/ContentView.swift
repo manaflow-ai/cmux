@@ -17,7 +17,7 @@ struct ContentView: View {
                 .font(.title2.weight(.semibold))
             Text(String(
                 localized: "sampleSidebarApp.detail",
-                defaultValue: "Keep this app installed. In cmux, click the puzzle button, choose Manage Sidebar Extensions..., enable CMUX Sample Sidebar Extension, choose Extension Sidebar, and confirm Workspace Signals appears."
+                defaultValue: "Keep this app installed. In cmux, open Sidebar Extensions, enable CMUX Sample Sidebar Extension, choose it from the sidebar picker, and confirm Workspace Signals shows your real workspaces."
             ))
             .foregroundStyle(.secondary)
             Text(String(
@@ -28,7 +28,7 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
             Text(String(
                 localized: "sampleSidebarApp.scopes",
-                defaultValue: "Requests workspace metadata, paths, notifications, ports, and pull request links."
+                defaultValue: "Requests workspace and surface metadata, plus navigation, selection, and create-surface actions for the sidebar controls."
             ))
             .font(.caption)
             .foregroundStyle(.secondary)

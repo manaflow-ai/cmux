@@ -13,7 +13,7 @@ public struct CMUXExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         displayName: String,
         kind: CMUXExtensionKind = .sidebar,
         minimumAPIVersion: CMUXExtensionAPIVersion = .sidebarV1,
-        requestedScopes: [CMUXExtensionScope] = [.workspaceMetadata],
+        requestedScopes: [CMUXExtensionScope] = [],
         requestedActionScopes: [CMUXExtensionActionScope] = []
     ) {
         self.id = id

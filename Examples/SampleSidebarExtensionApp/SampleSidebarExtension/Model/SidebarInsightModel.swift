@@ -8,7 +8,13 @@ struct SidebarInsightModel {
     var unreadCount: Int
     var portCount: Int
     var pullRequestCount: Int
+    var canSelectWorkspace: Bool
+    var canCreateSurface: Bool
+    var canNavigateWorkspace: Bool
+    var canNavigateSurface: Bool
+    var hasWorkspaceMetadata: Bool
     var selectedWorkspace: WorkspaceInsight?
+    var allWorkspaces: [WorkspaceInsight]
     var focusQueue: [WorkspaceInsight]
 
     init(snapshot: CMUXSidebarSnapshot) {
@@ -21,7 +27,13 @@ struct SidebarInsightModel {
         unreadCount = insights.reduce(0) { $0 + $1.unreadCount }
         portCount = insights.reduce(0) { $0 + $1.portCount }
         pullRequestCount = insights.reduce(0) { $0 + $1.pullRequestCount }
+        canSelectWorkspace = snapshot.grantedActionScopes.contains(.selectWorkspace)
+        canCreateSurface = snapshot.grantedActionScopes.contains(.createSurface)
+        canNavigateWorkspace = snapshot.grantedActionScopes.contains(.navigateWorkspace)
+        canNavigateSurface = snapshot.grantedActionScopes.contains(.navigateSurface)
+        hasWorkspaceMetadata = snapshot.grantedReadScopes.contains(.workspaceMetadata)
         selectedWorkspace = insights.first(where: \.isSelected)
+        allWorkspaces = insights
         focusQueue = insights
             .filter { $0.hasSignal && !$0.isSelected }
             .sorted { lhs, rhs in
@@ -42,6 +54,7 @@ struct WorkspaceInsight: Identifiable {
     var pullRequestCount: Int
     var branch: String?
     var latestNotification: String?
+    var surfaces: [SurfaceInsight]
 
     init(workspace: CMUXSidebarWorkspace, selectedWorkspaceID: UUID?) {
         id = workspace.id
@@ -54,6 +67,7 @@ struct WorkspaceInsight: Identifiable {
         pullRequestCount = workspace.pullRequestURLs.count
         branch = workspace.gitBranch
         latestNotification = workspace.latestNotification
+        surfaces = workspace.surfaces.map(SurfaceInsight.init(surface:))
     }
 
     var hasSignal: Bool {
@@ -66,6 +80,39 @@ struct WorkspaceInsight: Identifiable {
             + (portCount * 20)
             + (pullRequestCount * 10)
             + (isPinned ? 5 : 0)
+    }
+}
+
+struct SurfaceInsight: Identifiable {
+    var id: UUID
+    var title: String
+    var kind: CMUXSidebarSurfaceKind
+    var isFocused: Bool
+    var unreadCount: Int
+
+    init(surface: CMUXSidebarSurface) {
+        id = surface.id
+        title = surface.title
+        kind = surface.kind
+        isFocused = surface.isFocused
+        unreadCount = max(0, surface.unreadCount)
+    }
+
+    var iconName: String {
+        switch kind {
+        case .terminal:
+            return "terminal"
+        case .browser:
+            return "globe"
+        case .markdown:
+            return "doc.text"
+        case .filePreview:
+            return "doc"
+        case .rightSidebarTool:
+            return "sidebar.right"
+        case .unknown:
+            return "rectangle"
+        }
     }
 }
 

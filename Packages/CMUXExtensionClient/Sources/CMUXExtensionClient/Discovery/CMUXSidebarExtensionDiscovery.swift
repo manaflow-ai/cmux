@@ -1,4 +1,5 @@
 import ExtensionFoundation
+import CmuxExtensionKit
 import Foundation
 
 @available(macOS 14.0, *)

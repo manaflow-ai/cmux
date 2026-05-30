@@ -5,41 +5,25 @@ import CmuxExtensionKit
 
 @Observable
 @MainActor
-final class SidebarConnectionModel: @unchecked Sendable {
-    static let shared = SidebarConnectionModel()
-    static let manifest = CMUXExtensionManifest(
-        id: "co.manaflow.CMUXExtKitSampleSidebarApp.Extension",
-        displayName: "CMUX Sample Sidebar Extension",
-        requestedScopes: [
-            .workspaceMetadata,
-            .workspacePaths,
-            .notifications,
-            .networkPorts,
-            .pullRequests,
-        ],
-        requestedActionScopes: [
-            .selectWorkspace,
-        ]
-    )
-
+final class SidebarConnectionModel {
     private(set) var snapshot: CMUXSidebarSnapshot?
     private(set) var errorText: String?
 
     @ObservationIgnored
-    private lazy var extensionConnection = CMUXSidebarExtensionConnection(
-        manifest: Self.manifest,
-        onSnapshot: { [weak self] snapshot in
-            self?.snapshot = snapshot
-        },
-        onError: { [weak self] message in
-            self?.errorText = message.map(Self.localizedHostMessage)
-        }
-    )
+    private var host: CmuxSidebarHost?
 
-    private init() {}
+    @ObservationIgnored
+    private var cmux: CmuxHost?
 
-    func accept(connection: NSXPCConnection) -> Bool {
-        extensionConnection.accept(connection)
+    func update(context: CmuxSidebarContext) {
+        snapshot = context.snapshot
+        host = context.host
+        cmux = context.cmux
+        errorText = nil
+    }
+
+    func connectionErrorDidChange(_ message: String?) {
+        errorText = message.map(Self.localizedHostMessage)
     }
 
     var insights: SidebarInsightModel? {
@@ -47,11 +31,70 @@ final class SidebarConnectionModel: @unchecked Sendable {
     }
 
     func refreshSnapshot() {
-        extensionConnection.refreshSnapshot()
+        host?.refresh()
     }
 
     func selectWorkspace(_ id: UUID) {
-        extensionConnection.perform(.selectWorkspace(id))
+        guard let host else { return }
+        Task { @MainActor in
+            let result = await host.selectWorkspace(id)
+            if result.accepted {
+                errorText = nil
+            } else {
+                errorText = result.message ?? String(localized: "sampleSidebar.actionDenied", defaultValue: "cmux did not allow that action")
+            }
+        }
+    }
+
+    func selectSurface(workspaceID: UUID, surfaceID: UUID) {
+        guard let host else { return }
+        Task { @MainActor in
+            let result = await host.selectSurface(workspaceID: workspaceID, surfaceID: surfaceID)
+            apply(result)
+        }
+    }
+
+    func selectPreviousWorkspace() {
+        guard let cmux else { return }
+        Task { @MainActor in
+            apply(await cmux.selectPreviousWorkspace())
+        }
+    }
+
+    func selectNextWorkspace() {
+        guard let cmux else { return }
+        Task { @MainActor in
+            apply(await cmux.selectNextWorkspace())
+        }
+    }
+
+    func selectPreviousSurface() {
+        guard let host else { return }
+        Task { @MainActor in
+            apply(await host.selectPreviousSurface())
+        }
+    }
+
+    func selectNextSurface() {
+        guard let host else { return }
+        Task { @MainActor in
+            apply(await host.selectNextSurface())
+        }
+    }
+
+    func createTerminalSurface(in workspaceID: UUID?) {
+        guard let host else { return }
+        Task { @MainActor in
+            apply(await host.createTerminalSurface(in: workspaceID))
+        }
+    }
+
+    private func apply(_ result: CMUXExtensionActionResult) {
+        if result.accepted {
+            errorText = nil
+        } else {
+            errorText = result.message ?? String(localized: "sampleSidebar.actionDenied", defaultValue: "cmux did not allow that action")
+        }
     }
 
     private static func localizedHostMessage(_ message: String) -> String {

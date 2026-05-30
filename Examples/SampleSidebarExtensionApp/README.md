@@ -9,13 +9,12 @@ This is a standalone macOS app that embeds a CMUX sidebar ExtensionKit app exten
 3. Replace the Manaflow signing team with your own team.
 4. Replace the app and extension bundle identifiers with your own reverse-DNS identifiers.
 5. Keep the extension point identifier as `com.manaflow.cmux.sidebar`.
-6. Keep the ExtensionKit scene identifier as `sidebar`.
-7. Build and launch the containing app once.
-8. In CMUX, click the titlebar puzzle button, open Sidebar Extensions, and enable the sample.
-9. In the same puzzle menu, choose `Extension Sidebar`.
-10. If more than one sidebar extension is enabled, choose `CMUX ExtKit Sample Sidebar` inside the hosted sidebar.
+6. Build and launch the containing app once.
+7. In CMUX, click the puzzle button next to the sidebar help button, open Sidebar Extensions, and enable the sample.
+8. In the same puzzle menu, choose the extension sidebar provider.
+9. In the extension sidebar header, choose `CMUX ExtKit Sample Sidebar` if more than one sidebar extension is enabled.
 
-The sample targets macOS 26 because it exercises CMUX's current ExtensionFoundation browser and ExtensionKit host path. The `CmuxExtensionKit` data contract is plain Swift and remains separate from that host requirement.
+The sample targets macOS 14+, matching CMUX.
 
 ## What It Shows
 
@@ -23,34 +22,84 @@ The extension renders real workspace data supplied by CMUX:
 
 - workspace count
 - unread total
-- listening port count
-- pull request count
+- pinned workspace count
+- all shared workspaces
 - selected workspace
-- focus queue based on unread workspaces
+- each workspace's shared surfaces
+- focused surface indicators
+- compact focus summary based on workspace signals
 
-It does not use fake workspaces. If CMUX only grants limited access, the sample still renders the metadata CMUX shares by default. After you grant requested access in CMUX, it can also show paths, ports, notifications, and pull request links.
+It does not use fake workspaces. The sample requests workspace metadata, surface metadata, and the action permissions needed for its controls: selecting workspaces, selecting surfaces, moving to the previous or next workspace or surface, and creating a terminal surface.
 
 ## Authoring Pattern
 
-The sample keeps app-specific state in `SidebarConnectionModel` and delegates XPC plumbing to `CMUXSidebarExtensionConnection`:
+The sample's `@main` ExtensionKit entrypoint conforms directly to
+`CmuxSidebarExtension`. App-specific state lives in `SidebarConnectionModel`. CMUX
+delivers workspace updates through `update(context:)`, and the model uses the typed
+host helpers for actions:
 
 ```swift
-private lazy var extensionConnection = CMUXSidebarExtensionConnection(
-    manifest: Self.manifest,
-    onSnapshot: { [weak self] snapshot in
-        self?.snapshot = snapshot
-    },
-    onError: { [weak self] message in
-        self?.errorText = message
-    }
-)
+@main
+@MainActor
+final class SampleSidebarExtension: CmuxSidebarExtension {
+    static let manifest = CMUXExtensionManifest(...)
+    private let model = SidebarConnectionModel()
 
-func accept(connection: NSXPCConnection) -> Bool {
-    extensionConnection.accept(connection)
+    required init() {}
+
+    var body: some View {
+        SampleSidebarView(model: model)
+    }
+
+    func update(context: CmuxSidebarContext) {
+        model.update(context: context)
+    }
+}
+
+@Observable
+@MainActor
+final class SidebarConnectionModel {
+    private(set) var snapshot: CMUXSidebarSnapshot?
+    private var host: CmuxSidebarHost?
+    private var cmux: CmuxHost?
+
+    func update(context: CmuxSidebarContext) {
+        snapshot = context.snapshot
+        host = context.host
+        cmux = context.cmux
+    }
+
+    func selectWorkspace(_ id: UUID) {
+        Task { @MainActor in
+            _ = await host?.selectWorkspace(id)
+        }
+    }
+
+    func selectNextWorkspace() {
+        Task { @MainActor in
+            _ = await cmux?.selectNextWorkspace()
+        }
+    }
+
+    func createTerminalSurface(in workspaceID: UUID?) {
+        Task { @MainActor in
+            _ = await host?.createTerminalSurface(in: workspaceID)
+        }
+    }
 }
 ```
 
-The manifest is the permission request CMUX shows to users. Request only the scopes your sidebar actually needs.
+`CmuxSidebarExtension` owns the ExtensionKit scene and XPC connection, so extension
+authors do not define `configuration`, bind an extension point in Swift, or touch
+`NSXPCConnection`.
+
+`CmuxSidebarContext` exposes two typed host channels:
+
+- `context.cmux` for generic CMUX actions that are useful across extension types.
+- `context.host` for sidebar-specific actions that operate on sidebar snapshot data.
+
+The manifest is the permission request CMUX shows to users. Request only the scopes
+your sidebar actually needs.
 
 ## Troubleshooting
 
@@ -58,4 +107,4 @@ If the extension does not appear in CMUX, launch the containing app once, then r
 
 If it appears but cannot be enabled, check signing on both the containing app and the embedded appex.
 
-If it loads but shows limited information, open the CMUX extension details popover and grant the requested data/actions.
+If it loads but row clicks do not select workspaces, open the CMUX extension details popover and grant the requested action.

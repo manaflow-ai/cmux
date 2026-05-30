@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A3685C2E2FCA3B3700009F1B /* CMUX ExtKit Sample Sidebar Extension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C0DE47000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE47000000000000000002 /* CmuxExtensionKit */; };
-		A3685C2E2FCA3B3700009F1B /* SampleSidebarExtension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = A3685C242FCA3B2500009F1B /* SampleSidebarExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,7 +42,7 @@
 			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
 			dstSubfolderSpec = 16;
 			files = (
-				A3685C2E2FCA3B3700009F1B /* SampleSidebarExtension.appex in Embed ExtensionKit Extensions */,
+				A3685C2E2FCA3B3700009F1B /* CMUX ExtKit Sample Sidebar Extension.appex in Embed ExtensionKit Extensions */,
 			);
 			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -50,10 +50,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A3685BE92FCA3AEE00009F1B /* SampleSidebarExtensionApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SampleSidebarExtensionApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685BE92FCA3AEE00009F1B /* SampleSidebarExtensionApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = SampleSidebarExtensionApp.app; path = "CMUX ExtKit Sample Sidebar.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3685BF62FCA3AF000009F1B /* SampleSidebarExtensionAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SampleSidebarExtensionAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A3685C002FCA3AF000009F1B /* SampleSidebarExtensionAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SampleSidebarExtensionAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A3685C242FCA3B2500009F1B /* SampleSidebarExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = SampleSidebarExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = "CMUX ExtKit Sample Sidebar Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -143,7 +143,7 @@
 				A3685BE92FCA3AEE00009F1B /* SampleSidebarExtensionApp.app */,
 				A3685BF62FCA3AF000009F1B /* SampleSidebarExtensionAppTests.xctest */,
 				A3685C002FCA3AF000009F1B /* SampleSidebarExtensionAppUITests.xctest */,
-				A3685C242FCA3B2500009F1B /* SampleSidebarExtension.appex */,
+				A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -248,7 +248,7 @@
 				C0DE47000000000000000002 /* CmuxExtensionKit */,
 			);
 			productName = SampleSidebarExtension;
-			productReference = A3685C242FCA3B2500009F1B /* SampleSidebarExtension.appex */;
+			productReference = A3685C242FCA3B2500009F1B /* CMUX ExtKit Sample Sidebar Extension.appex */;
 			productType = "com.apple.product-type.extensionkit-extension";
 		};
 /* End PBXNativeTarget section */
@@ -287,7 +287,7 @@
 			mainGroup = A3685BE02FCA3AEE00009F1B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C0DE47000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
+				C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/CmuxExtensionKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A3685BEA2FCA3AEE00009F1B /* Products */;
@@ -437,7 +437,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -495,7 +495,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
@@ -522,7 +522,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp;
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar";
@@ -555,7 +555,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp;
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar";
@@ -577,7 +577,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.SampleSidebarExtensionAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -598,7 +598,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.SampleSidebarExtensionAppTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -652,6 +652,7 @@
 		A3685C2B2FCA3B2500009F1B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
@@ -665,7 +666,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp.Extension;
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
@@ -682,6 +683,7 @@
 		A3685C2C2FCA3B2500009F1B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
@@ -695,7 +697,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.manaflow.CMUXExtKitSampleSidebarApp.Extension;
 				PRODUCT_NAME = "CMUX ExtKit Sample Sidebar Extension";
@@ -761,7 +763,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		C0DE47000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */ = {
+		C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/CmuxExtensionKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../Packages/CmuxExtensionKit;
 		};
@@ -770,7 +772,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		C0DE47000000000000000002 /* CmuxExtensionKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0DE47000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */;
+			package = C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/CmuxExtensionKit" */;
 			productName = CmuxExtensionKit;
 		};
 /* End XCSwiftPackageProductDependency section */

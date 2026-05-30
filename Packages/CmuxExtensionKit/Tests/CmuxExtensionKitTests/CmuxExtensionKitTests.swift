@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CmuxExtensionKit
+@_spi(CmuxHostTransport) @testable import CmuxExtensionKit
 
 @Suite
 struct CMUXExtensionKitTests {
@@ -11,6 +11,8 @@ struct CMUXExtensionKitTests {
             sequence: 42,
             windowID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
             selectedWorkspaceID: workspaceID,
+            grantedReadScopes: [.workspaceMetadata, .workspacePaths, .notifications, .networkPorts, .pullRequests],
+            grantedActionScopes: [.selectWorkspace],
             workspaces: [
                 CMUXSidebarWorkspace(
                     id: workspaceID,
@@ -33,6 +35,8 @@ struct CMUXExtensionKitTests {
 
         #expect(decoded == snapshot)
         #expect(decoded.apiVersion == CMUXExtensionAPIVersion.sidebarV1)
+        #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
+        #expect(decoded.grantedActionScopes == [.selectWorkspace])
     }
 
     @Test
@@ -44,7 +48,7 @@ struct CMUXExtensionKitTests {
             requestedActionScopes: [.selectWorkspace, .openURL]
         )
 
-        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+        try validateSidebarManifest(manifest)
     }
 
     @Test
@@ -63,7 +67,7 @@ struct CMUXExtensionKitTests {
 
         #expect(manifest.requestedScopes == [.workspaceMetadata])
         #expect(manifest.requestedActionScopes.isEmpty)
-        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+        try validateSidebarManifest(manifest)
     }
 
     @Test
@@ -73,9 +77,9 @@ struct CMUXExtensionKitTests {
             displayName: "Example Sidebar"
         )
 
-        #expect(manifest.requestedScopes == [.workspaceMetadata])
+        #expect(manifest.requestedScopes.isEmpty)
         #expect(manifest.requestedActionScopes.isEmpty)
-        try CMUXExtensionValidator.validateSidebarManifest(manifest)
+        try validateSidebarManifest(manifest)
     }
 
     @Test
@@ -104,6 +108,8 @@ struct CMUXExtensionKitTests {
         let filtered = snapshot.filtered(for: [CMUXExtensionScope.workspaceMetadata])
         let workspace = try #require(filtered.workspaces.first)
 
+        #expect(filtered.grantedReadScopes == [.workspaceMetadata])
+        #expect(filtered.grantedActionScopes.isEmpty)
         #expect(workspace.id == workspaceID)
         #expect(workspace.title == "Build")
         #expect(workspace.detail == "Running tests")
@@ -147,7 +153,27 @@ struct CMUXExtensionKitTests {
         #expect(filtered.sequence == 45)
         #expect(filtered.windowID == nil)
         #expect(filtered.selectedWorkspaceID == nil)
+        #expect(filtered.grantedReadScopes.isEmpty)
+        #expect(filtered.grantedActionScopes.isEmpty)
         #expect(filtered.workspaces.isEmpty)
+    }
+
+    @Test
+    func testSidebarSnapshotDecodingDefaultsMissingGrantedScopes() throws {
+        let payload = Data("""
+        {
+          "apiVersion": { "major": 1, "minor": 0 },
+          "sequence": 50,
+          "selectedWorkspaceID": null,
+          "workspaces": []
+        }
+        """.utf8)
+
+        let snapshot = try JSONDecoder().decode(CMUXSidebarSnapshot.self, from: payload)
+
+        #expect(snapshot.sequence == 50)
+        #expect(snapshot.grantedReadScopes.isEmpty)
+        #expect(snapshot.grantedActionScopes.isEmpty)
     }
 
     @Test
@@ -177,6 +203,12 @@ struct CMUXExtensionKitTests {
         )
         #expect(decodedSnapshot == snapshot)
 
+        let actionScopedSnapshot = snapshot.filtered(
+            for: [CMUXExtensionScope.workspaceMetadata],
+            actionScopes: [CMUXExtensionActionScope.selectWorkspace]
+        )
+        #expect(actionScopedSnapshot.grantedActionScopes == [.selectWorkspace])
+
         let manifest = CMUXExtensionManifest(
             id: "dev.example.sidebar",
             displayName: "Example Sidebar",
@@ -200,6 +232,66 @@ struct CMUXExtensionKitTests {
             try CMUXSidebarXPCCodec.encodeActionResult(result)
         )
         #expect(decodedResult == result)
+    }
+
+    @Test
+    @MainActor
+    func testSidebarHostTypedHelpersSendExpectedActions() async {
+        var actions = [CMUXSidebarAction]()
+        var refreshCount = 0
+        let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let url = URL(string: "https://example.com/pr/1")!
+        let host = CmuxSidebarHost(
+            performAction: { action, reply in
+                actions.append(action)
+                reply(CMUXExtensionActionResult(accepted: true))
+            },
+            refreshSnapshot: {
+                refreshCount += 1
+            }
+        )
+
+        host.refresh()
+        let selectResult = await host.selectWorkspace(workspaceID)
+        let closeResult = await host.closeWorkspace(workspaceID)
+        let openResult = await host.openURL(url)
+
+        #expect(refreshCount == 1)
+        #expect(selectResult.accepted)
+        #expect(closeResult.accepted)
+        #expect(openResult.accepted)
+        #expect(actions == [
+            .selectWorkspace(workspaceID),
+            .closeWorkspace(workspaceID),
+            .openURL("https://example.com/pr/1"),
+        ])
+    }
+
+    @Test
+    @MainActor
+    func testSidebarHostCancelsPendingAsyncAction() async {
+        let cancellationBox = CancellationBox()
+        let startBox = ActionStartBox()
+        let workspaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+        let host = CmuxSidebarHost(
+            performCancellableAction: { _, _ in
+                startBox.markStarted()
+                return CmuxSidebarActionCancellation {
+                    cancellationBox.cancel()
+                }
+            }
+        )
+
+        let task = Task { @MainActor in
+            await host.selectWorkspace(workspaceID)
+        }
+        await startBox.waitUntilStarted()
+        task.cancel()
+        let result = await task.value
+
+        #expect(!result.accepted)
+        #expect(result.message == "Extension action was cancelled")
+        #expect(cancellationBox.didCancel)
     }
 
     @Test
@@ -321,7 +413,7 @@ struct CMUXExtensionKitTests {
         )
 
         do {
-            try CMUXExtensionValidator.validateSidebarManifest(manifest)
+            try validateSidebarManifest(manifest)
             Issue.record("Expected unsupported API version error")
         } catch {
             #expect(
@@ -331,5 +423,50 @@ struct CMUXExtensionKitTests {
                 )
             )
         }
+    }
+}
+
+private final class CancellationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var didCancel: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func cancel() {
+        lock.lock()
+        storage = true
+        lock.unlock()
+    }
+}
+
+private final class ActionStartBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var started = false
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if started {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    func markStarted() {
+        lock.lock()
+        started = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
     }
 }

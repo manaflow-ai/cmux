@@ -1,4 +1,4 @@
-import CmuxExtensionKit
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import Foundation
 
 /// Validated collection of sidebar extensions available to the host.
@@ -11,7 +11,7 @@ public struct CMUXSidebarExtensionRegistry: Sendable {
     public init(records: [CMUXSidebarExtensionRecord] = []) throws {
         var recordsByID: [String: CMUXSidebarExtensionRecord] = [:]
         for record in records {
-            try CMUXExtensionValidator.validateSidebarManifest(record.manifest)
+            try validateSidebarManifest(record.manifest)
             if recordsByID[record.id] != nil {
                 throw CMUXExtensionClientError.duplicateExtensionIdentifier(record.id)
             }

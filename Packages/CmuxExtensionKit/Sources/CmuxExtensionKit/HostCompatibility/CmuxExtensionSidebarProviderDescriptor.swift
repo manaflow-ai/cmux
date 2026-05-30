@@ -1,6 +1,8 @@
 import Foundation
 
 public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equatable, Sendable {
+    public static let defaultWorkspacesID = "cmux.sidebar.default"
+
     public var id: String
     public var title: CmuxExtensionLocalizedText
     public var subtitle: CmuxExtensionLocalizedText?
@@ -22,7 +24,7 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
     }
 
     public static let defaultWorkspaces = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.defaultWorkspaces,
+        id: defaultWorkspacesID,
         title: CmuxExtensionLocalizedText(key: "sidebar.provider.default.title", defaultValue: "Default Workspaces"),
         subtitle: CmuxExtensionLocalizedText(key: "sidebar.provider.default.subtitle", defaultValue: "cmux"),
         systemImageName: "list.bullet",
