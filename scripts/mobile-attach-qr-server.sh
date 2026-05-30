@@ -8,6 +8,7 @@ set -euo pipefail
 
 PORT="${PORT:-17321}"
 TAG="${CMUX_TAG:-mobile}"
+IOS_TAG="${CMUX_IOS_TAG:-$TAG}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -15,7 +16,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-export TAG SCRIPT_DIR
+export TAG IOS_TAG SCRIPT_DIR
 
 exec python3 - "$PORT" <<'PYEOF'
 import http.server
@@ -30,12 +31,22 @@ import time
 
 PORT = int(sys.argv[1])
 TAG = os.environ["TAG"]
+IOS_TAG = os.environ["IOS_TAG"]
 SCRIPT_DIR = os.environ["SCRIPT_DIR"]
+PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
+# `ios/scripts/reload.sh` builds + installs + launches the tagged iOS app on
+# the connected iPhone. The Open button shells out to it so a stale (or
+# missing) device build is brought current before launch — no manual reload.
+IOS_RELOAD = os.path.join(PROJECT_DIR, "ios", "scripts", "reload.sh")
+IOS_TEAM = os.environ.get("CMUX_IOS_TEAM", "7WLXT3NR37")
+# Build can take a couple minutes (xcodebuild incremental + install over the
+# tunnel); give it generous headroom.
+IOS_BUILD_TIMEOUT_SECONDS = 600
 QR_SCRIPT = os.path.join(SCRIPT_DIR, "mobile-attach-qr.sh")
 TMP_ROOT = os.environ.get("TMPDIR", "/tmp").rstrip("/") or "/tmp"
 OUT_DIR = os.path.join(TMP_ROOT, f"cmux-mobile-attach-qr-{TAG}")
-TAG_SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", TAG.lower())).strip("-") or "dev"
-IOS_BUNDLE_ID = f"dev.cmux.ios.{TAG_SLUG}"
+IOS_TAG_SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", IOS_TAG.lower())).strip("-") or "dev"
+IOS_BUNDLE_ID = f"dev.cmux.ios.{IOS_TAG_SLUG}"
 
 _LOCK = threading.Lock()
 _LAST_GEN_TS = 0.0
@@ -72,6 +83,7 @@ def app_info() -> dict:
     exe_path = tagged_app_executable()
     info: dict = {
         "tag": TAG,
+        "ios_tag": IOS_TAG,
         "app_path": app_path,
         "exe_path": exe_path,
         "exists": False,
@@ -156,29 +168,56 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(404, "text/plain", b"not found")
 
     def _open_tag(self) -> None:
-        # The label and the launch path share `app_info()` so they can't
-        # claim to open a tag that has no on-disk build. Refuse to delegate
-        # to the Tag Opener when the .app doesn't exist instead of letting
-        # the Open button silently activate a stale process for some other
-        # tag.
+        # iOS (the dogfood target): build + install + launch the tagged app on
+        # the connected iPhone so a stale or missing device build is brought
+        # current before launch. xcodebuild's incremental build makes this a
+        # near no-op when nothing changed. This is the "auto build then open"
+        # behavior — no separate manual reload.
+        ios_result = self._build_and_launch_ios()
+        # macOS: launch the tagged `.app` via the CMUX Tag Opener at :17320 if
+        # it is already built (it must be, to be serving this QR). We do not
+        # auto-build the Mac app here — that is a heavier macOS reload that
+        # would restart this very server's host app.
         info = app_info()
-        if not info["exists"]:
-            body = (
-                f"mac:no-build app_path={info['app_path']}\n"
-                f"ios:skipped (no Mac build for tag {TAG})\n"
-            ).encode("utf-8")
-            self._send(409, "text/plain", body)
-            return
-        # Fire two side effects in parallel: launch the tagged macOS `.app`
-        # via the CMUX Tag Opener at :17320, and launch the matching
-        # tagged iOS app on the first connected iPhone via devicectl.
-        # Errors on either side don't abort the other.
-        mac_result = self._launch_mac_tag()
-        ios_result = self._launch_ios_app()
+        if info["exists"]:
+            mac_result = self._launch_mac_tag()
+        else:
+            mac_result = f"no-build app_path={info['app_path']}"
         body = (
             f"mac:{mac_result}\nios:{ios_result}\n"
         ).encode("utf-8")
         self._send(200, "text/plain", body)
+
+    def _build_and_launch_ios(self) -> str:
+        """Build, install, and launch the tagged iOS app on the connected
+        iPhone via `ios/scripts/reload.sh --device-only`. Blocks until the
+        build finishes (the page shows a building state); the threading server
+        keeps serving other requests meanwhile."""
+        if not os.path.exists(IOS_RELOAD):
+            return f"no-reload-script ({IOS_RELOAD})"
+        cmd = [IOS_RELOAD, "--tag", IOS_TAG, "--device-only", "--team", IOS_TEAM]
+        env = os.environ.copy()
+        env["CMUX_TAG"] = IOS_TAG
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=PROJECT_DIR,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=IOS_BUILD_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return f"timeout (>{IOS_BUILD_TIMEOUT_SECONDS}s)"
+        except Exception as exc:  # pragma: no cover - defensive
+            return f"error {exc!r}"
+        out = (proc.stdout or b"").decode("utf-8", errors="replace")
+        if "physical device reload succeeded" in out:
+            return "built+launched"
+        if proc.returncode == 0:
+            return "built (launch state unknown)"
+        tail = [ln for ln in out.splitlines() if ln.strip()][-3:]
+        return f"failed exit={proc.returncode}: " + " | ".join(tail)
 
     def _launch_mac_tag(self) -> str:
         url = f"http://127.0.0.1:17320/{TAG}"
@@ -286,6 +325,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             b'onclick="cmuxOpenTag(this)">resolving...</button>'
             + b'<div class="qr-fresh-banner">live, regenerates every 45s</div>'
             + b'<script>(function(){\n'
+            + b'var cmuxBuilding=false;\n'
             + b'function fmtMtime(epoch){if(!epoch)return"never";\n'
             + b'  var ageS=Math.max(0,(Date.now()/1000)-epoch);\n'
             + b'  if(ageS<60)return Math.floor(ageS)+"s ago";\n'
@@ -295,7 +335,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             + b'function refresh(){fetch("/app-info",{cache:"no-store"})\n'
             + b'  .then(function(r){return r.json();}).then(function(info){\n'
             + b'    var btn=document.getElementById("cmux-open-btn");\n'
-            + b'    if(!btn)return;\n'
+            + b'    if(!btn||cmuxBuilding)return;\n'
             + b'    var built=fmtMtime(info.mtime);\n'
             + b'    var running=info.running_pid?(" \\u00b7 running pid "+info.running_pid):"";\n'
             + b'    if(info.exists){\n'
@@ -310,10 +350,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             + b'  }).catch(function(){});}\n'
             + b'window.cmuxOpenTag=function(btn){\n'
             + b'  if(btn.disabled)return;\n'
-            + b'  btn.disabled=true;var prev=btn.innerHTML;btn.innerHTML="launching...";\n'
+            + b'  cmuxBuilding=true;btn.disabled=true;\n'
+            + b'  btn.innerHTML="building \\u0026 opening\\u2026 (~1 min)";\n'
             + b'  fetch("/open-tag",{method:"POST"}).then(function(r){return r.text();})\n'
-            + b'   .then(function(t){btn.innerHTML=prev;}).catch(function(){btn.innerHTML=prev;})\n'
-            + b'   .finally(function(){btn.disabled=false;setTimeout(refresh,250);});};\n'
+            + b'   .then(function(t){btn.innerHTML="opened \\u00b7 "+t.replace(/\\n/g," ").trim();})\n'
+            + b'   .catch(function(){btn.innerHTML="open failed (see helper pane)";})\n'
+            + b'   .finally(function(){cmuxBuilding=false;btn.disabled=false;refresh();});};\n'
             + b'refresh();setInterval(refresh,2000);}());</script>\n'
         )
         if body_marker in html:
@@ -348,7 +390,7 @@ class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 regenerate(force=True)
 
 with ThreadingServer(("127.0.0.1", PORT), Handler) as httpd:
-    print(f"mobile QR server: http://127.0.0.1:{PORT}/  (tag={TAG})")
+    print(f"mobile QR server: http://127.0.0.1:{PORT}/  (tag={TAG}, ios_tag={IOS_TAG})")
     print(f"  health:  http://127.0.0.1:{PORT}/healthz")
     print(f"  ticket:  http://127.0.0.1:{PORT}/ticket.json")
     print("Ctrl-C to stop.")

@@ -39,8 +39,14 @@ enum RemotePlatform: String, Sendable, Equatable {
 @inline(__always)
 func liveAnchormuxLog(_ message: @autoclosure () -> String) {
     #if DEBUG
+    let msg = message()
     // NSLog avoids pulling in cmuxDebugLog from the macOS target.
-    NSLog("cmux.terminal.anchormux %@", message())
+    NSLog("cmux.terminal.anchormux %@", msg)
+    #if canImport(UIKit)
+    // Also keep it in the in-app ring buffer so a dogfooder can copy the log
+    // off the device via the DEV "Copy Debug Logs" terminal-menu action.
+    MobileDebugLog.shared.append(msg)
+    #endif
     #endif
 }
 

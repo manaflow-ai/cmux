@@ -2081,7 +2081,7 @@ struct WorkspaceDetailView: View {
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
-                    fontSize: 16
+                    fontSize: MobileTerminalFontPreference.defaultSize
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(TerminalPalette.background)
@@ -2216,10 +2216,35 @@ struct WorkspaceDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewTerminalMenuItem")
+
+            #if DEBUG && canImport(UIKit)
+            Button(action: copyDebugLogsFromMenu) {
+                // DEV-only debug tooling; not shipped, so not localized.
+                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
+            #endif
         }
         .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
         .presentationCompactAdaptation(.popover)
     }
+
+    #if DEBUG && canImport(UIKit)
+    private func copyDebugLogsFromMenu() {
+        isTerminalPickerPresented = false
+        // Include "what the user sees" (the visible terminal text) above the
+        // debug log so a pasted bug report shows the on-screen content too.
+        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
+        let count = MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
+    }
+    #endif
 
     private func createWorkspaceFromToolbar() {
         dismissTerminalKeyboardForChrome()

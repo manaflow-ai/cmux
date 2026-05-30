@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import Network
+import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
@@ -73,6 +74,49 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
+    }
+
+    /// Regression: fast pinch-zoom must not hang the main thread (the
+    /// scene-update watchdog `0x8BADF00D` was killing the app because
+    /// libghostty surface calls block on the main thread) and must not
+    /// corrupt the rendered grid. Runs the real zoom path through real
+    /// pinch gestures on the live terminal surface.
+    @MainActor
+    func testFastPinchZoomDoesNotHangOrCorrupt() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // Dismiss any notification banner that could intercept the gestures.
+        addUIInterruptionMonitor(withDescription: "system banner") { banner in
+            banner.swipeUp()
+            return true
+        }
+        app.swipeDown(velocity: .fast) // trigger the monitor if a banner is up
+        app.swipeUp(velocity: .fast)
+
+        // Drastic + fast zoom sweep, far beyond a human pinch: full zoom-in
+        // then full zoom-out, at high velocity, many times. Pre-fix this hung
+        // the main thread on a libghostty futex and tripped the 10s watchdog.
+        for _ in 0..<120 {
+            surface.pinch(withScale: 8.0, velocity: 12.0)   // hard zoom in
+            surface.pinch(withScale: 0.1, velocity: -12.0)  // hard zoom out
+        }
+
+        // If the app watchdog-hung/crashed it is no longer foreground.
+        XCTAssertEqual(
+            app.state,
+            .runningForeground,
+            "App must survive fast/drastic pinch-zoom without a watchdog hang"
+        )
+        // And the terminal must still render its known content, not a blank
+        // or jumbled grid.
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
     }
 
     @MainActor
@@ -155,6 +199,172 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(0, label: "LAZYGIT", in: app)
     }
 
+    /// Pixel-level regression for the blank / garbled terminal class. Buffer
+    /// checks (``assertTerminalRow``) false-passed while the screen was blank,
+    /// so this gates on the actual on-screen composited pixels via
+    /// `XCUIScreenshot`. The mock host streams repeating red/green/blue
+    /// full-row color bands; at every discrete zoom level the rendered surface
+    /// must show those bands (>=3 distinct strong colors) and each band row
+    /// must be horizontally uniform (no torn / mis-scaled / garbled frame).
+    @MainActor
+    func testTerminalRendersColorBandsAcrossZoomLevels() async throws {
+        // The selected terminal streams the repeating R/G/B color bands on
+        // attach, so the bands render without a flaky dropdown switch.
+        let server = try MobileSyncMockHostServer(defaultTerminalLines: MockColorBands.lines())
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, assertStatusRows: false)
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // Verify clean bands at the attached size first (no zoom interaction).
+        assertCleanColorBands(of: surface, level: 0)
+
+        // Then sweep zoom sizes via the keyboard-accessory buttons, checking
+        // the render stays clean (not blank / garbled) at each settled level.
+        surface.tap()
+        let zoomOut = app.buttons["terminal.inputAccessory.zoomOut"]
+        let zoomIn = app.buttons["terminal.inputAccessory.zoomIn"]
+        XCTAssertTrue(zoomOut.waitForExistence(timeout: 6), "zoom controls should appear")
+
+        for _ in 0..<10 where zoomOut.isEnabled { zoomOut.tap() }
+        var level = 1
+        while level < 8 {
+            assertCleanColorBands(of: surface, level: level)
+            level += 1
+            guard zoomIn.isEnabled else { break }
+            zoomIn.tap()
+            zoomIn.tap()
+        }
+    }
+
+    @MainActor
+    private func assertCleanColorBands(
+        of surface: XCUIElement,
+        level: Int,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
+        // The off-main renderer presents a frame behind, so right after a
+        // keyboard transition or rapid zoom the surface can be momentarily
+        // blank/stale. Poll until the bands settle into a clean state rather
+        // than judging a single frame (sleeps are acceptable in tests).
+        var lastDetail = "no frames sampled"
+        for _ in 0..<12 {
+            Thread.sleep(forTimeInterval: 0.4)
+            guard let cg = surface.screenshot().image.cgImage else {
+                lastDetail = "no screenshot image"
+                continue
+            }
+            let pixels = BitmapPixels(cg)
+
+            // Vertical strip down the horizontal center, in the upper 55%
+            // (clear of the keyboard). Clean bands produce many distinct,
+            // strongly-colored samples; a blank screen produces near-zero.
+            let strip = (0..<24).map { i -> RGB in
+                let y = 0.03 + 0.52 * Double(i) / 23.0
+                return pixels.color(xUnit: 0.5, yUnit: y)
+            }
+            let strong = strip.filter { $0.isStrong }
+            let distinct = RGB.distinctCount(strong, tolerance: 60)
+
+            // A torn / mis-scaled frame breaks horizontal uniformity within a
+            // band row. Sample left/center/right of a few rows; where all three
+            // are strongly colored they must match.
+            var uniform = true
+            for yUnit in [0.12, 0.30, 0.48] {
+                let l = pixels.color(xUnit: 0.22, yUnit: yUnit)
+                let c = pixels.color(xUnit: 0.50, yUnit: yUnit)
+                let r = pixels.color(xUnit: 0.78, yUnit: yUnit)
+                guard l.isStrong, c.isStrong, r.isStrong else { continue }
+                if !(l.isClose(to: c, tolerance: 70) && c.isClose(to: r, tolerance: 70)) {
+                    uniform = false
+                }
+            }
+
+            lastDetail = "strong=\(strong.count)/24 distinct=\(distinct) uniform=\(uniform) strip=\(strip)"
+            // Clean banded rendering: horizontally uniform (not garbled/torn)
+            // AND either several distinct bands (lower zoom) or one band that
+            // solidly fills the keyboard-clear strip (higher zoom, where a
+            // single thick band can span the whole window). Blank => no strong
+            // pixels; garbled => not uniform.
+            let enoughBands = (distinct >= 2 && strong.count >= 6)
+                || (distinct == 1 && strong.count >= 16)
+            if uniform, enoughBands {
+                return
+            }
+        }
+        XCTFail(
+            "zoom level \(level): never rendered clean color bands. last: \(lastDetail)",
+            file: file, line: line
+        )
+    }
+
+    /// A sampled pixel.
+    private struct RGB: CustomStringConvertible {
+        let r: Int, g: Int, b: Int
+        /// A clearly-colored pixel: a bright, saturated channel mix, ignoring
+        /// the near-black terminal background.
+        var isStrong: Bool {
+            let mx = max(r, g, b), mn = min(r, g, b)
+            return mx >= 110 && (mx - mn) >= 50
+        }
+        func isClose(to o: RGB, tolerance: Int) -> Bool {
+            abs(r - o.r) <= tolerance && abs(g - o.g) <= tolerance && abs(b - o.b) <= tolerance
+        }
+        var description: String { "(\(r),\(g),\(b))" }
+        static func distinctCount(_ xs: [RGB], tolerance: Int) -> Int {
+            var reps: [RGB] = []
+            for x in xs where !reps.contains(where: { $0.isClose(to: x, tolerance: tolerance) }) {
+                reps.append(x)
+            }
+            return reps.count
+        }
+    }
+
+    /// Reads RGB pixels out of a `CGImage` (an `XCUIScreenshot`'s image) by
+    /// unit coordinates.
+    private struct BitmapPixels {
+        let width: Int
+        let height: Int
+        private let data: [UInt8]
+        private let bytesPerRow: Int
+
+        init(_ cg: CGImage) {
+            let w = cg.width
+            let h = cg.height
+            let bpr = w * 4
+            var buf = [UInt8](repeating: 0, count: max(1, h * bpr))
+            let cs = CGColorSpaceCreateDeviceRGB()
+            buf.withUnsafeMutableBytes { raw in
+                guard let ctx = CGContext(
+                    data: raw.baseAddress,
+                    width: w,
+                    height: h,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bpr,
+                    space: cs,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ) else { return }
+                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            }
+            width = w
+            height = h
+            bytesPerRow = bpr
+            data = buf
+        }
+
+        func color(xUnit: Double, yUnit: Double) -> RGB {
+            guard width > 0, height > 0 else { return RGB(r: 0, g: 0, b: 0) }
+            let x = min(width - 1, max(0, Int(xUnit * Double(width))))
+            let y = min(height - 1, max(0, Int(yUnit * Double(height))))
+            let o = y * bytesPerRow + x * 4
+            return RGB(r: Int(data[o]), g: Int(data[o + 1]), b: Int(data[o + 2]))
+        }
+    }
+
     @MainActor
     func testTerminalReplayRendersGhosttyText() async throws {
         let server = try MobileSyncMockHostServer()
@@ -199,15 +409,17 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchConnectedApp(port: UInt16) throws -> XCUIApplication {
+    private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
         ])
         waitForWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
-        assertTerminalRow(0, label: "$ cmux ios status", in: app)
-        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        if assertStatusRows {
+            assertTerminalRow(0, label: "$ cmux ios status", in: app)
+            assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        }
         return app
     }
 
@@ -650,6 +862,35 @@ final class cmuxUITests: XCTestCase {
     }
 }
 
+/// Shared definition of the deterministic color-band test pattern, used by
+/// both the mock host (to emit it) and the render test (to verify it).
+private enum MockColorBands {
+    /// Strong, easily separated colors: red, green, blue.
+    static let colors: [(r: Int, g: Int, b: Int)] = [(210, 40, 40), (40, 180, 70), (50, 90, 220)]
+
+    /// Rows of solid color in THICK bands (``bandHeight`` rows per color)
+    /// cycling through ``colors``. Each row is a run of full-block glyphs
+    /// (`█`, U+2588) in a 24-bit FOREGROUND color, so every cell is filled by a
+    /// real character. Foreground glyphs (unlike a background `ESC[K` fill)
+    /// survive a terminal resize/reflow, so the bands stay visible as the font
+    /// is zoomed (which resizes the grid). Thick bands (not 1-row stripes)
+    /// stay clearly distinguishable at any cell size, and the repeating cycle
+    /// means any viewport height / scroll position shows several clean bands.
+    static let bandHeight = 6
+    static func lines(count: Int = 96) -> [String] {
+        // Wider than any phone terminal grid so the block run fills each row.
+        let block = String(repeating: "\u{2588}", count: 220)
+        var out: [String] = []
+        out.reserveCapacity(count + 1)
+        for i in 0..<count {
+            let c = colors[(i / bandHeight) % colors.count]
+            out.append("\u{1B}[38;2;\(c.r);\(c.g);\(c.b)m\(block)")
+        }
+        out.append("\u{1B}[0m")
+        return out
+    }
+}
+
 private final class MobileSyncMockHostServer: @unchecked Sendable {
     private struct Workspace {
         var id: String
@@ -722,8 +963,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ),
     ]
 
-    init() throws {
+    init(defaultTerminalLines: [String]? = nil) throws {
         listener = try NWListener(using: .tcp, on: .any)
+        // Optionally replace the selected terminal's content (used by the
+        // color-band render test so the bands stream on attach without a flaky
+        // dropdown switch).
+        if let lines = defaultTerminalLines {
+            workspaces[0].terminals[0].lines = lines
+            workspaces[0].terminals[0].activeScreen = "primary"
+        }
     }
 
     func start() async throws -> UInt16 {

@@ -512,6 +512,27 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private weak var runtime: GhosttyRuntime?
     private weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
+    /// Surface-owned live font size (points). Zoom mutates this; it is the
+    /// source of truth for the current size, so the size accumulates correctly
+    /// across taps even though the actual libghostty apply is coalesced.
+    private var liveFontSize: Float32
+    /// Latest zoom target awaiting a coalesced apply. The display link applies
+    /// it once per frame via an absolute `set_font_size` so a burst of zoom
+    /// taps becomes one libghostty push + resize per frame, instead of one per
+    /// tap. That keeps the serial `outputQueue` from accumulating blocking
+    /// pushes (mailbox `.forever` push / swap-chain wait) faster than the
+    /// per-frame render drains them — the wedge that froze zoom.
+    private var pendingFontSize: Float32?
+    /// Countdown of quiet frames before the post-zoom geometry resync fires.
+    /// A zoom step changes the cell size, which (when letterbox-pinned to the
+    /// Mac's grid) changes `renderRect` and so reallocates the IOSurface render
+    /// target. Doing that every step thrashed the GPU and wedged
+    /// `render_now`'s synchronous frame wait. Instead each step only applies
+    /// the font (the grid reflows inside the current surface) and arms this
+    /// counter; the display link runs ONE `setNeedsGeometrySync` once zoom goes
+    /// quiet, so the letterbox re-pins a single time. nil = nothing pending.
+    private var zoomSettleFrames: Int?
+    private static let zoomSettleFrameThreshold = 6
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -520,12 +541,35 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
     private var needsDraw: Bool = false
+    /// Countdown of extra draw requests after a geometry change, so the
+    /// renderer (which presents a frame behind) produces a frame at the final
+    /// settled layer size rather than leaving a stale mid-animation surface.
+    /// Bounded to avoid a perpetual main-queue present flood.
+    private var pendingRenderFrames: Int = 0
+    /// At most one `render_now` is in flight on `outputQueue` at a time. The
+    /// display link can fire at 120Hz and previously enqueued a render every
+    /// frame with no guard, so during a continuous pinch renders piled up
+    /// faster than the serial queue drained them. Each op stayed fast, but the
+    /// DISPLAYED frame fell seconds behind the live font and only caught up
+    /// when zoom stopped and the backlog drained — the "frozen, no updates"
+    /// symptom. Coalescing caps the backlog: while a render is in flight, mark
+    /// `needsAnotherRender` and re-enqueue exactly one when it completes.
+    private var renderInFlight: Bool = false
+    private var needsAnotherRender: Bool = false
+    /// Set by any geometry trigger (resize/zoom/keyboard/effective-grid pin);
+    /// the display link applies geometry at most once per frame. Coalescing
+    /// prevents the fast-zoom geometry storm that thrashed the grid (jumbled
+    /// rendering) and saturated the renderer.
+    private var needsGeometrySync: Bool = false
+    private var pendingGeometryReassert: Bool = false
+    /// Last content scale pushed to libghostty; used to skip redundant
+    /// per-frame `set_content_scale` pushes (the screen scale is constant).
+    private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
-    // Serial background queue for feeding bytes into Ghostty. Keeps
-    // `ghostty_surface_process_output` off the main thread so a potential
-    // Ghostty internal mutex/futex wait can't freeze the UI. Ordering is
-    // preserved because the queue is serial.
+    /// Serial background queue for `ghostty_surface_process_output`, which
+    /// blocks on libghostty's internal renderer/IO futex. Running it on the
+    /// main thread hangs the app until the scene-update watchdog kills it.
     private static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
@@ -554,6 +598,19 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private(set) var surface: ghostty_surface_t?
     private var lastReportedSize: TerminalGridSize?
+    /// Latest natural grid awaiting a debounced report to the Mac. The display
+    /// link sends it only after the grid has held steady for
+    /// `viewportReportSettleThreshold` frames. Reporting every intermediate
+    /// size during the attach / keyboard / zoom settle resized the Mac PTY
+    /// repeatedly, so the shell redrew its prompt on each SIGWINCH and the
+    /// initial scrollback filled with the prompt duplicated at every width.
+    private var pendingViewportReport: TerminalGridSize?
+    private var viewportReportSettleFrames = 0
+    /// Frames of "no zoom in progress" required before the natural grid is
+    /// reported to the Mac. Longer than the local geometry settle so a zoom
+    /// gesture (with brief pauses between steps) renegotiates the shared grid
+    /// once, not on every micro-pause. ~0.25s at 120Hz / 0.5s at 60Hz.
+    private static let viewportReportSettleThreshold = 30
     private var lastSnapshotFallbackHTML: String?
     /// Daemon-authoritative effective grid (min across attached devices). When
     /// set, the Ghostty surface is pinned to this cols×rows inside the
@@ -609,7 +666,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func setKeyboardHeightForTesting(_ height: CGFloat) {
         keyboardHeight = max(0, height)
-        syncSurfaceGeometry()
+        syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
     #endif
 
@@ -674,6 +731,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
+        self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
         backgroundColor = .black
@@ -747,13 +805,13 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let overlap = max(0, bounds.maxY - keyboardFrameInView.minY)
         guard overlap != keyboardHeight else { return }
         keyboardHeight = overlap
-        syncSurfaceGeometry()
+        setNeedsGeometrySync()
     }
 
     @objc private func handleKeyboardWillHide(_ notification: Notification) {
         guard keyboardHeight != 0 else { return }
         keyboardHeight = 0
-        syncSurfaceGeometry()
+        setNeedsGeometrySync()
     }
 
     private var pinchAccumulatedScale: CGFloat = 1.0
@@ -785,7 +843,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         case .ended, .cancelled:
             // Final sync to make sure the last font change is applied.
-            syncSurfaceGeometry()
+            setNeedsGeometrySync()
         default:
             break
         }
@@ -793,13 +851,79 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @discardableResult
     private func performFontZoom(_ direction: TerminalFontZoomDirection) -> Bool {
-        let handled = performBindingAction(direction.bindingAction)
-        guard handled else { return false }
+        // Coalesce zoom: each tap only updates `pendingFontSize`; the display
+        // link applies the LATEST target once per frame via an absolute
+        // `set_font_size` (see `applyPendingFontSizeIfNeeded`). A burst of taps
+        // therefore becomes one libghostty push + one resize per frame instead
+        // of one per tap.
+        //
+        // Why this matters: every libghostty surface op on iOS runs on the
+        // serial `outputQueue`, and they all BLOCK — the font push is a
+        // `.forever` mailbox push, and the render that drains it waits on a
+        // free GPU frame. Dispatching one blocking push per tap let the queue
+        // accumulate pushes faster than the per-frame render drained them, so
+        // the queue wedged and zoom froze. Coalescing caps the work at one
+        // push per frame, which the render keeps pace with.
+        //
+        // Base the next step on `pendingFontSize` when a target is already
+        // queued, so taps within the same frame still accumulate correctly.
+        let delta: Float32 = direction == .increase ? 1 : -1
+        let base = pendingFontSize ?? liveFontSize
+        let target = base + delta
+        guard target >= MobileTerminalFontPreference.minimumSize,
+              target <= MobileTerminalFontPreference.maximumSize else {
+            liveAnchormuxLog("zoom.clamp dir=\(direction) base=\(base) target=\(target) range=[\(MobileTerminalFontPreference.minimumSize),\(MobileTerminalFontPreference.maximumSize)]")
+            return false
+        }
+        guard surface != nil else { return false }
 
-        // Font size changes recalculate cell metrics. Re-sync geometry so the
-        // new natural cols/rows are propagated through session.resize to every
-        // attached device.
-        syncSurfaceGeometry()
+        pendingFontSize = target
+        liveAnchormuxLog("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
+        scheduleDisplayLinkWork()
+        return true
+    }
+
+    /// Ensure a queued zoom (`pendingFontSize`) actually gets applied. While the
+    /// display link runs, `handleDisplayLinkFire` picks the target up on the
+    /// next frame. If the link is stopped (detached / backgrounded) nothing
+    /// would pump it, so apply immediately.
+    private func scheduleDisplayLinkWork() {
+        needsDraw = true
+        if displayLink == nil {
+            applyPendingFontSizeIfNeeded()
+        }
+    }
+
+    /// Apply the latest queued zoom target, called once per display-link frame.
+    /// Pushes an absolute `set_font_size` off the main thread and renders the
+    /// new font WITHOUT resizing the surface — geometry is resynced once after
+    /// zoom settles (see `zoomSettleFrames`). Returns whether a font change was
+    /// applied this frame.
+    @discardableResult
+    private func applyPendingFontSizeIfNeeded() -> Bool {
+        guard let target = pendingFontSize, let surface else { return false }
+        pendingFontSize = nil
+        guard target != liveFontSize else { return false }
+        liveFontSize = target
+        liveAnchormuxLog("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
+        // Absolute set: the prior `±1` binding action drove libghostty's own
+        // font counter independently of our clamp, so a fast burst could push
+        // it past `maximumSize` toward the 255pt ceiling and collapse the grid.
+        // An absolute `set_font_size:<target>` keeps libghostty in lockstep
+        // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
+        let action = "set_font_size:\(target)"
+        Self.outputQueue.async {
+            action.withCString { pointer in
+                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+        }
+        // Render the new font (the grid reflows inside the current surface) but
+        // do NOT resize the surface this frame. Resizing the render target on
+        // every zoom step reallocates the IOSurface and stalls `render_now`'s
+        // GPU frame wait (the wedge). Defer one geometry resync until zoom goes
+        // quiet via the settle counter, re-armed on every apply.
+        needsDraw = true
+        zoomSettleFrames = Self.zoomSettleFrameThreshold
         return true
     }
 
@@ -810,6 +934,15 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
         }
     }
+
+    #if DEBUG
+    /// Repro hook for the `CMUX_ZOOM_STRESS` harness: drive one font-zoom
+    /// step exactly as pinch / the accessory buttons do, so the harness can
+    /// hammer the zoom path and reproduce the fast-zoom crash locally.
+    func debugStressZoomStep(_ direction: TerminalFontZoomDirection) {
+        performFontZoom(direction)
+    }
+    #endif
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
@@ -829,7 +962,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
         liveAnchormuxLog("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
-        syncSurfaceGeometry()
+        setNeedsGeometrySync()
         syncSurfaceVisibility()
     }
 
@@ -838,7 +971,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         liveAnchormuxLog("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
         if window != nil {
-            syncSurfaceGeometry()
+            setNeedsGeometrySync()
             setFocus(true)
             if autoFocusOnWindowAttach {
                 focusInput()
@@ -870,18 +1003,18 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
 
-        // Dispatch the actual Ghostty call to a serial background queue.
-        // ghostty_surface_process_output can block on Ghostty's internal
-        // mutex / mailbox, and running it on main would freeze the UI
-        // (see TerminalSidebarStore deadlock notes). Ordering is preserved
-        // because the queue is serial.
+        // `ghostty_surface_process_output` BLOCKS on libghostty's internal
+        // renderer/IO synchronization (a futex). Device crash logs show it
+        // hanging the main thread (`Thread.Futex.Deadline.wait`) until the
+        // scene-update watchdog (0x8BADF00D) kills the app. It must run off
+        // the main thread. Feed it on a serial background queue (order
+        // preserved) and hop back to main only for the Swift-side UI state.
         Self.outputQueue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            // Hop back to main for Swift-side state updates and diagnostics.
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.needsDraw = true
@@ -924,7 +1057,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc
     func focusInput() {
         onFocusInputRequestedForTesting?()
-        syncSurfaceGeometry()
+        setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
         inputProxy.becomeFirstResponder()
     }
@@ -1064,7 +1197,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             snapshotFallbackView.isHidden = true
             surfaceHasReceivedOutput = true
         }
-        syncSurfaceGeometry()
+        setNeedsGeometrySync()
         startDisplayLink()
     }
 
@@ -1095,12 +1228,139 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc func handleDisplayLinkFire() {
         guard let surface else { return }
+        // Apply at most one coalesced zoom per frame. This only changes the
+        // font; the geometry resync is deferred until zoom settles.
+        let appliedZoom = applyPendingFontSizeIfNeeded()
+        // Post-zoom geometry resync: once no new zoom target has landed for a
+        // few quiet frames, do ONE resize to re-pin the letterbox at the
+        // settled font. This is the single geometry change per zoom gesture
+        // instead of one per step (which thrashed the IOSurface and wedged the
+        // render queue).
+        if !appliedZoom, var frames = zoomSettleFrames {
+            frames -= 1
+            if frames <= 0 {
+                zoomSettleFrames = nil
+                setNeedsGeometrySync()
+            } else {
+                zoomSettleFrames = frames
+            }
+        }
+        // Apply geometry at most once per frame. Every trigger (resize, zoom,
+        // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
+        // fast pinch can no longer drive a synchronous per-event storm of
+        // set_size calls (the source of the jumbled grid + renderer overload).
+        if needsGeometrySync {
+            needsGeometrySync = false
+            let reassert = pendingGeometryReassert
+            pendingGeometryReassert = false
+            syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
+        }
         let now = CACurrentMediaTime()
         let blinkChanged = cursorBlinkState.advance(now: now)
-        if needsDraw || blinkChanged {
+        // Draw on content/cursor changes, and for a short bounded burst after
+        // any geometry change. iOS has no renderer-side vsync, so a frame is
+        // only produced when we ask. The renderer draws at the layer size read
+        // at draw time and presents a frame behind, so a single post-resize
+        // draw can land while the layer is still mid-animation, leaving a
+        // stale, wrong-size surface on screen (the blank / crushed-strip
+        // garble). Requesting a few extra frames after the geometry settles
+        // guarantees a draw at the final size. It is bounded (not a perpetual
+        // loop) so it never floods the main queue with `setSurface` present
+        // blocks, which made the app unresponsive.
+        let geometrySettling = pendingRenderFrames > 0
+        if geometrySettling { pendingRenderFrames -= 1 }
+        if needsDraw || blinkChanged || geometrySettling {
             needsDraw = false
-            ghostty_surface_render_now(surface)
+            requestRender()
             updateCursorOverlay()
+        }
+
+        // Report the settled natural grid to the Mac once it has stopped
+        // changing. `applyGeometryResult` resets the counter on every grid
+        // change, so this only fires after the attach/keyboard/zoom settle —
+        // one PTY resize instead of one per intermediate size.
+        //
+        // While a zoom is still in progress (`zoomSettleFrames` armed = a zoom
+        // landed within the last few frames) HOLD the report entirely. Each
+        // zoom step changes the natural grid; reporting mid-zoom makes the Mac
+        // resize the PTY over and over, so a full-screen TUI (a coding agent,
+        // vim, etc.) redraws at constantly-changing sizes and garbles into the
+        // "bad intermediate state". Zoom is a LOCAL font change; the shared
+        // grid should renegotiate exactly once, after the user settles.
+        if let pending = pendingViewportReport {
+            if zoomSettleFrames != nil {
+                viewportReportSettleFrames = 0
+            } else {
+                viewportReportSettleFrames += 1
+                if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
+                    pendingViewportReport = nil
+                    viewportReportSettleFrames = 0
+                    liveAnchormuxLog("zoom.report grid=\(pending.columns)x\(pending.rows)")
+                    delegate?.ghosttySurfaceView(self, didResize: pending)
+                }
+            }
+        }
+    }
+
+    /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
+    /// to the off-main surface queue.
+    ///
+    /// On iOS libghostty's renderer-thread event loop does not pump frames
+    /// (it's a platform-display-driven embedder), so `ghostty_surface_refresh`
+    /// — which only wakes that loop — never produces a frame: `updateFrame`
+    /// doesn't run, the cell grid stays 0x0, and the surface renders blank
+    /// (uninitialized buffer shows as garbled). `render_now` instead runs
+    /// `applyPendingResizeIfNeeded` + drainMailbox + `updateFrame` + drawFrame
+    /// directly on the calling thread, so the terminal grid is sized and the
+    /// cells are rebuilt from real content. We run it on `outputQueue` so the
+    /// GPU encode/swap-chain wait stays OFF the main thread (calling it on main
+    /// is what tripped the scene-update watchdog under fast zoom). The present
+    /// still hops to main inside libghostty (`setSurface`). The display link
+    /// gates this on `needsDraw`/`pendingRenderFrames`, so it is not a
+    /// per-frame loop that would flood the main queue with present blocks.
+    private func requestRender() {
+        guard let surface else { return }
+        // Coalesce: never let more than one render_now sit on the serial queue.
+        // (Called on main from the display link.)
+        if renderInFlight {
+            needsAnotherRender = true
+            return
+        }
+        renderInFlight = true
+        let enqueuedAt = CACurrentMediaTime()
+        Self.outputQueue.async { [weak self] in
+            // Queue LAG = how long this render waited behind other ops. If this
+            // climbs into hundreds of ms the queue is backlogged (the freeze).
+            let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
+            if lagMs > 150 { liveAnchormuxLog("oq.render.LAG \(Int(lagMs))ms") }
+            ghostty_surface_render_now(surface)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.renderInFlight = false
+                if self.needsAnotherRender {
+                    self.needsAnotherRender = false
+                    self.requestRender()
+                }
+            }
+        }
+    }
+
+    /// Request a geometry recompute on the next display-link frame. Triggers
+    /// must call this instead of `syncSurfaceGeometry` directly so rapid
+    /// events coalesce into one apply per frame.
+    private func setNeedsGeometrySync(reassertNaturalSize: Bool = true) {
+        needsGeometrySync = true
+        if reassertNaturalSize { pendingGeometryReassert = true }
+        needsDraw = true
+        // A geometry sync (for any reason) satisfies a pending post-zoom resync.
+        zoomSettleFrames = nil
+        if displayLink == nil, window != nil {
+            // No frame pump while detached/backgrounded; apply directly so the
+            // surface still gets sized before the next render path resumes.
+            needsGeometrySync = false
+            let reassert = pendingGeometryReassert
+            pendingGeometryReassert = false
+            syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
 
@@ -1219,15 +1479,20 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func applyViewSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
+        liveAnchormuxLog("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
-        if window != nil {
-            syncSurfaceGeometry(shouldReassertNaturalSize: false)
-        } else {
-            setNeedsLayout()
-        }
+        // Mark dirty instead of recomputing synchronously. This breaks the
+        // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
+        // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
+        // storm of set_size calls + viewport RPCs. Geometry now settles once
+        // per frame, and reassert=false avoids re-reporting the unchanged
+        // natural grid back through the round trip.
+        setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
-    private func setSurfaceSizeAtLeastGrid(
+    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
+    /// off-main surface queue (it touches only the passed surface pointer).
+    nonisolated private static func fitSurfaceToGrid(
         _ surface: ghostty_surface_t,
         cols: Int,
         rows: Int,
@@ -1244,7 +1509,10 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // This keeps the iOS mirror on the exact daemon grid instead of
         // occasionally rendering one column short.
         var steps = 0
-        while steps < 128,
+        // Bounded refinement: a few single-pixel nudges are enough to land on
+        // the exact grid. A high cap let a fast-zoom storm run this loop tens
+        // of thousands of times across frames and burn the main thread.
+        while steps < 8,
               Int(actual.columns) < cols || Int(actual.rows) < rows {
             if Int(actual.columns) < cols {
                 requestedW += 1
@@ -1260,110 +1528,152 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (requestedW, requestedH, actual)
     }
 
+    /// Result of an off-main geometry pass, handed back to the main actor.
+    private struct GeometryResult: Sendable {
+        let cellPixelSize: CGSize
+        let naturalSize: TerminalGridSize
+        /// Pinned render size in points when letterboxed to an effective
+        /// grid; nil means fill the container.
+        let pinnedSize: CGSize?
+    }
+
     private func syncSurfaceGeometry(shouldReassertNaturalSize: Bool = true) {
         guard let surface else { return }
 
+        // Capture all main-actor inputs as values, then do every libghostty
+        // WRITE (set_content_scale / set_size / fit) and its readback on the
+        // serial surface queue. These calls push to libghostty's renderer
+        // mailbox with a blocking `.forever` push; on the main thread they
+        // hang it until the scene-update watchdog (0x8BADF00D) kills the app.
+        // The main thread only applies the UIKit result. This is the single
+        // off-main surface owner: main never calls a blocking libghostty API.
         let scale = preferredScreenScale
-        ghostty_surface_set_content_scale(surface, scale, scale)
-
-        // The container's visible device-preferred pixel box. The iOS
-        // keyboard and input accessory cover the bottom of this UIView, so
-        // they must reduce the render/report height while visible. When
-        // the keyboard hides, layout re-expands and reports the full host
-        // capacity again.
         let bottomInset = min(max(0, keyboardHeight), max(0, bounds.height - 1))
         let containerW = max(1, bounds.width)
         let containerH = max(1, bounds.height - bottomInset)
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
+        let eff = effectiveGrid
+        let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
+        if pushContentScale { lastAppliedContentScale = scale }
 
-        // Measure the container's natural cell capacity by sizing Ghostty
-        // to the full container box and reading back cols/rows. This is
-        // what we report via `session.resize`; the daemon uses the
-        // smallest live attachment as the effective PTY size.
-        ghostty_surface_set_size(surface, containerPxW, containerPxH)
-        let measured = ghostty_surface_size(surface)
-        if measured.columns > 0 && measured.rows > 0 && measured.width_px > 0 && measured.height_px > 0 {
-            cellPixelSize = CGSize(
-                width: CGFloat(measured.width_px) / CGFloat(measured.columns),
-                height: CGFloat(measured.height_px) / CGFloat(measured.rows)
-            )
-        }
-        let naturalSize = TerminalGridSize(
-            columns: Int(measured.columns),
-            rows: Int(measured.rows),
-            pixelWidth: Int(measured.width_px),
-            pixelHeight: Int(measured.height_px)
-        )
-
-        // If the daemon pinned us to a smaller effective grid, re-size
-        // Ghostty to that grid in pixels and remember the inner rect so
-        // the renderer layer + border can center around it. If the pin
-        // would exceed the container (stale push mid-resize, or we are
-        // actually the smallest device) fall back to natural fill.
-        let renderRect: CGRect
-        if let eff = effectiveGrid,
-           eff.cols > 0, eff.rows > 0,
-           cellPixelSize.width > 0, cellPixelSize.height > 0 {
-            let columnSlack = Int(measured.columns) - eff.cols
-            let rowSlack = Int(measured.rows) - eff.rows
-            let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-            let withinOneCell = columnSlack <= 1 && rowSlack <= 1
-            let pinnedW = CGFloat(eff.cols) * cellPixelSize.width / scale
-            let pinnedH = CGFloat(eff.rows) * cellPixelSize.height / scale
-            if fillsNaturalGrid || withinOneCell {
-                renderRect = CGRect(x: 0, y: 0, width: containerW, height: containerH)
-            } else if pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                let fittedSize = setSurfaceSizeAtLeastGrid(
-                    surface,
-                    cols: eff.cols,
-                    rows: eff.rows,
-                    cellPixelSize: cellPixelSize
-                )
-                let actualWidthPx = fittedSize.actual.width_px > 0 ? fittedSize.actual.width_px : fittedSize.requestedW
-                let actualHeightPx = fittedSize.actual.height_px > 0 ? fittedSize.actual.height_px : fittedSize.requestedH
-                let clampedW = min(CGFloat(actualWidthPx) / scale, containerW)
-                let clampedH = min(CGFloat(actualHeightPx) / scale, containerH)
-                // Left-align + top-anchor the pinned surface so cells line
-                // up at the same screen column every render, regardless of
-                // container width. Users scanning text expect a fixed left
-                // margin; centering would make the prompt jitter horizontally
-                // when another device attaches or detaches.
-                renderRect = CGRect(x: 0, y: 0, width: clampedW, height: clampedH)
-            } else {
-                renderRect = CGRect(x: 0, y: 0, width: containerW, height: containerH)
+        Self.outputQueue.async { [weak self] in
+            if pushContentScale {
+                ghostty_surface_set_content_scale(surface, scale, scale)
             }
-        } else {
-            renderRect = CGRect(x: 0, y: 0, width: containerW, height: containerH)
+            ghostty_surface_set_size(surface, containerPxW, containerPxH)
+            let measured = ghostty_surface_size(surface)
+
+            var cell = CGSize.zero
+            if measured.columns > 0, measured.rows > 0, measured.width_px > 0, measured.height_px > 0 {
+                cell = CGSize(
+                    width: CGFloat(measured.width_px) / CGFloat(measured.columns),
+                    height: CGFloat(measured.height_px) / CGFloat(measured.rows)
+                )
+            }
+
+            var pinnedSize: CGSize?
+            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
+                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
+                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
+                let pinnedW = CGFloat(eff.cols) * cell.width / scale
+                let pinnedH = CGFloat(eff.rows) * cell.height / scale
+                if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
+                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
+                    pinnedSize = CGSize(
+                        width: min(CGFloat(aw) / scale, containerW),
+                        height: min(CGFloat(ah) / scale, containerH)
+                    )
+                }
+            }
+
+            let natural = TerminalGridSize(
+                columns: Int(measured.columns),
+                rows: Int(measured.rows),
+                pixelWidth: Int(measured.width_px),
+                pixelHeight: Int(measured.height_px)
+            )
+            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
+            DispatchQueue.main.async {
+                self?.applyGeometryResult(
+                    result,
+                    scale: scale,
+                    containerW: containerW,
+                    containerH: containerH,
+                    shouldReassertNaturalSize: shouldReassertNaturalSize
+                )
+            }
         }
+    }
 
-        lastRenderRect = renderRect
-        syncRendererLayerFrame(scale: scale, renderRect: renderRect)
-        updateLetterboxBorder(renderRect: renderRect, isLetterboxed: renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH)
-        updateCursorOverlay()
-
-        liveAnchormuxLog(
-            "surface.geometry bounds=\(Int(bounds.width))x\(Int(bounds.height)) container=\(Int(containerW))x\(Int(containerH)) render=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.origin.x)),\(Int(renderRect.origin.y)) natural=\(naturalSize.columns)x\(naturalSize.rows) effective=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "none")"
+    /// Apply an off-main geometry pass on the main actor: only UIKit layer /
+    /// cursor / border work plus the resize report. No blocking libghostty
+    /// calls happen here.
+    private func applyGeometryResult(
+        _ result: GeometryResult,
+        scale: CGFloat,
+        containerW: CGFloat,
+        containerH: CGFloat,
+        shouldReassertNaturalSize: Bool
+    ) {
+        if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
+            cellPixelSize = result.cellPixelSize
+        }
+        // Size the render layer to the EXACT pixel size libghostty rendered
+        // (grid-aligned: cols×cellW × rows×cellH), not the raw container. The
+        // present path discards any surface whose size != layer.bounds×scale,
+        // and ghostty floors the grid to whole cells, so a container-sized
+        // layer is up to ~one cell larger than the surface and EVERY frame is
+        // discarded (blank terminal). Using the measured surface size makes
+        // them match so frames present. Pinned (letterboxed) sizes are already
+        // derived from the fitted surface px. Left-align + top-anchor either
+        // way; any leftover container space is the letterbox margin.
+        let naturalRenderSize = CGSize(
+            width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
+            height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
         )
-        ghostty_surface_refresh(surface)
-        // After a size/content-scale change, the IOSurfaceLayer's previous
-        // drawable is invalidated. The display-link gate only redraws when
-        // `needsDraw || blinkChanged`, so without a flag here the screen
-        // stays blank until the cursor blink ticks ~500ms later. Mark a
-        // redraw so the next display link frame paints the new geometry.
+        let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
+            ?? CGRect(origin: .zero, size: naturalRenderSize)
+        lastRenderRect = renderRect
+        liveAnchormuxLog(
+            "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
+            + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
+            + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
+            + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))"
+        )
+        syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        updateLetterboxBorder(
+            renderRect: renderRect,
+            isLetterboxed: renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH
+        )
+        updateCursorOverlay()
         needsDraw = true
+        // Keep drawing for several frames so a frame lands at the final settled
+        // layer size after CoreAnimation commits the bounds change. libghostty
+        // discards a present whose surface size != the live layer (avoids the
+        // garbled mis-scaled frame), so we must re-draw at the stable size until
+        // one passes; otherwise the terminal stays blank. Bounded to avoid a
+        // perpetual main-queue present flood. The renderer presents a frame
+        // behind (see display link).
+        pendingRenderFrames = 6
         syncSnapshotFallback()
-        if window != nil {
-            logLayerTree(reason: "geometry")
-        }
+
+        let naturalSize = result.naturalSize
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
         let shouldReportNaturalSize = naturalSize != lastReportedSize ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
-        guard shouldReportNaturalSize else { return }
+        guard shouldReportNaturalSize, naturalSize.columns > 0, naturalSize.rows > 0 else { return }
         lastReportedSize = naturalSize
-        delegate?.ghosttySurfaceView(self, didResize: naturalSize)
+        // Debounce the actual report (a PTY resize on the Mac) until the grid
+        // settles; the display link fires it once it stops changing.
+        pendingViewportReport = naturalSize
+        viewportReportSettleFrames = 0
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
@@ -1477,8 +1787,14 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func drawForWakeup() {
-        guard let surface, window != nil else { return }
-        ghostty_surface_refresh(surface)
+        guard surface != nil, window != nil else { return }
+        // Don't call `ghostty_surface_refresh` here: that wakes the renderer
+        // thread to present asynchronously (`setSurface` → `dispatch_async` to
+        // main → size-guard discard), which both blanks frames and competes
+        // with the display-link's main-thread present. Just flag dirty; the
+        // next display-link tick runs `render_now` on main (which itself does
+        // drainMailbox + updateFrame), keeping a single present owner on main.
+        needsDraw = true
     }
 
     func visibleSnapshotTextForTesting() -> String {
@@ -1656,6 +1972,28 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             view.drawForWakeup()
         }
+    }
+
+    /// "What the user sees": the visible viewport text of every on-screen
+    /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
+    /// pairs the on-screen content with the debug log. Reads the VIEWPORT
+    /// (visible grid only, not scrollback) via libghostty.
+    static func visibleTerminalSnapshot() -> String {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        var sections: [String] = []
+        for view in registeredSurfaceViews.values.compactMap(\.value) {
+            guard view.window != nil, !view.isHidden, view.alpha > 0.01 else { continue }
+            let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
+            let text = view.renderedTextForTesting(pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
+            sections.append(
+                "===== visible terminal · grid=\(grid) · font=\(Int(view.liveFontSize)) =====\n"
+                + text
+            )
+        }
+        if sections.isEmpty {
+            return "===== visible terminal: (no on-screen surface) ====="
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     private func handleBell() {
