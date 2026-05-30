@@ -9566,7 +9566,8 @@ class TerminalController {
     private func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel,
         bindingAction: String = "write_screen_file:copy,vt",
-        lineLimit: Int?
+        lineLimit: Int?,
+        normalizeLineEndings: Bool = true
     ) -> String? {
         var actionSucceeded = false
         let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
@@ -9595,7 +9596,9 @@ class TerminalController {
               let rawOutput = String(data: data, encoding: .utf8) else {
             return nil
         }
-        var output = Self.normalizedMobileVTExportText(rawOutput)
+        var output = normalizeLineEndings
+            ? Self.normalizedMobileVTExportText(rawOutput)
+            : rawOutput
         if let lineLimit {
             output = tailTerminalLines(output, maxLines: lineLimit)
         }
@@ -21354,8 +21357,14 @@ class TerminalController {
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
         let data = state?.data ?? Data()
+        let snapshotData = readTerminalTextFromVTExportForSnapshot(
+            terminalPanel: terminalPanel,
+            bindingAction: "write_active_file:copy,vt",
+            lineLimit: nil,
+            normalizeLineEndings: false
+        )?.data(using: .utf8) ?? Data()
         #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) bufferBytes=\(data.count) seq=\(seq) hasState=\(state != nil)")
+        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) bufferBytes=\(data.count) snapshotBytes=\(snapshotData.count) seq=\(seq) hasState=\(state != nil)")
         #endif
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
@@ -21363,6 +21372,10 @@ class TerminalController {
             "seq": seq,
             "data_b64": data.base64EncodedString(),
         ]
+        if !snapshotData.isEmpty {
+            payload["snapshot_format"] = "ghostty.active.vt"
+            payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
+        }
         if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
             let size = ghostty_surface_size(surface)
             payload["columns"] = max(Int(size.columns), 1)
@@ -21455,11 +21468,15 @@ class TerminalController {
             "mobile.terminal.input workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(sendResult == .queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
         )
         #endif
-        return .ok([
+        var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
             "queued": sendResult == .queued,
-        ])
+        ]
+        if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
+            payload["terminal_seq"] = seq
+        }
+        return .ok(payload)
     }
 
     private func applyMobileViewportReport(

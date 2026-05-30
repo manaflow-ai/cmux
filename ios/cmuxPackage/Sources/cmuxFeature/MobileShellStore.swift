@@ -418,6 +418,8 @@ enum MobileShellRouteAuthPolicy {
 @MainActor
 @Observable
 public final class CMUXMobileShellStore {
+    private static let terminalEventTopics = ["workspace.updated", "terminal.bytes"]
+
     public private(set) var isSignedIn: Bool
     public private(set) var connectionState: MobileConnectionState
     public private(set) var connectedHostName: String
@@ -449,11 +451,13 @@ public final class CMUXMobileShellStore {
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
+                resetTerminalOutputTracking()
             }
         }
     }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
+    private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
@@ -461,6 +465,8 @@ public final class CMUXMobileShellStore {
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
+    private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    private var terminalReplaySurfaceIDsInFlight: Set<String>
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -516,7 +522,9 @@ public final class CMUXMobileShellStore {
         self.selectedWorkspaceID = workspaces.first?.id
         self.selectedTerminalID = workspaces.first?.terminals.first?.id
         self.remoteClient = nil
+        self.terminalEventListenerTask = nil
         self.terminalEventListenerID = nil
+        self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
@@ -524,12 +532,15 @@ public final class CMUXMobileShellStore {
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
+        self.deliveredTerminalByteEndSeqBySurfaceID = [:]
+        self.terminalReplaySurfaceIDsInFlight = []
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
 
     isolated deinit {
         terminalEventListenerTask?.cancel()
+        terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
@@ -581,8 +592,7 @@ public final class CMUXMobileShellStore {
     }
 
     public func resumeForegroundRefresh() {
-        guard remoteClient != nil, connectionState == .connected else { return }
-        startTerminalRefreshPolling()
+        resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
     public func connectPreviewHost() {
@@ -1304,6 +1314,8 @@ public final class CMUXMobileShellStore {
     }
 
     private func cancelRemoteOperationTasks() {
+        terminalSubscriptionRefreshTask?.cancel()
+        terminalSubscriptionRefreshTask = nil
         createWorkspaceTask?.cancel()
         createWorkspaceTask = nil
         createWorkspaceTaskID = nil
@@ -1312,6 +1324,13 @@ public final class CMUXMobileShellStore {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+    }
+
+    private func resetTerminalOutputTracking() {
+        deliveredTerminalByteEndSeqBySurfaceID = [:]
+        terminalReplaySurfaceIDsInFlight = []
+        terminalSubscriptionRefreshTask?.cancel()
+        terminalSubscriptionRefreshTask = nil
     }
 
     private func beginPairingAttempt() -> UUID {
@@ -1459,13 +1478,14 @@ public final class CMUXMobileShellStore {
                 params["viewport_columns"] = viewportSize.columns
                 params["viewport_rows"] = viewportSize.rows
             }
-            _ = try await client.sendRequest(
+            let responseData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
                     params: params
                 )
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -1473,8 +1493,61 @@ public final class CMUXMobileShellStore {
         }
     }
 
+    private var terminalEventStreamID: String {
+        "ios-terminal-events-\(clientID)"
+    }
+
+    private func requestTerminalEventSubscription(
+        client: MobileCoreRPCClient,
+        reason: String
+    ) async -> Bool {
+        let requestData: Data
+        do {
+            requestData = try MobileCoreRPCClient.requestData(
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": terminalEventStreamID,
+                    "topics": Self.terminalEventTopics,
+                ]
+            )
+        } catch {
+            mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
+            return false
+        }
+        let responseData: Data
+        do {
+            responseData = try await client.sendRequest(requestData)
+        } catch {
+            mobileShellLog.error("subscribe failed reason=\(reason, privacy: .public): \(String(describing: error), privacy: .private)")
+            return false
+        }
+        let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        guard let object = responseObject,
+              let streamID = object["stream_id"] as? String,
+              !streamID.isEmpty else {
+            mobileShellLog.error("subscribe response missing stream_id reason=\(reason, privacy: .public)")
+            return false
+        }
+        #if DEBUG
+        mobileShellLog.info("subscribe active reason=\(reason, privacy: .public) streamID=\(streamID, privacy: .public)")
+        #endif
+        return true
+    }
+
+    private func refreshTerminalEventSubscription(reason: String) {
+        guard let client = remoteClient, connectionState == .connected else { return }
+        guard runtime?.supportsServerPushEvents ?? true else { return }
+        guard terminalSubscriptionRefreshTask == nil else { return }
+        terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
+            defer { self?.terminalSubscriptionRefreshTask = nil }
+            guard let self else { return }
+            _ = await self.requestTerminalEventSubscription(client: client, reason: reason)
+        }
+    }
+
     private func startTerminalRefreshPolling() {
         guard let client = remoteClient else { return }
+        guard runtime?.supportsServerPushEvents ?? true else { return }
         guard terminalEventListenerTask == nil else { return }
         let listenerID = UUID()
         terminalEventListenerID = listenerID
@@ -1486,37 +1559,12 @@ public final class CMUXMobileShellStore {
                 }
             }
 
-            // Topics the iOS render path actually consumes. `terminal.bytes`
-            // delivers raw PTY output for the libghostty renderer;
-            // `workspace.updated` keeps the workspace list in sync. The old
-            // `terminal.updated` notifications drove the now-deleted Swift
-            // snapshot refresh path, so we no longer subscribe to them.
-            let topics: [String] = ["workspace.updated", "terminal.bytes"]
-            let stream = await client.subscribe(to: Set(topics))
-            let requestData: Data
-            do {
-                requestData = try MobileCoreRPCClient.requestData(
-                    method: "mobile.events.subscribe",
-                    params: ["topics": topics]
-                )
-            } catch {
-                mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
-                return
-            }
-            let responseData: Data
-            do {
-                responseData = try await client.sendRequest(requestData)
-            } catch {
-                mobileShellLog.error("subscribe failed: \(String(describing: error), privacy: .private)")
-                return
-            }
-            // Require a well-formed subscribe ack ({"stream_id": "..."}) so we
-            // don't latch onto a stray response from a Mac that doesn't know
-            // about events.v1. Anything else means the request reached an old
-            // handler and shouldn't activate the event path.
-            let responseObject = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-            guard let object = responseObject, (object["stream_id"] as? String)?.isEmpty == false else {
-                mobileShellLog.error("subscribe response missing stream_id")
+            let stream = await client.subscribe(to: Set(Self.terminalEventTopics))
+            let subscribed = await self?.requestTerminalEventSubscription(
+                client: client,
+                reason: "start"
+            ) ?? false
+            guard subscribed else {
                 return
             }
             // Keep the listener alive without keeping the shell store alive.
@@ -1554,6 +1602,58 @@ public final class CMUXMobileShellStore {
         scheduleWorkspaceListRefreshFromEvent()
     }
 
+    private func resyncTerminalOutput(
+        reason: String,
+        restartEventStream: Bool,
+        surfaceIDs requestedSurfaceIDs: [String]? = nil
+    ) {
+        guard remoteClient != nil, connectionState == .connected else { return }
+        if restartEventStream {
+            stopTerminalRefreshPolling()
+            startTerminalRefreshPolling()
+        } else if terminalEventListenerTask == nil {
+            startTerminalRefreshPolling()
+        } else {
+            refreshTerminalEventSubscription(reason: reason)
+        }
+
+        let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteSinksBySurfaceID.keys)
+        liveAnchormuxLog(
+            "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
+        )
+        for surfaceID in surfaceIDs {
+            requestTerminalReplay(surfaceID: surfaceID)
+        }
+    }
+
+    private func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
+        guard terminalByteSinksBySurfaceID[surfaceID] != nil,
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let remoteSeq = (payload["terminal_seq"] as? NSNumber)?.uint64Value else {
+            return
+        }
+        let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
+        guard remoteSeq > localSeq else { return }
+        liveAnchormuxLog("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
+        mobileShellLog.info("terminal output behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
+        resyncTerminalOutput(
+            reason: "input_seq_behind",
+            restartEventStream: false,
+            surfaceIDs: [surfaceID]
+        )
+    }
+
+    private func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
+        let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
+        deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
+    }
+
+    private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
+        var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
+        bytes.append(snapshotBytes)
+        return bytes
+    }
+
     /// Per-surface byte sinks for the libghostty render path. A mounted
     /// `GhosttySurfaceView` registers itself here and receives raw PTY
     /// bytes pushed from the Mac via `terminal.bytes` events. The Mac
@@ -1568,6 +1668,7 @@ public final class CMUXMobileShellStore {
         sink: @escaping (Data) -> Void
     ) {
         terminalByteSinksBySurfaceID[surfaceID] = sink
+        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
@@ -1576,6 +1677,7 @@ public final class CMUXMobileShellStore {
 
     public func unregisterTerminalByteSink(surfaceID: String) {
         terminalByteSinksBySurfaceID.removeValue(forKey: surfaceID)
+        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -1647,13 +1749,11 @@ public final class CMUXMobileShellStore {
         }
     }
 
-    /// Cold-attach replay: pull the Mac's per-surface byte ring buffer
-    /// once and feed it into the local libghostty surface so the iPhone
-    /// starts with the same grid the Mac currently shows. Live
-    /// `terminal.bytes` events keep flowing in parallel; sinks are
-    /// callable from the moment they register, so any live byte that
-    /// arrives during the in-flight replay request is appended after
-    /// the replay buffer naturally.
+    /// Cold-attach/self-heal replay. Prefer the Mac's authoritative VT
+    /// active-screen snapshot, replacing the local iOS terminal state before
+    /// live bytes resume. The raw byte ring remains a fallback, but is not
+    /// reliable as a snapshot for TUIs because a tail can start after the
+    /// program's clear/redraw sequence.
     private func requestTerminalReplay(surfaceID: String) {
         guard let client = remoteClient else {
             #if DEBUG
@@ -1667,8 +1767,16 @@ public final class CMUXMobileShellStore {
             #endif
             return
         }
+        guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
+            #if DEBUG
+            mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")
+            #endif
+            return
+        }
+        terminalReplaySurfaceIDsInFlight.insert(surfaceID)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
             do {
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
@@ -1682,16 +1790,36 @@ public final class CMUXMobileShellStore {
                 let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let b64 = payload?["data_b64"] as? String
                 let bytes = b64.flatMap { Data(base64Encoded: $0) }
+                let snapshotB64 = payload?["snapshot_data_b64"] as? String
+                let snapshotBytes = snapshotB64.flatMap { Data(base64Encoded: $0) }
+                let replaySeq = (payload?["seq"] as? NSNumber)?.uint64Value
                 #if DEBUG
-                let seq = (payload?["seq"] as? NSNumber)?.uint64Value ?? 0
+                let seq = replaySeq ?? 0
                 let cols = (payload?["columns"] as? NSNumber)?.intValue ?? -1
                 let rows = (payload?["rows"] as? NSNumber)?.intValue ?? -1
-                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
+                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
                 #endif
-                guard let bytes, !bytes.isEmpty else {
+                if let replaySeq,
+                   let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
+                   deliveredSeq > replaySeq {
+                    liveAnchormuxLog("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                     return
                 }
-                self.terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+                let deliverBytes: Data?
+                if let snapshotBytes, !snapshotBytes.isEmpty {
+                    deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
+                    liveAnchormuxLog("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
+                } else {
+                    deliverBytes = bytes
+                    liveAnchormuxLog("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
+                }
+                if let replaySeq {
+                    self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                }
+                guard let deliverBytes, !deliverBytes.isEmpty else {
+                    return
+                }
+                self.terminalByteSinksBySurfaceID[surfaceID]?(deliverBytes)
             } catch {
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
@@ -1721,7 +1849,33 @@ public final class CMUXMobileShellStore {
         let seq = (payload["seq"] as? NSNumber)?.uint64Value ?? 0
         mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(seq, privacy: .public) hasSink=\(self.terminalByteSinksBySurfaceID[surfaceID] != nil, privacy: .public)")
         #endif
+        guard let seq = (payload["seq"] as? NSNumber)?.uint64Value else {
+            terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+            return
+        }
+        let endSeq = seq &+ UInt64(bytes.count)
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
+            if seq > deliveredSeq {
+                liveAnchormuxLog("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
+                mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
+                resyncTerminalOutput(
+                    reason: "seq_gap",
+                    restartEventStream: false,
+                    surfaceIDs: [surfaceID]
+                )
+                return
+            }
+            if endSeq <= deliveredSeq {
+                return
+            }
+            let overlap = deliveredSeq - seq
+            let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
+            terminalByteSinksBySurfaceID[surfaceID]?(deliverBytes)
+            markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
+            return
+        }
         terminalByteSinksBySurfaceID[surfaceID]?(bytes)
+        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {

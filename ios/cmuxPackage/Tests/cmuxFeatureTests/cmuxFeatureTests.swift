@@ -2098,6 +2098,55 @@ import UIKit
     #expect(inputRequest.text == "\u{1B}[A")
 }
 
+@MainActor
+@Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = TerminalOutputSelfHealingRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    var deliveredText: [String] = []
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.registerTerminalByteSink(surfaceID: "live-terminal") { data in
+        deliveredText.append(String(data: data, encoding: .utf8) ?? "")
+    }
+
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    for _ in 0..<200 where deliveredText.count < 1 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
+    for _ in 0..<200 where deliveredText.count < 2 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    #expect(deliveredText == [
+        terminalSnapshotReplacementText("old"),
+        terminalSnapshotReplacementText("current"),
+    ])
+}
+
 @Test func terminalSafeAreaExpansionAccountsForIPadSidebarVisibility() {
     #expect(
         MobileTerminalSafeAreaExpansionPolicy.edges(
@@ -2332,6 +2381,30 @@ private func rpcWorkspaceListFrame(
                 ],
             ],
         ]
+    )
+}
+
+private func terminalSnapshotReplacementText(_ text: String) -> String {
+    "\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J\(text)"
+}
+
+private func rpcTerminalReplayFrame(
+    seq: UInt64,
+    rawText: String,
+    snapshotText: String? = nil
+) throws -> Data {
+    var result: [String: Any] = [
+        "workspace_id": "live-workspace",
+        "surface_id": "live-terminal",
+        "seq": NSNumber(value: seq),
+        "data_b64": Data(rawText.utf8).base64EncodedString(),
+    ]
+    if let snapshotText {
+        result["snapshot_format"] = "ghostty.active.vt"
+        result["snapshot_data_b64"] = Data(snapshotText.utf8).base64EncodedString()
+    }
+    return try rpcResultFrame(
+        result: result
     )
 }
 
@@ -2744,6 +2817,57 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
             )
         case "workspace.create":
             return try rpcWorkspaceCreateFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var replayCount = 0
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "live-workspace",
+                title: "Live Workspace",
+                terminalID: "live-terminal"
+            )
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.replay":
+            replayCount += 1
+            if replayCount == 1 {
+                return try rpcTerminalReplayFrame(
+                    seq: 4,
+                    rawText: "stale-old-tail",
+                    snapshotText: "old"
+                )
+            }
+            return try rpcTerminalReplayFrame(
+                seq: 12,
+                rawText: "stale-current-tail",
+                snapshotText: "current"
+            )
+        case "terminal.input":
+            return try rpcResultFrame(
+                result: [
+                    "workspace_id": "live-workspace",
+                    "surface_id": "live-terminal",
+                    "queued": false,
+                    "terminal_seq": 12,
+                ]
+            )
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3256,4 +3380,3 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
     let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
-

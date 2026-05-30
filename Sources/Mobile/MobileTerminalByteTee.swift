@@ -9,7 +9,9 @@ private let mobileTerminalByteTeeLog = Logger(
 /// Captures raw PTY-output bytes from every cmux terminal surface and
 /// publishes them to subscribed mobile clients as `terminal.bytes`
 /// events. Provides a per-surface ring buffer that mobile clients can
-/// replay from on cold attach or after a detected sequence gap.
+/// replay from as a fallback; the primary mobile replay path uses an
+/// authoritative VT snapshot from the Mac's Ghostty surface because a byte
+/// tail is not a complete screen state for TUIs.
 ///
 /// The byte source is libghostty's `ghostty_surface_set_pty_tee_cb`
 /// callback (cmux fork addition). The callback fires on the IO read
@@ -63,6 +65,10 @@ final class MobileTerminalByteTee {
     func replayState(surfaceID: UUID) -> (seq: UInt64, data: Data)? {
         guard let state = statesBySurfaceID[surfaceID] else { return nil }
         return (state.seq, state.replayBuffer)
+    }
+
+    func currentSequence(surfaceID: UUID) -> UInt64? {
+        statesBySurfaceID[surfaceID]?.seq
     }
 
     /// Drop replay history for a surface (e.g. when the surface closes).
