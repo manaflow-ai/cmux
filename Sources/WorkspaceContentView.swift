@@ -356,7 +356,24 @@ struct WorkspaceContentView: View {
             )
         }
 
-        bonsplitView
+        Group {
+            switch workspace.layoutMode {
+            case .bonsplit:
+                bonsplitView
+            case .paper:
+                PaperCanvasWorkspaceView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    workspacePortalPriority: workspacePortalPriority,
+                    appearance: appearance,
+                    isSplit: isSplit,
+                    usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    workspaceManualUnreadPanelId: workspaceManualUnreadPanelId
+                )
+            }
+        }
             .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
@@ -752,6 +769,140 @@ extension WorkspaceContentView {
         _ = workspace
     }
     #endif
+}
+
+struct PaperCanvasWorkspaceView: View {
+    @ObservedObject var workspace: Workspace
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let workspacePortalPriority: Int
+    let appearance: PanelAppearance
+    let isSplit: Bool
+    let usesWorkspacePaneOverlay: Bool
+    let isWorkspaceManuallyUnread: Bool
+    let workspaceManualUnreadPanelId: UUID?
+    @EnvironmentObject var notificationStore: TerminalNotificationStore
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                if let paperLayoutState = workspace.paperLayoutState {
+                    ForEach(paperLayoutState.panes) { pane in
+                        paperPaneView(pane, viewportOrigin: paperLayoutState.viewportOrigin)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+            .onAppear {
+                initializePaperLayoutIfNeeded(viewportSize: proxy.size)
+            }
+            .onChange(of: proxy.size) { _, viewportSize in
+                initializePaperLayoutIfNeeded(viewportSize: viewportSize)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paperPaneView(_ pane: PaperPane, viewportOrigin: PaperPoint) -> some View {
+        let paneId = PaneID(id: pane.id)
+        let selectedTabId = pane.selectedTabId ?? pane.tabIds.first
+        let panel = selectedTabId.flatMap { workspace.panel(for: TabID(uuid: $0)) }
+
+        if let panel {
+            let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+            let isVisibleInUI = WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: isWorkspaceVisible,
+                isSelectedInPane: true,
+                isFocused: isFocused
+            )
+            let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                    forTabId: workspace.id,
+                    surfaceId: panel.id
+                ),
+                hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panel.id) ||
+                    workspace.restoredUnreadPanelIds.contains(panel.id),
+                isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
+            )
+
+            PanelContentView(
+                panel: panel,
+                workspaceId: workspace.id,
+                paneId: paneId,
+                isFocused: isFocused,
+                isSelectedInPane: true,
+                isVisibleInUI: isVisibleInUI,
+                portalPriority: workspacePortalPriority,
+                isSplit: isSplit,
+                appearance: appearance,
+                hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+                onFocus: {
+                    guard isWorkspaceInputActive else { return }
+                    guard workspace.panels[panel.id] != nil else { return }
+                    workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                },
+                onRequestPanelFocus: {
+                    guard isWorkspaceInputActive else { return }
+                    guard workspace.panels[panel.id] != nil else { return }
+                    AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                        workspaceId: workspace.id,
+                        panelId: panel.id,
+                        in: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
+                    workspace.focusPanel(panel.id)
+                },
+                onResumeAgentHibernation: {
+                    guard isWorkspaceInputActive else { return }
+                    guard workspace.panels[panel.id] != nil else { return }
+                    workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                },
+                onAutoResumeAgentHibernation: {
+                    guard isWorkspaceInputActive else { return }
+                    guard workspace.panels[panel.id] != nil else { return }
+                    workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+                },
+                onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+            )
+            .frame(width: pane.frame.width, height: pane.frame.height)
+            .position(
+                x: pane.frame.minX - viewportOrigin.x + (pane.frame.width / 2),
+                y: pane.frame.minY - viewportOrigin.y + (pane.frame.height / 2)
+            )
+            .onTapGesture {
+                workspace.bonsplitController.focusPane(paneId)
+                if let selectedTabId {
+                    workspace.bonsplitController.selectTab(TabID(uuid: selectedTabId))
+                }
+            }
+        } else {
+            EmptyPanelView(workspace: workspace, paneId: paneId)
+                .frame(width: pane.frame.width, height: pane.frame.height)
+                .position(
+                    x: pane.frame.minX - viewportOrigin.x + (pane.frame.width / 2),
+                    y: pane.frame.minY - viewportOrigin.y + (pane.frame.height / 2)
+                )
+                .onTapGesture {
+                    workspace.bonsplitController.focusPane(paneId)
+                }
+        }
+    }
+
+    private func initializePaperLayoutIfNeeded(viewportSize: CGSize) {
+        guard workspace.paperLayoutState == nil else { return }
+        let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        guard let paneId else { return }
+        let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ??
+            workspace.bonsplitController.tabs(inPane: paneId).first?.id
+        guard let tabId else { return }
+        workspace.paperLayoutState = PaperLayoutState.initial(
+            paneId: paneId,
+            tabId: tabId.uuid,
+            viewportSize: viewportSize
+        )
+    }
 }
 
 /// View shown for empty panes
