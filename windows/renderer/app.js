@@ -132,6 +132,7 @@ const layoutSettingsPreviewKeys = new Set([
   "toolbarMode",
   "tabSize",
   "titleDetailMode",
+  "focusMode",
   "showTabs",
   "showStatusbar",
   "sidebarWidth",
@@ -487,6 +488,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.terminalCustomShell = String(next.terminalCustomShell || "").trim().slice(0, 512);
   next.showTabs = next.showTabs !== false;
   next.showStatusbar = next.showStatusbar !== false;
+  next.focusMode = Boolean(next.focusMode);
   next.showAdvanced = next.toolbarMode === "expanded";
   next.performanceMode = Boolean(next.performanceMode);
   next.adaptivePerformance = next.adaptivePerformance !== false;
@@ -1442,6 +1444,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.toolbarMode,
     settings.tabSize,
     settings.titleDetailMode,
+    settings.focusMode,
     settings.showTabs,
     settings.showStatusbar,
     settings.showAdvanced,
@@ -1486,6 +1489,7 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "toolbar-compact", state.settings.toolbarMode === "compact");
   toggleClassIfChanged(elements.shell, "toolbar-standard", state.settings.toolbarMode === "standard");
   toggleClassIfChanged(elements.shell, "toolbar-expanded", state.settings.toolbarMode === "expanded");
+  toggleClassIfChanged(elements.shell, "focus-mode", state.settings.focusMode);
   toggleClassIfChanged(elements.shell, "hide-tabs", !state.settings.showTabs);
   toggleClassIfChanged(elements.shell, "hide-status", !state.settings.showStatusbar);
   toggleClassIfChanged(elements.shell, "show-advanced", state.settings.showAdvanced);
@@ -2030,6 +2034,7 @@ const commands = [
   { id: "terminal.minimizePane", label: "Minimize Active Pane", shortcut: "", run: () => minimizeActivePane() },
   { id: "terminal.restoreMinimized", label: "Restore Minimized Panes", shortcut: "", run: () => restoreMinimizedPanes() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
+  { id: "layout.focusMode", label: "Toggle Focus Mode", shortcut: "Ctrl+Shift+F", run: () => toggleFocusMode() },
   { id: "layout.resetChrome", label: "Reset Workspace Chrome", shortcut: "", run: () => resetWorkspaceChrome() },
   { id: "layout.equalPanes", label: "Equalize Panes", shortcut: "", run: () => applyPaneLayoutPreset("equal") },
   { id: "layout.sideBySide", label: "Layout Panes Side by Side", shortcut: "", run: () => applyPaneLayoutPreset("sideBySide") },
@@ -4831,6 +4836,12 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("layout")) {
     const layoutSection = settingsSection("Layout");
     layoutSection.append(layoutSettingsPreviewPanel());
+    layoutSection.append(settingRow(
+      "Focus mode",
+      toggleInput(state.settings.focusMode, (checked) => toggleFocusMode(checked, { toast: false })),
+      false,
+      "focus mode simple workspace zen clean hide sidebar tabs status pane header reduce clutter"
+    ));
     const densitySelect = document.createElement("select");
     densitySelect.className = "setting-select";
     for (const value of ["comfortable", "compact"]) {
@@ -4936,8 +4947,9 @@ function renderSettingsInspector(options = {}) {
     layoutSection.append(inspectorWidthRow);
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
-    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar footer inspector tabs status header title");
+    layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean");
     layoutActions.append(
+      settingsActionButton(state.settings.focusMode ? "Leave focus" : "Focus mode", () => toggleFocusMode(), "", "focus mode simple clean hide chrome"),
       settingsActionButton("Reset split layout", resetActivePaneLayout, "", "split layout pane splitter resize reset equal"),
       settingsActionButton("Reset workspace chrome", resetWorkspaceChrome, "", "workspace chrome toolbar sidebar footer inspector tabs status header title reset")
     );
@@ -5547,11 +5559,12 @@ function layoutSettingsPreviewPanel() {
     `pane-header-${settings.paneHeaderMode}`,
     `toolbar-${settings.toolbarMode}`,
     `tab-size-${settings.tabSize}`,
+    settings.focusMode ? "focus-mode" : "",
     settings.showTabs ? "show-tabs" : "hide-tabs",
     settings.showStatusbar ? "show-statusbar" : "hide-statusbar",
     settings.performanceMode ? "performance-preview" : ""
   ].filter(Boolean).join(" ");
-  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("layout preview workspace chrome sidebar toolbar tabs status pane header density settings panel active pane percent resize focus mode simple clean");
   panel.style.setProperty("--layout-preview-sidebar", `${Math.max(24, Math.round((settings.sidebarWidth / 304) * 72))}px`);
   panel.style.setProperty("--layout-preview-inspector", `${Math.max(42, Math.round((settings.inspectorWidth / 480) * 76))}px`);
   panel.innerHTML = `
@@ -5582,6 +5595,7 @@ function layoutSettingsPreviewPanel() {
     </div>
     <div class="layout-preview-meta">
       <span><b>Toolbar</b><em data-layout-preview-toolbar></em></span>
+      <span><b>Mode</b><em data-layout-preview-mode></em></span>
       <span><b>Tabs</b><em data-layout-preview-tabs></em></span>
       <span><b>Header</b><em data-layout-preview-header></em></span>
       <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
@@ -5591,11 +5605,12 @@ function layoutSettingsPreviewPanel() {
     </div>
   `;
   panel.querySelector("[data-layout-preview-toolbar]").textContent = optionLabel(toolbarModeOptions, settings.toolbarMode, settings.toolbarMode);
-  panel.querySelector("[data-layout-preview-tabs]").textContent = settings.showTabs ? optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize) : "Hidden";
-  panel.querySelector("[data-layout-preview-header]").textContent = optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
-  panel.querySelector("[data-layout-preview-sidebar]").textContent = `${settings.sidebarWidth}px`;
+  panel.querySelector("[data-layout-preview-mode]").textContent = settings.focusMode ? "Focus" : "Standard";
+  panel.querySelector("[data-layout-preview-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize);
+  panel.querySelector("[data-layout-preview-header]").textContent = settings.focusMode ? "Hidden" : optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
+  panel.querySelector("[data-layout-preview-sidebar]").textContent = settings.focusMode ? "Hidden" : `${settings.sidebarWidth}px`;
   panel.querySelector("[data-layout-preview-settings]").textContent = `${settings.inspectorWidth}px`;
-  panel.querySelector("[data-layout-preview-status]").textContent = settings.showStatusbar ? "On" : "Off";
+  panel.querySelector("[data-layout-preview-status]").textContent = settings.focusMode || !settings.showStatusbar ? "Off" : "On";
   const workspace = activeWorkspace();
   panel.querySelector("[data-layout-preview-active-pane]").textContent = workspace?.panels?.length > 1 ? `${activePaneLayoutPercent(workspace)}%` : "Single";
   return panel;
@@ -9963,11 +9978,26 @@ const workspaceChromeSettings = [
   "toolbarMode",
   "tabSize",
   "titleDetailMode",
+  "focusMode",
   "showTabs",
   "showStatusbar",
   "sidebarWidth",
   "inspectorWidth"
 ];
+
+function toggleFocusMode(nextValue = !state.settings.focusMode, options = {}) {
+  const enabled = Boolean(nextValue);
+  const changed = updateSettings({ focusMode: enabled }, { immediate: true });
+  if (!changed) {
+    if (options.toast !== false) toast(`Focus mode already ${enabled ? "on" : "off"}.`);
+    return false;
+  }
+  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
+    renderSettingsInspector({ ifChanged: true });
+  }
+  if (options.toast !== false) toast(`Focus mode ${enabled ? "on" : "off"}.`);
+  return true;
+}
 
 function resetWorkspaceChrome() {
   const updates = {};
@@ -10553,7 +10583,10 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (editingText) return;
-  if (event.ctrlKey && key === "f") {
+  if (event.ctrlKey && event.shiftKey && key === "f") {
+    consumeGlobalShortcut(event);
+    toggleFocusMode();
+  } else if (event.ctrlKey && key === "f") {
     consumeGlobalShortcut(event);
     openTerminalSearch();
   } else if (event.ctrlKey && event.shiftKey && event.key === "Enter") {

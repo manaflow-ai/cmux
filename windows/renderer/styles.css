@@ -226,6 +226,42 @@ body.reduce-motion *::after {
   grid-template-columns: 0 minmax(0, 1fr) var(--inspector-width, 360px);
 }
 
+.shell.focus-mode {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.shell.focus-mode.inspector-open {
+  grid-template-columns: 0 minmax(0, 1fr) var(--inspector-width, 360px);
+}
+
+.shell.focus-mode .surface-tabs,
+.shell.focus-mode .statusbar,
+.shell.focus-mode .sidebar,
+.shell.focus-mode .pane-header {
+  display: none;
+}
+
+.shell.focus-mode .pane {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell.focus-mode .topbar {
+  min-height: 40px;
+}
+
+.shell.focus-mode .command-strip .tool-button:not(#newTerminalButton):not(#toolsMenuButton):not(#settingsButton) {
+  display: none;
+}
+
+.shell.focus-mode .command-strip .tool-label {
+  display: none;
+}
+
+.shell.focus-mode .command-strip .tool-button {
+  width: 30px;
+  padding: 0;
+}
+
 .shell.hide-tabs .surface-tabs {
   display: none;
 }
@@ -289,6 +325,10 @@ body.reduce-motion *::after {
 
 .shell.workspace-empty.hide-status .main {
   grid-template-rows: 44px minmax(0, 1fr);
+}
+
+.shell.focus-mode .main {
+  grid-template-rows: 40px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -3119,6 +3159,24 @@ body.reduce-motion *::after {
 
 .layout-settings-preview.hide-statusbar .layout-preview-status {
   display: none;
+}
+
+.layout-settings-preview.focus-mode .layout-preview-frame {
+  grid-template-columns: 0 minmax(0, 1fr) var(--layout-preview-inspector);
+}
+
+.layout-settings-preview.focus-mode .layout-preview-main {
+  grid-template-rows: 22px minmax(0, 1fr);
+}
+
+.layout-settings-preview.focus-mode .layout-preview-tabs,
+.layout-settings-preview.focus-mode .layout-preview-pane-header,
+.layout-settings-preview.focus-mode .layout-preview-status {
+  display: none;
+}
+
+.layout-settings-preview.focus-mode .layout-preview-pane {
+  grid-template-rows: 1fr 1fr;
 }
 
 .layout-preview-inspector {
