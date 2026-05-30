@@ -37,9 +37,6 @@ enum SettingsWindowPresenter {
 
     static func configure(window: NSWindow) {
         let shouldFocusAfterConfiguration = settingsWindow !== window
-#if DEBUG
-        cmuxDebugLog("settings.window.configure newWindow=\(shouldFocusAfterConfiguration ? 1 : 0)")
-#endif
         settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
@@ -72,10 +69,6 @@ enum SettingsWindowPresenter {
         pendingNavigationTarget = navigationTarget
         pendingContentNavigationTarget = navigationTarget
 
-#if DEBUG
-        logWindowState("show.enter")
-#endif
-
         if let window = existingWindow() {
             let shouldDeferNavigation = window.isMiniaturized
             if !shouldDeferNavigation {
@@ -86,47 +79,20 @@ enum SettingsWindowPresenter {
             if let navigationTarget, !shouldDeferNavigation {
                 SettingsNavigationRequest.post(navigationTarget)
             }
-#if DEBUG
-            logWindowState("show.focusedExisting")
-#endif
             return
         }
 
         if let openWindowOverride {
-#if DEBUG
-            cmuxDebugLog("settings.window.show.openOverride")
-#endif
             openWindowOverride()
             return
         }
 
         guard let openWindow else {
             shouldOpenWhenConfigured = true
-#if DEBUG
-            cmuxDebugLog("settings.window.show.deferredNoOpenWindow")
-#endif
             return
         }
-#if DEBUG
-        cmuxDebugLog("settings.window.show.callOpenWindow")
-#endif
         openWindow()
     }
-
-#if DEBUG
-    /// Snapshots every window AppKit knows about under the settings
-    /// identifier so a "Settings didn't open" repro shows whether the
-    /// window failed to be created (no match → SwiftUI openWindow race) or
-    /// was created but never fronted (match present but key=0 → focus/
-    /// ordering race). Body-only; no effect on Release.
-    private static func logWindowState(_ phase: String) {
-        let matches = NSApp.windows.filter { $0.identifier?.rawValue == windowIdentifier }
-        let summary = matches
-            .map { "vis=\($0.isVisible ? 1 : 0),min=\($0.isMiniaturized ? 1 : 0),key=\($0.isKeyWindow ? 1 : 0),main=\($0.isMainWindow ? 1 : 0),parent=\($0.parent != nil ? 1 : 0),level=\($0.level.rawValue)" }
-            .joined(separator: " | ")
-        cmuxDebugLog("settings.window.state phase=\(phase) ref=\(settingsWindow != nil ? 1 : 0) nsappMatches=\(matches.count) appActive=\(NSApp.isActive ? 1 : 0) [\(summary)]")
-    }
-#endif
 
     static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
         let target = pendingNavigationTarget
@@ -204,9 +170,6 @@ enum SettingsWindowPresenter {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-#if DEBUG
-        cmuxDebugLog("settings.window.performFocus.done vis=\(window.isVisible ? 1 : 0) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0) parent=\(window.parent != nil ? 1 : 0) appActive=\(NSApp.isActive ? 1 : 0)")
-#endif
     }
 
     @discardableResult
