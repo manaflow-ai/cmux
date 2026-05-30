@@ -555,6 +555,81 @@ describe("VM Effect workflows", () => {
     expect(destroyedUsageCount).toBe("1");
   });
 
+  dbTest("marks provider-deleted E2B rows destroyed before active limit enforcement", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-e2b-deleted-old', 'team-workflow-e2b-deleted', 'free', 'e2b', 'provider-vm-e2b-deleted-old', 'cmuxd-ws:test', 'running')
+    `;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "e2b" as const,
+            providerVmId: "provider-vm-e2b-deleted-new",
+            status: "running" as const,
+            image: "cmuxd-ws:test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () =>
+        Effect.suspend(() => {
+          statusCalls += 1;
+          return Effect.fail(new VmProviderOperationError({
+            provider: "e2b",
+            operation: "getStatus",
+            cause: { status: 404, message: "sandbox provider-vm-e2b-deleted-old not found" },
+          }));
+        }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-e2b-deleted-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-e2b-deleted",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "e2b",
+        image: "cmuxd-ws:test",
+        idempotencyKey: "e2b-deleted-new",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-e2b-deleted-new");
+    expect(statusCalls).toBe(1);
+    expect(createCalls).toBe(1);
+
+    const [oldVm] = await sql<{ status: string; destroyedAt: Date | null }[]>`
+      select status, destroyed_at as "destroyedAt" from cloud_vms
+      where provider_vm_id = 'provider-vm-e2b-deleted-old'
+    `;
+    expect(oldVm?.status).toBe("destroyed");
+    expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
+
+    const [{ destroyedUsageCount }] = await sql<{ destroyedUsageCount: string }[]>`
+      select count(*)::text as "destroyedUsageCount"
+      from cloud_vm_usage_events
+      where provider = 'e2b'
+        and event_type = 'vm.destroyed'
+        and vm_id in (
+          select id from cloud_vms
+          where provider_vm_id = 'provider-vm-e2b-deleted-old'
+        )
+    `;
+    expect(destroyedUsageCount).toBe("1");
+  });
+
   dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;

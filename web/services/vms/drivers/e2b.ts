@@ -1,4 +1,4 @@
-import { Sandbox } from "e2b";
+import { Sandbox, type SandboxInfo } from "e2b";
 import {
   ProviderError,
   type AttachEndpoint,
@@ -10,6 +10,7 @@ import {
   type SnapshotRef,
   type VMHandle,
   type VMProvider,
+  type VMStatus,
 } from "./types";
 import { withVmSpan } from "../telemetry";
 import {
@@ -30,6 +31,18 @@ const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
+
+function mapE2BStatus(state: SandboxInfo["state"]): VMStatus {
+  switch (state) {
+    case "running":
+      return "running";
+    case "paused":
+      return "paused";
+  }
+
+  const unknownState: never = state;
+  throw new ProviderError("e2b", `getStatus returned unknown state: ${String(unknownState)}`);
+}
 
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
@@ -73,6 +86,21 @@ export class E2BProvider implements VMProvider {
       { "cmux.vm.provider": "e2b", "cmux.vm.operation": "destroy", "cmux.vm.id": vmId },
       async () => {
         await Sandbox.kill(vmId);
+      },
+    );
+  }
+
+  async getStatus(vmId: string): Promise<VMStatus> {
+    return withVmSpan(
+      "cmux.vm.provider.get_status",
+      { "cmux.vm.provider": "e2b", "cmux.vm.operation": "get_status", "cmux.vm.id": vmId },
+      async (span) => {
+        const info = await Sandbox.getInfo(vmId);
+        const state = info.state;
+        const status = mapE2BStatus(state);
+        span.setAttribute("cmux.vm.provider_state", state ?? "unknown");
+        span.setAttribute("cmux.vm.status", status);
+        return status;
       },
     );
   }
