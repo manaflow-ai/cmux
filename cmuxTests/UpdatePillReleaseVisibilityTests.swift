@@ -238,6 +238,16 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
         XCTAssertEqual(sidebarClassic.width, 96, accuracy: 0.001)
         XCTAssertLessThanOrEqual(sidebarClassic.width, MinimalModeSidebarTitlebarControlsMetrics.hostWidth)
+        let sidebarClassicWithShortcutHints = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.classic.config,
+            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
+            reservesShortcutHintOverflow: true
+        )
+        XCTAssertEqual(sidebarClassicWithShortcutHints.width, 118, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(
+            sidebarClassicWithShortcutHints.width,
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth
+        )
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
         XCTAssertEqual(compact.width, 128, accuracy: 0.001)

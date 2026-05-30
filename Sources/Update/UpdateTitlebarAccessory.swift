@@ -1961,7 +1961,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: style.config,
-            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count
+            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
+            reservesShortcutHintOverflow: true
         )
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
