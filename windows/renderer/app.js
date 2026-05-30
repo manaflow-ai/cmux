@@ -305,6 +305,7 @@ const state = {
   settingsCategory: "quick",
   settingsQuery: "",
   settingsInspectorSignature: "",
+  settingsScrollResetPending: false,
   terminalFontSize: initialSettings.terminalFontSize
 };
 
@@ -3299,12 +3300,15 @@ function renderInspector() {
 function renderSettingsInspector(options = {}) {
   elements.inspectorTitle.textContent = "Settings";
   elements.inspectorSubtitle.textContent = `${settingsCategoryLabel(state.settingsCategory)} page`;
+  const resetScroll = Boolean(options.resetScroll || state.settingsScrollResetPending);
+  state.settingsScrollResetPending = false;
   const signature = settingsInspectorSignature();
   if (
     options.ifChanged
     && signature === state.settingsInspectorSignature
     && elements.inspectorBody.querySelector(".settings-react-host")
   ) {
+    if (resetScroll) resetSettingsScroll();
     return;
   }
   state.settingsInspectorSignature = signature;
@@ -3818,8 +3822,13 @@ function renderSettingsInspector(options = {}) {
 
   unmountSettingsChrome();
   elements.inspectorBody.replaceChildren(...nodes);
+  if (resetScroll) resetSettingsScroll();
   renderSettingsChrome(settingsChrome);
   if (searching) scheduleSettingsFilter();
+}
+
+function resetSettingsScroll() {
+  elements.inspectorBody.scrollTop = 0;
 }
 
 function settingsInspectorSignature() {
@@ -3935,7 +3944,7 @@ function renderSettingsChrome(host) {
     onCategory: (category) => {
       state.settingsCategory = category;
       state.settingsQuery = "";
-      renderSettingsInspector();
+      renderSettingsInspector({ resetScroll: true });
     },
     onQuery: (query) => {
       const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
@@ -4026,7 +4035,7 @@ function settingsCategoryNav() {
   select.onchange = () => {
     state.settingsCategory = select.value;
     state.settingsQuery = "";
-    renderSettingsInspector();
+    renderSettingsInspector({ resetScroll: true });
   };
   nav.append(labelText, select);
   return nav;
@@ -7815,6 +7824,7 @@ function openSettingsCategory(category = "quick") {
   state.inspectorMode = "settings";
   state.settingsCategory = settingsCategories.some(([id]) => id === category) ? category : "quick";
   state.settingsQuery = "";
+  state.settingsScrollResetPending = true;
   updateRailButtons();
   render();
 }
