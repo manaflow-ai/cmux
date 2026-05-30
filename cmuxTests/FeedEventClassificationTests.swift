@@ -1,10 +1,10 @@
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+// `FeedEventClassifier` lives in `CLI/FeedEventClassifier.swift`, which is
+// compiled into both the `cmux-cli` target and this test target — so the pure
+// classification decision can be unit-tested directly, without `@testable`
+// importing the `cmux_cli` executable module (whose symbols the app-hosted
+// test bundle cannot link).
 
 /// Regression coverage for the feed-event → user-attention classification.
 ///
@@ -21,7 +21,7 @@ struct FeedEventClassificationTests {
     private func classify(_ source: String, _ event: String, tool: String = "")
         -> (name: String, actionable: Bool)
     {
-        let result = CMUXCLI.classifyFeedEvent(source: source, event: event, toolName: tool)
+        let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
         return (result.0, result.1)
     }
 
