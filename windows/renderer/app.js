@@ -2094,14 +2094,27 @@ function panelFromElement(target) {
   return panelId ? findPanelState(panelId)?.panel || null : null;
 }
 
+function panelFromActiveElement() {
+  return panelFromElement(document.activeElement);
+}
+
 function focusedPanel() {
+  const activeElementPanel = panelFromActiveElement();
+  const activeElementFound = activeElementPanel?.id ? findPanelState(activeElementPanel.id) : null;
+  if (
+    activeElementFound
+    && activeElementFound.workspace.id === state.data?.activeWorkspaceId
+    && !isPanelMinimized(activeElementFound.panel)
+  ) {
+    return activeElementFound.panel;
+  }
   const found = state.focusedPanelId ? findPanelState(state.focusedPanelId) : null;
   if (found && found.workspace.id === state.data?.activeWorkspaceId && !isPanelMinimized(found.panel)) return found.panel;
   return activePanel();
 }
 
 function actionPanelFromEvent(event) {
-  return panelFromElement(event?.target) || focusedPanel();
+  return panelFromElement(event?.target) || panelFromActiveElement() || focusedPanel();
 }
 
 function api(path, options = {}) {
@@ -2180,8 +2193,22 @@ function applyPendingPanelsToState(nextData) {
   return nextData;
 }
 
+function applyPendingTerminalFontSizesToState(nextData) {
+  if (state.pendingTerminalFontSizeSync.size === 0 || !Array.isArray(nextData?.workspaces)) return nextData;
+  for (const workspace of nextData.workspaces) {
+    for (const panel of workspace.panels || []) {
+      if (panel.type === "terminal" && state.pendingTerminalFontSizeSync.has(panel.id)) {
+        panel.terminalFontSize = state.pendingTerminalFontSizeSync.get(panel.id);
+      }
+    }
+  }
+  return nextData;
+}
+
 function setAppState(nextData, { previousState = state.data, schedule = false } = {}) {
-  const protectedData = applyPendingPanelsToState(applyPendingFocusToState(nextData));
+  const protectedData = applyPendingTerminalFontSizesToState(
+    applyPendingPanelsToState(applyPendingFocusToState(nextData))
+  );
   const nextSignature = appStateSignature(protectedData);
   if (nextSignature && nextSignature === state.dataSignature) {
     state.data = protectedData;
