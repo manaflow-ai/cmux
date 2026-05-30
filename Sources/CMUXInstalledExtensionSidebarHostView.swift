@@ -704,7 +704,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @ViewBuilder
     private func limitedAccessActionButtons(
-        identity: AppExtensionIdentity?,
+        identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) -> some View {
         Button {
