@@ -34,9 +34,23 @@ enum CommandPaletteOverlayPromotionPolicy {
     }
 }
 
-@MainActor
-private final class CommandPaletteOverlayContainerView: NSView {
+private enum CommandPaletteOverlayImmediateFocusMode: Equatable {
+    case deferred
+    case textInput(identity: String)
+    case pendingInputContainer(identity: String)
+}
+
+private final class CommandPaletteOverlayContainerView: NSView, NSTextInputClient {
     var capturesMouseEvents = false
+    var onUnhandledPendingKeyDown: ((NSEvent) -> Bool)?
+    private var didBufferPendingTextInput = false
+    private var isInterpretingPendingKeyDown = false
+    private var pendingMarkedText = ""
+    private var pendingMarkedSelectedRange = NSRange(location: 0, length: 0)
+
+    var hasPendingMarkedTextInput: Bool {
+        !pendingMarkedText.isEmpty
+    }
 
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
@@ -44,6 +58,160 @@ private final class CommandPaletteOverlayContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard capturesMouseEvents else { return nil }
         return super.hitTest(point)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if normalizedFlags == [.command],
+           event.charactersIgnoringModifiers?.lowercased() == "v",
+           bufferPendingPasteboardText() {
+            return
+        }
+        guard !normalizedFlags.contains(.command),
+              !normalizedFlags.contains(.control) else {
+            super.keyDown(with: event)
+            return
+        }
+        didBufferPendingTextInput = false
+        isInterpretingPendingKeyDown = true
+        interpretKeyEvents([event])
+        isInterpretingPendingKeyDown = false
+        if hasPendingMarkedTextInput {
+            return
+        }
+        if !didBufferPendingTextInput {
+            if onUnhandledPendingKeyDown?(event) == true {
+                return
+            }
+            super.keyDown(with: event)
+        }
+    }
+
+    override func insertText(_ insertString: Any) {
+        insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    func insertText(_ insertString: Any, replacementRange: NSRange) {
+        guard let text = Self.plainText(from: insertString),
+              !text.isEmpty else { return }
+        clearPendingMarkedText()
+        bufferPendingTextInput(text)
+    }
+
+    override func doCommand(by commandSelector: Selector) {
+        guard !isInterpretingPendingKeyDown else { return }
+        super.doCommand(by: commandSelector)
+    }
+
+    override func tryToPerform(_ action: Selector, with object: Any?) -> Bool {
+        if (action == #selector(NSText.paste(_:)) || action == #selector(NSTextView.pasteAsPlainText(_:))),
+           bufferPendingPasteboardText() {
+            return true
+        }
+        return super.tryToPerform(action, with: object)
+    }
+
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard let text = Self.plainText(from: string),
+              !text.isEmpty else {
+            clearPendingMarkedText()
+            return
+        }
+        pendingMarkedText = text
+        pendingMarkedSelectedRange = selectedRange
+    }
+
+    func unmarkText() {
+        clearPendingMarkedText()
+    }
+
+    func selectedRange() -> NSRange {
+        pendingMarkedSelectedRange
+    }
+
+    func markedRange() -> NSRange {
+        guard hasPendingMarkedTextInput else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return NSRange(location: 0, length: (pendingMarkedText as NSString).length)
+    }
+
+    func hasMarkedText() -> Bool {
+        hasPendingMarkedTextInput
+    }
+
+    func attributedSubstring(
+        forProposedRange range: NSRange,
+        actualRange: NSRangePointer?
+    ) -> NSAttributedString? {
+        let pendingText = pendingMarkedText as NSString
+        let fullRange = NSRange(location: 0, length: pendingText.length)
+        guard range.location != NSNotFound else {
+            actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+            return nil
+        }
+        let resolvedRange = NSIntersectionRange(range, fullRange)
+        guard resolvedRange.length > 0 else {
+            actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+            return nil
+        }
+        actualRange?.pointee = resolvedRange
+        return NSAttributedString(string: pendingText.substring(with: resolvedRange))
+    }
+
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        []
+    }
+
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        actualRange?.pointee = range
+        guard let window else { return .zero }
+        return window.convertToScreen(convert(bounds, to: nil))
+    }
+
+    func characterIndex(for point: NSPoint) -> Int {
+        0
+    }
+
+    func clearPendingTextInputState() {
+        didBufferPendingTextInput = false
+        isInterpretingPendingKeyDown = false
+        clearPendingMarkedText()
+    }
+
+    @discardableResult
+    private func bufferPendingPasteboardText() -> Bool {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              !text.isEmpty else { return false }
+        clearPendingMarkedText()
+        bufferPendingTextInput(text)
+        return true
+    }
+
+    private func clearPendingMarkedText() {
+        pendingMarkedText = ""
+        pendingMarkedSelectedRange = NSRange(location: 0, length: 0)
+    }
+
+    private func bufferPendingTextInput(_ text: String) {
+        didBufferPendingTextInput = true
+        NotificationCenter.default.post(
+            name: .commandPalettePendingTextInputRequested,
+            object: window,
+            userInfo: ["text": text]
+        )
+    }
+
+    private static func plainText(from insertString: Any) -> String? {
+        if let text = insertString as? String {
+            return text
+        }
+        if let attributedText = insertString as? NSAttributedString {
+            return attributedText.string
+        }
+        return nil
     }
 }
 
@@ -146,6 +314,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var hasMountedPaletteRootView = false
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
+    private var allowsPendingInputContainerFocus = false
+    private var lastImmediateFocusMode: CommandPaletteOverlayImmediateFocusMode = .deferred
 
     init(window: NSWindow) {
         self.window = window
@@ -156,6 +326,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         containerView.isHidden = true
         containerView.alphaValue = 0
         containerView.capturesMouseEvents = false
+        containerView.onUnhandledPendingKeyDown = { [weak self] event in
+            self?.forwardPendingInputContainerKeyDown(event) ?? false
+        }
         containerView.identifier = commandPaletteOverlayContainerIdentifier
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.wantsLayer = true
@@ -342,6 +515,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
 
         let didSettle = isPaletteTextInputFirstResponder(window.firstResponder)
+        if didSettle {
+            allowsPendingInputContainerFocus = false
+        }
 #if DEBUG
         cmuxDebugLog(
             "palette.focus.direct settled window={\(debugCommandPaletteWindowSummary(window))} " +
@@ -391,6 +567,17 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             return
         }
 
+        if window.firstResponder === containerView,
+           containerView.hasPendingMarkedTextInput {
+#if DEBUG
+            cmuxDebugLog(
+                "palette.focus.retry markedTextHeld window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return
+        }
+
         if focusPaletteTextInput(in: window) {
 #if DEBUG
             cmuxDebugLog(
@@ -429,6 +616,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
             )
 #endif
+            allowsPendingInputContainerFocus = false
             return
         }
 #if DEBUG
@@ -464,7 +652,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
-    private func updateFocusLockForWindowState() {
+    private func updateFocusLockForWindowState(
+        immediateFocusMode: CommandPaletteOverlayImmediateFocusMode = .deferred
+    ) {
         guard let window else {
             stopFocusLockTimer()
             return
@@ -475,6 +665,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 "palette.focus.lock inactive visible=0 window={\(debugCommandPaletteWindowSummary(window))}"
             )
 #endif
+            allowsPendingInputContainerFocus = false
             stopFocusLockTimer()
             return
         }
@@ -486,6 +677,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
             )
 #endif
+            allowsPendingInputContainerFocus = false
             stopFocusLockTimer()
             if isPaletteResponder(window.firstResponder) {
                 _ = window.makeFirstResponder(nil)
@@ -494,6 +686,17 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
 
         startFocusLockTimer()
+        switch immediateFocusMode {
+        case .textInput:
+            focusIntoPalette(retries: 8)
+            return
+        case .pendingInputContainer:
+            focusPendingInputContainer(in: window)
+            return
+        case .deferred:
+            break
+        }
+
         if !isPaletteTextInputFirstResponder(window.firstResponder) {
 #if DEBUG
             cmuxDebugLog(
@@ -503,6 +706,36 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 #endif
             scheduleFocusIntoPalette(retries: 8)
         }
+    }
+
+    private func focusPendingInputContainer(in window: NSWindow) {
+        allowsPendingInputContainerFocus = true
+        containerView.clearPendingTextInputState()
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.container.pendingInput window={\(debugCommandPaletteWindowSummary(window))} " +
+            "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        _ = window.makeFirstResponder(containerView)
+        scheduleFocusIntoPalette(retries: 8)
+    }
+
+    private func forwardPendingInputContainerKeyDown(_ event: NSEvent) -> Bool {
+        guard allowsPendingInputContainerFocus,
+              let window,
+              window.firstResponder === containerView,
+              !containerView.hasPendingMarkedTextInput else {
+            return false
+        }
+        guard focusPaletteTextInput(in: window),
+              let responder = window.firstResponder,
+              responder !== containerView else {
+            focusIntoPalette(retries: 8)
+            return false
+        }
+        responder.keyDown(with: event)
+        return true
     }
 
     private func startFocusLockTimer() {
@@ -516,6 +749,11 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 return
             }
             if self.isPaletteTextInputFirstResponder(window.firstResponder) {
+                return
+            }
+            if self.allowsPendingInputContainerFocus,
+               window.firstResponder === self.containerView,
+               self.containerView.hasPendingMarkedTextInput {
                 return
             }
             self.focusIntoPalette(retries: 1)
@@ -551,6 +789,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
+        immediateFocusMode: CommandPaletteOverlayImmediateFocusMode,
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
@@ -576,16 +815,32 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 #endif
         isPaletteVisible = isVisible
         if isVisible {
+            let didChangeImmediateFocusMode = lastImmediateFocusMode != immediateFocusMode
+            lastImmediateFocusMode = immediateFocusMode
             hostingView.rootView = makeRootView()
             hasMountedPaletteRootView = true
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
+            if didChangeImmediateFocusMode {
+                switch immediateFocusMode {
+                case .pendingInputContainer:
+                    break
+                case .textInput, .deferred:
+                    allowsPendingInputContainerFocus = false
+                    containerView.clearPendingTextInputState()
+                }
+            }
             if shouldPromote {
                 promoteOverlayAboveSiblingsIfNeeded()
             }
-            updateFocusLockForWindowState()
+            updateFocusLockForWindowState(
+                immediateFocusMode: (shouldPromote || didChangeImmediateFocusMode) ? immediateFocusMode : .deferred
+            )
         } else {
+            lastImmediateFocusMode = .deferred
+            allowsPendingInputContainerFocus = false
+            containerView.clearPendingTextInputState()
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
                 _ = window.makeFirstResponder(nil)
@@ -1096,8 +1351,10 @@ struct ContentView: View {
     @State private var sidebarResizerCursorStabilizer: DispatchSourceTimer?
     @State private var isCommandPalettePresented = false
     @State private var commandPaletteQuery: String = ""
+    @State private var commandPalettePendingSearchInputHandledQueries: [String] = []
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var commandPaletteRenameDraft: String = ""
+    @State private var commandPaletteRenameInitialSelectionConsumed = false
     @State private var commandPaletteWorkspaceDescriptionDraft: String = ""
     @State private var commandPaletteWorkspaceDescriptionHeight: CGFloat = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
     @State private var commandPaletteSelectedResultIndex: Int = 0
@@ -1182,6 +1439,15 @@ struct ContentView: View {
 
         let kind: Kind
         let currentName: String
+
+        var focusIdentity: String {
+            switch kind {
+            case .workspace(let workspaceId):
+                return "workspace:\(workspaceId.uuidString)"
+            case .tab(let workspaceId, let panelId):
+                return "tab:\(workspaceId.uuidString):\(panelId.uuidString)"
+            }
+        }
 
         var title: String {
             switch kind {
@@ -3087,6 +3353,19 @@ struct ContentView: View {
             moveCommandPaletteSelection(by: delta)
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPalettePendingTextInputRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let text = notification.userInfo?["text"] as? String else { return }
+            handleCommandPalettePendingTextInput(text)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPaletteMode else { return }
@@ -3128,7 +3407,10 @@ struct ContentView: View {
             let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
             tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
             let overlayController = commandPaletteWindowOverlayController(for: window)
-            overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+            overlayController.update(
+                isVisible: isCommandPalettePresented,
+                immediateFocusMode: commandPaletteImmediateOverlayFocusMode
+            ) { AnyView(commandPaletteOverlay) }
         }))
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
@@ -3310,7 +3592,10 @@ struct ContentView: View {
                 let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
                 tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
                 commandPaletteWindowOverlayController(for: window)
-                    .update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
+                    .update(
+                        isVisible: isCommandPalettePresented,
+                        immediateFocusMode: commandPaletteImmediateOverlayFocusMode
+                    ) { AnyView(commandPaletteOverlay) }
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
                 BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             }
@@ -3826,24 +4111,15 @@ struct ContentView: View {
             resetCommandPaletteSearchFocus()
         }
         .onChange(of: commandPaletteQuery) { oldValue, newValue in
-            commandPaletteSelectedResultIndex = 0
-            commandPaletteSelectionAnchorCommandID = nil
-            commandPaletteScrollTargetIndex = nil
-            commandPaletteScrollTargetAnchor = nil
-            if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
-                oldQuery: oldValue,
-                newQuery: newValue,
-                hasVisibleResults: commandPaletteVisibleResultsScope != nil
-            ) {
-                cachedCommandPaletteResults = []
-                commandPaletteVisibleResults = []
-                commandPaletteVisibleResultsScope = nil
-                commandPaletteVisibleResultsFingerprint = nil
-                commandPaletteVisibleResultsVersion &+= 1
+            if newValue.hasPrefix(oldValue),
+               let handledIndex = commandPalettePendingSearchInputHandledQueries.firstIndex(of: newValue) {
+                commandPalettePendingSearchInputHandledQueries.removeSubrange(
+                    commandPalettePendingSearchInputHandledQueries.startIndex...handledIndex
+                )
+                return
             }
-            scheduleCommandPaletteResultsRefresh(query: newValue)
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-            syncCommandPaletteDebugStateForObservedWindow()
+            commandPalettePendingSearchInputHandledQueries.removeAll()
+            applyCommandPaletteQueryTransition(oldQuery: oldValue, newQuery: newValue)
         }
         .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
             Task { @MainActor in
@@ -4318,7 +4594,7 @@ struct ContentView: View {
 
     private final class CommandPaletteMultilineTextView: NSTextView {
         var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
-        var onDidBecomeFirstResponder: (() -> Void)?
+        var onDidBecomeFirstResponder: ((NSTextView) -> Void)?
 
         override func flagsChanged(with event: NSEvent) {
 #if DEBUG
@@ -4340,7 +4616,7 @@ struct ContentView: View {
             )
 #endif
             if becameFirstResponder {
-                onDidBecomeFirstResponder?()
+                onDidBecomeFirstResponder?(self)
             }
             return becameFirstResponder
         }
@@ -4678,11 +4954,7 @@ struct ContentView: View {
                     "responder=\(debugCommandPaletteResponderSummary(notification.object as? NSResponder))"
                 )
 #endif
-                if !parent.isFocused {
-                    DispatchQueue.main.async {
-                        self.parent.isFocused = true
-                    }
-                }
+                markFocusedIfStillFirstResponder(notification.object as? NSTextView)
             }
 
             func textDidChange(_ notification: Notification) {
@@ -4702,21 +4974,32 @@ struct ContentView: View {
                 return false
             }
 
-            func handleDidBecomeFirstResponder() {
+            func handleDidBecomeFirstResponder(_ textView: NSTextView) {
 #if DEBUG
                 cmuxDebugLog(
                     "palette.wsDescription.editor.didBecomeFirstResponder focus=\(parent.isFocused ? 1 : 0)"
                 )
 #endif
-                if !parent.isFocused {
-                    parent.isFocused = true
-                }
+                markFocusedIfStillFirstResponder(textView)
             }
 
             func handleMeasuredHeight(_ height: CGFloat) {
                 guard abs(parent.measuredHeight - height) > 0.5 else { return }
                 DispatchQueue.main.async {
                     self.parent.measuredHeight = height
+                }
+            }
+
+            private func markFocusedIfStillFirstResponder(_ textView: NSTextView?) {
+                guard !parent.isFocused else { return }
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self,
+                          !self.parent.isFocused,
+                          let textView,
+                          textView.window?.firstResponder === textView else {
+                        return
+                    }
+                    self.parent.isFocused = true
                 }
             }
 
@@ -4791,8 +5074,8 @@ struct ContentView: View {
             view.textView.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
                 coordinator?.handleKeyEvent(event, editor: editor) ?? false
             }
-            view.textView.onDidBecomeFirstResponder = { [weak coordinator = context.coordinator] in
-                coordinator?.handleDidBecomeFirstResponder()
+            view.textView.onDidBecomeFirstResponder = { [weak coordinator = context.coordinator] textView in
+                coordinator?.handleDidBecomeFirstResponder(textView)
             }
             view.onMeasuredHeightChange = { [weak coordinator = context.coordinator] height in
                 coordinator?.handleMeasuredHeight(height)
@@ -4950,6 +5233,19 @@ struct ContentView: View {
             return commandPaletteSearchAllSurfaces
                 ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or surfaces match your search.")
                 : String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
+        }
+    }
+
+    private var commandPaletteImmediateOverlayFocusMode: CommandPaletteOverlayImmediateFocusMode {
+        switch commandPaletteMode {
+        case .commands:
+            return .textInput(identity: "commands")
+        case .renameInput(let target):
+            return .pendingInputContainer(identity: "rename:\(target.focusIdentity)")
+        case .workspaceDescriptionInput(let target):
+            return .pendingInputContainer(identity: "workspaceDescription:\(target.workspaceId.uuidString)")
+        case .renameConfirm:
+            return .deferred
         }
     }
 
@@ -8950,6 +9246,27 @@ struct ContentView: View {
         AppDelegate.shared?.setCommandPaletteSnapshot(commandPaletteDebugSnapshot(), for: window)
     }
 
+    private func applyCommandPaletteQueryTransition(oldQuery: String, newQuery: String) {
+        commandPaletteSelectedResultIndex = 0
+        commandPaletteSelectionAnchorCommandID = nil
+        commandPaletteScrollTargetIndex = nil
+        commandPaletteScrollTargetAnchor = nil
+        if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            oldQuery: oldQuery,
+            newQuery: newQuery,
+            hasVisibleResults: commandPaletteVisibleResultsScope != nil
+        ) {
+            cachedCommandPaletteResults = []
+            commandPaletteVisibleResults = []
+            commandPaletteVisibleResultsScope = nil
+            commandPaletteVisibleResultsFingerprint = nil
+            commandPaletteVisibleResultsVersion &+= 1
+        }
+        scheduleCommandPaletteResultsRefresh(query: newQuery)
+        updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
     private func commandPaletteDebugSnapshot() -> CommandPaletteDebugSnapshot {
         guard isCommandPalettePresented else { return .empty }
 
@@ -9002,7 +9319,9 @@ struct ContentView: View {
     private func resetCommandPaletteListState(initialQuery: String) {
         commandPaletteMode = .commands
         commandPaletteQuery = initialQuery
+        commandPalettePendingSearchInputHandledQueries.removeAll()
         commandPaletteRenameDraft = ""
+        commandPaletteRenameInitialSelectionConsumed = false
         commandPaletteWorkspaceDescriptionDraft = ""
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
@@ -9013,6 +9332,70 @@ struct ContentView: View {
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func handleCommandPalettePendingTextInput(_ text: String) {
+        switch commandPaletteMode {
+        case .commands:
+            handleCommandPalettePendingSearchTextInput(text)
+        case .renameInput:
+            handleCommandPalettePendingRenameTextInput(text)
+        case .workspaceDescriptionInput:
+            handleCommandPalettePendingWorkspaceDescriptionTextInput(text)
+        case .renameConfirm:
+            return
+        }
+    }
+
+    private func commandPalettePendingSingleLineText(from text: String) -> String {
+        text.filter { character in
+            !character.isNewline && !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+        }
+    }
+
+    private func commandPalettePendingMultilineText(from text: String) -> String {
+        text.filter { character in
+            character.isNewline || character == "\t" || !character.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+        }
+    }
+
+    private func handleCommandPalettePendingSearchTextInput(_ text: String) {
+        let filteredText = commandPalettePendingSingleLineText(from: text)
+        guard !filteredText.isEmpty else { return }
+        let oldQuery = commandPaletteQuery
+        commandPaletteQuery.append(contentsOf: filteredText)
+        commandPalettePendingSearchInputHandledQueries.append(commandPaletteQuery)
+        applyCommandPaletteQueryTransition(oldQuery: oldQuery, newQuery: commandPaletteQuery)
+        resetCommandPaletteSearchFocus()
+    }
+
+    private func handleCommandPalettePendingRenameTextInput(_ text: String) {
+        let filteredText = commandPalettePendingSingleLineText(from: text)
+        guard !filteredText.isEmpty else { return }
+        if CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(),
+           !commandPaletteRenameInitialSelectionConsumed {
+            if case .renameInput(let target) = commandPaletteMode,
+               commandPaletteRenameDraft == target.currentName {
+                commandPaletteRenameDraft = filteredText
+            } else {
+                commandPaletteRenameDraft.append(contentsOf: filteredText)
+            }
+            commandPaletteRenameInitialSelectionConsumed = true
+        } else {
+            commandPaletteRenameDraft.append(contentsOf: filteredText)
+        }
+        commandPalettePendingTextSelectionBehavior = .caretAtEnd
+        resetCommandPaletteRenameFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func handleCommandPalettePendingWorkspaceDescriptionTextInput(_ text: String) {
+        let filteredText = commandPalettePendingMultilineText(from: text)
+        guard !filteredText.isEmpty else { return }
+        commandPaletteWorkspaceDescriptionDraft.append(contentsOf: filteredText)
+        commandPalettePendingTextSelectionBehavior = .caretAtEnd
+        resetCommandPaletteWorkspaceDescriptionFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
@@ -9047,7 +9430,9 @@ struct ContentView: View {
         isCommandPalettePresented = false
         commandPaletteMode = .commands
         commandPaletteQuery = ""
+        commandPalettePendingSearchInputHandledQueries.removeAll()
         commandPaletteRenameDraft = ""
+        commandPaletteRenameInitialSelectionConsumed = false
         commandPaletteWorkspaceDescriptionDraft = ""
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
@@ -9363,7 +9748,15 @@ struct ContentView: View {
 
     private func commandPaletteRenameInputFocusPolicy() -> CommandPaletteInputFocusPolicy {
         let selectAllOnFocus = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
-        let selectionBehavior: CommandPaletteTextSelectionBehavior = selectAllOnFocus
+        let shouldSelectAllOnFocus: Bool
+        if case .renameInput(let target) = commandPaletteMode {
+            shouldSelectAllOnFocus = selectAllOnFocus
+                && !commandPaletteRenameInitialSelectionConsumed
+                && commandPaletteRenameDraft == target.currentName
+        } else {
+            shouldSelectAllOnFocus = selectAllOnFocus
+        }
+        let selectionBehavior: CommandPaletteTextSelectionBehavior = shouldSelectAllOnFocus
             ? .selectAll
             : .caretAtEnd
         return CommandPaletteInputFocusPolicy(
@@ -9584,6 +9977,7 @@ struct ContentView: View {
 
     private func startRenameFlow(_ target: CommandPaletteRenameTarget) {
         commandPaletteRenameDraft = target.currentName
+        commandPaletteRenameInitialSelectionConsumed = false
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         commandPaletteMode = .renameInput(target)
         resetCommandPaletteRenameFocus()
