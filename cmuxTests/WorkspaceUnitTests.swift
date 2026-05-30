@@ -1259,6 +1259,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                resetApplicationIconImage: {
+                    runtimeIconSetCount += 1
+                },
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
@@ -1334,6 +1337,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                     return nil
                 },
                 setApplicationIconImage: { _ in
+                    runtimeIconSetCount += 1
+                },
+                resetApplicationIconImage: {
                     runtimeIconSetCount += 1
                 },
                 startAppearanceObservation: {
