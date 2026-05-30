@@ -99,10 +99,29 @@ public final class HTTPControlSettings {
     /// Audit log path. Per D4 the **path** is configurable; the
     /// logging itself is always-on for write paths.
     public var auditLogPath: URL {
-        if let custom = defaults.string(forKey: Self.kAuditLogPath), !custom.isEmpty {
-            return URL(fileURLWithPath: custom)
+        get {
+            if let custom = defaults.string(forKey: Self.kAuditLogPath), !custom.isEmpty {
+                return URL(fileURLWithPath: custom)
+            }
+            return supportDirectory.appendingPathComponent("http-control-audit.jsonl")
         }
-        return supportDirectory.appendingPathComponent("http-control-audit.jsonl")
+        set {
+            defaults.set(newValue.path, forKey: Self.kAuditLogPath)
+        }
+    }
+
+    /// Raw string-backed view of ``auditLogPath`` used by the
+    /// Settings view model. Empty string clears the override and
+    /// falls back to the default support-directory path.
+    public var auditLogPathString: String {
+        get { defaults.string(forKey: Self.kAuditLogPath) ?? "" }
+        set {
+            if newValue.isEmpty {
+                defaults.removeObject(forKey: Self.kAuditLogPath)
+            } else {
+                defaults.set(newValue, forKey: Self.kAuditLogPath)
+            }
+        }
     }
 
     /// Timestamp of the last token rotation. `nil` if the token has
