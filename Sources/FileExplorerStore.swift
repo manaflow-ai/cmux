@@ -754,10 +754,43 @@ final class FileExplorerStore: ObservableObject {
                     self?.refreshGitStatus()
                 }
             }
-            directoryWatcher?.watch(path: rootPath)
+            directoryWatcher?.watch(paths: watchedDirectoryPaths())
         } else {
             directoryWatcher?.stop()
         }
+    }
+
+    /// Directories the local watcher should observe: the root plus every
+    /// expanded directory that is currently *visible* in the tree. A kqueue
+    /// vnode source only fires for the immediate contents of the one directory
+    /// it watches, so a root-only watch never notices entries created inside
+    /// nested expanded subdirectories (issue #4649). The fd count stays bounded
+    /// by what the user can actually see: directories hidden under a collapsed
+    /// ancestor (and anything from a previous root) are excluded.
+    private func watchedDirectoryPaths() -> Set<String> {
+        var paths: Set<String> = [rootPath]
+        for path in expandedPaths where isVisibleExpandedDirectory(path) {
+            paths.insert(path)
+        }
+        return paths
+    }
+
+    /// Whether an expanded directory is actually rendered right now: it must
+    /// live under the current root and every directory between it and the root
+    /// must also be expanded. `collapse()` only forgets the collapsed node
+    /// itself (so re-expanding restores descendants), which is why a descendant
+    /// can remain in `expandedPaths` while hidden — such paths must not be
+    /// watched.
+    private func isVisibleExpandedDirectory(_ path: String) -> Bool {
+        guard Self.path(path, isContainedIn: rootPath) else { return false }
+        var ancestor = (path as NSString).deletingLastPathComponent
+        while ancestor != rootPath, Self.path(ancestor, isContainedIn: rootPath) {
+            if !expandedPaths.contains(ancestor) { return false }
+            let parent = (ancestor as NSString).deletingLastPathComponent
+            if parent == ancestor { break }
+            ancestor = parent
+        }
+        return true
     }
 
     private func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
@@ -774,6 +807,11 @@ final class FileExplorerStore: ObservableObject {
     #if DEBUG
     func setProviderForTesting(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         setProvider(newProvider, reloadIfAvailable: reloadIfAvailable)
+    }
+
+    /// Exposes the local watcher's target directory set for tests.
+    func watchedDirectoryPathsForTesting() -> Set<String> {
+        watchedDirectoryPaths()
     }
     #endif
 
@@ -798,6 +836,7 @@ final class FileExplorerStore: ObservableObject {
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
         expandedPaths.insert(node.path)
+        updateDirectoryWatcher()
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
@@ -813,6 +852,7 @@ final class FileExplorerStore: ObservableObject {
 
     func collapse(node: FileExplorerNode) {
         expandedPaths.remove(node.path)
+        updateDirectoryWatcher()
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
@@ -1113,12 +1153,25 @@ final class FileExplorerStore: ObservableObject {
 
 // MARK: - Directory Watcher
 
-/// Watches a local directory for filesystem changes and calls back on the main thread.
-/// Debounces events to avoid rapid-fire reloads during bulk operations (e.g., git checkout).
+/// Watches a set of local directories for filesystem changes and calls back on
+/// the main thread.
+///
+/// A kqueue vnode source fires only for changes to the *immediate* contents of
+/// the directory it watches, so the store registers one source per visible
+/// (root + expanded) directory. Watching only the root would miss entries
+/// created inside nested expanded subdirectories (issue #4649).
+///
+/// Debounces events to avoid rapid-fire reloads during bulk operations (e.g.,
+/// git checkout). `watch(paths:)`/`stop()` are only called from the main actor
+/// (so the `watches` map needs no extra synchronization), while the per-source
+/// event handlers run on `watchQueue`; `debounceWorkItem` is therefore touched
+/// from both and guarded by `debounceLock`.
 final class FileExplorerDirectoryWatcher {
-    private var fileDescriptor: Int32 = -1
-    private var watchSource: DispatchSourceFileSystemObject?
+    /// path -> live vnode source. Each source owns its file descriptor and
+    /// closes it from its cancel handler, so cancelling is enough to release it.
+    private var watches: [String: DispatchSourceFileSystemObject] = [:]
     private let watchQueue = DispatchQueue(label: "com.cmux.fileExplorerWatcher", qos: .utility)
+    private let debounceLock = NSLock()
     private var debounceWorkItem: DispatchWorkItem?
     private let onChange: () -> Void
 
@@ -1126,46 +1179,59 @@ final class FileExplorerDirectoryWatcher {
         self.onChange = onChange
     }
 
-    func watch(path: String) {
-        stop()
-        let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        fileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename, .delete],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            self?.scheduleReload()
+    /// Watch exactly `paths`, adding sources for newly requested directories and
+    /// cancelling sources for directories no longer requested. Existing watches
+    /// are left untouched so in-flight events are not dropped. Paths that cannot
+    /// be opened (e.g. just deleted) are skipped and retried on the next call.
+    func watch(paths: Set<String>) {
+        for path in Array(watches.keys) where !paths.contains(path) {
+            watches.removeValue(forKey: path)?.cancel()
         }
 
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
+        for path in paths where watches[path] == nil {
+            let fd = open(path, O_EVTONLY)
+            guard fd >= 0 else { continue }
 
-        source.resume()
-        watchSource = source
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .link, .rename, .delete],
+                queue: watchQueue
+            )
+
+            source.setEventHandler { [weak self] in
+                self?.scheduleReload()
+            }
+
+            source.setCancelHandler {
+                Darwin.close(fd)
+            }
+
+            source.resume()
+            watches[path] = source
+        }
     }
 
     func stop() {
+        debounceLock.lock()
         debounceWorkItem?.cancel()
         debounceWorkItem = nil
-        watchSource?.cancel()
-        watchSource = nil
-        fileDescriptor = -1
+        debounceLock.unlock()
+        for source in watches.values {
+            source.cancel()
+        }
+        watches.removeAll()
     }
 
     private func scheduleReload() {
-        debounceWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             DispatchQueue.main.async {
                 self?.onChange()
             }
         }
+        debounceLock.lock()
+        debounceWorkItem?.cancel()
         debounceWorkItem = work
+        debounceLock.unlock()
         watchQueue.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
