@@ -5,6 +5,7 @@ import CoreText
 import WebKit
 import Darwin
 import SwiftUI
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -4293,47 +4294,48 @@ final class SidebarBackgroundConfigTests: XCTestCase {
     }
 }
 
-final class SidebarFontSizeConfigTests: XCTestCase {
-    func testDefaultSidebarFontSizeMatchesSidebarTitleBaseline() {
+@Suite
+struct SidebarFontSizeConfigTests {
+    @Test func defaultSidebarFontSizeMatchesSidebarTitleBaseline() {
         let config = GhosttyConfig()
 
-        XCTAssertEqual(config.sidebarFontSize, 12.5, accuracy: 0.0001)
-        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.defaultSidebarFontSize, accuracy: 0.0001)
+        #expect(abs(config.sidebarFontSize - 12.5) <= 0.0001)
+        #expect(abs(config.sidebarFontSize - GhosttyConfig.defaultSidebarFontSize) <= 0.0001)
     }
 
-    func testParseSidebarFontSizeIntegerValue() {
+    @Test func parseSidebarFontSizeIntegerValue() {
         var config = GhosttyConfig()
 
         config.parse("sidebar-font-size = 14")
 
-        XCTAssertEqual(config.sidebarFontSize, 14, accuracy: 0.0001)
+        #expect(abs(config.sidebarFontSize - 14) <= 0.0001)
     }
 
-    func testParseSidebarFontSizeFractionalValue() {
+    @Test func parseSidebarFontSizeFractionalValue() {
         var config = GhosttyConfig()
 
         config.parse("sidebar-font-size = 13.75")
 
-        XCTAssertEqual(config.sidebarFontSize, 13.75, accuracy: 0.0001)
+        #expect(abs(config.sidebarFontSize - 13.75) <= 0.0001)
     }
 
-    func testParseSidebarFontSizeClampsBelowMinimum() {
+    @Test func parseSidebarFontSizeClampsBelowMinimum() {
         var config = GhosttyConfig()
 
         config.parse("sidebar-font-size = 4")
 
-        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.minSidebarFontSize, accuracy: 0.0001)
+        #expect(abs(config.sidebarFontSize - GhosttyConfig.minSidebarFontSize) <= 0.0001)
     }
 
-    func testParseSidebarFontSizeClampsAboveMaximum() {
+    @Test func parseSidebarFontSizeClampsAboveMaximum() {
         var config = GhosttyConfig()
 
         config.parse("sidebar-font-size = 48")
 
-        XCTAssertEqual(config.sidebarFontSize, GhosttyConfig.maxSidebarFontSize, accuracy: 0.0001)
+        #expect(abs(config.sidebarFontSize - GhosttyConfig.maxSidebarFontSize) <= 0.0001)
     }
 
-    func testParseSidebarFontSizeIgnoresInvalidAndNonFiniteValues() {
+    @Test func parseSidebarFontSizeIgnoresInvalidAndNonFiniteValues() {
         var config = GhosttyConfig()
 
         config.parse("sidebar-font-size = 14")
@@ -4345,10 +4347,10 @@ final class SidebarFontSizeConfigTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(config.sidebarFontSize, 14, accuracy: 0.0001)
+        #expect(abs(config.sidebarFontSize - 14) <= 0.0001)
     }
 
-    func testLoadUsesParsedSidebarFontSizeFromInjectedLoader() {
+    @Test func loadUsesParsedSidebarFontSizeFromInjectedLoader() {
         let loaded = GhosttyConfig.load(
             preferredColorScheme: .dark,
             useCache: false,
@@ -4359,7 +4361,7 @@ final class SidebarFontSizeConfigTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(loaded.sidebarFontSize, 15, accuracy: 0.0001)
+        #expect(abs(loaded.sidebarFontSize - 15) <= 0.0001)
     }
 }
 

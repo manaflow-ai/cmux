@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -115,47 +116,36 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     }
 }
 
-final class SidebarTabItemFontScaleTests: XCTestCase {
-    func testDefaultSidebarFontScaleIsUnitScale() throws {
+@Suite
+struct SidebarTabItemFontScaleTests {
+    @Test func defaultSidebarFontScaleIsUnitScale() {
         let scale = SidebarTabItemFontScale.scale(for: GhosttyConfig.defaultSidebarFontSize)
 
-        XCTAssertEqual(scale, 1, accuracy: 0.0001)
+        #expect(abs(scale - 1) <= 0.0001)
     }
 
-    func testSidebarFontScaleIsProportionalToDefaultSidebarSize() throws {
+    @Test func sidebarFontScaleIsProportionalToDefaultSidebarSize() {
         let scale = SidebarTabItemFontScale.scale(for: 18)
 
-        XCTAssertEqual(
-            scale,
-            18 / GhosttyConfig.defaultSidebarFontSize,
-            accuracy: 0.0001
-        )
+        #expect(abs(scale - (18 / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
     }
 
-    func testSidebarFontScaleClampsSmallSizes() throws {
+    @Test func sidebarFontScaleClampsSmallSizes() {
         let scale = SidebarTabItemFontScale.scale(for: 4)
 
-        XCTAssertEqual(
-            scale,
-            GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize,
-            accuracy: 0.0001
-        )
+        #expect(abs(scale - (GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
     }
 
-    func testSidebarFontScaleClampsLargeSizes() throws {
+    @Test func sidebarFontScaleClampsLargeSizes() {
         let scale = SidebarTabItemFontScale.scale(for: 48)
 
-        XCTAssertEqual(
-            scale,
-            GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize,
-            accuracy: 0.0001
-        )
+        #expect(abs(scale - (GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
     }
 
-    func testSidebarFontScaleFallsBackToDefaultForNonFiniteValue() throws {
+    @Test func sidebarFontScaleFallsBackToDefaultForNonFiniteValue() {
         let scale = SidebarTabItemFontScale.scale(for: CGFloat.nan)
 
-        XCTAssertEqual(scale, 1, accuracy: 0.0001)
+        #expect(abs(scale - 1) <= 0.0001)
     }
 }
 

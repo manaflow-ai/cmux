@@ -9744,13 +9744,6 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
     }
 }
 
-enum SidebarTabItemFontScale {
-    static func scale(for sidebarFontSize: CGFloat) -> CGFloat {
-        GhosttyConfig.clampedSidebarFontSize(sidebarFontSize)
-            / GhosttyConfig.defaultSidebarFontSize
-    }
-}
-
 private enum SidebarFontSizeProvider {
     static func loadFromGhosttyConfig() async -> CGFloat {
         await Task.detached(priority: .utility) {
@@ -9999,7 +9992,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 
     private func refreshSidebarFontSize() {
         sidebarFontSizeLoadTask?.cancel()
-        sidebarFontSizeLoadTask = Task { [weak self] in
+        sidebarFontSizeLoadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let loadedSidebarFontSize = await sidebarFontSizeProvider()
             guard !Task.isCancelled else { return }
@@ -14484,10 +14477,11 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let scaledAccessorySize = max(16, 16 * fontScale)
+        let scaledUnreadBadgeSize = 16 * fontScale
+        let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
-            scaledAccessorySize
+            scaledCloseButtonHitSize
         )
 
         VStack(alignment: .leading, spacing: 4) {
@@ -14500,7 +14494,7 @@ struct TabItemView: View, Equatable {
                             .font(.system(size: scaledFontSize(9), weight: .semibold))
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
-                    .frame(width: scaledAccessorySize, height: scaledAccessorySize)
+                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -14802,7 +14796,7 @@ struct TabItemView: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .safeHelp(closeButtonTooltip)
-                .frame(width: scaledCloseButtonWidth, height: scaledAccessorySize, alignment: .center)
+                .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
                 .padding(.top, 8)
                 .padding(.trailing, 10)
             }
