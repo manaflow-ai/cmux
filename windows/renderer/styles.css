@@ -1381,8 +1381,6 @@ body.reduce-motion *::after {
     max-width: none;
     margin-left: auto;
     gap: 3px;
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .pane-tool {
