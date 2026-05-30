@@ -146,6 +146,7 @@ public struct AppSection: View {
                 selectedMode: appearance.current,
                 onSelect: { appearance.set($0) }
             )
+            .settingsSearchAnchors(["setting:app:appearance"])
             SettingsCardDivider()
 
             // App Icon — three-up visual picker mirroring legacy
@@ -153,6 +154,7 @@ public struct AppSection: View {
                 selectedMode: appIcon.current,
                 onSelect: { appIcon.set($0) }
             )
+            .settingsSearchAnchors(["setting:app:app-icon"])
             SettingsCardDivider()
 
             // New Workspace Placement
@@ -240,6 +242,7 @@ public struct AppSection: View {
             // File Drops
             SettingsCardRow(
                 configurationReview: .settingsOnly,
+                searchAnchorID: "setting:app:file-drops",
                 String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
                 subtitle: fileDropSubtitle(fileDrop.current),
                 controlWidth: Self.columnWidth

@@ -33,6 +33,7 @@ public struct ResetSection: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
             }
+            .settingsSearchAnchors(["setting:reset:reset-all"])
         }
     }
 

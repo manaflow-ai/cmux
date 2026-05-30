@@ -2,22 +2,28 @@ import CmuxSettings
 import Testing
 @testable import CmuxSettingsUI
 
-/// Guards the search-result highlight bridge: every cmux.json path that a
-/// `SettingsCardRow` declares via `configurationReview` must resolve,
-/// through ``SettingsSearchIndex/anchorID(forSettingsPath:)``, to a real
-/// indexed entry. Otherwise clicking that row's search hit scrolls and
-/// pulses nothing (the bug that hit "Sidebar Branch Layout", whose row
-/// path `sidebar.branchLayout` didn't match the curated synonym's
-/// `sidebar.branchVerticalLayout`).
+/// Guards the search-result highlight bridge in both directions:
 ///
-/// The list mirrors the `.json(...)` annotations in `Sections/*.swift`.
-/// When a new settings row is added, add its path here so the bridge is
-/// proven before the row ships.
+/// - **Forward** — every cmux.json path a `SettingsCardRow` declares via
+///   `configurationReview` resolves to a real indexed entry, so the row
+///   carries the same `.id` its search hit posts.
+/// - **Inverse** — every curated search result (the things that appear
+///   in the sidebar search list) is reachable: some row anchor equals
+///   its entry id, so clicking it scrolls to and highlights a row.
+///
+/// `rowConfigPaths` mirrors the `.json(...)` annotations across
+/// `Sections/*.swift`. `explicitlyAnchoredEntryIDs` lists the searchable
+/// rows that carry an explicit `settingsSearchAnchors([...])` instead of
+/// a cmux.json path (pickers and action buttons that don't write a
+/// single key). Together they must cover every curated setting entry.
 @Suite("SettingsRowAnchorResolution")
 struct SettingsRowAnchorResolutionTests {
-    /// Every dotted cmux.json path declared by a settings row.
+    /// Every singular cmux.json path declared by a settings row.
+    /// Excludes `workspaceColors.colors`, which is a repeated per-palette
+    /// color row with no single search result.
     static let rowConfigPaths: [String] = [
         "app.commandPaletteSearchesAllSurfaces",
+        "app.confirmQuit",
         "app.focusPaneOnFirstClick",
         "app.hideTabCloseButton",
         "app.iMessageMode",
@@ -50,15 +56,19 @@ struct SettingsRowAnchorResolutionTests {
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.hostsToOpenInEmbeddedBrowser",
+        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.reactGrabVersion",
         "browser.showSearchSuggestions",
         "browser.theme",
+        "browser.urlsToAlwaysOpenExternally",
         "notifications.command",
         "notifications.dockBadge",
         "notifications.paneFlash",
         "notifications.showInMenuBar",
+        "notifications.sound",
         "notifications.unreadPaneRing",
         "sidebar.branchLayout",
         "sidebar.hideAllDetails",
@@ -87,8 +97,31 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.resumeCommands",
         "terminal.showScrollBar",
         "terminal.textBoxMaxLines",
-        "workspaceColors.colors",
         "workspaceColors.indicatorStyle",
+        "workspaceColors.notificationBadgeColor",
+        "workspaceColors.selectionColor",
+    ]
+
+    /// Searchable rows anchored with an explicit `settingsSearchAnchors`
+    /// (no single cmux.json path): pickers and action buttons. Each must
+    /// match the corresponding curated entry id verbatim.
+    static let explicitlyAnchoredEntryIDs: Set<String> = [
+        "setting:app:appearance",
+        "setting:app:app-icon",
+        "setting:app:file-drops",
+        "setting:account:account",
+        "setting:betaFeatures:dock",
+        "setting:browser:enable-browser",
+        "setting:browserImport:import-data",
+        "setting:browserImport:import-hint",
+        "setting:globalHotkey:enable-hotkey",
+        "setting:globalHotkey:shortcut",
+        "setting:keyboardShortcuts:shortcuts",
+        "setting:keyboardShortcuts:shortcut-chords",
+        "setting:keyboardShortcuts:reset-defaults",
+        "setting:settingsJSON:open-file",
+        "setting:settingsJSON:documentation",
+        "setting:reset:reset-all",
     ]
 
     @Test(arguments: rowConfigPaths)
@@ -101,6 +134,28 @@ struct SettingsRowAnchorResolutionTests {
         #expect(
             index.entries.contains { $0.id == anchor },
             "anchor \(anchor) for \(path) is not a real indexed entry"
+        )
+    }
+
+    /// The user-facing contract: every result in the sidebar search list
+    /// can be scrolled to and highlighted. A curated setting entry is
+    /// reachable when some row anchor equals its id — either a row whose
+    /// `configurationReview` path resolves to it, or a row explicitly
+    /// tagged with its id.
+    @Test
+    func everyCuratedSettingEntryIsReachable() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let pathBackedIDs = Set(Self.rowConfigPaths.compactMap { index.anchorID(forSettingsPath: $0) })
+        let reachable = pathBackedIDs.union(Self.explicitlyAnchoredEntryIDs)
+
+        let unreachable = index.entries
+            .filter { if case .setting = $0.kind { return true } else { return false } }
+            .map(\.id)
+            .filter { !reachable.contains($0) }
+
+        #expect(
+            unreachable.isEmpty,
+            "these search results have no row to scroll to / highlight: \(unreachable.sorted())"
         )
     }
 }

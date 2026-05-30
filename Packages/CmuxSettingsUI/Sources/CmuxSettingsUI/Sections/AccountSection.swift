@@ -30,6 +30,7 @@ public struct AccountSection: View {
             SettingsCard {
                 AccountIdentityCard(flow: accountFlow)
             }
+            .settingsSearchAnchors(["setting:account:account"])
         }
     }
 }

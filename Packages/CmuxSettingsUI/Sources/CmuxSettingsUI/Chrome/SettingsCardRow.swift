@@ -17,6 +17,7 @@ public struct SettingsCardRow<Trailing: View>: View {
     let title: String
     let subtitle: String?
     let controlWidth: CGFloat?
+    let searchAnchorID: String?
     @ViewBuilder let trailing: Trailing
 
     // The settings root injects the built search index so each row can
@@ -27,23 +28,29 @@ public struct SettingsCardRow<Trailing: View>: View {
     // doesn't participate in search navigation.
     @Environment(\.settingsSearchIndex) private var searchIndex
 
-    /// Anchor ids derived from this row's declared config paths, used to
-    /// make the row `scrollTo`-addressable and eligible for the
-    /// search-result highlight pulse. Empty for action/settings-only rows
-    /// or when no index is injected.
+    /// Anchor ids that make the row `scrollTo`-addressable and eligible
+    /// for the search-result highlight pulse. An explicit
+    /// ``searchAnchorID`` wins (used by `.action` / `.settingsOnly` /
+    /// custom-control rows that don't write a single cmux.json key);
+    /// otherwise the row resolves the path(s) it declares via
+    /// `configurationReview` through the injected index. Empty when no
+    /// index is injected and no explicit anchor is set.
     private var searchAnchorIDs: [String] {
+        if let searchAnchorID { return [searchAnchorID] }
         guard let searchIndex else { return [] }
         return configurationReview.paths.compactMap(searchIndex.anchorID(forSettingsPath:))
     }
 
     public init(
         configurationReview: SettingsConfigurationReview = .action,
+        searchAnchorID: String? = nil,
         _ title: String,
         subtitle: String? = nil,
         controlWidth: CGFloat? = nil,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.configurationReview = configurationReview
+        self.searchAnchorID = searchAnchorID
         self.title = title
         self.subtitle = subtitle
         self.controlWidth = controlWidth

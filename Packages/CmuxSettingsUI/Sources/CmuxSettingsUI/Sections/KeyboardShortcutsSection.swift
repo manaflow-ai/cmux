@@ -62,6 +62,7 @@ public struct KeyboardShortcutsSection: View {
                     }
                 }
             }
+            .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -76,6 +77,7 @@ public struct KeyboardShortcutsSection: View {
     private var chordsRow: some View {
         SettingsCardRow(
             configurationReview: .action,
+            searchAnchorID: "setting:keyboardShortcuts:shortcut-chords",
             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
             subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"].")
         ) {
@@ -101,6 +103,7 @@ public struct KeyboardShortcutsSection: View {
     private var resetDefaultsRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
+            searchAnchorID: "setting:keyboardShortcuts:reset-defaults",
             String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"),
             subtitle: String(localized: "settings.shortcuts.resetDefaults.subtitle", defaultValue: "Restore built-in shortcut values for shortcuts managed in app settings.")
         ) {

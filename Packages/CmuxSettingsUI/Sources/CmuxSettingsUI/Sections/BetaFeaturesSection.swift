@@ -29,6 +29,7 @@ public struct BetaFeaturesSection: View {
     private var dockRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:dock",
             String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
             subtitle: dock.current
                 ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls.")
