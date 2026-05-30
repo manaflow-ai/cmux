@@ -2561,6 +2561,67 @@ body.reduce-motion *::after {
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--swatch-color) 34%, transparent);
 }
 
+.terminal-font-choice-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.terminal-font-choice {
+  min-width: 0;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+  align-content: center;
+  padding: var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  text-align: left;
+}
+
+.terminal-font-choice:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-warm);
+  color: var(--color-text);
+}
+
+.terminal-font-choice.is-active {
+  border-color: color-mix(in oklch, var(--color-accent) 72%, var(--color-line) 28%);
+  background: color-mix(in oklch, var(--color-accent) 12%, var(--color-pane) 88%);
+  color: var(--color-text);
+}
+
+.terminal-font-choice-sample {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-1);
+  background: var(--color-terminal-gutter);
+  color: var(--color-text);
+  font: 11px/1.2 var(--terminal-font-choice-stack);
+}
+
+.terminal-font-choice-sample span,
+.terminal-font-choice-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.terminal-font-choice-label {
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
 .color-picker {
   min-width: 0;
   display: grid;

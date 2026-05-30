@@ -3260,6 +3260,7 @@ function renderSettingsInspector(options = {}) {
     const terminalSection = settingsSection("Terminal");
     const fontSelect = document.createElement("select");
     fontSelect.className = "setting-select";
+    fontSelect.dataset.settingControl = "terminalFontFamily";
     for (const [value, label] of terminalFontOptions) {
       const option = document.createElement("option");
       option.value = value;
@@ -3267,8 +3268,12 @@ function renderSettingsInspector(options = {}) {
       fontSelect.append(option);
     }
     fontSelect.value = state.settings.terminalFontFamily;
-    fontSelect.onchange = () => updateSettings({ terminalFontFamily: fontSelect.value });
+    fontSelect.onchange = () => {
+      updateSettings({ terminalFontFamily: fontSelect.value });
+      refreshTerminalFontChoices();
+    };
     terminalSection.append(settingRow("Font", fontSelect));
+    terminalSection.append(settingRow("Font gallery", terminalFontChoiceGrid(), true, "terminal font gallery preview cascadia consolas jetbrains fira mono"));
     const fontRange = document.createElement("input");
     fontRange.className = "setting-control";
     fontRange.type = "range";
@@ -4192,6 +4197,50 @@ function swatchGrid(colors, activeColor, onPick) {
     grid.append(button);
   }
   return grid;
+}
+
+function terminalFontChoiceGrid() {
+  const grid = document.createElement("div");
+  grid.className = "terminal-font-choice-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("terminal font gallery preview cascadia code consolas jetbrains fira mono");
+  for (const [value, label, stack] of terminalFontOptions) {
+    const active = value === state.settings.terminalFontFamily;
+    const button = document.createElement("button");
+    button.className = `terminal-font-choice${active ? " is-active" : ""}`;
+    button.type = "button";
+    button.title = label;
+    button.dataset.terminalFontChoice = value;
+    button.dataset.settingsSearch = normalizeSettingsQuery(`terminal font gallery preview ${label} ${value}`);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.style.setProperty("--terminal-font-choice-stack", stack);
+    button.innerHTML = `
+      <span class="terminal-font-choice-sample">
+        <span>PS&gt; git status</span>
+        <span>abc123 {} []</span>
+      </span>
+      <span class="terminal-font-choice-label"></span>
+    `;
+    button.querySelector(".terminal-font-choice-label").textContent = label;
+    button.onclick = () => {
+      const changed = updateSettings({ terminalFontFamily: value });
+      if (!changed) toast(`${label} font already active.`);
+      refreshTerminalFontChoices();
+    };
+    grid.append(button);
+  }
+  return grid;
+}
+
+function refreshTerminalFontChoices() {
+  const fontSelect = elements.inspectorBody.querySelector('[data-setting-control="terminalFontFamily"]');
+  if (fontSelect && fontSelect.value !== state.settings.terminalFontFamily) {
+    fontSelect.value = state.settings.terminalFontFamily;
+  }
+  for (const button of elements.inspectorBody.querySelectorAll("[data-terminal-font-choice]")) {
+    const active = button.dataset.terminalFontChoice === state.settings.terminalFontFamily;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
 }
 
 function colorPicker(activeColor, onPick, fallback = "#5d8cff") {
