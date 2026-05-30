@@ -6,10 +6,13 @@ import CoreVideo
 import Combine
 import CoreServices
 import Darwin
+import OSLog
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
+
+private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
 private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
     let handleEvent: @Sendable () -> Void
@@ -6267,6 +6270,11 @@ class TabManager: ObservableObject {
         guard let group = workspaceGroups.first(where: { $0.id == groupId }),
               let currentIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId && tabs[$0].id != workspaceId }
+        func logMissingPlacementAnchor(_ placementName: String) {
+            tabManagerLogger.info(
+                "workspaceGroup.placeWithinGroup missing placement anchor group=\(groupId.uuidString, privacy: .public) workspace=\(workspaceId.uuidString, privacy: .public) placement=\(placementName, privacy: .public)"
+            )
+        }
         let targetIndex: Int
         switch placement {
         case .afterCurrent:
@@ -6279,6 +6287,7 @@ class TabManager: ObservableObject {
             } else if let firstMember = memberIndices.first {
                 targetIndex = firstMember
             } else {
+                logMissingPlacementAnchor("afterCurrent")
                 return
             }
         case .top:
@@ -6289,6 +6298,7 @@ class TabManager: ObservableObject {
             } else if let firstMember = memberIndices.first {
                 targetIndex = firstMember
             } else {
+                logMissingPlacementAnchor("top")
                 return
             }
         case .end:
@@ -6299,6 +6309,7 @@ class TabManager: ObservableObject {
                 if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
                     targetIndex = anchorIndex + 1
                 } else {
+                    logMissingPlacementAnchor("end")
                     return
                 }
             }
