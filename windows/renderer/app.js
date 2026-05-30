@@ -43,6 +43,7 @@ import {
   paneLayoutPercentFromWeights,
   paneLayoutWeightsByActivePercent
 } from "./layout-utils.js";
+import { canLoadImage } from "./image-utils.js";
 import {
   safeReleasePointerCapture,
   safeSetPointerCapture
@@ -535,6 +536,39 @@ function backgroundCss(value) {
   if (preset) return preset.css;
   const url = backgroundImageUrl(normalized);
   return url ? `url("${url.replace(/["\\]/g, "\\$&")}")` : "none";
+}
+
+async function validateBackgroundImageValue(value) {
+  const url = normalizedImageUrl(value);
+  if (!url) return { ok: false, url: "" };
+  const ok = await canLoadImage(backgroundImageUrl(url));
+  return { ok, url };
+}
+
+async function applyCustomBackgroundImage(value, options = {}) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    const changed = updateSettings({ backgroundImage: "" });
+    if (changed && options.render !== false) renderSettingsInspector();
+    if (changed && options.toast) toast("Background image cleared.");
+    return changed;
+  }
+  const preset = isBackgroundPreset(raw) ? raw : "";
+  if (preset) {
+    const changed = updateSettings({ backgroundImage: preset });
+    if (changed && options.render !== false) renderSettingsInspector();
+    return changed;
+  }
+  const validated = await validateBackgroundImageValue(raw);
+  if (!validated.ok) {
+    toast("Background image could not be loaded.");
+    if (options.resetInput) options.resetInput.value = isBackgroundPreset(state.settings.backgroundImage) ? "" : state.settings.backgroundImage;
+    return null;
+  }
+  const changed = updateSettings({ backgroundImage: validated.url });
+  if (changed && options.render !== false) renderSettingsInspector();
+  if (changed && options.toast) toast("Background image updated.");
+  return changed;
 }
 
 function terminalFontStack(value = state.settings.terminalFontFamily) {
@@ -1121,10 +1155,30 @@ function upsertSavedBackgroundImage(background, options = {}) {
   return state.savedBackgroundImages[0];
 }
 
-function applySavedBackgroundImage(backgroundId) {
+async function saveCustomBackgroundImage(background, options = {}) {
+  const input = typeof background === "string" ? { url: background } : background || {};
+  const source = input.url || input.value || input.backgroundImage;
+  if (!normalizedImageUrl(source)) {
+    if (options.toast !== false) toast("Choose a custom background image first.");
+    return null;
+  }
+  const validated = await validateBackgroundImageValue(source);
+  if (!validated.ok) {
+    if (options.toast !== false) toast("Background image could not be loaded.");
+    return null;
+  }
+  return upsertSavedBackgroundImage({ ...input, url: validated.url }, options);
+}
+
+async function applySavedBackgroundImage(backgroundId) {
   const background = state.savedBackgroundImages.find((candidate) => candidate.id === backgroundId);
   if (!background) return;
-  const changed = updateSettings({ backgroundImage: background.url });
+  const validated = await validateBackgroundImageValue(background.url);
+  if (!validated.ok) {
+    toast(`${background.label} background could not be loaded.`);
+    return;
+  }
+  const changed = updateSettings({ backgroundImage: validated.url });
   if (!changed) {
     toast(`${background.label} background already active.`);
     return;
@@ -1669,7 +1723,7 @@ const commands = [
   { id: "settings.saveAccentColor", label: "Save Current Accent Color", shortcut: "", run: () => upsertCustomColorPalette(state.settings.accent) },
   { id: "settings.saveWorkspaceColor", label: "Save Current Workspace Color", shortcut: "", run: () => upsertCustomColorPalette(activeWorkspace()?.color) },
   { id: "settings.backgrounds", label: "Open Background Settings", shortcut: "", run: () => openSettingsCategory("appearance") },
-  { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => upsertSavedBackgroundImage({ url: state.settings.backgroundImage }) },
+  { id: "settings.saveBackground", label: "Save Current Background", shortcut: "", run: () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }) },
   { id: "session.reset", label: "Reset Session", shortcut: "", run: () => resetSession() },
   { id: "sidebar.toggle", label: "Toggle Sidebar", shortcut: "Ctrl+B", run: () => toggleSidebar() },
   { id: "attention.fake", label: "Simulate Notification", shortcut: "", run: () => simulateNotification() }
@@ -3245,11 +3299,10 @@ function renderSettingsInspector(options = {}) {
     imageInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") imageInput.blur();
     });
-    imageInput.addEventListener("blur", () => {
+    imageInput.addEventListener("blur", async () => {
       const next = imageInput.value.trim();
       if (next || !isBackgroundPreset(state.settings.backgroundImage)) {
-        updateSettings({ backgroundImage: next });
-        renderSettingsInspector();
+        await applyCustomBackgroundImage(next, { resetInput: imageInput });
       }
     });
     appearanceSection.append(settingRow("Custom image", imageInput, true));
@@ -5301,15 +5354,14 @@ function savedBackgroundImagesPanel() {
   input.className = "setting-control saved-background-input";
   input.placeholder = "https://image-url";
   input.dataset.settingsSearch = normalizeSettingsQuery("saved background image url add");
-  input.addEventListener("keydown", (event) => {
+  input.addEventListener("keydown", async (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      upsertSavedBackgroundImage({ url: input.value });
-      input.value = "";
+      if (await saveCustomBackgroundImage({ url: input.value })) input.value = "";
     }
   });
-  const saveUrl = settingsActionButton("Save URL", () => {
-    if (upsertSavedBackgroundImage({ url: input.value })) input.value = "";
+  const saveUrl = settingsActionButton("Save URL", async () => {
+    if (await saveCustomBackgroundImage({ url: input.value })) input.value = "";
   }, "", "saved background image url add");
   addRow.append(input, saveUrl);
   panel.append(addRow);
@@ -5317,7 +5369,7 @@ function savedBackgroundImagesPanel() {
   const actions = document.createElement("div");
   actions.className = "settings-actions saved-background-actions";
   actions.dataset.settingsSearch = normalizeSettingsQuery("saved background current choose local file wallpaper");
-  const saveCurrent = settingsActionButton("Save current", () => upsertSavedBackgroundImage({
+  const saveCurrent = settingsActionButton("Save current", () => saveCustomBackgroundImage({
     url: state.settings.backgroundImage
   }), "", "saved background image current");
   saveCurrent.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
@@ -5778,9 +5830,10 @@ async function chooseBackgroundImage(options = {}) {
   }
   const url = await window.cmuxNative.pickBackgroundImage();
   if (!url) return;
-  updateSettings({ backgroundImage: url });
+  const changed = await applyCustomBackgroundImage(url, { render: false });
+  if (changed === null) return;
   if (options.save) {
-    upsertSavedBackgroundImage({ url }, { render: false, toast: false });
+    await saveCustomBackgroundImage({ url }, { render: false, toast: false });
   }
   renderSettingsInspector();
   toast(options.save ? "Background image saved." : "Background image updated.");
@@ -6376,7 +6429,7 @@ function showToolbarMenu(event) {
       contextMenuButton("Color settings", () => openSettingsCategory("appearance")),
       contextMenuButton("Save current accent", () => upsertCustomColorPalette(state.settings.accent), !normalizeCustomPaletteColor(state.settings.accent)),
       contextMenuButton("Background settings", () => openSettingsCategory("appearance")),
-      contextMenuButton("Save current background", () => upsertSavedBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
+      contextMenuButton("Save current background", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), !isCustomBackgroundImage(state.settings.backgroundImage)),
       contextMenuButton("Workspace blueprints", () => openSettingsCategory("blueprints"))
     ),
     contextMenuSectionTitle("Session"),
