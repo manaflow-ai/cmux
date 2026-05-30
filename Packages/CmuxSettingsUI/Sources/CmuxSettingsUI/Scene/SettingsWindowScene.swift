@@ -63,13 +63,21 @@ public struct SettingsWindowRoot: View {
     // Mirrors legacy SettingsView.settingsNavigationGeneration. When
     // multiple navigation requests fire in quick succession (e.g. the
     // sidebar selection changes plus an external app.cmux.settings
-    // navigation post), each scheduled `proxy.scrollTo(...)` runs on
-    // the next main-queue tick. Without a generation guard, a stale
-    // earlier request can win and snap the scroll back to a section
-    // the user has already moved past. The counter is incremented in
-    // `applyScrollNavigation` and re-checked inside `DispatchQueue.main.async`,
+    // navigation post), each `proxy.scrollTo(...)` runs one main-actor
+    // hop later. Without a generation guard, a stale earlier request can
+    // win and snap the scroll back to a section the user has already
+    // moved past. The counter is incremented in `applyScrollNavigation`
+    // and re-checked inside the scheduled `Task { @MainActor in ... }`,
     // so only the most recent request actually scrolls.
     @State private var settingsNavigationGeneration: Int = 0
+    // Drives the "flash the navigated-to row" affordance the legacy
+    // settings window had. When the user clicks a search hit, the target
+    // row pulses an accent border for a few seconds so the eye can find
+    // it after the scroll. `token` changes on every highlight so
+    // re-navigating to the same row restarts the pulse; `startedAt`
+    // seeds the row's `TimelineView` fade. Read by every
+    // `SettingsCardRow` through `\.settingsSearchHighlightState`.
+    @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
 
     private var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     private var jsonStore: JSONConfigStore { runtime.jsonStore }
@@ -117,6 +125,11 @@ public struct SettingsWindowRoot: View {
             detailScroll
         }
         .navigationSplitViewStyle(.balanced)
+        // Inject the built search index so each SettingsCardRow can map
+        // its declared cmux.json paths to scroll/highlight anchor ids,
+        // and publish the active highlight so the matching row pulses.
+        .environment(\.settingsSearchIndex, searchIndex)
+        .environment(\.settingsSearchHighlightState, searchHighlight)
         // Legacy SettingsRootView pins the window minimum to
         // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
         // so the package window can shrink to the same lower bound.
@@ -307,15 +320,15 @@ public struct SettingsWindowRoot: View {
         GeometryReader { _ in
             ScrollViewReader { proxy in
                 ScrollView {
-                    // LazyVStack so the ~12 settings sections build their
-                    // bodies on demand as they scroll into view instead of
-                    // eagerly on first render. The eager plain VStack made
-                    // opening the window and the first scroll janky because
-                    // every section (and its nested cards/controls) was
-                    // instantiated up front. Each section keeps its
-                    // `.id(anchorID(for:))` so `proxy.scrollTo(...)` from
-                    // the sidebar/search navigation still resolves anchors.
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    // Eager VStack (not LazyVStack) on purpose: search
+                    // navigation must `scrollTo` any row, including ones in
+                    // a section currently off-screen. A LazyVStack only
+                    // registers a row's `.id` once its section is realized,
+                    // so `scrollTo(deepRow)` silently no-ops while that
+                    // section is scrolled away, stranding the user at the
+                    // top. Building all ~14 sections up front keeps every
+                    // anchor addressable for a single, reliable scroll.
+                    VStack(alignment: .leading, spacing: 14) {
                         sectionStack
                     }
                     // Legacy SettingsView only pads the inner VStack; it
@@ -365,7 +378,7 @@ public struct SettingsWindowRoot: View {
     /// A monotonically increasing `settingsNavigationGeneration`
     /// guards against stale scrolls when navigation requests pile up:
     /// each call captures the current generation, increments it, and
-    /// the dispatched scroll only runs if the captured generation is
+    /// the scheduled scroll only runs if the captured generation is
     /// still the latest — otherwise an earlier request would clobber
     /// the user's most recent navigation.
     private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
@@ -378,21 +391,45 @@ public struct SettingsWindowRoot: View {
         let sectionID = self.anchorID(for: target)
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
-        DispatchQueue.main.async {
+        // Arm (or clear) the highlight before the scroll so the pulse is
+        // already live when the target lands in view. A section hit
+        // (anchorID == sectionID) highlights the section header; a row
+        // hit highlights that row. Mirrors legacy applySettingsNavigation.
+        if shouldHighlight {
+            searchHighlight = SettingsSearchHighlightState(
+                anchorID: anchorID,
+                token: searchHighlight.token + 1,
+                startedAt: Date()
+            )
+        } else {
+            searchHighlight = SettingsSearchHighlightState(
+                anchorID: nil,
+                token: searchHighlight.token,
+                startedAt: nil
+            )
+        }
+        // One scroll, one target. The detail stack is eager (see
+        // `detailScroll`), so every row's `.id` is always registered and a
+        // single `scrollTo` resolves any anchor regardless of where the
+        // viewport currently sits — no "realize the section first" dance.
+        // A section hit pins its header to the top; a row hit centers the
+        // row. The hop off the current update is a main-actor `Task` (not
+        // `DispatchQueue.main.async`, which package policy forbids): it
+        // lets the highlight-state mutation above commit before the scroll
+        // and is generation-guarded so a newer navigation still wins.
+        let anchor: UnitPoint = anchorID == sectionID ? .top : .center
+        Task { @MainActor in
             guard navigationGeneration == settingsNavigationGeneration else { return }
-            proxy.scrollTo(sectionID, anchor: .top)
-            if shouldHighlight && anchorID != sectionID {
-                proxy.scrollTo(anchorID, anchor: .center)
-            }
+            proxy.scrollTo(anchorID, anchor: anchor)
         }
     }
 
     @ViewBuilder
     private var sectionStack: some View {
         // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, Sidebar, Beta Features, Automation,
-        // Browser (with embedded Import), Global Hotkey, Keyboard
-        // Shortcuts, Workspace Colors, cmux.json, Reset.
+        // Account, App, Terminal, TextBox, Sidebar, Beta Features,
+        // Automation, Browser (with embedded Import), Global Hotkey,
+        // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
         AccountSection(
             defaultsStore: defaultsStore,
             catalog: catalog,
@@ -414,6 +451,9 @@ public struct SettingsWindowRoot: View {
             hostActions: hostActions
         )
         .id(anchorID(for: .terminal))
+
+        TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
+            .id(anchorID(for: .textBox))
 
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .sidebarAppearance))

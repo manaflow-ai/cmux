@@ -10,6 +10,9 @@ final class SampleSidebarExtension: CmuxSidebarExtension {
             .workspaceList,
             .workspaceMetadata,
             .surfaceMetadata,
+            .notifications,
+            .networkPorts,
+            .pullRequests,
         ],
         requestedActionScopes: [
             .createSurface,

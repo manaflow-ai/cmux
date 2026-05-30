@@ -55,7 +55,7 @@ public struct SidebarSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
+            SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
         }
     }

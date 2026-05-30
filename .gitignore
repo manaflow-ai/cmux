@@ -54,3 +54,6 @@ web/public/pagefind/
 tmp/
 tmp-*/
 .iter-logs/*.png
+
+# Local dogfood scratch (screenshots, recordings) — never commit
+artifacts/
