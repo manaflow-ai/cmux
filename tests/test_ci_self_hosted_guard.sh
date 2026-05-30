@@ -177,6 +177,36 @@ check_ui_regression_budget() {
   echo "PASS: ui-regressions keeps enough time and cached DerivedData for both UI regressions"
 }
 
+check_build_and_lag_budget() {
+  local timeout_minutes
+  timeout_minutes="$(
+    awk '
+      /^  tests-build-and-lag:/ { in_job=1; next }
+      in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+      in_job && /timeout-minutes:/ { print $2; exit }
+    ' "$CI_FILE"
+  )"
+
+  if [ -z "$timeout_minutes" ] || [ "$timeout_minutes" -lt 75 ]; then
+    echo "FAIL: tests-build-and-lag must keep enough job time for a cold merged-main build plus lag regressions"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
+    in_job && in_restore && /deriveddata-build-/ { saw_restore=1 }
+    in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
+    END { exit(saw_restore ? 0 : 1) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag must restore prior DerivedData caches so retries are not always cold"
+    exit 1
+  fi
+
+  echo "PASS: tests-build-and-lag keeps enough time and restores DerivedData for cold builds"
+}
+
 check_zig_release_build_runner() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -213,6 +243,7 @@ check_xcode_selection
 check_release_build_signal
 check_no_xctest_quarantines
 check_ui_regression_budget
+check_build_and_lag_budget
 check_zig_release_build_runner "$CI_FILE" "release-build"
 check_zig_release_build_runner "$NIGHTLY_FILE" "build-sign-notarize-nightly"
 check_zig_release_build_runner "$RELEASE_FILE" "build-sign-notarize"
