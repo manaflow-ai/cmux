@@ -1950,6 +1950,16 @@ function scheduleTerminalAppearanceRefresh() {
   });
 }
 
+const paneOrdinalCommands = Array.from({ length: 9 }, (_, index) => {
+  const ordinal = index + 1;
+  return {
+    id: `terminal.focusPane${ordinal}`,
+    label: ordinal === 9 ? "Focus Last Pane" : `Focus Pane ${ordinal}`,
+    shortcut: `Ctrl+${ordinal}`,
+    run: () => focusPaneByOrdinal(ordinal)
+  };
+});
+
 const commands = [
   { id: "workspace.new", label: "New Workspace", shortcut: "Ctrl+N", run: () => createWorkspace() },
   { id: "workspace.newFromFolder", label: "New Workspace From Folder", shortcut: "", run: () => createWorkspaceFromFolder() },
@@ -1972,6 +1982,7 @@ const commands = [
   { id: "terminal.duplicate", label: "Duplicate Active Pane", shortcut: "", run: () => duplicateActivePanel() },
   { id: "terminal.nextPane", label: "Next Pane", shortcut: "Ctrl+Tab", run: () => cycleActivePane(1) },
   { id: "terminal.previousPane", label: "Previous Pane", shortcut: "Ctrl+Shift+Tab", run: () => cycleActivePane(-1) },
+  ...paneOrdinalCommands,
   { id: "terminal.runCommand", label: "Run Command in Active Terminal", shortcut: "Ctrl+Shift+Enter", run: () => promptRunTerminalCommand() },
   { id: "terminal.runListFiles", label: "Run List Workspace Files", shortcut: "", run: () => runTerminalCommandSnippet("listFiles") },
   { id: "terminal.runGitStatus", label: "Run Git Status", shortcut: "", run: () => runTerminalCommandSnippet("gitStatus") },
@@ -9383,6 +9394,18 @@ function cycleActivePane(delta = 1) {
   return true;
 }
 
+function focusPaneByOrdinal(ordinal) {
+  const workspace = activeWorkspace();
+  const panels = workspace?.panels || [];
+  if (panels.length === 0) return false;
+  const index = ordinal === 9 ? panels.length - 1 : ordinal - 1;
+  const panel = panels[clamp(index, 0, panels.length - 1)];
+  if (!panel) return false;
+  focusPanel(panel.id);
+  scheduleActiveSurfaceTabIntoView(panel.id);
+  return true;
+}
+
 function cycleWorkspace(delta = 1) {
   const workspaces = state.data?.workspaces || [];
   if (workspaces.length === 0) return false;
@@ -10186,6 +10209,9 @@ window.addEventListener("keydown", (event) => {
   } else if (event.ctrlKey && key === "tab") {
     consumeGlobalShortcut(event);
     cycleActivePane(event.shiftKey ? -1 : 1);
+  } else if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && /^[1-9]$/.test(event.key)) {
+    consumeGlobalShortcut(event);
+    focusPaneByOrdinal(Number(event.key));
   } else if (event.ctrlKey && event.key === "PageDown") {
     consumeGlobalShortcut(event);
     cycleWorkspace(1);
