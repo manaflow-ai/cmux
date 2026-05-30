@@ -248,6 +248,23 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             sidebarClassicWithShortcutHints.width,
             MinimalModeSidebarTitlebarControlsMetrics.hostWidth
         )
+        for style in TitlebarControlsStyle.allCases {
+            let sidebarConfig = titlebarControlsSidebarChromeConfig(for: style)
+            let sidebarContentSize = TitlebarControlsLayoutMetrics.contentSize(
+                config: sidebarConfig,
+                buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
+                reservesShortcutHintOverflow: true
+            )
+            XCTAssertLessThanOrEqual(
+                sidebarContentSize.width,
+                MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                "\(style.menuTitle) sidebar chrome should fit inside the fixed sidebar host width."
+            )
+        }
+        let roomySidebarConfig = titlebarControlsSidebarChromeConfig(for: .roomy)
+        XCTAssertEqual(roomySidebarConfig.iconSize, 16, accuracy: 0.001)
+        XCTAssertEqual(roomySidebarConfig.buttonSize, 28, accuracy: 0.001)
+        XCTAssertEqual(roomySidebarConfig.spacing, 7, accuracy: 0.001)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
         XCTAssertEqual(compact.width, 128, accuracy: 0.001)

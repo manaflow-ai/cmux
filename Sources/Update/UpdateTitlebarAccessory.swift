@@ -115,6 +115,23 @@ struct TitlebarControlsStyleConfig {
     let hoverBackground: Bool
 }
 
+extension TitlebarControlsStyleConfig {
+    func replacing(spacing: CGFloat, iconSize: CGFloat, buttonSize: CGFloat) -> TitlebarControlsStyleConfig {
+        TitlebarControlsStyleConfig(
+            spacing: spacing,
+            iconSize: iconSize,
+            buttonSize: buttonSize,
+            badgeSize: badgeSize,
+            badgeOffset: badgeOffset,
+            groupBackground: groupBackground,
+            groupPadding: groupPadding,
+            buttonBackground: buttonBackground,
+            buttonCornerRadius: buttonCornerRadius,
+            hoverBackground: hoverBackground
+        )
+    }
+}
+
 enum TitlebarControlsVisualMetrics {
     static let verticalLift: CGFloat = 0
 
@@ -444,6 +461,48 @@ enum TitlebarControlsLayoutMetrics {
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
+    static func fittingConfig(
+        _ config: TitlebarControlsStyleConfig,
+        buttonCount: Int,
+        maxWidth: CGFloat,
+        titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX,
+        reservesShortcutHintOverflow: Bool = false
+    ) -> TitlebarControlsStyleConfig {
+        let clampedButtonCount = max(0, buttonCount)
+        guard clampedButtonCount > 0, maxWidth > 0 else {
+            return config
+        }
+
+        let shortcutHintOverflow = reservesShortcutHintOverflow
+            ? hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
+            : 0
+        let nonRowWidth = outerLeadingPadding
+            + config.groupPadding.leading
+            + config.groupPadding.trailing
+            + shortcutHintOverflow
+        let availableRowWidth = max(0, maxWidth - nonRowWidth)
+        let buttonCountWidth = CGFloat(clampedButtonCount)
+        let gapCount = max(0, buttonCountWidth - 1)
+
+        var buttonSize = config.buttonSize
+        var iconSize = config.iconSize
+        if buttonSize * buttonCountWidth > availableRowWidth {
+            buttonSize = availableRowWidth / buttonCountWidth
+            iconSize = min(iconSize, max(0, buttonSize - 2))
+        }
+
+        var spacing = config.spacing
+        if gapCount > 0 {
+            let availableGapWidth = max(0, availableRowWidth - (buttonSize * buttonCountWidth))
+            spacing = min(spacing, availableGapWidth / gapCount)
+        }
+
+        guard spacing != config.spacing || buttonSize != config.buttonSize || iconSize != config.iconSize else {
+            return config
+        }
+        return config.replacing(spacing: spacing, iconSize: iconSize, buttonSize: buttonSize)
+    }
+
     static func contentSize(
         config: TitlebarControlsStyleConfig,
         buttonCount: Int = TitlebarShortcutHintActionSlot.allCases.count,
@@ -488,6 +547,15 @@ enum TitlebarControlsLayoutMetrics {
         )
         return TitlebarControlsVisualMetrics.liftedYOffset(baseYOffset + debugYOffset)
     }
+}
+
+func titlebarControlsSidebarChromeConfig(for style: TitlebarControlsStyle) -> TitlebarControlsStyleConfig {
+    TitlebarControlsLayoutMetrics.fittingConfig(
+        style.config,
+        buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
+        maxWidth: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+        reservesShortcutHintOverflow: true
+    )
 }
 
 private enum TitlebarControlIconStyle {
@@ -724,6 +792,7 @@ struct TitlebarControlsView: View {
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     var actionSlots = TitlebarShortcutHintActionSlot.allCases
+    var styleConfigOverride: TitlebarControlsStyleConfig?
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
@@ -765,7 +834,7 @@ struct TitlebarControlsView: View {
         let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
-        let config = style.config
+        let config = styleConfigOverride ?? style.config
         let reservesShortcutHintOverflow = shouldShowTitlebarShortcutHints
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
@@ -1253,6 +1322,7 @@ struct HiddenTitlebarSidebarControlsView: View {
 
     var body: some View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let config = titlebarControlsSidebarChromeConfig(for: style)
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
@@ -1295,7 +1365,8 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
                 visibilityMode: .alwaysVisible,
-                actionSlots: TitlebarShortcutHintActionSlot.sidebarChromeSlots
+                actionSlots: TitlebarShortcutHintActionSlot.sidebarChromeSlots,
+                styleConfigOverride: config
             )
             .frame(
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
@@ -1307,14 +1378,14 @@ struct HiddenTitlebarSidebarControlsView: View {
             .accessibilityHidden(true)
             .animation(.easeInOut(duration: 0.14), value: shouldPinControls)
 
-            TitlebarControlsGapDragView(config: style.config, buttonCount: sidebarChromeButtonCount)
+            TitlebarControlsGapDragView(config: config, buttonCount: sidebarChromeButtonCount)
                 .frame(
                     width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                     height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
                 )
 
             MinimalModeSidebarControlActionProxyView(
-                config: style.config,
+                config: config,
                 buttonCount: sidebarChromeButtonCount,
                 requiresRevealedState: true
             ) { slot, anchorView, _ in
@@ -1356,7 +1427,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight,
             alignment: .leading
         )
-        .background(MinimalModeTitlebarButtonHitRegionView(config: style.config, buttonCount: sidebarChromeButtonCount))
+        .background(MinimalModeTitlebarButtonHitRegionView(config: config, buttonCount: sidebarChromeButtonCount))
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
