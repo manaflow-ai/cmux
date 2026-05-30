@@ -311,46 +311,56 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @ViewBuilder
     private func extensionEmptyActions() -> some View {
-        HStack(spacing: 8) {
-            if enabledIdentities.count > 1 {
-                Menu {
-                    ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
-                        Button {
-                            selectExtension(enabledIdentity)
-                        } label: {
-                            Label(enabledIdentity.localizedName, systemImage: "puzzlepiece.extension")
-                        }
-                    }
-                } label: {
-                    Label(
-                        String(localized: "sidebar.extensions.choose.action", defaultValue: "Choose Extension"),
-                        systemImage: "puzzlepiece.extension"
-                    )
-                }
-                .menuStyle(.button)
-                .controlSize(.small)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                extensionEmptyActionButtons()
             }
+            VStack(alignment: .leading, spacing: 8) {
+                extensionEmptyActionButtons()
+            }
+        }
+    }
 
-            Button {
-                presentExtensionBrowser()
+    @ViewBuilder
+    private func extensionEmptyActionButtons() -> some View {
+        if enabledIdentities.count > 1 {
+            Menu {
+                ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
+                    Button {
+                        selectExtension(enabledIdentity)
+                    } label: {
+                        Label(enabledIdentity.localizedName, systemImage: "puzzlepiece.extension")
+                    }
+                }
             } label: {
                 Label(
-                    String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
+                    String(localized: "sidebar.extensions.choose.action", defaultValue: "Choose Extension"),
                     systemImage: "puzzlepiece.extension"
                 )
             }
-            .controlSize(.small)
-
-            Button {
-                onUseDefaultSidebar()
-            } label: {
-                Label(
-                    String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
-                    systemImage: "sidebar.left"
-                )
-            }
+            .menuStyle(.button)
             .controlSize(.small)
         }
+
+        Button {
+            presentExtensionBrowser()
+        } label: {
+            Label(
+                String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
+                systemImage: "puzzlepiece.extension"
+            )
+        }
+        .controlSize(.small)
+
+        Button {
+            onUseDefaultSidebar()
+        } label: {
+            Label(
+                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                systemImage: "sidebar.left"
+            )
+        }
+        .controlSize(.small)
     }
 
     private func extensionControlStrip(activeIdentity: AppExtensionIdentity?) -> some View {
@@ -479,45 +489,54 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Button {
-                    blockedManifestReason = nil
-                    effectiveGrant = nil
-                    xpcHost.invalidate()
-                    hostReloadToken &+= 1
-                } label: {
-                    Label(
-                        String(localized: "sidebar.extensions.retry", defaultValue: "Try Again"),
-                        systemImage: "arrow.clockwise"
-                    )
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    blockedExtensionActionButtons()
                 }
-                .controlSize(.small)
-
-                Button {
-                    onUseDefaultSidebar()
-                } label: {
-                    Label(
-                        String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
-                        systemImage: "sidebar.left"
-                    )
+                VStack(alignment: .leading, spacing: 8) {
+                    blockedExtensionActionButtons()
                 }
-                .controlSize(.small)
-
-                Button {
-                    presentExtensionBrowser()
-                } label: {
-                    Label(
-                        String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
-                        systemImage: "puzzlepiece.extension"
-                    )
-                }
-                .controlSize(.small)
             }
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .accessibilityIdentifier("CMUXExtensionSidebarBlockedState")
+    }
+
+    @ViewBuilder
+    private func blockedExtensionActionButtons() -> some View {
+        Button {
+            blockedManifestReason = nil
+            effectiveGrant = nil
+            xpcHost.invalidate()
+            hostReloadToken &+= 1
+        } label: {
+            Label(
+                String(localized: "sidebar.extensions.retry", defaultValue: "Try Again"),
+                systemImage: "arrow.clockwise"
+            )
+        }
+        .controlSize(.small)
+
+        Button {
+            onUseDefaultSidebar()
+        } label: {
+            Label(
+                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
+                systemImage: "sidebar.left"
+            )
+        }
+        .controlSize(.small)
+
+        Button {
+            presentExtensionBrowser()
+        } label: {
+            Label(
+                String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
+                systemImage: "puzzlepiece.extension")
+        }
+        .controlSize(.small)
     }
 
     private func blockedStatusText(reason: String) -> String {
@@ -668,25 +687,38 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 }
             }
             .padding(.top, 2)
-            HStack(spacing: 8) {
-                Button {
-                    isShowingAccessReview = true
-                } label: {
-                    Text(String(localized: "sidebar.extensions.access.review", defaultValue: "Review Access..."))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    limitedAccessActionButtons(identity: identity, effectiveGrant: effectiveGrant)
                 }
-                .controlSize(.small)
-                Button {
-                    keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
-                } label: {
-                    Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
+                VStack(alignment: .leading, spacing: 8) {
+                    limitedAccessActionButtons(identity: identity, effectiveGrant: effectiveGrant)
                 }
-                .controlSize(.small)
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 10)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.88))
+    }
+
+    @ViewBuilder
+    private func limitedAccessActionButtons(
+        identity: AppExtensionIdentity?,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> some View {
+        Button {
+            isShowingAccessReview = true
+        } label: {
+            Text(String(localized: "sidebar.extensions.access.review", defaultValue: "Review Access..."))
+        }
+        .controlSize(.small)
+        Button {
+            keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
+        } label: {
+            Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
+        }
+        .controlSize(.small)
     }
 
     private func accessReviewSheet(

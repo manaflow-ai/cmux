@@ -11041,15 +11041,15 @@ struct VerticalTabsSidebar: View {
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
         case .createBrowserSurface(let workspaceId, let urlString):
+            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            guard validatedURL.accepted else {
+                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
+            }
             guard let workspace = workspaceId.flatMap({ id in tabManager.tabs.first(where: { $0.id == id }) }) ?? tabManager.selectedWorkspace else {
                 return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
             }
             if tabManager.selectedTabId != workspace.id {
                 tabManager.selectWorkspace(workspace)
-            }
-            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
-            guard validatedURL.accepted else {
-                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
             }
             let panelId = tabManager.createBrowserSplit(direction: .right, url: validatedURL.url)
             return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
@@ -11073,8 +11073,11 @@ struct VerticalTabsSidebar: View {
             return .accepted
 
         case .closeSurface(let workspaceId, let surfaceId):
-            guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            guard workspace.panels[surfaceId] != nil else {
+                return .rejected(String(localized: "sidebar.extensions.action.surfaceNotFound", defaultValue: "Surface not found"))
             }
             tabManager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: surfaceId)
             return .accepted
@@ -11087,6 +11090,10 @@ struct VerticalTabsSidebar: View {
             return CMUXExtensionActionResult(accepted: true, message: panelId.uuidString)
 
         case .splitBrowser(let workspaceId, let surfaceId, let direction, let urlString):
+            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            guard validatedURL.accepted else {
+                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
+            }
             guard let splitDirection = splitDirection(from: direction),
                   let tab = tabManager.tabs.first(where: { $0.id == workspaceId }),
                   tab.panels[surfaceId] != nil else {
@@ -11094,10 +11101,6 @@ struct VerticalTabsSidebar: View {
             }
             tabManager.selectWorkspace(tab)
             tab.focusPanel(surfaceId)
-            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
-            guard validatedURL.accepted else {
-                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
-            }
             let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: validatedURL.url)
             return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
@@ -11133,7 +11136,9 @@ struct VerticalTabsSidebar: View {
     private func cmuxSidebarExtensionRequiredHTTPURL(from urlString: String) -> URL? {
         guard let url = URL(string: urlString),
               let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
+              scheme == "http" || scheme == "https",
+              let host = url.host,
+              !host.isEmpty else {
             return nil
         }
         return url
