@@ -2710,6 +2710,15 @@ function createSurfaceTab() {
     else focusPanel(panelId);
     scheduleActiveSurfaceTabIntoView(panelId);
   });
+  button.addEventListener("mousedown", (event) => {
+    if (event.button === 1) event.preventDefault();
+  });
+  button.addEventListener("auxclick", (event) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePanel(button.dataset.panelId);
+  });
   button.addEventListener("dblclick", (event) => {
     if (event.target.closest(".surface-close")) return;
     event.preventDefault();
@@ -2759,7 +2768,7 @@ function updateSurfaceTab(button, workspace, panel) {
   const pending = isPendingPanel(panel);
   setDatasetIfChanged(button, "panelId", panel.id);
   setClassNameIfChanged(button, `surface-tab${panel.id === workspace.activePanelId ? " is-active" : ""}${isPanelZoomed(panel, workspace) ? " is-zoomed" : ""}${minimized ? " is-minimized" : ""}${pending ? " is-pending" : ""}${panel.needsAttention ? " has-attention" : ""}`);
-  setTitleIfChanged(button, `${fullTitle}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - double-click to rename, right-click for pane options`);
+  setTitleIfChanged(button, `${fullTitle}${pending ? " - starting" : ""}${minimized ? " - minimized, click to restore" : ""} - middle-click to ${pending ? "cancel" : "close"}, double-click to rename, right-click for pane options`);
   setStylePropertyIfChanged(button, "--tab-color", panel.color || workspace.color || "var(--color-accent)");
   setTextIfChanged(button.querySelector(".surface-label"), label);
 }
