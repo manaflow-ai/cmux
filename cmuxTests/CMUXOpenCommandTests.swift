@@ -1616,7 +1616,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(stdout.contains("OK surface=surface-id pane=pane-id"), stdout)
         XCTAssertTrue(FileManager.default.fileExists(atPath: diffStartedURL.path))
 
-        let htmlURL = try XCTUnwrap(openedHTMLURLBox.get())
+        let openingURL = try XCTUnwrap(openedURLBox.get())
+        let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
+        let htmlURL = try resolvedDiffViewerHTMLFileURL(openingHTMLURL, from: ["url": openingURL])
         let html = try String(contentsOf: htmlURL, encoding: .utf8)
         let patch = try String(contentsOf: htmlURL.deletingPathExtension().appendingPathExtension("patch"), encoding: .utf8)
         XCTAssertFalse(html.contains("data-cmux-diff-pending=\"true\""), html)
