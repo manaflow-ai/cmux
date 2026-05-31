@@ -455,7 +455,7 @@ public struct SettingsWindowRoot: View {
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 
-        SidebarSection(defaultsStore: defaultsStore, catalog: catalog)
+        SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)

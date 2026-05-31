@@ -1,7 +1,10 @@
 import AppKit
 import CmuxSettingsUI
 import Foundation
+import OSLog
 import SwiftUI
+
+private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
@@ -145,6 +148,58 @@ final class HostSettingsActions: SettingsHostActions {
     func browserHistoryEntryCount() -> Int? {
         guard BrowserHistoryStore.shared.isLoaded else { return nil }
         return BrowserHistoryStore.shared.entries.count
+    }
+
+    func sidebarFontSize() -> SettingsFontSize {
+        SettingsFontSize(
+            points: Double(GhosttyConfig.load(useCache: false).sidebarFontSize),
+            minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
+        )
+    }
+
+    func setSidebarFontSize(_ points: Double) {
+        persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(points),
+            reloadSource: "settings.sidebar.fontSize"
+        )
+    }
+
+    func surfaceTabBarFontSize() -> SettingsFontSize {
+        SettingsFontSize(
+            points: Double(GhosttyConfig.load(useCache: false).surfaceTabBarFontSize),
+            minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
+        )
+    }
+
+    func setSurfaceTabBarFontSize(_ points: Double) {
+        persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(points),
+            reloadSource: "settings.terminal.tabBarFontSize"
+        )
+    }
+
+    func formattedFontSize(_ points: Double) -> String {
+        CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+    }
+
+    /// Writes a clamped font-size value to cmux's editable Ghostty config and
+    /// triggers a live reload so open windows re-render at the new size.
+    private func persistFontSize(key: String, points: Double, reloadSource: String) {
+        let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: formatted)
+            GhosttyApp.shared.reloadConfiguration(source: reloadSource)
+        } catch {
+            hostSettingsLogger.warning(
+                "failed to persist \(key, privacy: .public): \(String(describing: error), privacy: .private(mask: .hash))"
+            )
+        }
     }
 }
 

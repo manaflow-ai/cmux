@@ -62,10 +62,53 @@ public protocol SettingsHostActions: AnyObject {
     /// Browser section uses this to render a dynamic "N saved pages"
     /// subtitle next to the Clear History button.
     func browserHistoryEntryCount() -> Int?
+
+    /// The current left-sidebar font size with the range + default the
+    /// slider should use. Backed by the Ghostty config file, not
+    /// `UserDefaults`, so it comes from the host rather than the catalog.
+    func sidebarFontSize() -> SettingsFontSize
+
+    /// Persists a new left-sidebar font size (in points) to the Ghostty
+    /// config and live-reloads open windows. The host clamps to the valid
+    /// range, so callers may pass any finite value.
+    func setSidebarFontSize(_ points: Double)
+
+    /// The current workspace tab-bar font size with its range + default.
+    /// Backed by the Ghostty config file (`surface-tab-bar-font-size`).
+    func surfaceTabBarFontSize() -> SettingsFontSize
+
+    /// Persists a new workspace tab-bar font size (in points) and reloads.
+    /// The host clamps to the valid range.
+    func setSurfaceTabBarFontSize(_ points: Double)
+
+    /// Formats a point size for display next to a font-size slider
+    /// (e.g. `12`, `13.5`), trimming trailing zeros.
+    func formattedFontSize(_ points: Double) -> String
 }
 
 public extension SettingsHostActions {
     func browserHistoryEntryCount() -> Int? { nil }
+
+    func sidebarFontSize() -> SettingsFontSize {
+        SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
+    }
+
+    func setSidebarFontSize(_ points: Double) {}
+
+    func surfaceTabBarFontSize() -> SettingsFontSize {
+        SettingsFontSize(points: 11, minimum: 8, maximum: 24, defaultValue: 11)
+    }
+
+    func setSurfaceTabBarFontSize(_ points: Double) {}
+
+    func formattedFontSize(_ points: Double) -> String {
+        let scaled = (points * 100).rounded()
+        let whole = Int(scaled / 100)
+        let fraction = abs(Int(scaled) % 100)
+        if fraction == 0 { return "\(whole)" }
+        if fraction % 10 == 0 { return "\(whole).\(fraction / 10)" }
+        return "\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
+    }
 }
 
 /// No-op ``SettingsHostActions`` for previews, tests, and any context

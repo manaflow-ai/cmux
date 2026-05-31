@@ -11,6 +11,7 @@ public struct TerminalSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
+    @State private var surfaceTabBarFont: SettingsFontSize
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -27,6 +28,7 @@ public struct TerminalSection: View {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
@@ -72,6 +74,38 @@ public struct TerminalSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"),
+                subtitle: String(localized: "settings.terminal.tabBarFontSize.subtitle", defaultValue: "Controls the font size of the terminal and browser tab titles at the top of each pane."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { surfaceTabBarFont.points }, set: { surfaceTabBarFont.points = $0 }),
+                        in: surfaceTabBarFont.minimum...surfaceTabBarFont.maximum,
+                        step: 0.5
+                    ) { editing in
+                        if !editing { hostActions.setSurfaceTabBarFontSize(surfaceTabBarFont.points) }
+                    }
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
+
+                    Text(verbatim: "\(hostActions.formattedFontSize(surfaceTabBarFont.points)) pt")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.terminal.tabBarFontSize.reset", defaultValue: "Reset")) {
+                        surfaceTabBarFont.points = surfaceTabBarFont.defaultValue
+                        hostActions.setSurfaceTabBarFontSize(surfaceTabBarFont.points)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(surfaceTabBarFont.isDefault)
+                }
+            }
+            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.showScrollBar"),
                 String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),

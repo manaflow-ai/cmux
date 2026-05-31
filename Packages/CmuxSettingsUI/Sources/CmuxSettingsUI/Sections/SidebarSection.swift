@@ -9,7 +9,9 @@ import SwiftUI
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
+    private let hostActions: SettingsHostActions
 
+    @State private var sidebarFont: SettingsFontSize
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State private var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
@@ -30,8 +32,10 @@ public struct SidebarSection: View {
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
 
-    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
+    public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
+        self.hostActions = hostActions
+        _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
@@ -72,6 +76,39 @@ public struct SidebarSection: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"),
+                subtitle: String(localized: "settings.sidebarAppearance.fontSize.subtitle", defaultValue: "Controls workspace titles, metadata, badges, and shortcut hints in the left sidebar."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { sidebarFont.points }, set: { sidebarFont.points = $0 }),
+                        in: sidebarFont.minimum...sidebarFont.maximum,
+                        step: 0.5
+                    ) { editing in
+                        if !editing { hostActions.setSidebarFontSize(sidebarFont.points) }
+                    }
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
+
+                    Text(verbatim: "\(hostActions.formattedFontSize(sidebarFont.points)) pt")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.sidebarAppearance.fontSize.reset", defaultValue: "Reset")) {
+                        sidebarFont.points = sidebarFont.defaultValue
+                        hostActions.setSidebarFontSize(sidebarFont.points)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(sidebarFont.isDefault)
+                }
             }
             SettingsCardDivider()
 
