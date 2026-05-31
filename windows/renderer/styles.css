@@ -1300,7 +1300,7 @@ body.reduce-motion *::after {
 }
 
 .pane-splitter {
-  flex: 0 0 8px;
+  flex: 0 0 10px;
   position: relative;
   z-index: 4;
   background: transparent;
@@ -1334,7 +1334,7 @@ body.reduce-motion *::after {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 14% calc(50% - .5px);
+  inset: 14% calc(50% - 1px);
   border-radius: 999px;
   background: color-mix(in oklch, var(--color-line-strong) 76%, transparent);
   opacity: .72;
@@ -1346,7 +1346,7 @@ body.reduce-motion *::after {
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: calc(50% - .5px) 14%;
+  inset: calc(50% - 1px) 14%;
 }
 
 .pane-splitter:hover::before,
