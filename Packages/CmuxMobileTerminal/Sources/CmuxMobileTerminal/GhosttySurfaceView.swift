@@ -845,7 +845,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // iOS natural scrolling: swipe down (positive translation) = scroll up (show history).
             // Ghostty: positive y = scroll down. So pass translation.y directly for natural feel.
             let scrollY = translation.y / 10.0
-            ghostty_surface_mouse_scroll(surface, 0, Double(scrollY), 0)
+            // `ghostty_surface_mouse_scroll` takes the same renderer/IO lock as
+            // `process_output`. Calling it on the MAIN thread during a render
+            // storm wedged the main thread on libghostty's futex until the
+            // scene-update watchdog (0x8BADF00D) killed the app — a hang report
+            // showed the main thread in `Thread.Futex.Deadline.wait` inside this
+            // gesture handler. Run it on the serial surface queue like every
+            // other `ghostty_surface_*` op so it can never block the main thread.
+            Self.outputQueue.async {
+                ghostty_surface_mouse_scroll(surface, 0, Double(scrollY), 0)
+            }
             gesture.setTranslation(.zero, in: self)
             needsDraw = true
         }
