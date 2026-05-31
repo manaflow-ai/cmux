@@ -18,7 +18,9 @@ final class PostHogAnalytics {
     func flush() {}
 
     nonisolated static func superProperties(infoDictionary: [String: Any]) -> [String: Any] {
-        versionProperties(infoDictionary: infoDictionary).merging(["platform": "cmuxterm"]) { current, _ in current }
+        var properties: [String: Any] = ["platform": "cmuxterm"]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
     }
 
     nonisolated static func dailyActiveProperties(
@@ -26,7 +28,12 @@ final class PostHogAnalytics {
         reason: String,
         infoDictionary: [String: Any]
     ) -> [String: Any] {
-        ["day_utc": dayUTC, "reason": reason].merging(versionProperties(infoDictionary: infoDictionary)) { current, _ in current }
+        var properties: [String: Any] = [
+            "day_utc": dayUTC,
+            "reason": reason,
+        ]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
     }
 
     nonisolated static func hourlyActiveProperties(
@@ -34,7 +41,12 @@ final class PostHogAnalytics {
         reason: String,
         infoDictionary: [String: Any]
     ) -> [String: Any] {
-        ["hour_utc": hourUTC, "reason": reason].merging(versionProperties(infoDictionary: infoDictionary)) { current, _ in current }
+        var properties: [String: Any] = [
+            "hour_utc": hourUTC,
+            "reason": reason,
+        ]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
     }
 
     nonisolated static func shouldFlushAfterCapture(event: String) -> Bool {
