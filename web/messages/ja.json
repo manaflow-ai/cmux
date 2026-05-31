@@ -703,7 +703,8 @@
         "notifications": "通知",
         "find": "検索",
         "terminal": "ターミナル",
-        "window": "ウィンドウ"
+        "window": "ウィンドウ",
+        "diffViewer": "差分ビューア"
       },
       "sc": {
         "ws-new": "新規ワークスペース",

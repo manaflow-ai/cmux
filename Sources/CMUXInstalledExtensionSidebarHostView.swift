@@ -1,5 +1,6 @@
 @_spi(CmuxHostTransport) import CMUXExtensionClient
 @_spi(CmuxHostTransport) import CmuxExtensionKit
+import AppKit
 import ExtensionFoundation
 import Observation
 import SwiftUI
@@ -203,35 +204,51 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         blockedExtensionView(reason: blockedManifestReason)
                     }
                 }
+            } else if isLoading {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "sidebar.extensions.loading", defaultValue: "Loading sidebar extensions"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(24)
+                .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
             } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(String(localized: "sidebar.extensions.loading", defaultValue: "Loading sidebar extensions"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Image(systemName: "puzzlepiece.extension")
-                            .font(.system(size: 22, weight: .regular))
-                            .foregroundStyle(.secondary)
+                VStack(spacing: 16) {
+                    Image(systemName: "puzzlepiece.extension")
+                        .font(.system(size: 26, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 60, height: 60)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                        )
+                    VStack(spacing: 6) {
                         Text(emptyStateTitle)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.primary)
+                            .multilineTextAlignment(.center)
                         Text(errorText ?? emptyStateDetail)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
                         if disabledExtensionCount > 0 || unapprovedExtensionCount > 0 {
                             Text(extensionAvailabilityDetail)
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        extensionEmptyActions()
                     }
+                    extensionEmptyActions()
+                        .padding(.top, 2)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: 320)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(24)
                 .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
             }
         }
@@ -314,7 +331,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             HStack(spacing: 8) {
                 extensionEmptyActionButtons()
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 8) {
                 extensionEmptyActionButtons()
             }
         }
@@ -668,9 +685,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     private func presentExtensionBrowser() {
-        guard let browserAnchorView else { return }
-        CMUXSidebarExtensionBrowserPresenter.present(
-            from: browserAnchorView,
+        guard let anchorView = browserAnchorView
+            ?? NSApp.keyWindow?.contentView
+            ?? NSApp.mainWindow?.contentView else { return }
+        AppDelegate.shared?.openSidebarExtensionBrowser(
+            from: anchorView,
             title: String(
                 localized: "sidebar.extensions.browser.title",
                 defaultValue: "Sidebar Extensions"
@@ -990,15 +1009,21 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             let continuationBox = MonitorContinuationBox()
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    continuationBox.set(continuation)
+                    Task {
+                        await continuationBox.set(continuation)
+                    }
                     withObservationTracking {
                         applyModernExtensionState(monitor.state)
                     } onChange: {
-                        continuationBox.resume()
+                        Task {
+                            await continuationBox.resume()
+                        }
                     }
                 }
             } onCancel: {
-                continuationBox.cancel()
+                Task {
+                    await continuationBox.cancel()
+                }
             }
             if Task.isCancelled {
                 break
@@ -1008,37 +1033,28 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     #endif
 }
 
-private final class MonitorContinuationBox: @unchecked Sendable {
-    private let lock = NSLock()
+private actor MonitorContinuationBox {
     private var continuation: CheckedContinuation<Void, Never>?
-    private var isCancelled = false
+    private var isResolved = false
 
     func set(_ continuation: CheckedContinuation<Void, Never>) {
-        lock.lock()
-        if isCancelled {
-            lock.unlock()
+        if isResolved {
             continuation.resume()
             return
         }
         self.continuation = continuation
-        lock.unlock()
     }
 
     func resume() {
-        lock.lock()
+        guard !isResolved else { return }
+        isResolved = true
         let continuation = continuation
         self.continuation = nil
-        lock.unlock()
         continuation?.resume()
     }
 
     func cancel() {
-        lock.lock()
-        isCancelled = true
-        let continuation = continuation
-        self.continuation = nil
-        lock.unlock()
-        continuation?.resume()
+        resume()
     }
 }
 

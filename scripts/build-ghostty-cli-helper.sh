@@ -27,16 +27,17 @@ zig_binary_arch() {
   file "$zig_path" 2>/dev/null | grep -oE '(arm64|x86_64)' | head -1 || true
 }
 
-zig_binary_version() {
-  local zig_path="$1"
-  "$zig_path" version 2>/dev/null || true
-}
-
 target_arch_for_triple() {
   case "${1:-}" in
     aarch64-macos) echo "arm64" ;;
     x86_64-macos) echo "x86_64" ;;
   esac
+}
+
+zig_has_required_version() {
+  local zig_path="$1"
+  [[ -x "$zig_path" ]] || return 1
+  [[ "$("$zig_path" version 2>/dev/null || true)" == "$ZIG_REQUIRED" ]]
 }
 
 select_zig_for_target() {
@@ -55,6 +56,10 @@ select_zig_for_target() {
   if [[ -n "${CMUX_ZIG:-}" ]]; then
     if [[ ! -x "$CMUX_ZIG" ]]; then
       echo "error: CMUX_ZIG is not executable: $CMUX_ZIG" >&2
+      return 1
+    fi
+    if ! zig_has_required_version "$CMUX_ZIG"; then
+      echo "error: CMUX_ZIG must be zig ${ZIG_REQUIRED}: $CMUX_ZIG" >&2
       return 1
     fi
     echo "$CMUX_ZIG"
@@ -84,9 +89,7 @@ select_zig_for_target() {
     canonical="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
     [[ "$seen" == *" $canonical "* ]] && continue
     seen="${seen}${canonical} "
-    if [[ "$(zig_binary_version "$canonical")" != "$ZIG_REQUIRED" ]]; then
-      continue
-    fi
+    zig_has_required_version "$canonical" || continue
     [[ -z "$fallback" ]] && fallback="$canonical"
     arch="$(zig_binary_arch "$canonical")"
     if [[ -z "$apple_silicon_match" && "$arch" == "arm64" ]]; then
@@ -122,7 +125,7 @@ select_zig_for_target() {
     return 0
   fi
 
-  echo "error: zig is required to build the Ghostty CLI helper" >&2
+  echo "error: zig ${ZIG_REQUIRED} is required to build the Ghostty CLI helper" >&2
   return 1
 }
 

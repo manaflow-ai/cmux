@@ -635,7 +635,8 @@
         "notifications": "Notifikationer",
         "find": "Find",
         "terminal": "Terminal",
-        "window": "Vindue"
+        "window": "Vindue",
+        "diffViewer": "Diff-viser"
       },
       "sc": {
         "ws-new": "Nyt workspace",

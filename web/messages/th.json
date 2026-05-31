@@ -635,7 +635,8 @@
         "notifications": "การแจ้งเตือน",
         "find": "ค้นหา",
         "terminal": "เทอร์มินัล",
-        "window": "หน้าต่าง"
+        "window": "หน้าต่าง",
+        "diffViewer": "ตัวดู diff"
       },
       "sc": {
         "ws-new": "Workspace ใหม่",

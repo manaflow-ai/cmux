@@ -635,7 +635,8 @@
         "notifications": "Notificações",
         "find": "Buscar",
         "terminal": "Terminal",
-        "window": "Janela"
+        "window": "Janela",
+        "diffViewer": "Visualizador de diffs"
       },
       "sc": {
         "ws-new": "Novo workspace",
