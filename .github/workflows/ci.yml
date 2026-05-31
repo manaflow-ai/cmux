@@ -983,17 +983,17 @@ jobs:
             WINDOW_READY=false
             for i in $(seq 1 50); do
               if python3 - "$DIAG_PATH" "$DISPLAY_ID" <<'PY' 2>/dev/null
-import json
-import sys
+          import json
+          import sys
 
-path, display_id = sys.argv[1], sys.argv[2]
-with open(path) as fh:
-    diagnostics = json.load(fh)
+          path, display_id = sys.argv[1], sys.argv[2]
+          with open(path) as fh:
+              diagnostics = json.load(fh)
 
-assert diagnostics.get("targetDisplayPresent") == "1", diagnostics
-assert diagnostics.get("targetDisplayMoveSucceeded") == "1", diagnostics
-assert display_id in (diagnostics.get("windowScreenDisplayIDs") or ""), diagnostics
-PY
+          assert diagnostics.get("targetDisplayPresent") == "1", diagnostics
+          assert diagnostics.get("targetDisplayMoveSucceeded") == "1", diagnostics
+          assert display_id in (diagnostics.get("windowScreenDisplayIDs") or ""), diagnostics
+          PY
               then
                 WINDOW_READY=true
                 echo "App window reached virtual display after $((i / 2))s"

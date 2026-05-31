@@ -106,6 +106,18 @@ check_xcode_selection() {
   echo "PASS: workflow Xcode selection avoids ls/glob ordering"
 }
 
+check_workflow_yaml_parse() {
+  ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path) }' \
+    "$CI_FILE" \
+    "$GHOSTTYKIT_FILE" \
+    "$COMPAT_FILE" \
+    "$E2E_FILE" \
+    "$NIGHTLY_FILE" \
+    "$RELEASE_FILE"
+
+  echo "PASS: workflow YAML parses"
+}
+
 check_release_build_signal() {
   if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
     echo "FAIL: release-build must verify the Release app binary stays universal"
@@ -279,6 +291,7 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 check_e2e_runner_fallbacks
 
 check_xcode_selection
+check_workflow_yaml_parse
 check_release_build_signal
 check_no_xctest_quarantines
 check_split_theme_regression_timeout
