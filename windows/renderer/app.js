@@ -3247,10 +3247,7 @@ function getNewSurfaceTab(workspace) {
 function renderPanes(workspace) {
   const panels = workspace?.panels || [];
   if (!workspace) {
-    for (const child of [...elements.paneGrid.children]) {
-      if (child.classList.contains("pane")) child.remove();
-    }
-    replaceChildrenIfChanged(elements.paneGrid, []);
+    renderEmptyWorkspace(null);
     updateBrowserPaneActivity(new Set());
     return;
   }
@@ -3466,8 +3463,8 @@ function createEmptyWorkspace(workspace) {
   `;
   ensureEmptyWorkspaceLogo(node);
   node.querySelector(".empty-workspace-title").textContent = "cmux";
-  node.querySelector(".new-terminal").onclick = () => createPanel("terminal", "right");
-  node.querySelector(".new-browser").onclick = () => openBrowserHome(workspace?.id);
+  node.querySelector(".new-terminal").onclick = () => createEmptyWorkspacePanel("terminal", workspace);
+  node.querySelector(".new-browser").onclick = () => createEmptyWorkspacePanel("browser", workspace);
   renderEmptyWorkspaceStarters(node, workspace);
   return node;
 }
@@ -3479,9 +3476,26 @@ function renderEmptyWorkspace(workspace) {
   } else {
     ensureEmptyWorkspaceLogo(node);
     node.querySelector(".empty-workspace-title").textContent = "cmux";
+    setTextIfChanged(node.querySelector(".empty-workspace-body"), "Start with a pane or build a ready workspace layout.");
+    node.querySelector(".new-terminal").onclick = () => createEmptyWorkspacePanel("terminal", workspace);
+    node.querySelector(".new-browser").onclick = () => createEmptyWorkspacePanel("browser", workspace);
     renderEmptyWorkspaceStarters(node, workspace);
   }
   replaceChildrenIfChanged(elements.paneGrid, [node]);
+}
+
+async function workspaceForEmptyAction(workspace) {
+  if (workspace?.id) return workspace;
+  return await createWorkspace();
+}
+
+async function createEmptyWorkspacePanel(type, workspace) {
+  const targetWorkspace = await workspaceForEmptyAction(workspace);
+  if (!targetWorkspace?.id) return null;
+  return createPanel(type, "right", {
+    workspaceId: targetWorkspace.id,
+    url: type === "browser" ? state.settings.browserHomeUrl : undefined
+  });
 }
 
 function renderEmptyWorkspaceStarters(node, workspace) {
@@ -3500,7 +3514,10 @@ function renderEmptyWorkspaceStarters(node, workspace) {
     button.querySelector(".empty-workspace-starter-meta").textContent = starter.panels
       .map((type) => type === "browser" ? "web" : "term")
       .join(" + ");
-    button.onclick = () => applyWorkspaceStarter(starter.id, workspace?.id);
+    button.onclick = async () => {
+      const targetWorkspace = await workspaceForEmptyAction(workspace);
+      if (targetWorkspace?.id) applyWorkspaceStarter(starter.id, targetWorkspace.id);
+    };
     return button;
   });
   replaceChildrenIfChanged(host, cards);
