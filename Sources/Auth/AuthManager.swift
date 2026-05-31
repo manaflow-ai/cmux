@@ -1,5 +1,4 @@
 import AppKit
-import AuthenticationServices
 import CMUXAuthCore
 import Foundation
 import os
@@ -8,36 +7,17 @@ import StackAuth
 import Security
 #endif
 
-private final class AuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
-    static let shared = AuthPresentationContext()
-
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        // ASWebAuthenticationSession invokes this on whichever thread called
-        // session.start(). When beginSignIn() fires from the socket command
-        // dispatch thread (cmux auth login), this callback lands off-main,
-        // and any NSApp access must hop to main before returning.
-        if Thread.isMainThread {
-            return Self.currentAnchor()
-        }
-        var result: ASPresentationAnchor = NSWindow()
-        DispatchQueue.main.sync {
-            result = Self.currentAnchor()
-        }
-        return result
-    }
-
-    @MainActor
-    private static func currentAnchor() -> ASPresentationAnchor {
-        NSApp.keyWindow ?? NSApp.mainWindow ?? (NSApp.windows.first ?? NSWindow())
-    }
-}
-
 enum AuthManagerError: LocalizedError {
     case invalidCallback
     case missingAccessToken
     case missingRefreshToken
+    case signInTimedOut
 
     var errorDescription: String? {
+        userFacingMessage
+    }
+
+    var userFacingMessage: String {
         switch self {
         case .invalidCallback:
             return String(
@@ -53,6 +33,11 @@ enum AuthManagerError: LocalizedError {
             return String(
                 localized: "settings.account.error.missingRefreshToken",
                 defaultValue: "Account refresh token is unavailable."
+            )
+        case .signInTimedOut:
+            return String(
+                localized: "settings.account.error.signInTimedOut",
+                defaultValue: "Sign in timed out. Try again."
             )
         }
     }
@@ -159,6 +144,7 @@ final class AuthManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isRestoringSession = false
     @Published private(set) var didCompleteBrowserSignIn = false
+    @Published private(set) var lastSignInError: AuthManagerError?
     @Published var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
@@ -168,6 +154,10 @@ final class AuthManager: ObservableObject {
 
     var resolvedTeamID: String? {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
+    }
+
+    var userFacingSignInErrorMessage: String? {
+        lastSignInError?.userFacingMessage
     }
 
     let requiresAuthenticationGate = false
@@ -214,10 +204,12 @@ final class AuthManager: ObservableObject {
     }
 
     private var loginPollTask: Task<Void, Never>?
-    private var webAuthSession: ASWebAuthenticationSession?
+    private var browserSignInTimeoutTask: Task<Void, Never>?
     private var nextBrowserSignInAttemptID: UInt64 = 0
     private var activeBrowserSignInAttemptID: UInt64?
+    private var activeBrowserSignInAttemptState: String?
     private var signOutCancelledBrowserSignInAttemptID: UInt64?
+    private var signOutCancelledBrowserSignInAttemptState: String?
     private var authMutationGeneration: UInt64 = 0
     private var currentAuthMutationKind: AuthMutationKind?
 
@@ -228,75 +220,47 @@ final class AuthManager: ObservableObject {
     }
 
     #if DEBUG
-    func markBrowserSignInLoadingForTesting() {
-        _ = startBrowserSignInAttempt()
+    @discardableResult
+    func markBrowserSignInLoadingForTesting(state: String = "test") -> String {
+        _ = startBrowserSignInAttempt(state: state)
+        return state
     }
     #endif
 
-    func beginSignIn() {
+    func beginSignIn(timeout: TimeInterval = 300) {
+        lastSignInError = nil
         loginPollTask?.cancel()
-        webAuthSession?.cancel()
-        webAuthSession = nil
-        let attemptID = startBrowserSignInAttempt()
-
-        let signInURL = AuthEnvironment.signInURL()
-        let callbackScheme = AuthEnvironment.callbackScheme
-
-        let session = ASWebAuthenticationSession(
-            url: signInURL,
-            callbackURLScheme: callbackScheme
-        ) { [weak self] callbackURL, error in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard self.isCurrentBrowserSignInAttempt(attemptID) else { return }
-                defer {
-                    self.finishBrowserSignInAttempt(attemptID)
-                }
-                if let error {
-                    self.authLog("auth.webauth failed: \(error)")
-                    return
-                }
-                guard let callbackURL else { return }
-                let callbackPayload = AuthCallbackRouter.callbackPayload(from: callbackURL)
-                do {
-                    try await self.handleCallbackURL(callbackURL)
-                    if self.signOutCancelledBrowserSignInAttemptID == attemptID,
-                       self.activeBrowserSignInAttemptID == nil,
-                       let callbackPayload {
-                        let didClear = await self.tokenStore.clearTokensIfCurrent(
-                            accessToken: callbackPayload.accessToken,
-                            refreshToken: callbackPayload.refreshToken
-                        )
-                        if didClear {
-                            self.clearSessionState(clearSelectedTeam: true)
-                        }
-                        self.signOutCancelledBrowserSignInAttemptID = nil
-                    }
-                } catch {
-                    self.authLog("auth.webauth callback failed: \(error)")
-                }
-            }
-        }
-        session.presentationContextProvider = AuthPresentationContext.shared
-        session.prefersEphemeralWebBrowserSession = false
-
-        if session.start() {
-            webAuthSession = session
-        } else {
-            authLog("auth.webauth: session.start() returned false")
-            finishBrowserSignInAttempt(attemptID)
-        }
+        let signInState = UUID().uuidString
+        let callbackURL = AuthEnvironment.authCallbackURL(state: signInState)
+        let signInURL = AuthEnvironment.signInURL(callbackURL: callbackURL)
+        let attemptID = startBrowserSignInAttempt(state: signInState)
+        scheduleBrowserSignInTimeout(attemptID: attemptID, timeout: timeout)
+        authLog("auth.browserSignIn begin url=\(Self.redactedURLDescription(signInURL))")
+        urlOpener(signInURL)
     }
 
-    /// Starts the ASWebAuthenticationSession popup and awaits the user's
-    /// completion by observing isAuthenticated AND isLoading. Resolves when
-    /// authenticated, when the sign-in attempt settles unsuccessfully (popup
-    /// dismissed/cancelled/error), or when the deadline elapses. No polling
-    /// — the $isAuthenticated / $isLoading AsyncPublishers drive the wait.
+    func markBrowserSignInTimedOut() {
+        guard let attemptID = activeBrowserSignInAttemptID else { return }
+        lastSignInError = .signInTimedOut
+        finishBrowserSignInAttempt(attemptID)
+    }
+
+    /// Opens the sign-in page in the user's default browser and awaits the deep-link callback.
+    /// Resolves when authenticated, when the sign-in attempt settles unsuccessfully,
+    /// or when the deadline elapses. No polling — the $isAuthenticated /
+    /// $isLoading AsyncPublishers drive the wait.
     func beginSignInAndAwait(timeout: TimeInterval) async -> Bool {
         if isAuthenticated { return true }
-        beginSignIn()
-        return await waitForSignInSettled(timeout: timeout)
+        beginSignIn(timeout: timeout)
+        if !isLoading { return isAuthenticated }
+        let signedIn = await waitForSignInSettled(timeout: timeout)
+        if signedIn || isAuthenticated {
+            return true
+        }
+        if isLoading {
+            markBrowserSignInTimedOut()
+        }
+        return isAuthenticated
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
@@ -319,9 +283,8 @@ final class AuthManager: ObservableObject {
             }
             group.addTask { @MainActor [weak self] in
                 guard let self else { return false }
-                // Wait for isLoading to flip false after we started the
-                // popup. If authentication hasn't succeeded by then the
-                // user cancelled/errored and we can resolve early.
+                // Wait for isLoading to flip false after the browser sign-in starts.
+                // If authentication hasn't succeeded by then the attempt failed or timed out.
                 for await loading in self.$isLoading.values {
                     if !loading && !self.isAuthenticated { return false }
                     if self.isAuthenticated { return true }
@@ -455,13 +418,42 @@ final class AuthManager: ObservableObject {
     }
 
     func handleCallbackURL(_ url: URL) async throws {
-        guard let payload = AuthCallbackRouter.callbackPayload(from: url) else {
-            throw AuthManagerError.invalidCallback
+        let browserSignInAttemptID = activeBrowserSignInAttemptID
+        let callbackState = AuthCallbackRouter.callbackState(from: url)
+        let callbackPayload = AuthCallbackRouter.callbackPayload(from: url)
+
+        if let cancelledState = signOutCancelledBrowserSignInAttemptState,
+           callbackState == cancelledState {
+            signOutCancelledBrowserSignInAttemptID = nil
+            signOutCancelledBrowserSignInAttemptState = nil
+            authLog("auth.browserSignIn ignored callback cancelledBySignOut state=\(callbackState ?? "nil")")
+            return
+        }
+
+        guard let activeState = activeBrowserSignInAttemptState else {
+            authLog("auth.browserSignIn ignored callback without active attempt state=\(callbackState ?? "nil")")
+            return
+        }
+
+        guard callbackState == activeState else {
+            authLog("auth.browserSignIn ignored stale callback state=\(callbackState ?? "nil") activeState=\(activeBrowserSignInAttemptState ?? "nil")")
+            return
+        }
+
+        guard let payload = callbackPayload else {
+            let error = AuthManagerError.invalidCallback
+            if let browserSignInAttemptID {
+                lastSignInError = error
+                finishBrowserSignInAttempt(browserSignInAttemptID)
+            }
+            throw error
+        }
+        defer {
+            if let browserSignInAttemptID {
+                finishBrowserSignInAttempt(browserSignInAttemptID)
+            }
         }
         let mutationGeneration = beginAuthMutation(.signIn)
-
-        isLoading = true
-        defer { isLoading = false }
 
         await tokenStore.seed(
             accessToken: payload.accessToken,
@@ -484,6 +476,11 @@ final class AuthManager: ObservableObject {
                 refreshToken: payload.refreshToken
             )
             return
+        } catch {
+            if isCurrentAuthMutation(mutationGeneration), browserSignInAttemptID != nil {
+                lastSignInError = error as? AuthManagerError ?? .invalidCallback
+            }
+            throw error
         }
         guard await keepAuthMutationIfCurrent(
             mutationGeneration,
@@ -493,6 +490,7 @@ final class AuthManager: ObservableObject {
             return
         }
         didCompleteBrowserSignIn = true
+        lastSignInError = nil
     }
 
     func seedTokensFromCLI(refreshToken: String, accessToken: String?) async {
@@ -520,6 +518,7 @@ final class AuthManager: ObservableObject {
         lastKnownAccessToken = resolvedAccess
         do {
             try await refreshSession()
+            lastSignInError = nil
             authLog("seedTokensFromCLI: success user=\(currentUser?.primaryEmail ?? "nil")")
         } catch {
             authLog("seedTokensFromCLI: refreshSession failed: \(error)")
@@ -577,6 +576,7 @@ final class AuthManager: ObservableObject {
     }
 
     func applySignInResult(_ result: SignInResult) {
+        lastSignInError = nil
         // Cache access token for fast synchronous reads
         lastKnownAccessToken = result.accessToken
         // Store tokens in keychain (fire-and-forget)
@@ -597,6 +597,7 @@ final class AuthManager: ObservableObject {
 
     func signInWithCredential(email: String, password: String) async throws {
         authLog("signInWithCredential: email=\(email)")
+        lastSignInError = nil
         isLoading = true
         defer { isLoading = false }
 
@@ -658,9 +659,11 @@ final class AuthManager: ObservableObject {
         selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
         authLog("signInWithCredential: success user=\(user.primaryEmail ?? "nil") teams=\(teams.count) teamID=\(selectedTeamID ?? "nil")")
         didCompleteBrowserSignIn = true
+        lastSignInError = nil
     }
 
     func signOut() async {
+        lastSignInError = nil
         let signOutGeneration = beginAuthMutation(.signOut)
         cancelBrowserSignInForSignOut()
         let accessTokenAtSignOut = await tokenStore.currentAccessToken()
@@ -749,7 +752,7 @@ final class AuthManager: ObservableObject {
         let redactedMessage = redactedAuthLogMessage(message)
         authLogger.log(level: authLogType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
         #if DEBUG
-        let line = "[\(Self.logTimestampFormatter.string(from: Date()))] auth: \(redactedMessage)\n"
+        let line = "[\(Self.logTimestampString())] auth: \(redactedMessage)\n"
         let path = authDebugLogPath
         if let handle = FileHandle(forWritingAtPath: path) {
             handle.seekToEndOfFile()
@@ -795,19 +798,43 @@ final class AuthManager: ObservableObject {
         return redacted
     }
 
+    /// Renders URL structure for auth diagnostics without logging token-bearing query values.
+    nonisolated static func redactedURLDescription(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let host = url.host ?? ""
+        let portPart = url.port.map { ":\($0)" } ?? ""
+        let path = url.path
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let keysSummary = queryItems
+            .map { "\($0.name)(\($0.value?.count ?? 0))" }
+            .joined(separator: ",")
+        let queryPart = keysSummary.isEmpty ? "" : "?[\(keysSummary)]"
+        let fragmentPart = url.fragment.flatMap { $0.isEmpty ? nil : " #len=\($0.count)" } ?? ""
+        return "\(scheme)://\(host)\(portPart)\(path)\(queryPart)\(fragmentPart)"
+    }
+
     #if DEBUG
     nonisolated static func redactedAuthLogMessageForTesting(_ message: String) -> String {
         redactedAuthLogMessage(message)
     }
     #endif
 
-    // ISO8601DateFormatter is expensive to construct (calendar + locale +
-    // time zone). Reuse one instance across the high-frequency authLog path.
-    private static let logTimestampFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+    // ISO8601DateFormatter is expensive to construct and is not Sendable.
+    // Keep one formatter per thread so DEBUG auth logging stays off the main actor.
+    private nonisolated static func logTimestampString() -> String {
+        let key = "cmux.auth.logTimestampFormatter"
+        let dictionary = Thread.current.threadDictionary
+        let formatter: ISO8601DateFormatter
+        if let cachedFormatter = dictionary[key] as? ISO8601DateFormatter {
+            formatter = cachedFormatter
+        } else {
+            let newFormatter = ISO8601DateFormatter()
+            newFormatter.formatOptions = [.withInternetDateTime]
+            dictionary[key] = newFormatter
+            formatter = newFormatter
+        }
+        return formatter.string(from: Date())
+    }
 
     private func authLog(_ message: String) {
         Self.authLog(message)
@@ -849,6 +876,7 @@ final class AuthManager: ObservableObject {
         currentUser = nil
         isAuthenticated = false
         didCompleteBrowserSignIn = false
+        lastSignInError = nil
         if clearSelectedTeam {
             selectedTeamID = nil
         }
@@ -892,13 +920,13 @@ final class AuthManager: ObservableObject {
         return false
     }
 
-    private func startBrowserSignInAttempt() -> UInt64 {
+    private func startBrowserSignInAttempt(state: String) -> UInt64 {
         nextBrowserSignInAttemptID &+= 1
         let attemptID = nextBrowserSignInAttemptID
         activeBrowserSignInAttemptID = attemptID
-        if signOutCancelledBrowserSignInAttemptID == attemptID {
-            signOutCancelledBrowserSignInAttemptID = nil
-        }
+        activeBrowserSignInAttemptState = state
+        signOutCancelledBrowserSignInAttemptID = nil
+        signOutCancelledBrowserSignInAttemptState = nil
         isLoading = true
         return attemptID
     }
@@ -908,23 +936,42 @@ final class AuthManager: ObservableObject {
             && signOutCancelledBrowserSignInAttemptID != attemptID
     }
 
+    private func scheduleBrowserSignInTimeout(attemptID: UInt64, timeout: TimeInterval) {
+        browserSignInTimeoutTask?.cancel()
+        let maxSeconds: Double = 24 * 60 * 60
+        let clamped = max(0, min(timeout, maxSeconds))
+        browserSignInTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))
+            guard !Task.isCancelled, let self, self.isCurrentBrowserSignInAttempt(attemptID) else {
+                return
+            }
+            self.lastSignInError = .signInTimedOut
+            self.finishBrowserSignInAttempt(attemptID)
+        }
+    }
+
     private func finishBrowserSignInAttempt(_ attemptID: UInt64) {
         guard activeBrowserSignInAttemptID == attemptID else { return }
+        browserSignInTimeoutTask?.cancel()
+        browserSignInTimeoutTask = nil
         isLoading = false
-        webAuthSession = nil
         activeBrowserSignInAttemptID = nil
+        activeBrowserSignInAttemptState = nil
         if signOutCancelledBrowserSignInAttemptID == attemptID {
             signOutCancelledBrowserSignInAttemptID = nil
+            signOutCancelledBrowserSignInAttemptState = nil
         }
     }
 
     private func cancelBrowserSignInForSignOut() {
+        browserSignInTimeoutTask?.cancel()
+        browserSignInTimeoutTask = nil
         if let attemptID = activeBrowserSignInAttemptID {
             signOutCancelledBrowserSignInAttemptID = attemptID
+            signOutCancelledBrowserSignInAttemptState = activeBrowserSignInAttemptState
         }
         activeBrowserSignInAttemptID = nil
-        webAuthSession?.cancel()
-        webAuthSession = nil
+        activeBrowserSignInAttemptState = nil
         isLoading = false
     }
 
@@ -952,9 +999,8 @@ final class AuthManager: ObservableObject {
         }
         // Open in the user's actual default browser. urlsForApplications(toOpen:)
         // returns candidates in LaunchServices priority order (user's chosen
-        // default first). Skip cmux itself, since Info.plist advertises http/https
-        // at LSHandlerRank=Default and otherwise the app could re-open the URL in
-        // its own embedded WebView.
+        // default first). Skip cmux itself defensively so old LaunchServices
+        // registrations cannot route the auth URL back into this app.
         let ownBundleIDs: Set<String> = {
             var ids: Set<String> = []
             if let id = Bundle.main.bundleIdentifier { ids.insert(id) }

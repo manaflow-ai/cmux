@@ -1,6 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
+
 export function OpenNativeClient({ href }: { href: string }) {
+  useEffect(() => {
+    window.location.assign(href);
+  }, [href]);
+
   return (
     <div
       style={{

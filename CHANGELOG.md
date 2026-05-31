@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Settings sign-in now opens in your default browser and displays localized error messages when sign-in fails ([#3617](https://github.com/manaflow-ai/cmux/issues/3617))
+
 ## [0.64.10] - 2026-05-23
 
 ### Added

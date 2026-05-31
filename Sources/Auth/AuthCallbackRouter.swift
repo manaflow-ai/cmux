@@ -3,6 +3,7 @@ import Foundation
 struct CMUXAuthCallbackPayload: Equatable, Sendable {
     let refreshToken: String
     let accessToken: String
+    let state: String?
 }
 
 enum AuthCallbackRouter {
@@ -29,8 +30,17 @@ enum AuthCallbackRouter {
 
         return CMUXAuthCallbackPayload(
             refreshToken: refreshToken,
-            accessToken: accessToken
+            accessToken: accessToken,
+            state: callbackState(in: components)
         )
+    }
+
+    static func callbackState(from url: URL) -> String? {
+        guard isAuthCallbackURL(url),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        return callbackState(in: components)
     }
 
     private static func isAllowedScheme(_ scheme: String?) -> Bool {
@@ -61,6 +71,11 @@ enum AuthCallbackRouter {
         components.queryItems?
             .first(where: { $0.name == name })?
             .value
+    }
+
+    private static func callbackState(in components: URLComponents) -> String? {
+        queryValue(named: "state", in: components)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func decodeAccessToken(from accessCookie: String) -> String? {
