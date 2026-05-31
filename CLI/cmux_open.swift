@@ -810,10 +810,10 @@ extension CMUXCLI {
             return
         }
 
+        let completedViewer = try completeDeferredDiffViewer(viewer)
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
-        print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewer.fileURL.path)")
-        _ = try completeDeferredDiffViewer(viewer)
+        print("OK surface=\(surfaceText) pane=\(paneText) path=\(completedViewer.fileURL.path)")
     }
 
     private func canonicalDiffSourceContext(
@@ -2996,19 +2996,10 @@ extension CMUXCLI {
                         layout: layout,
                         appearance: appearance,
                         context: context,
-                        target: target
+                        target: target,
+                        extraAllowedPageURL: openingFileURL
                     )
                     var finalized = completed
-                    finalized.allowedFiles = try diffViewerAllowedFilesWithExtraPage(
-                        openingFileURL,
-                        files: completed.allowedFiles,
-                        mapper: mapper
-                    )
-                    try writeDiffViewerHTTPManifest(
-                        token: mapper.token,
-                        files: finalized.allowedFiles,
-                        rootDirectory: directory
-                    )
 
                     var completedPageURLs = Set<URL>()
                     do {
@@ -3070,7 +3061,8 @@ extension CMUXCLI {
         layout: String,
         appearance: DiffViewerAppearance,
         context: DiffSourceContext,
-        target: DiffViewerGitHTMLSetTarget
+        target: DiffViewerGitHTMLSetTarget,
+        extraAllowedPageURL: URL? = nil
     ) throws -> DiffViewerWriteResult {
         let directory = target.directory
         let mapper = target.mapper
@@ -3413,11 +3405,18 @@ extension CMUXCLI {
         }
         let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
         let pageURLs = [selectedFileURL] + deferredPages.map(\.url)
-        let allowedFiles = try diffViewerAllowedFiles(
+        var allowedFiles = try diffViewerAllowedFiles(
             pageURLs: pageURLs,
             assets: assets,
             mapper: mapper
         )
+        if let extraAllowedPageURL {
+            allowedFiles = try diffViewerAllowedFilesWithExtraPage(
+                extraAllowedPageURL,
+                files: allowedFiles,
+                mapper: mapper
+            )
+        }
         try writeDiffViewerHTTPManifest(
             token: mapper.token,
             files: allowedFiles,
