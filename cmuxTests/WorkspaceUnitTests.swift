@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import CmuxSettings
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -1926,73 +1925,6 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, false)
         XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
-    }
-
-    func testSettingsFileStoreAppliesFileExtensionOpenersFromSettingsJSON() throws {
-        let defaults = UserDefaults.standard
-        let managedKey = FileExtensionOpenBehaviorSettings.key
-        let previousValue = defaults.object(forKey: managedKey)
-        let previousSupportedRouting = defaults.object(forKey: CmdClickSupportedFileRouteSettings.key)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: managedKey)
-            } else {
-                defaults.removeObject(forKey: managedKey)
-            }
-
-            if let previousSupportedRouting {
-                defaults.set(previousSupportedRouting, forKey: CmdClickSupportedFileRouteSettings.key)
-            } else {
-                defaults.removeObject(forKey: CmdClickSupportedFileRouteSettings.key)
-            }
-
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-        }
-
-        defaults.removeObject(forKey: managedKey)
-        defaults.removeObject(forKey: CmdClickSupportedFileRouteSettings.key)
-        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "app": {
-                "fileExtensionOpeners": {
-                  ".CSS": "cmuxBrowser",
-                  "json": "systemDefault",
-                  "tsx": "preferredEditor",
-                  "bad": "notARealBehavior"
-                },
-                "openSupportedFilesInCmux": false
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            startWatching: false
-        )
-
-        let stored = defaults.dictionary(forKey: managedKey) as? [String: String]
-        XCTAssertEqual(stored?["css"], "cmuxBrowser")
-        XCTAssertEqual(stored?["json"], "systemDefault")
-        XCTAssertEqual(stored?["tsx"], "preferredEditor")
-        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/styles.css", defaults: defaults), .cmuxBrowser)
-        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/package.json", defaults: defaults), .systemDefault)
-        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/component.tsx", defaults: defaults), .preferredEditor)
-        XCTAssertEqual(defaults.object(forKey: CmdClickSupportedFileRouteSettings.key) as? Bool, false)
     }
 
     func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {

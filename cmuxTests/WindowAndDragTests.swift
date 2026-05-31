@@ -3318,6 +3318,74 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path, defaults: defaults))
     }
 
+    func testSettingsFileStoreAppliesFileExtensionOpenersFromSettingsJSON() throws {
+        let defaults = UserDefaults.standard
+        let openersKey = FileExtensionOpenBehaviorSettings.key
+        let settingsFileBackupsKey = "cmux.settingsFile.backups.v1"
+        let previousOpeners = defaults.object(forKey: openersKey)
+        let previousSupportedRouting = defaults.object(forKey: CmdClickSupportedFileRouteSettings.key)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsKey)
+        defer {
+            if let previousOpeners {
+                defaults.set(previousOpeners, forKey: openersKey)
+            } else {
+                defaults.removeObject(forKey: openersKey)
+            }
+
+            if let previousSupportedRouting {
+                defaults.set(previousSupportedRouting, forKey: CmdClickSupportedFileRouteSettings.key)
+            } else {
+                defaults.removeObject(forKey: CmdClickSupportedFileRouteSettings.key)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: openersKey)
+        defaults.removeObject(forKey: CmdClickSupportedFileRouteSettings.key)
+        defaults.removeObject(forKey: settingsFileBackupsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "app": {
+            "fileExtensionOpeners": {
+              ".CSS": "cmuxBrowser",
+              "json": "systemDefault",
+              "tsx": "preferredEditor",
+              "bad": "notARealBehavior"
+            },
+            "openSupportedFilesInCmux": false
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let stored = defaults.dictionary(forKey: openersKey) as? [String: String]
+        XCTAssertEqual(stored?["css"], "cmuxBrowser")
+        XCTAssertEqual(stored?["json"], "systemDefault")
+        XCTAssertEqual(stored?["tsx"], "preferredEditor")
+        XCTAssertNil(stored?["bad"])
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/styles.css", defaults: defaults), .cmuxBrowser)
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/package.json", defaults: defaults), .systemDefault)
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/component.tsx", defaults: defaults), .preferredEditor)
+        XCTAssertEqual(defaults.object(forKey: CmdClickSupportedFileRouteSettings.key) as? Bool, false)
+    }
+
     func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
         let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
