@@ -2213,6 +2213,15 @@ body.reduce-motion *::after {
   background: var(--color-pane-warm);
 }
 
+.browser-shell.is-browser-deferred {
+  grid-template-rows: 30px minmax(0, 1fr);
+}
+
+.browser-shell.is-browser-deferred .browser-bar,
+.browser-shell.is-browser-deferred .browser-status {
+  display: none;
+}
+
 .browser-nav {
   width: 24px;
   height: 24px;
