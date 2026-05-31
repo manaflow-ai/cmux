@@ -26,6 +26,7 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    @AppStorage("aureanPaletteVariant") private var aureanVariantRaw = AureanPaletteVariant.cool.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
@@ -266,10 +267,14 @@ struct cmuxApp: App {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
                     }
 #endif
+                    aureanTheme.variant = AureanPaletteVariant(rawValue: aureanVariantRaw) ?? .cool
                     bootstrapMainWindowScene()
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
+                }
+                .onChange(of: aureanVariantRaw) { _ in
+                    applyAureanVariant()
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
@@ -884,6 +889,14 @@ struct cmuxApp: App {
         if appearanceMode != mode.rawValue {
             appearanceMode = mode.rawValue
         }
+    }
+
+    /// Applies the persisted Aurean palette variant: updates the SwiftUI theme owner (so
+    /// environment-driven chrome re-renders) and forces the terminal canvas to re-resolve
+    /// from the new surface (so the AppKit chrome that mirrors it re-skins too).
+    private func applyAureanVariant() {
+        aureanTheme.variant = AureanPaletteVariant(rawValue: aureanVariantRaw) ?? .cool
+        GhosttyApp.shared.reapplyAureanSurface()
     }
 
     private static func applyAppearance(_ mode: AppearanceMode, duringLaunch: Bool = false) {

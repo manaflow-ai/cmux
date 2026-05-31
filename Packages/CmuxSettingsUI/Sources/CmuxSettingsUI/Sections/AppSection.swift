@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppearance
 import CmuxSettings
 import SwiftUI
 import UniformTypeIdentifiers
@@ -25,6 +26,7 @@ public struct AppSection: View {
     // actually drives invalidation.
     @State private var language: DefaultsValueModel<AppLanguage>
     @State private var appearance: DefaultsValueModel<AppearanceMode>
+    @State private var aureanPalette: DefaultsValueModel<AureanPaletteVariant>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -65,6 +67,17 @@ public struct AppSection: View {
         self.hostActions = hostActions
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
+        // The Aurean palette variant is not part of the shared catalog (its enum lives in
+        // CmuxAppearance, which the schema layer does not depend on), so the key is declared
+        // inline here. `userDefaultsKey` matches the app's ambient AureanAppearanceSettings reader.
+        _aureanPalette = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: DefaultsKey<AureanPaletteVariant>(
+                id: "app.aureanPaletteVariant",
+                defaultValue: .cool,
+                userDefaultsKey: "aureanPaletteVariant"
+            )
+        ))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
@@ -145,6 +158,13 @@ public struct AppSection: View {
             ThemePickerRow(
                 selectedMode: appearance.current,
                 onSelect: { appearance.set($0) }
+            )
+            SettingsCardDivider()
+
+            // Aurean palette — temperature picker (cool / dune / warm / obsidian)
+            AureanPalettePickerRow(
+                selectedVariant: aureanPalette.current,
+                onSelect: { aureanPalette.set($0) }
             )
             SettingsCardDivider()
 

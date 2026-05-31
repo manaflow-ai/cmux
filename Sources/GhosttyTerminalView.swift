@@ -4080,6 +4080,27 @@ class GhosttyApp {
         }
     }
 
+    /// Re-applies the canvas background after the active Aurean palette variant changes.
+    ///
+    /// `applyDefaultBackground` already overrides the stored background with the active
+    /// Aurean surface, but it only runs when Ghostty reports colors. A variant switch in
+    /// settings changes no Ghostty color, so this forces a re-apply: it reuses the current
+    /// scope (so the scope-precedence guard passes without altering precedence) and forces
+    /// a change notification, which re-resolves every workspace's appearance config and the
+    /// key window backdrop — re-skinning the terminal canvas and the chrome that mirrors it.
+    @MainActor
+    func reapplyAureanSurface(source: String = "aurean.variantChanged") {
+        applyDefaultBackground(
+            color: defaultBackgroundColor,
+            opacity: defaultBackgroundOpacity,
+            backgroundBlur: defaultBackgroundBlur,
+            source: source,
+            scope: defaultBackgroundUpdateScope,
+            forceNotify: true
+        )
+        applyBackgroundToKeyWindow()
+    }
+
     private func nextBackgroundEventId() -> UInt64 {
         precondition(Thread.isMainThread, "Background event IDs must be generated on main thread")
         backgroundEventCounter &+= 1
