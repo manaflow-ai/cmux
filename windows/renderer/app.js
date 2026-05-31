@@ -3128,8 +3128,15 @@ function renderPendingPane(panel, body) {
         <span class="pending-pane-text"></span>
         <span class="pending-pane-meta"></span>
       </span>
+      <button class="pending-pane-cancel" type="button">Cancel</button>
     `;
   }
+  const cancel = pending.querySelector(".pending-pane-cancel");
+  cancel.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelPendingPanel(panel.id);
+  };
   const isBrowser = panel.type === "browser";
   const meta = isBrowser
     ? hostnameOf(panel.url || state.settings.browserHomeUrl)

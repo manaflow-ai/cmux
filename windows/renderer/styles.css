@@ -1802,7 +1802,7 @@ body.reduce-motion *::after {
 
 .pending-pane {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
@@ -1846,9 +1846,25 @@ body.reduce-motion *::after {
   white-space: nowrap;
 }
 
+.pending-pane-cancel {
+  min-width: 62px;
+  height: 26px;
+  border-color: var(--color-line);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.pending-pane-cancel:hover {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+  color: var(--color-text);
+}
+
 @container (max-width: 160px) {
   .pending-pane {
     justify-content: center;
+    grid-template-columns: auto;
     max-width: 100%;
   }
 
@@ -1857,6 +1873,10 @@ body.reduce-motion *::after {
   }
 
   .pending-pane-copy {
+    display: none;
+  }
+
+  .pending-pane-cancel {
     display: none;
   }
 }
