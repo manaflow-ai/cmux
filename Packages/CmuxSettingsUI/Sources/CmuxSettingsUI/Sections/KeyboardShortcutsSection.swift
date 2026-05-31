@@ -41,7 +41,7 @@ public struct KeyboardShortcutsSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+            SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
                 chordsRow
@@ -54,14 +54,25 @@ public struct KeyboardShortcutsSection: View {
                 // sit next to the unread navigation actions — matches
                 // legacy `KeyboardShortcutSettings.settingsVisibleActions`
                 // / `orderedSettingsVisibleActions`.
+                // ~166 recorder rows, each AppKit-backed — the one heavy
+                // list in Settings. The detail stack is eager (so every
+                // search anchor stays scroll-addressable), which would
+                // otherwise build all of these on window open and cost
+                // ~2s. These per-shortcut rows aren't search anchors (only
+                // the enclosing card is), so a LazyVStack here defers them
+                // until the section scrolls into view without affecting any
+                // scroll/highlight target.
                 let actions = Self.settingsVisibleActions
-                ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                    actionRow(action)
-                    if index < actions.count - 1 {
-                        SettingsCardDivider()
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(actions.enumerated()), id: \.element) { index, action in
+                        actionRow(action)
+                        if index < actions.count - 1 {
+                            SettingsCardDivider()
+                        }
                     }
                 }
             }
+            .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -76,6 +87,7 @@ public struct KeyboardShortcutsSection: View {
     private var chordsRow: some View {
         SettingsCardRow(
             configurationReview: .action,
+            searchAnchorID: "setting:keyboardShortcuts:shortcut-chords",
             String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
             subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in cmux.json, for example [\"ctrl+b\", \"c\"].")
         ) {
@@ -101,6 +113,7 @@ public struct KeyboardShortcutsSection: View {
     private var resetDefaultsRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
+            searchAnchorID: "setting:keyboardShortcuts:reset-defaults",
             String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"),
             subtitle: String(localized: "settings.shortcuts.resetDefaults.subtitle", defaultValue: "Restore built-in shortcut values for shortcuts managed in app settings.")
         ) {

@@ -614,6 +614,7 @@ extension Workspace {
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                isMuted: browserPanel.isMuted,
                 omnibarVisible: browserPanel.isOmnibarVisible,
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
@@ -10558,7 +10559,7 @@ final class Workspace: Identifiable, ObservableObject {
                 initialInput: initialTerminalInput,
                 initialEnvironmentOverrides: initialTerminalEnvironment
             )
-            configureTerminalPanel(terminalPanel)
+            configureNewTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
             panelTitles[terminalPanel.id] = terminalPanel.displayTitle
             seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
@@ -10892,6 +10893,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
         surfaceIdToPanelId.first { $0.value == panelId }?.key
+    }
+
+    private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
+        if TerminalTextBoxInputSettings.focusOnNewTerminals() {
+            terminalPanel.preferTextBoxInputWhenActivated()
+        } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
+            terminalPanel.showTextBoxInputWhenAvailable()
+        }
+        configureTerminalPanel(terminalPanel)
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
@@ -13431,7 +13441,7 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             additionalEnvironment: startupEnvironment
         )
-        configureTerminalPanel(newPanel)
+        configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
@@ -13571,7 +13581,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialInput: initialInput,
             additionalEnvironment: startupEnvironment
         )
-        configureTerminalPanel(newPanel)
+        configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
@@ -15573,7 +15583,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand
         )
-        configureTerminalPanel(newPanel)
+        configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -16387,6 +16397,7 @@ final class Workspace: Identifiable, ObservableObject {
             omnibarVisible: browser.isOmnibarVisible,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication
         ) else { return nil }
+        newPanel.setMuted(browser.isMuted)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
         return newPanel
     }
@@ -16623,7 +16634,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: startupCommand,
             initialInput: initialInput
         )
-        configureTerminalPanel(newPanel)
+        configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         if startupCommand != nil {
@@ -17905,7 +17916,7 @@ extension Workspace: BonsplitDelegate {
                         configTemplate: inheritedConfig,
                         portOrdinal: portOrdinal
                     )
-                    configureTerminalPanel(replacementPanel)
+                    configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
@@ -17973,7 +17984,7 @@ extension Workspace: BonsplitDelegate {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
-        configureTerminalPanel(newPanel)
+        configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
