@@ -321,14 +321,19 @@ func sidebarWorkspaceRowBackgroundStyle(
 // multi-selection background.
 //
 // The faint accent denotes an *additional* member of a multi-selection, so it
-// only applies when more than one workspace is selected. A single selected id is
-// always the active workspace, which paints the full-strength `isActive`
-// background instead, so a lone id must never paint faint. Gating on count > 1
-// also removes a one-frame "two rows selected" flash when the active workspace
-// changes (Cmd+N, workspace switch, CLI select): the sidebar's `selectedTabIds`
-// set is re-synced to the new active id one render later via `onChange`, and the
-// stale single-element set would otherwise paint the previously-active row faint
-// blue for the frame where its `isActive` drops to false.
+// only applies when more than one workspace is selected. A lone selected id
+// never warrants it: in steady state that id is the active workspace, already
+// painted full-strength via `isActive`; during a selection change it is a stale
+// value left over from the previously-active workspace.
+//
+// Gating on count > 1 removes a one-frame "two rows selected" flash when the
+// active workspace changes (Cmd+N, Cmd+number, next/prev, CLI select). The
+// sidebar's `selectedTabIds` set re-syncs to the new active id one render later
+// via `onChange(of: selectedTabId)`, so for the frame where the old row's
+// `isActive` drops to false, `selectedTabIds` is still {old}. The fix works not
+// because the lone id is guaranteed to be the active one, but because both the
+// stale {old} set and the settled {new} set have count <= 1, so neither paints
+// faint and the outcome is identical regardless of the lag.
 func sidebarWorkspaceRowShowsMultiSelectHighlight(
     tabId: UUID,
     selectedTabIds: Set<UUID>

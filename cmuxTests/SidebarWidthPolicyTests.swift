@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -335,11 +336,13 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
 // must not paint a second faint row. (The one-frame flash itself is a SwiftUI
 // render-timing artifact and is verified by dogfood, not here; this test pins
 // the rule that makes the stale frame paint identically to the settled one.)
-final class SidebarWorkspaceMultiSelectHighlightTests: XCTestCase {
-    func testLoneSelectedIdNeverPaintsSecondaryHighlight() {
+@Suite("Sidebar workspace multi-select highlight")
+struct SidebarWorkspaceMultiSelectHighlightTests {
+    @Test("A lone selected id never paints the faint secondary highlight")
+    func loneSelectedIdNeverPaintsSecondaryHighlight() {
         let onlySelected = UUID()
-        XCTAssertFalse(
-            sidebarWorkspaceRowShowsMultiSelectHighlight(
+        #expect(
+            !sidebarWorkspaceRowShowsMultiSelectHighlight(
                 tabId: onlySelected,
                 selectedTabIds: [onlySelected]
             ),
@@ -359,16 +362,17 @@ final class SidebarWorkspaceMultiSelectHighlightTests: XCTestCase {
             colorScheme: .dark,
             sidebarSelectionColorHex: nil
         )
-        XCTAssertNil(style.color)
-        XCTAssertEqual(style.opacity, 0, accuracy: 0.001)
+        #expect(style.color == nil)
+        #expect(abs(style.opacity - 0) < 0.001)
     }
 
-    func testGenuineMultiSelectionStillPaintsFaintAccentOnNonActiveMembers() {
+    @Test("A genuine multi-selection still paints the faint accent on non-active members")
+    func genuineMultiSelectionStillPaintsFaintAccentOnNonActiveMembers() {
         let active = UUID()
         let other = UUID()
         let selection: Set<UUID> = [active, other]
 
-        XCTAssertTrue(
+        #expect(
             sidebarWorkspaceRowShowsMultiSelectHighlight(
                 tabId: other,
                 selectedTabIds: selection
@@ -386,30 +390,35 @@ final class SidebarWorkspaceMultiSelectHighlightTests: XCTestCase {
             colorScheme: .dark,
             sidebarSelectionColorHex: nil
         )
-        XCTAssertNotNil(style.color)
-        XCTAssertEqual(style.opacity, 0.25, accuracy: 0.001)
+        #expect(style.color != nil)
+        #expect(abs(style.opacity - 0.25) < 0.001)
     }
 
-    func testActiveRowPaintsFullStrengthWhetherOrNotMultiSelected() {
+    @Test(
+        "The active row always paints full strength, with or without a multi-selection",
+        arguments: [1, 2]
+    )
+    func activeRowPaintsFullStrengthWhetherOrNotMultiSelected(selectionCount: Int) {
         let active = UUID()
-        for selection in [Set([active]), Set([active, UUID()])] {
-            let style = sidebarWorkspaceRowBackgroundStyle(
-                activeTabIndicatorStyle: .solidFill,
-                isActive: true,
-                isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
-                    tabId: active,
-                    selectedTabIds: selection
-                ),
-                customColorHex: nil,
-                colorScheme: .dark,
-                sidebarSelectionColorHex: nil
-            )
-            XCTAssertEqual(
-                style.opacity,
-                1,
-                accuracy: 0.001,
-                "Active row always uses the full-strength selection background"
-            )
+        var selection: Set<UUID> = [active]
+        if selectionCount > 1 {
+            selection.insert(UUID())
         }
+
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: true,
+            isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: active,
+                selectedTabIds: selection
+            ),
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        #expect(
+            abs(style.opacity - 1) < 0.001,
+            "Active row always uses the full-strength selection background"
+        )
     }
 }
