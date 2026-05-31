@@ -325,10 +325,14 @@ struct WindowAppearanceSnapshot {
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return .clear
         }
+        // Aurean "opaque chrome": the window-root backdrop is the opaque palette surface,
+        // hosted on the window layer. A translucent terminal then composites over the Aurean
+        // canvas instead of the desktop wallpaper, so the chrome reads solid while the
+        // terminal keeps its own background opacity.
         return .ghosttyTerminalBackdrop(
             color: terminalBackgroundColor,
-            opacity: terminalBackgroundOpacity,
-            renderingMode: terminalRenderingMode
+            opacity: 1,
+            renderingMode: .windowHostBackdrop
         )
     }
 }
