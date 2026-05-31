@@ -7150,6 +7150,119 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@README.md](") == true)
     }
 
+    func testTextBoxMentionFileSuggestionsIncludeDirectoriesForEmptyQuery() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-empty-directory-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sourceDirectory = root.appendingPathComponent("Sources", isDirectory: true)
+        try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: sourceDirectory.appendingPathComponent("Empty", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: root.appendingPathComponent("ZEmpty", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "nested".write(
+            to: sourceDirectory.appendingPathComponent("Nested.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(suggestions.first?.title, "@Sources/")
+        XCTAssertEqual(suggestions.first?.systemImageName, "folder")
+        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/](") == true)
+        XCTAssertTrue(suggestions.contains { $0.title == "@Sources/Empty/" })
+        XCTAssertTrue(suggestions.contains { $0.title == "@ZEmpty/" })
+        XCTAssertTrue(suggestions.contains { $0.title == "@README.md" })
+    }
+
+    func testTextBoxMentionFileSuggestionsFindNestedDirectoriesAndFilesWithFuzzyIndex() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-nested-file-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let componentsDirectory = root
+            .appendingPathComponent("Sources", isDirectory: true)
+            .appendingPathComponent("Components", isDirectory: true)
+        let fixturesDirectory = root.appendingPathComponent("Fixtures", isDirectory: true)
+        try fileManager.createDirectory(at: componentsDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: fixturesDirectory, withIntermediateDirectories: true)
+        try "struct NestedView {}".write(
+            to: componentsDirectory.appendingPathComponent("NestedView.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for index in 0..<40 {
+            try "fixture \(index)".write(
+                to: fixturesDirectory.appendingPathComponent("Fixture\(index).txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let directorySuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 11),
+                query: "Components",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(directorySuggestions.first?.title, "@Sources/Components/")
+        XCTAssertEqual(directorySuggestions.first?.systemImageName, "folder")
+
+        let nestedFileSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 10),
+                query: "NestedView",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(nestedFileSuggestions.first?.title, "@Sources/Components/NestedView.swift")
+        XCTAssertEqual(nestedFileSuggestions.first?.systemImageName, "doc")
+
+        let missingSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 14),
+                query: "MissingNeedle",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertTrue(missingSuggestions.isEmpty)
+    }
+
     func testTextBoxMentionFileSuggestionsSkipPackageContents() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(

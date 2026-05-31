@@ -1600,11 +1600,16 @@ private struct TextBoxMentionCandidate: Sendable {
 }
 
 private struct TextBoxMentionCandidateIndex: Sendable {
+    private static let nucleoProbeLimitMultiplier = 4
+    private static let minimumNucleoProbeLimit = 512
+
     private let corpus: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
+    private let corpusByTargetPath: [String: CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>]
+    private let emptyQueryCandidates: [TextBoxMentionCandidate]
     private let nucleoIndex: CommandPaletteNucleoSearchIndex<TextBoxMentionCandidate>?
 
     init(candidates: [TextBoxMentionCandidate]) {
-        corpus = candidates.map { candidate in
+        let entries = candidates.map { candidate in
             CommandPaletteSearchCorpusEntry(
                 payload: candidate,
                 rank: candidate.priority,
@@ -1616,38 +1621,109 @@ private struct TextBoxMentionCandidateIndex: Sendable {
                 ]
             )
         }
-        nucleoIndex = corpus.count >= 32 ? CommandPaletteNucleoSearchIndex(entries: corpus) : nil
+        corpus = entries
+        corpusByTargetPath = CommandPaletteSearchOrchestrator.firstValueDictionary(
+            entries,
+            keyedBy: { $0.payload.targetPath }
+        )
+        emptyQueryCandidates = entries
+            .sorted { lhs, rhs in
+                if lhs.rank != rhs.rank {
+                    return lhs.rank < rhs.rank
+                }
+                return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+            }
+            .map(\.payload)
+        nucleoIndex = entries.count >= 32 ? CommandPaletteNucleoSearchIndex(entries: entries) : nil
     }
 
-    func rankedCandidates(matching rawQuery: String, limit: Int) -> [TextBoxMentionCandidate] {
+    func rankedCandidates(
+        matching rawQuery: String,
+        limit: Int,
+        shouldCancel: @escaping () -> Bool = { false }
+    ) -> [TextBoxMentionCandidate] {
+        guard limit > 0, !shouldCancel() else { return [] }
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            return corpus
-                .sorted { lhs, rhs in
-                    if lhs.rank != rhs.rank {
-                        return lhs.rank < rhs.rank
-                    }
-                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-                }
-                .prefix(limit)
-                .map(\.payload)
+            return Array(emptyQueryCandidates.prefix(limit))
         }
 
-        if let nucleoResults = nucleoIndex?.search(
-            query: query,
-            resultLimit: limit,
-            historyBoost: { _, _ in 0 }
-        ) {
-            return nucleoResults.map(\.payload)
+        if let nucleoIndex,
+           let nucleoResults = nucleoIndex.search(
+               query: query,
+               resultLimit: Self.nucleoProbeLimit(corpusCount: corpus.count, requestedLimit: limit),
+               shouldCancel: shouldCancel
+           ) {
+            if shouldCancel() { return [] }
+            let probedCorpus = nucleoResults.compactMap { result in
+                corpusByTargetPath[result.payload.targetPath]
+            }
+            let swiftMatches = Self.swiftRankedCandidates(
+                entries: probedCorpus,
+                query: query,
+                limit: limit,
+                shouldCancel: shouldCancel
+            )
+            return Self.mergedRankedCandidates(
+                swiftMatches,
+                nucleoMatches: nucleoResults.map(\.payload),
+                limit: limit
+            )
         }
 
-        return CommandPaletteSearchEngine.search(
+        return Self.swiftRankedCandidates(
             entries: corpus,
             query: query,
+            limit: limit,
+            shouldCancel: shouldCancel
+        )
+    }
+
+    private static func nucleoProbeLimit(corpusCount: Int, requestedLimit: Int) -> Int {
+        let expandedLimit = requestedLimit * Self.nucleoProbeLimitMultiplier
+        return min(corpusCount, max(expandedLimit, Self.minimumNucleoProbeLimit))
+    }
+
+    private static func swiftRankedCandidates(
+        entries: [CommandPaletteSearchCorpusEntry<TextBoxMentionCandidate>],
+        query: String,
+        limit: Int,
+        shouldCancel: @escaping () -> Bool
+    ) -> [TextBoxMentionCandidate] {
+        CommandPaletteSearchEngine.search(
+            entries: entries,
+            query: query,
             resultLimit: limit,
-            historyBoost: { _, _ in 0 }
+            historyBoost: { _, _ in 0 },
+            shouldCancel: shouldCancel
         )
         .map(\.payload)
+    }
+
+    private static func mergedRankedCandidates(
+        _ swiftMatches: [TextBoxMentionCandidate],
+        nucleoMatches: [TextBoxMentionCandidate],
+        limit: Int
+    ) -> [TextBoxMentionCandidate] {
+        var merged: [TextBoxMentionCandidate] = []
+        var seenTargetPaths = Set<String>()
+        merged.reserveCapacity(min(limit, swiftMatches.count + nucleoMatches.count))
+
+        func append(_ candidate: TextBoxMentionCandidate) {
+            guard merged.count < limit,
+                  seenTargetPaths.insert(candidate.targetPath).inserted else {
+                return
+            }
+            merged.append(candidate)
+        }
+
+        for candidate in swiftMatches {
+            append(candidate)
+        }
+        for candidate in nucleoMatches {
+            append(candidate)
+        }
+        return merged
     }
 }
 
@@ -1660,6 +1736,8 @@ actor TextBoxMentionIndexStore {
     }
 
     private static let fileIndexTTL: TimeInterval = 30
+    private static let directorySeedBatchSize = 128
+    private static let maxIndexedDirectories = 2000
     private static let maxIndexedFiles = 6000
     private static let maxIndexedSkills = 800
     private static let suggestionLimit = 500
@@ -1707,66 +1785,47 @@ actor TextBoxMentionIndexStore {
             return await fileSuggestions(for: query, rootDirectory: rootDirectory)
         case .skill:
             let index = skillIndex(rootDirectory: Self.normalizedDirectory(rootDirectory))
-            return index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+            return index.rankedCandidates(
+                matching: query.query,
+                limit: Self.suggestionLimit,
+                shouldCancel: { Task.isCancelled }
+            )
                 .map { $0.suggestion(trigger: query.trigger) }
         }
     }
 
-    func warmIndexes(rootDirectory: String?) {
+    func warmIndexes(rootDirectory: String?) async {
         let normalizedRootDirectory = Self.normalizedDirectory(rootDirectory)
         _ = skillIndex(rootDirectory: normalizedRootDirectory)
+        if let normalizedRootDirectory {
+            _ = await fileIndex(rootDirectory: normalizedRootDirectory, now: Date())
+        }
     }
 
     private func fileSuggestions(
         for query: TextBoxMentionQuery,
         rootDirectory: String
     ) async -> [TextBoxMentionSuggestion] {
-        if query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return Self.scanRootFiles(rootURL: URL(fileURLWithPath: rootDirectory, isDirectory: true))
-                .prefix(Self.suggestionLimit)
-                .map { $0.suggestion(trigger: query.trigger) }
-        }
-
         let now = Date()
         let index = await fileIndex(rootDirectory: rootDirectory, now: now)
-        var matches = index.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
-        if matches.isEmpty, !query.query.isEmpty {
+        if Task.isCancelled { return [] }
+
+        var matches = index.rankedCandidates(
+            matching: query.query,
+            limit: Self.suggestionLimit,
+            shouldCancel: { Task.isCancelled }
+        )
+        if matches.isEmpty, !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let refreshed = await refreshFileIndex(rootDirectory: rootDirectory, now: now)
-            matches = refreshed.rankedCandidates(matching: query.query, limit: Self.suggestionLimit)
+            if Task.isCancelled { return [] }
+            matches = refreshed.rankedCandidates(
+                matching: query.query,
+                limit: Self.suggestionLimit,
+                shouldCancel: { Task.isCancelled }
+            )
         }
         return matches
             .map { $0.suggestion(trigger: query.trigger) }
-    }
-
-    private static func scanRootFiles(rootURL: URL) -> [TextBoxMentionCandidate] {
-        let fileManager = FileManager.default
-        let rootPath = rootURL.standardizedFileURL.path
-        guard let children = try? fileManager.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        return children.compactMap { child -> TextBoxMentionCandidate? in
-            let standardizedURL = child.standardizedFileURL
-            guard (try? standardizedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
-                return nil
-            }
-            let relativePath = relativePath(for: standardizedURL.path, rootPath: rootPath)
-            return TextBoxMentionCandidate(
-                title: "@\(relativePath)",
-                subtitle: displayPath(standardizedURL.path),
-                targetPath: standardizedURL.path,
-                systemImageName: "doc",
-                searchKey: "\(relativePath) \(standardizedURL.lastPathComponent)".lowercased(),
-                priority: 0
-            )
-        }
-        .sorted {
-            $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
     }
 
     private func fileIndex(
@@ -1854,7 +1913,24 @@ actor TextBoxMentionIndexStore {
         }
 
         let rootPath = rootURL.standardizedFileURL.path
-        var candidates: [TextBoxMentionCandidate] = []
+        var directoryCandidates: [TextBoxMentionCandidate] = []
+        var fileCandidates: [TextBoxMentionCandidate] = []
+        var seenDirectoryRelativePaths = Set<String>()
+        directoryCandidates.reserveCapacity(min(maxIndexedDirectories, 256))
+        fileCandidates.reserveCapacity(min(maxIndexedFiles, 1024))
+
+        func appendDirectoryCandidate(relativePath: String, directoryURL: URL) {
+            guard !relativePath.isEmpty,
+                  directoryCandidates.count < maxIndexedDirectories,
+                  seenDirectoryRelativePaths.insert(relativePath).inserted else {
+                return
+            }
+            directoryCandidates.append(Self.directoryCandidate(
+                relativePath: relativePath,
+                directoryURL: directoryURL
+            ))
+        }
+
         while let item = enumerator.nextObject() as? URL {
             let standardizedURL = item.standardizedFileURL
             let name = standardizedURL.lastPathComponent
@@ -1862,31 +1938,30 @@ actor TextBoxMentionIndexStore {
             if values?.isDirectory == true {
                 if shouldSkipIndexedDirectoryName(name) {
                     enumerator.skipDescendants()
+                    continue
                 }
+                appendDirectoryCandidate(
+                    relativePath: Self.relativePath(for: standardizedURL.path, rootPath: rootPath),
+                    directoryURL: standardizedURL
+                )
                 continue
             }
             guard values?.isRegularFile == true else { continue }
 
             let relativePath = Self.relativePath(for: standardizedURL.path, rootPath: rootPath)
-            candidates.append(TextBoxMentionCandidate(
-                title: "@\(relativePath)",
-                subtitle: Self.displayPath(standardizedURL.path),
-                targetPath: standardizedURL.path,
-                systemImageName: "doc",
-                searchKey: "\(relativePath) \(name)".lowercased(),
-                priority: min(relativePath.split(separator: "/").count, 20)
-            ))
+            if fileCandidates.count < maxIndexedFiles {
+                fileCandidates.append(Self.fileCandidate(
+                    relativePath: relativePath,
+                    fileURL: standardizedURL,
+                    fileName: name
+                ))
+            }
 
-            if candidates.count >= maxIndexedFiles {
+            if fileCandidates.count >= maxIndexedFiles {
                 break
             }
         }
-        return candidates.sorted {
-            if $0.priority != $1.priority {
-                return $0.priority < $1.priority
-            }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
-        }
+        return sortedFileSystemCandidates(directoryCandidates + fileCandidates)
     }
 
     private static func scanFilesWithRipgrep(rootURL: URL) -> [TextBoxMentionCandidate]? {
@@ -1922,48 +1997,77 @@ actor TextBoxMentionIndexStore {
             return nil
         }
 
-        var candidates: [TextBoxMentionCandidate] = []
-        candidates.reserveCapacity(min(maxIndexedFiles, 1024))
+        let directorySeed = scanDirectoryCandidateSeed(rootURL: rootURL)
+        var directoryCandidates = directorySeed.candidates
+        var fileCandidates: [TextBoxMentionCandidate] = []
+        var seenDirectoryRelativePaths = directorySeed.seenRelativePaths
+        fileCandidates.reserveCapacity(min(maxIndexedFiles, 1024))
 
-        func appendCandidate(relativePath: String) {
-            guard !relativePath.isEmpty, candidates.count < maxIndexedFiles else { return }
+        func appendDirectoryCandidate(relativePath: String) {
+            guard !relativePath.isEmpty,
+                  directoryCandidates.count < maxIndexedDirectories,
+                  seenDirectoryRelativePaths.insert(relativePath).inserted else {
+                return
+            }
+            let directoryURL = rootURL
+                .appendingPathComponent(relativePath, isDirectory: true)
+                .standardizedFileURL
+            directoryCandidates.append(Self.directoryCandidate(
+                relativePath: relativePath,
+                directoryURL: directoryURL
+            ))
+        }
+
+        func appendDirectoryCandidates(containing relativePath: String) {
+            let components = relativePath.split(separator: "/", omittingEmptySubsequences: true)
+            guard components.count > 1 else { return }
+
+            var currentPath = ""
+            for component in components.dropLast() {
+                let componentName = String(component)
+                guard !shouldSkipIndexedDirectoryName(componentName) else { return }
+                currentPath = currentPath.isEmpty ? componentName : "\(currentPath)/\(componentName)"
+                appendDirectoryCandidate(relativePath: currentPath)
+            }
+        }
+
+        func appendFileCandidate(relativePath: String) {
+            guard !relativePath.isEmpty, fileCandidates.count < maxIndexedFiles else { return }
+            appendDirectoryCandidates(containing: relativePath)
             let fileURL = rootURL.appendingPathComponent(relativePath, isDirectory: false).standardizedFileURL
             let name = fileURL.lastPathComponent
-            candidates.append(TextBoxMentionCandidate(
-                title: "@\(relativePath)",
-                subtitle: displayPath(fileURL.path),
-                targetPath: fileURL.path,
-                systemImageName: "doc",
-                searchKey: "\(relativePath) \(name)".lowercased(),
-                priority: min(relativePath.split(separator: "/").count, 20)
+            fileCandidates.append(Self.fileCandidate(
+                relativePath: relativePath,
+                fileURL: fileURL,
+                fileName: name
             ))
         }
 
         let stdoutHandle = stdout.fileHandleForReading
         var buffer = Data()
         let newline: UInt8 = 10
-        while candidates.count < maxIndexedFiles {
+        while fileCandidates.count < maxIndexedFiles {
             let chunk = stdoutHandle.readData(ofLength: 64 * 1024)
             if chunk.isEmpty { break }
             buffer.append(chunk)
             while let newlineIndex = buffer.firstIndex(of: newline) {
                 let lineData = Data(buffer[..<newlineIndex])
                 if let relativePath = String(data: lineData, encoding: .utf8) {
-                    appendCandidate(relativePath: relativePath)
+                    appendFileCandidate(relativePath: relativePath)
                 }
                 buffer.removeSubrange(buffer.startIndex...newlineIndex)
-                if candidates.count >= maxIndexedFiles {
+                if fileCandidates.count >= maxIndexedFiles {
                     break
                 }
             }
         }
 
-        let reachedLimit = candidates.count >= maxIndexedFiles
+        let reachedLimit = fileCandidates.count >= maxIndexedFiles
         if reachedLimit, process.isRunning {
             process.terminate()
         } else if !buffer.isEmpty,
                   let relativePath = String(data: buffer, encoding: .utf8) {
-            appendCandidate(relativePath: relativePath)
+            appendFileCandidate(relativePath: relativePath)
         }
 
         process.waitUntilExit()
@@ -1971,7 +2075,186 @@ actor TextBoxMentionIndexStore {
             return nil
         }
 
-        return candidates.sorted {
+        return sortedFileSystemCandidates(directoryCandidates + fileCandidates)
+    }
+
+    private static func scanDirectoryCandidateSeed(
+        rootURL: URL
+    ) -> (candidates: [TextBoxMentionCandidate], seenRelativePaths: Set<String>) {
+        let fileManager = FileManager.default
+        let rootPath = rootURL.standardizedFileURL.path
+        let checksGitIgnore = isGitWorkTree(rootURL: rootURL)
+        var candidates: [TextBoxMentionCandidate] = []
+        var seenRelativePaths = Set<String>()
+        candidates.reserveCapacity(min(maxIndexedDirectories, 256))
+
+        var directoryQueue = childDirectoryURLs(in: rootURL, fileManager: fileManager)
+        var queueIndex = 0
+
+        while queueIndex < directoryQueue.count, candidates.count < maxIndexedDirectories {
+            let batchEndIndex = min(directoryQueue.count, queueIndex + directorySeedBatchSize)
+            let directoryBatch = Array(directoryQueue[queueIndex..<batchEndIndex])
+            queueIndex = batchEndIndex
+
+            let relativePaths = directoryBatch.map {
+                Self.relativePath(for: $0.path, rootPath: rootPath)
+            }
+            let ignoredRelativePaths = checksGitIgnore
+                ? gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+                : []
+
+            for standardizedURL in directoryBatch {
+                let relativePath = Self.relativePath(for: standardizedURL.path, rootPath: rootPath)
+                guard !relativePath.isEmpty,
+                      !ignoredRelativePaths.contains(relativePath),
+                      !ignoredRelativePaths.contains("\(relativePath)/") else {
+                    continue
+                }
+
+                if seenRelativePaths.insert(relativePath).inserted {
+                    candidates.append(Self.directoryCandidate(
+                        relativePath: relativePath,
+                        directoryURL: standardizedURL
+                    ))
+                    if candidates.count >= maxIndexedDirectories {
+                        break
+                    }
+                }
+
+                directoryQueue.append(contentsOf: childDirectoryURLs(
+                    in: standardizedURL,
+                    fileManager: fileManager
+                ))
+            }
+        }
+
+        return (candidates, seenRelativePaths)
+    }
+
+    private static func childDirectoryURLs(in directoryURL: URL, fileManager: FileManager) -> [URL] {
+        guard let children = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        return children
+            .map(\.standardizedFileURL)
+            .filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
+                    !shouldSkipIndexedDirectoryName($0.lastPathComponent)
+            }
+    }
+
+    private static func isGitWorkTree(rootURL: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "git",
+            "-C", rootURL.path,
+            "rev-parse",
+            "--is-inside-work-tree"
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+
+    private static func gitIgnoredRelativePaths(rootURL: URL, relativePaths: [String]) -> Set<String> {
+        guard !relativePaths.isEmpty else { return [] }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "git",
+            "-C", rootURL.path,
+            "check-ignore",
+            "--stdin"
+        ]
+
+        let stdin = Pipe()
+        let stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        let probePaths = relativePaths + relativePaths.map { "\($0)/" }
+        let input = probePaths.joined(separator: "\n") + "\n"
+        if let data = input.data(using: .utf8) {
+            stdin.fileHandleForWriting.write(data)
+        }
+        stdin.fileHandleForWriting.closeFile()
+
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 || process.terminationStatus == 1,
+              let outputText = String(data: output, encoding: .utf8) else {
+            return []
+        }
+
+        return Set(outputText
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init))
+    }
+
+    private static func directoryCandidate(relativePath: String, directoryURL: URL) -> TextBoxMentionCandidate {
+        let normalizedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let displayTitle = "@\(normalizedPath)/"
+        let directoryName = directoryURL.lastPathComponent
+        return TextBoxMentionCandidate(
+            title: displayTitle,
+            subtitle: displayPath(directoryURL.path),
+            targetPath: directoryURL.path,
+            systemImageName: "folder",
+            searchKey: "\(normalizedPath) \(directoryName) folder directory".lowercased(),
+            priority: directoryPriority(relativePath: normalizedPath)
+        )
+    }
+
+    private static func fileCandidate(
+        relativePath: String,
+        fileURL: URL,
+        fileName: String
+    ) -> TextBoxMentionCandidate {
+        TextBoxMentionCandidate(
+            title: "@\(relativePath)",
+            subtitle: displayPath(fileURL.path),
+            targetPath: fileURL.path,
+            systemImageName: "doc",
+            searchKey: "\(relativePath) \(fileName)".lowercased(),
+            priority: filePriority(relativePath: relativePath)
+        )
+    }
+
+    private static func directoryPriority(relativePath: String) -> Int {
+        let depth = max(relativePath.split(separator: "/").count, 1)
+        return min((depth * 2) - 2, 40)
+    }
+
+    private static func filePriority(relativePath: String) -> Int {
+        let depth = max(relativePath.split(separator: "/").count, 1)
+        return min((depth * 2) - 1, 41)
+    }
+
+    private static func sortedFileSystemCandidates(
+        _ candidates: [TextBoxMentionCandidate]
+    ) -> [TextBoxMentionCandidate] {
+        candidates.sorted {
             if $0.priority != $1.priority {
                 return $0.priority < $1.priority
             }
