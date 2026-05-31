@@ -57,4 +57,26 @@ struct SettingCodableTests {
         #expect(openers["htm"] == .cmuxBrowser)
         #expect(openers["md"] == .markdownViewer)
     }
+
+    @Test func fileExtensionOpenersPruneDefaultsAndPreserveAutomaticOverrides() throws {
+        let suiteName = "cmux.fileExtensionOpeners.prune.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        FileExtensionOpenBehaviorSettings.setOpeners(
+            ["html": .automatic, "htm": .cmuxBrowser, "md": .markdownViewer],
+            defaults: defaults,
+            notificationCenter: .default
+        )
+
+        let stored = defaults.dictionary(forKey: FileExtensionOpenBehaviorSettings.key) as? [String: String]
+        #expect(stored?["html"] == "automatic")
+        #expect(stored?["htm"] == nil)
+        #expect(stored?["md"] == "markdownViewer")
+
+        let openers = FileExtensionOpenBehaviorSettings.openers(defaults: defaults)
+        #expect(openers["html"] == .automatic)
+        #expect(openers["htm"] == .cmuxBrowser)
+        #expect(openers["md"] == .markdownViewer)
+    }
 }

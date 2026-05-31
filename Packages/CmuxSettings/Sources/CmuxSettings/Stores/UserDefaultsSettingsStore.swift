@@ -61,6 +61,20 @@ public actor UserDefaultsSettingsStore {
         underlyingDefaults.set(value.encodeForUserDefaults(), forKey: key.userDefaultsKey)
     }
 
+    /// Returns the effective extension opener map, including built-in defaults.
+    public func fileExtensionOpeners() -> [String: FileExtensionOpenBehavior] {
+        FileExtensionOpenBehaviorSettings.openers(defaults: underlyingDefaults)
+    }
+
+    /// Writes extension openers through their specialized normalization rules.
+    public func setFileExtensionOpeners(_ value: [String: FileExtensionOpenBehavior]) {
+        FileExtensionOpenBehaviorSettings.setOpeners(
+            value,
+            defaults: underlyingDefaults,
+            notificationCenter: .default
+        )
+    }
+
     /// Removes the stored override for the key. After this call ``value(for:)``
     /// returns the key's default value until something writes a new override.
     public func reset<Value>(_ key: DefaultsKey<Value>) {

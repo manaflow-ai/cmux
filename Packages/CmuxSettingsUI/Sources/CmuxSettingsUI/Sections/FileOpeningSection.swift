@@ -5,7 +5,7 @@ import SwiftUI
 public struct FileOpeningSection: View {
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
-    @State private var fileExtensionOpeners: DefaultsValueModel<[String: FileExtensionOpenBehavior]>
+    @State private var fileExtensionOpeners: FileExtensionOpenersValueModel
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
 
@@ -15,7 +15,7 @@ public struct FileOpeningSection: View {
     ) {
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
-        _fileExtensionOpeners = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileExtensionOpeners))
+        _fileExtensionOpeners = State(initialValue: FileExtensionOpenersValueModel(store: defaultsStore))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
     }

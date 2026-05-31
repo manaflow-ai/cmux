@@ -3300,6 +3300,25 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertTrue(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
     }
 
+    func testCmdClickFileExtensionOpenersCanDisableBuiltInHTMLDefault() throws {
+        let suiteName = "cmux.html-automatic-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "<!doctype html>", encoding: .utf8, pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        FileExtensionOpenBehaviorSettings.setOpeners(
+            ["html": .automatic],
+            defaults: defaults,
+            notificationCenter: .default
+        )
+
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: fileURL.path, defaults: defaults), .automatic)
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path, defaults: defaults))
+    }
+
     func testCmdClickFileExtensionOpenersCanUsePreferredEditorWithoutCmuxRoute() throws {
         let suiteName = "cmux.preferred-editor-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

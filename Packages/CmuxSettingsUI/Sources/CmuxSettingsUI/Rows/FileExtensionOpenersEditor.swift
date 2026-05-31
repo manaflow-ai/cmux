@@ -129,15 +129,27 @@ public struct FileExtensionOpenersEditor: View {
             .pickerStyle(.menu)
             .frame(width: 170, alignment: .trailing)
 
-            Button {
-                remove(fileExtension)
-            } label: {
-                Image(systemName: "minus.circle")
+            if let defaultBehavior = FileExtensionOpenBehavior.defaultOpeners[fileExtension] {
+                Button {
+                    setBehavior(defaultBehavior, for: fileExtension)
+                } label: {
+                    Image(systemName: "arrow.counterclockwise.circle")
+                }
+                .buttonStyle(.plain)
+                .controlSize(.small)
+                .help(String(localized: "settings.app.fileExtensionOpeners.restoreDefault", defaultValue: "Restore built-in opener"))
+                .accessibilityLabel(String(localized: "settings.app.fileExtensionOpeners.restoreDefault", defaultValue: "Restore built-in opener"))
+            } else {
+                Button {
+                    remove(fileExtension)
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.plain)
+                .controlSize(.small)
+                .help(String(localized: "settings.app.fileExtensionOpeners.remove", defaultValue: "Remove extension opener"))
+                .accessibilityLabel(String(localized: "settings.app.fileExtensionOpeners.remove", defaultValue: "Remove extension opener"))
             }
-            .buttonStyle(.plain)
-            .controlSize(.small)
-            .help(String(localized: "settings.app.fileExtensionOpeners.remove", defaultValue: "Remove extension opener"))
-            .accessibilityLabel(String(localized: "settings.app.fileExtensionOpeners.remove", defaultValue: "Remove extension opener"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -148,7 +160,7 @@ public struct FileExtensionOpenersEditor: View {
         guard let normalized = normalizedDraftExtension else { return }
         var next = normalizedOpenersCache
         if next[normalized] == nil {
-            next[normalized] = .cmuxPreview
+            next[normalized] = FileExtensionOpenBehavior.defaultOpeners[normalized] ?? .cmuxPreview
         }
         applyOpeners(next)
         draftExtension = ""

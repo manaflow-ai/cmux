@@ -332,7 +332,7 @@
             "type": "string",
             "enum": ["automatic", "cmuxPreview", "markdownViewer", "cmuxBrowser", "preferredEditor", "systemDefault"]
           },
-          "description": "Map file extensions to their Cmd-click opener. Values are automatic, cmuxPreview, markdownViewer, cmuxBrowser, preferredEditor, and systemDefault. Keys may include or omit the leading dot."
+          "description": "Map file extensions to their Cmd-click opener. Values are automatic, cmuxPreview, markdownViewer, cmuxBrowser, preferredEditor, and systemDefault. Keys may include or omit the leading dot. Built-in defaults are merged with this map; set a built-in extension to automatic to opt out."
         },
         "reorderOnNotification": {
           "type": "boolean",

@@ -76,24 +76,6 @@ enum CommandClickFileOpenRouter {
     }
 
     @MainActor
-    static func openInCmux(
-        workspace: Workspace,
-        sourcePanelId: UUID,
-        filePath: String
-    ) -> Bool {
-        switch action(for: filePath, defaults: .standard) {
-        case .markdownViewer:
-            return workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil
-        case .cmuxPreview:
-            return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
-        case .cmuxBrowser:
-            return workspace.openOrFocusBrowserSplit(from: sourcePanelId, url: URL(fileURLWithPath: filePath)) != nil
-        case .preferredEditor, .systemDefault, .unhandled:
-            return false
-        }
-    }
-
-    @MainActor
     static func openCommandClickFile(
         workspace: Workspace,
         sourcePanelId: UUID,
@@ -155,51 +137,12 @@ enum CommandClickFileOpenRouter {
         return dir.isEmpty ? nil : dir
     }
 
-    /// Schedule a file open in cmux, deferred to the next runloop tick.
-    ///
-    /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
-    /// dispatches into Swift; opening a new panel synchronously re-enters
-    /// Ghostty and deadlocks (#3370). This helper defers the split creation
-    /// via `DispatchQueue.main.async` and re-validates the workspace and path
-    /// at dispatch time (TOCTOU). When routing fails, `fallback` is called so
-    /// the caller can open the file externally.
-    @MainActor
-    static func deferredOpenFileInCmux(
-        workspace: Workspace,
-        preferredWorkspaceId: UUID,
-        surfaceId: UUID,
-        filePath: String,
-        fallback: (@MainActor @Sendable () -> Void)? = nil
-    ) {
-        DispatchQueue.main.async {
-            let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
-                panelId: surfaceId,
-                preferredWorkspaceId: preferredWorkspaceId
-            )?.workspace ?? workspace
-            guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
-                fallback?()
-                return
-            }
-            guard shouldRouteInCmux(path: filePath) else {
-                fallback?()
-                return
-            }
-            if openInCmux(
-                workspace: resolvedWorkspace,
-                sourcePanelId: surfaceId,
-                filePath: filePath
-            ) {
-                return
-            }
-            fallback?()
-        }
-    }
-
     /// Defers command-click routing until Ghostty's mouse callback has unwound.
     ///
-    /// This mirrors `deferredOpenFileInCmux`, but routes through the full
-    /// extension-aware action model and falls back through `fallback` when cmux
-    /// does not handle the file.
+    /// Ghostty's `Surface.openUrl` holds an internal lock when it dispatches into
+    /// Swift; opening a new panel synchronously re-enters Ghostty and can
+    /// deadlock. The deferred task re-validates the workspace and falls back
+    /// externally when cmux does not handle the file.
     @MainActor
     static func deferredOpenCommandClickFile(
         workspace: Workspace,
