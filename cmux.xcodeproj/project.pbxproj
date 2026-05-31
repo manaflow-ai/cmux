@@ -358,6 +358,7 @@
 		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */; };
+		D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037010000000000000002 /* RenderableSystemSymbol.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
 		F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */; };
 		F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */; };
@@ -990,6 +991,7 @@
 		D0C0D0C0D0C0D0C0D0C00004 /* RemoteLoopbackRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteLoopbackRuntimeBridge.swift; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellSessionParsing.swift; sourceTree = "<group>"; };
+		D5037010000000000000002 /* RenderableSystemSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderableSystemSymbol.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentNonInteractiveTests.swift; sourceTree = "<group>"; };
@@ -1438,6 +1440,7 @@
 				C9A57108C9A57108C9A57108 /* SidebarWorkspaceGroupDialogs.swift */,
 				C9A57102C9A57102C9A57102 /* SidebarWorkspaceGroupHeaderView.swift */,
 				C9A5710AC9A5710AC9A5710A /* SidebarWorkspaceGroupingMetrics.swift */,
+				D5037010000000000000002 /* RenderableSystemSymbol.swift */,
 				C9A57202C9A57202C9A57202 /* SidebarWorkspaceRenderItem.swift */,
 				C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */,
 				C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */,
@@ -2387,6 +2390,7 @@
 					D0C0D0C0D0C0D0C0D0C00003 /* RemoteLoopbackRuntimeBridge.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
 				E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */,
+				D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,

@@ -6569,12 +6569,15 @@ class TerminalController {
         let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
         var ok = false
+        var storedIconSymbol: String?
         v2MainSync {
             ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
-            if ok { tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized) }
+            if ok {
+                storedIconSymbol = tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized)
+            }
         }
         return ok
-            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(normalized)])
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(storedIconSymbol)])
             : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
     }
 
