@@ -850,12 +850,7 @@ jobs:
           DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
           DISPLAY_READY="/tmp/cmux-ui-test-display-${TOKEN}.ready"
           DISPLAY_ID_PATH="/tmp/cmux-ui-test-display-${TOKEN}.id"
-          SANDBOX_TMP="${TMPDIR:-}"
-          if [ -z "$SANDBOX_TMP" ]; then
-            SANDBOX_TMP="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || printf '/tmp')"
-          fi
-          SANDBOX_TMP="${SANDBOX_TMP%/}"
-          DISPLAY_START="${SANDBOX_TMP}/cmux-ui-test-display-${TOKEN}.start"
+          DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
 
@@ -881,9 +876,10 @@ jobs:
           for attempt in 1 2; do
             cleanup 2>/dev/null || true
 
-            # Launch display helper from shell (non-sandboxed). The XCTest writes
-            # DISPLAY_START after capturing baseline render stats so churn begins
-            # at the behavior boundary the regression actually verifies.
+            # Launch display helper from shell (non-sandboxed). This waits on
+            # DISPLAY_START, which the shell writes when xcodebuild reports the
+            # display regression test has started. The XCTest runner is sandboxed
+            # and cannot create marker files outside its container.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
@@ -1026,7 +1022,7 @@ jobs:
             # Write manifests so test can find the pre-launched state
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
             cat >"$MANIFEST_PATH" <<MANIFEST_EOF
-          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","startPath":"$DISPLAY_START","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
+          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
           MANIFEST_EOF
 
             PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
@@ -1034,14 +1030,26 @@ jobs:
           {"diagnosticsPath":"$DIAG_PATH"}
           PRELAUNCH_EOF
 
-            # Run test — app is already launched from shell
-            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            # Run test — app is already launched from shell. Start display churn
+            # when the test case begins, without requiring the sandboxed XCTest
+            # process to write outside its container.
+            set +e
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -derivedDataPath "$DERIVED_DATA_PATH" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-              test-without-building; then
+              test-without-building 2>&1 | while IFS= read -r line; do
+                printf '%s\n' "$line"
+                if [[ "$line" == *"Test Case '-[cmuxUITests.DisplayResolutionRegressionUITests testRapidDisplayResolutionChangesKeepTerminalResponsive]' started."* ]] && [ ! -f "$DISPLAY_START" ]; then
+                  printf 'start\n' > "$DISPLAY_START"
+                  echo "Display churn start signal written"
+                fi
+              done
+            xcode_status=${PIPESTATUS[0]}
+            set -e
+            if [ "$xcode_status" -eq 0 ]; then
               exit 0
             fi
 

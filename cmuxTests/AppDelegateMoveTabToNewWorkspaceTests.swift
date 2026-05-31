@@ -1,5 +1,6 @@
 import Combine
 import XCTest
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
