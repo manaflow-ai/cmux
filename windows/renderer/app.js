@@ -2098,9 +2098,7 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
-  { id: "settings.simplePreset", label: "Apply Simple Preset", shortcut: "", run: () => applySettingsPresetById("simple") },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
-  { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
   { id: "settings.copyDiagnostics", label: "Copy Performance Diagnostics", shortcut: "", run: () => copyPerformanceDiagnostics() },
   { id: "settings.actions", label: "Open Actions Settings", shortcut: "", run: () => openSettingsCategory("actions") },
@@ -7315,17 +7313,22 @@ function backgroundPresetGrid() {
     button.style.setProperty("--preset-background", preset.preview);
     button.innerHTML = `<span class="background-preset-preview"></span><span class="background-preset-label"></span>`;
     button.querySelector(".background-preset-label").textContent = preset.label;
-    button.onclick = () => {
-      const changed = updateSettings({ backgroundImage: preset.value });
-      if (!changed) {
-        toast(`${preset.label} background already active.`);
-        return;
-      }
-      renderSettingsInspector();
-    };
+    button.onclick = () => applyBackgroundPreset(preset);
     grid.append(button);
   }
   return grid;
+}
+
+function applyBackgroundPreset(preset, options = {}) {
+  if (!preset) return false;
+  const changed = updateSettings({ backgroundImage: preset.value });
+  if (!changed) {
+    if (options.toast !== false) toast(`${preset.label} background already active.`);
+    return false;
+  }
+  if (state.inspectorMode === "settings") renderSettingsInspector();
+  if (options.toast) toast(`${preset.label} background applied.`);
+  return true;
 }
 
 function savedBackgroundImagesPanel() {
@@ -9076,6 +9079,27 @@ function paletteEntries() {
       shortcut: "Theme",
       search: normalizeSettingsQuery(`terminal colors theme preset ${preset.label} ${preset.body}`),
       run: () => applyTerminalColorPreset(preset)
+    });
+  }
+  for (const preset of settingsPresets) {
+    const summary = settingsProfileSummary(preset.settings);
+    entries.push({
+      id: `settingsPreset.${preset.id}`,
+      label: `Preset: ${preset.label}`,
+      meta: preset.body || summary,
+      shortcut: "Preset",
+      search: normalizeSettingsQuery(`settings preset profile setup apply ${preset.label} ${preset.body} ${summary}`),
+      run: () => applySettingsPreset(preset)
+    });
+  }
+  for (const preset of backgroundPresets) {
+    entries.push({
+      id: `backgroundPreset.${preset.value || "none"}`,
+      label: `Background preset: ${preset.label}`,
+      meta: preset.value ? "Built-in background" : "No background",
+      shortcut: "Look",
+      search: normalizeSettingsQuery(`background preset image wallpaper look apply ${preset.label} ${preset.value}`),
+      run: () => applyBackgroundPreset(preset, { toast: true })
     });
   }
   for (const color of state.customColorPalette) {
