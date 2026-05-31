@@ -4658,6 +4658,7 @@ function renderBrowserTabs(session) {
   const nodes = session.tabs.map((tab) => {
     const button = document.createElement("button");
     button.type = "button";
+    button.draggable = true;
     button.className = `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`;
     button.title = tab.url;
     button.dataset.browserTabId = tab.id;
@@ -4675,9 +4676,71 @@ function renderBrowserTabs(session) {
     });
     button.append(label, close);
     button.addEventListener("click", () => activateBrowserTab(session, tab.id));
+    button.addEventListener("mousedown", (event) => {
+      if (event.button === 1) event.preventDefault();
+    });
+    button.addEventListener("auxclick", (event) => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeBrowserTab(session, tab.id);
+    });
+    button.addEventListener("dragstart", (event) => {
+      session.dragBrowserTabId = tab.id;
+      button.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", tab.id);
+    });
+    button.addEventListener("dragover", (event) => {
+      if (!session.dragBrowserTabId || session.dragBrowserTabId === tab.id) return;
+      event.preventDefault();
+      clearBrowserTabDropTargets(session);
+      button.classList.add(browserTabDropPlacement(event, button) === "after" ? "is-drop-after" : "is-drop-before");
+    });
+    button.addEventListener("dragleave", () => {
+      button.classList.remove("is-drop-before", "is-drop-after");
+    });
+    button.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const placement = browserTabDropPlacement(event, button);
+      const draggedTabId = session.dragBrowserTabId;
+      clearBrowserTabDropTargets(session);
+      if (draggedTabId && draggedTabId !== tab.id) moveBrowserTab(session, draggedTabId, tab.id, placement);
+    });
+    button.addEventListener("dragend", () => {
+      session.dragBrowserTabId = "";
+      button.classList.remove("is-dragging");
+      clearBrowserTabDropTargets(session);
+    });
     return button;
   });
   replaceChildrenIfChanged(session.tabList, nodes);
+}
+
+function browserTabDropPlacement(event, button) {
+  const rect = button.getBoundingClientRect();
+  return event.clientX - rect.left > rect.width / 2 ? "after" : "before";
+}
+
+function clearBrowserTabDropTargets(session) {
+  for (const button of session?.tabList?.querySelectorAll(".browser-tab.is-drop-before, .browser-tab.is-drop-after") || []) {
+    button.classList.remove("is-drop-before", "is-drop-after");
+  }
+}
+
+function moveBrowserTab(session, tabId, targetTabId, placement = "before") {
+  if (!session || tabId === targetTabId) return false;
+  const fromIndex = session.tabs.findIndex((tab) => tab.id === tabId);
+  const targetIndex = session.tabs.findIndex((tab) => tab.id === targetTabId);
+  if (fromIndex < 0 || targetIndex < 0) return false;
+  const [tab] = session.tabs.splice(fromIndex, 1);
+  let insertIndex = session.tabs.findIndex((candidate) => candidate.id === targetTabId);
+  if (insertIndex < 0) insertIndex = session.tabs.length;
+  if (placement === "after") insertIndex += 1;
+  session.tabs.splice(insertIndex, 0, tab);
+  saveBrowserSessionTabs(session);
+  renderBrowserTabs(session);
+  return true;
 }
 
 function updateActiveBrowserTabUrl(session, value) {

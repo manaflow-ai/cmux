@@ -2026,6 +2026,7 @@ body.reduce-motion *::after {
 }
 
 .browser-tab {
+  position: relative;
   min-width: 72px;
   max-width: 176px;
   flex: 1 1 128px;
@@ -2052,6 +2053,29 @@ body.reduce-motion *::after {
   border-color: var(--color-line);
   background: var(--color-pane-warm);
   color: var(--color-text);
+}
+
+.browser-tab.is-dragging {
+  opacity: .58;
+}
+
+.browser-tab.is-drop-before::before,
+.browser-tab.is-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
+.browser-tab.is-drop-before::before {
+  left: -2px;
+}
+
+.browser-tab.is-drop-after::after {
+  right: -2px;
 }
 
 .browser-tab-label {
