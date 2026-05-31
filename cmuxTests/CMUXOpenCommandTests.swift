@@ -1467,6 +1467,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let openedURLBox = AsyncValueBox<String?>(nil)
         let openedHTMLURLBox = AsyncValueBox<URL?>(nil)
         let pendingHTMLBox = AsyncValueBox<String?>(nil)
+        let diffHadStartedWhenOpenedBox = AsyncValueBox<Bool?>(nil)
         let openHandled = expectation(description: "browser opened before fake git diff completed")
         defer {
             Darwin.close(listenerFD)
@@ -1483,6 +1484,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
             }
             openedURLBox.set(rawURL)
+            diffHadStartedWhenOpenedBox.set(FileManager.default.fileExists(atPath: diffStartedURL.path))
             if let htmlURL = Self.diffViewerHTMLFileURLFromHTTPManifest(for: rawURL) {
                 openedHTMLURLBox.set(htmlURL)
                 pendingHTMLBox.set(try? String(contentsOf: htmlURL, encoding: .utf8))
@@ -1518,11 +1520,12 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         wait(for: [openHandled], timeout: 5)
         XCTAssertNotNil(openedURLBox.get())
+        XCTAssertEqual(diffHadStartedWhenOpenedBox.get() ?? true, false)
         XCTAssertTrue(pendingHTMLBox.get()?.contains("data-cmux-diff-pending=\"true\"") == true, pendingHTMLBox.get() ?? "")
         XCTAssertTrue(pendingHTMLBox.get()?.contains("data-status-only=\"true\"") == true, pendingHTMLBox.get() ?? "")
         XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"toolbar\"") == true, pendingHTMLBox.get() ?? "")
         XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"viewer\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertFalse(pendingHTMLBox.get()?.contains("<main>") == true, pendingHTMLBox.get() ?? "")
+        XCTAssertFalse(pendingHTMLBox.get()?.contains("<main") == true, pendingHTMLBox.get() ?? "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: releaseDiffURL.path))
         FileManager.default.createFile(atPath: releaseDiffURL.path, contents: Data())
 

@@ -192,7 +192,7 @@ extension CMUXCLI {
         var input: DiffInput
         var allowedFiles: [DiffViewerAllowedFile]
         var deferredSourceSet: DiffViewerDeferredSourceSet? = nil
-        var completeDeferred: (() -> Void)? = nil
+        var completeDeferred: (() throws -> DiffViewerWriteResult)? = nil
     }
 
     private struct DiffViewerDeferredSourceSet {
@@ -790,20 +790,20 @@ extension CMUXCLI {
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
 
         if jsonOutput {
+            let completedViewer = try completeDeferredDiffViewer(viewer)
             var response = payload
-            response["path"] = viewer.fileURL.path
-            response["url"] = viewer.url.absoluteString
-            response["title"] = viewer.title
-            response["source"] = viewer.input.sourceLabel
+            response["path"] = completedViewer.fileURL.path
+            response["url"] = completedViewer.url.absoluteString
+            response["title"] = completedViewer.title
+            response["source"] = completedViewer.input.sourceLabel
             print(jsonString(formatIDs(response, mode: idFormat)))
-            completeDeferredDiffViewer(viewer)
             return
         }
 
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
         print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewer.fileURL.path)")
-        completeDeferredDiffViewer(viewer)
+        _ = try completeDeferredDiffViewer(viewer)
     }
 
     private func canonicalDiffSourceContext(
@@ -2910,6 +2910,14 @@ extension CMUXCLI {
         return DiffViewerGitHTMLSetTarget(directory: directory, mapper: mapper, groupID: groupID)
     }
 
+    private func diffViewerLoadingDiffMessage(_ target: String) -> String {
+        let format = CMUXDiffViewerLocalization.string(
+            "diffViewer.loadingDiffTarget",
+            defaultValue: "Loading diff: %@"
+        )
+        return String(format: format, locale: Locale.current, target)
+    }
+
     private func writeOpeningGitDiffViewerHTMLSet(
         selectedSource: DiffSource,
         titleOverride: String?,
@@ -2941,7 +2949,7 @@ extension CMUXCLI {
 
         let sourceLabel = "git \(selectedSource.slug)"
         let title = titleOverride ?? selectedSource.title
-        let message = "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(selectedSource.menuLabel)"
+        let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
         try writeDiffViewerStatusHTML(
             to: selectedFileURL,
             title: title,
@@ -2992,7 +3000,16 @@ extension CMUXCLI {
                         context: context,
                         target: target
                     )
-                    completeDeferredDiffViewerSources(completed.deferredSourceSet)
+                    let selectedInput = try completeDeferredDiffViewerSources(
+                        completed.deferredSourceSet,
+                        selectedURL: completed.fileURL
+                    )
+                    var finalized = completed
+                    if let selectedInput {
+                        finalized.input = selectedInput
+                        finalized.title = titleOverride ?? selectedInput.defaultTitle
+                    }
+                    return finalized
                 } catch {
                     let message = diffViewerErrorMessage(error)
                     try? writeDiffViewerStatusHTML(
@@ -3010,6 +3027,7 @@ extension CMUXCLI {
                         repoRoot: repoRoot,
                         branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil
                     )
+                    throw error
                 }
             }
         )
@@ -3164,7 +3182,7 @@ extension CMUXCLI {
                 to: selectedFileURL,
                 title: titleOverride ?? selectedSource.title,
                 sourceLabel: "git \(selectedSource.slug)",
-                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(selectedSource.menuLabel)",
+                message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
                 isError: false,
                 pollForReplacement: true,
                 layout: layout,
@@ -3216,7 +3234,7 @@ extension CMUXCLI {
                     to: url,
                     title: source.title,
                     sourceLabel: "git \(source.slug)",
-                    message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(source.menuLabel)",
+                    message: diffViewerLoadingDiffMessage(source.menuLabel),
                     isError: false,
                     pollForReplacement: true,
                     layout: layout,
@@ -3254,7 +3272,7 @@ extension CMUXCLI {
                     to: url,
                     title: option.label,
                     sourceLabel: "git \(source.slug)",
-                    message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
+                    message: diffViewerLoadingDiffMessage(option.label),
                     isError: false,
                     pollForReplacement: true,
                     layout: layout,
@@ -3287,7 +3305,7 @@ extension CMUXCLI {
                 to: url,
                 title: option.label,
                 sourceLabel: "git \(DiffSource.branch.slug)",
-                message: "\(CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff...")) \(option.label)",
+                message: diffViewerLoadingDiffMessage(option.label),
                 isError: false,
                 pollForReplacement: true,
                 layout: layout,
@@ -3371,16 +3389,33 @@ extension CMUXCLI {
         )
     }
 
-    private func completeDeferredDiffViewer(_ viewer: DiffViewerWriteResult) {
-        completeDeferredDiffViewerSources(viewer.deferredSourceSet)
-        viewer.completeDeferred?()
+    private func completeDeferredDiffViewer(_ viewer: DiffViewerWriteResult) throws -> DiffViewerWriteResult {
+        if let completeDeferred = viewer.completeDeferred {
+            return try completeDeferred()
+        }
+        let selectedInput = try completeDeferredDiffViewerSources(
+            viewer.deferredSourceSet,
+            selectedURL: viewer.fileURL
+        )
+        guard let selectedInput else { return viewer }
+        var finalized = viewer
+        finalized.input = selectedInput
+        finalized.title = selectedInput.defaultTitle
+        return finalized
     }
 
-    private func completeDeferredDiffViewerSources(_ sourceSet: DiffViewerDeferredSourceSet?) {
-        guard let sourceSet else { return }
+    private func completeDeferredDiffViewerSources(
+        _ sourceSet: DiffViewerDeferredSourceSet?,
+        selectedURL: URL? = nil
+    ) throws -> DiffInput? {
+        guard let sourceSet else { return nil }
+        var selectedInput: DiffInput?
         for page in sourceSet.pages {
             do {
-                try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+                let input = try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+                if page.url == selectedURL {
+                    selectedInput = input
+                }
             } catch {
                 let message = diffViewerErrorMessage(error)
                 try? writeDiffViewerStatusHTML(
@@ -3398,16 +3433,20 @@ extension CMUXCLI {
                     repoRoot: page.context.repoRoot,
                     branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
                 )
+                if page.url == selectedURL {
+                    throw error
+                }
             }
         }
+        return selectedInput
     }
 
     private func completeDeferredDiffViewerSource(
         _ page: DiffViewerDeferredSourcePage,
         sourceSet: DiffViewerDeferredSourceSet
-    ) throws {
+    ) throws -> DiffInput {
         do {
-            try writeDeferredDiffViewerSource(
+            return try writeDeferredDiffViewerSource(
                 page: page,
                 source: page.source,
                 context: page.context,
@@ -3420,7 +3459,7 @@ extension CMUXCLI {
             for source in DiffSource.allCases where source != page.source {
                 guard let fallback = page.sourceFallbacks[source] else { continue }
                 do {
-                    try writeDeferredDiffViewerSource(
+                    return try writeDeferredDiffViewerSource(
                         page: page,
                         source: source,
                         context: fallback.context,
@@ -3429,9 +3468,10 @@ extension CMUXCLI {
                         baseOptions: fallback.baseOptions,
                         sourceSet: sourceSet
                     )
-                    return
-                } catch {
+                } catch is EmptyDiffSourceError {
                     continue
+                } catch {
+                    throw error
                 }
             }
             throw error
@@ -3446,7 +3486,7 @@ extension CMUXCLI {
         repoOptions: [DiffViewerSourceOption],
         baseOptions: [DiffViewerSourceOption],
         sourceSet: DiffViewerDeferredSourceSet
-    ) throws {
+    ) throws -> DiffInput {
         var pageContext = context
         if source == .branch {
             let repoRoot = try gitRepoRootForDiff(pageContext)
@@ -3469,6 +3509,7 @@ extension CMUXCLI {
             repoRoot: pageContext.repoRoot,
             branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil
         )
+        return input
     }
 
     private func nonEmptyGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
@@ -5603,6 +5644,10 @@ extension CMUXCLI {
             }
 
             function showStatusMessage(message, options = {}) {
+              if (!status.isConnected) {
+                viewerElement.replaceChildren(status);
+              }
+              document.body.dataset.statusOnly = options.pending === true || options.error === true ? "true" : "false";
               status.dataset.error = options.error === true ? "true" : "false";
               status.dataset.pending = options.pending === true ? "true" : "false";
               status.textContent = message;
