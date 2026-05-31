@@ -406,6 +406,7 @@ const state = {
   settings: initialSettings,
   settingsCategory: "quick",
   settingsQuery: "",
+  inspectorSignature: "",
   settingsInspectorSignature: "",
   settingsScrollResetPending: false,
   settingsSearchAutoScrollQuery: "",
@@ -5529,16 +5530,25 @@ function ensureBrowser(panel, body) {
 }
 
 function renderInspector() {
-  if (!state.inspectorMode) return;
+  if (!state.inspectorMode) {
+    state.inspectorSignature = "";
+    return;
+  }
   if (state.inspectorMode === "notifications") {
-    elements.inspectorTitle.textContent = "Notifications";
-    elements.inspectorSubtitle.textContent = "Unread panes and agent attention";
+    const signature = inspectorContentSignature();
+    if (signature === state.inspectorSignature) return;
+    state.inspectorSignature = signature;
+    setTextIfChanged(elements.inspectorTitle, "Notifications");
+    setTextIfChanged(elements.inspectorSubtitle, "Unread panes and agent attention");
     const notifications = allAttentionPanels();
     if (notifications.length === 0) {
-      elements.inspectorBody.innerHTML = `<div class="empty-state">No panes need attention.</div>`;
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No panes need attention.";
+      replaceChildrenIfChanged(elements.inspectorBody, [empty]);
       return;
     }
-    elements.inspectorBody.replaceChildren(...notifications.map(({ workspace, panel }) => {
+    replaceChildrenIfChanged(elements.inspectorBody, notifications.map(({ workspace, panel }) => {
       const card = document.createElement("div");
       card.className = "notification-card";
       card.innerHTML = `
@@ -5555,10 +5565,14 @@ function renderInspector() {
       return card;
     }));
   } else if (state.inspectorMode === "settings") {
+    state.inspectorSignature = "settings";
     renderSettingsInspector({ ifChanged: true });
   } else {
-    elements.inspectorTitle.textContent = "Session";
-    elements.inspectorSubtitle.textContent = "Local Windows runtime";
+    const signature = inspectorContentSignature();
+    if (signature === state.inspectorSignature) return;
+    state.inspectorSignature = signature;
+    setTextIfChanged(elements.inspectorTitle, "Session");
+    setTextIfChanged(elements.inspectorSubtitle, "Local Windows runtime");
     const workspace = activeWorkspace();
     const cards = [
       ["Control pipe", state.data.pipeName || "Unavailable"],
@@ -5578,8 +5592,32 @@ function renderInspector() {
     reset.className = "notification-action";
     reset.textContent = "Reset current session";
     reset.onclick = () => resetSession();
-    elements.inspectorBody.replaceChildren(...nodes, reset);
+    replaceChildrenIfChanged(elements.inspectorBody, [...nodes, reset]);
   }
+}
+
+function inspectorContentSignature() {
+  if (state.inspectorMode === "notifications") {
+    return stableJson({
+      mode: "notifications",
+      notifications: allAttentionPanels().map(({ workspace, panel }) => ({
+        workspaceId: workspace.id,
+        workspaceTitle: workspace.title,
+        panelId: panel.id,
+        panelTitle: panel.title,
+        text: panel.notificationText
+      }))
+    });
+  }
+  const workspace = activeWorkspace();
+  return stableJson({
+    mode: state.inspectorMode || "",
+    pipeName: state.data?.pipeName || "",
+    ptyAvailable: Boolean(state.data?.ptyAvailable),
+    workspaceId: workspace?.id || "",
+    workspaceTitle: workspace?.title || "",
+    workspaceCwd: workspace?.cwd || ""
+  });
 }
 
 function renderSettingsInspector(options = {}) {
