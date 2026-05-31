@@ -39,7 +39,7 @@ workflow **artifact** — so no cross-repo write token is needed either.
 |---|---|
 | `panecho.release.entitlements`, `scripts/sign-panecho-bundle.sh`, `scripts/notarize-and-staple-panecho.sh` | **This public repo** (no secrets) |
 | Developer ID Application `.p12` + password | **Private repo secret** / Keychain only |
-| App Store Connect API key `.p8` + Key ID + Issuer ID | **Private repo secret** only |
+| Notarization credential: Apple ID + app-specific password (BrowserStack `AC_PASSWORD`) **or** an App Store Connect API key | **Private repo secret** only |
 
 ## Credential setup (in the PRIVATE repo)
 
@@ -47,16 +47,21 @@ The certificate-derived secrets (`APPLE_CERTIFICATE_BASE64`,
 `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`) come
 from BrowserStack's MacGap2 `build_assets` + known constants.
 
-The **notarization key** is the only credential that requires an Apple login —
-generate it in App Store Connect → Users and Access → Integrations → App Store
-Connect API (needs Admin), download the `.p8` (one-time download), and note the
-Key ID + Issuer ID:
+The **notarization credential** is the only Apple-account-bound secret. Two
+options — the signer/notarize scripts accept either:
 
-```bash
-base64 -i AuthKey_XXXXXXXXXX.p8 | gh secret set ASC_API_KEY_P8_BASE64 -R xxshubhamxx/panecho-signing
-printf '%s' 'YOUR_KEY_ID'    | gh secret set ASC_API_KEY_ID    -R xxshubhamxx/panecho-signing
-printf '%s' 'YOUR_ISSUER_ID' | gh secret set ASC_API_ISSUER_ID -R xxshubhamxx/panecho-signing
-```
+1. **Apple ID + app-specific password** (reuses BrowserStack's existing
+   `AC_PASSWORD` from MacGap2; no App Store Connect access needed):
+
+   ```bash
+   printf '%s' 'appleadp@bsstag.com' | gh secret set NOTARY_APPLE_ID -R xxshubhamxx/panecho-signing
+   printf '%s' 'xxxx-xxxx-xxxx-xxxx' | gh secret set NOTARY_PASSWORD -R xxshubhamxx/panecho-signing
+   printf '%s' 'YQ5FZQ855D'          | gh secret set NOTARY_TEAM_ID  -R xxshubhamxx/panecho-signing
+   ```
+
+2. **App Store Connect API key** (`.p8` + Key ID + Issuer ID) — set
+   `ASC_API_KEY_P8_BASE64`, `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID` instead.
+   The scripts prefer the API key if present, else fall back to (1).
 
 ## Local signing (alternative to the private repo)
 
@@ -68,7 +73,7 @@ gh release download <tag> -R xxshubhamxx/cmux-panecho -p '*macos.zip'
 ditto -x -k *macos.zip .                     # -> Panecho.app
 ./scripts/sign-panecho-bundle.sh Panecho.app panecho.release.entitlements \
   "Developer ID Application: Browserstack Inc (YQ5FZQ855D)"
-ASC_API_KEY_PATH=~/keys/AuthKey.p8 ASC_API_KEY_ID=XXXX ASC_API_ISSUER_ID=YYYY \
+NOTARY_APPLE_ID=appleadp@bsstag.com NOTARY_PASSWORD='xxxx-xxxx-xxxx-xxxx' NOTARY_TEAM_ID=YQ5FZQ855D \
   ./scripts/notarize-and-staple-panecho.sh Panecho.app \
   "Developer ID Application: Browserstack Inc (YQ5FZQ855D)"
 gh release upload <tag> Panecho.dmg panecho-macos.zip -R xxshubhamxx/cmux-panecho --clobber

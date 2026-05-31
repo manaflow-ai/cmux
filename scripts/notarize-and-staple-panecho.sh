@@ -7,18 +7,23 @@
 # Usage:
 #   scripts/notarize-and-staple-panecho.sh <signed-app-path> <signing-identity>
 #
-# Required env (provided by the private signing repo / self-hosted runner — NOT
-# stored in this public repo):
-#   ASC_API_KEY_PATH    path to the App Store Connect API key .p8 file
-#   ASC_API_KEY_ID      App Store Connect API Key ID
-#   ASC_API_ISSUER_ID   App Store Connect Issuer ID
+# Notarization credentials (provided by the private signing repo / self-hosted
+# runner — NEVER stored in this public repo). Use EITHER:
+#   App Store Connect API key:
+#     ASC_API_KEY_PATH   path to the .p8 key file
+#     ASC_API_KEY_ID     Key ID
+#     ASC_API_ISSUER_ID  Issuer ID
+#   -- or -- Apple ID + app-specific password (e.g. BrowserStack AC_PASSWORD):
+#     NOTARY_APPLE_ID    Apple ID (e.g. appleadp@bsstag.com)
+#     NOTARY_PASSWORD    app-specific password
+#     NOTARY_TEAM_ID     team id (YQ5FZQ855D)
 #
 # Outputs (in the current directory):
 #   Panecho.dmg         notarized + stapled disk image
 #   panecho-macos.zip   notarized app, stapled, re-zipped
 #
 # Prereqs: the app must ALREADY be signed with a Developer ID Application
-# identity + hardened runtime (run scripts/sign-cmux-bundle.sh first).
+# identity + hardened runtime (run scripts/sign-panecho-bundle.sh first).
 
 set -euo pipefail
 
@@ -37,15 +42,24 @@ if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
   exit 1
 fi
-: "${ASC_API_KEY_PATH:?set ASC_API_KEY_PATH to the .p8 key file}"
-: "${ASC_API_KEY_ID:?set ASC_API_KEY_ID}"
-: "${ASC_API_ISSUER_ID:?set ASC_API_ISSUER_ID}"
-if [[ ! -f "$ASC_API_KEY_PATH" ]]; then
-  echo "error: ASC_API_KEY_PATH file not found: $ASC_API_KEY_PATH" >&2
+# Notarization auth: prefer an App Store Connect API key if provided; otherwise
+# fall back to Apple-ID + app-specific password (e.g. the BrowserStack
+# AC_PASSWORD). Neither value is hardcoded; both come from the environment.
+if [[ -n "${ASC_API_KEY_PATH:-}" ]]; then
+  : "${ASC_API_KEY_ID:?set ASC_API_KEY_ID}"
+  : "${ASC_API_ISSUER_ID:?set ASC_API_ISSUER_ID}"
+  [[ -f "$ASC_API_KEY_PATH" ]] || { echo "error: ASC_API_KEY_PATH file not found: $ASC_API_KEY_PATH" >&2; exit 1; }
+  NOTARY=(--key "$ASC_API_KEY_PATH" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID")
+elif [[ -n "${NOTARY_APPLE_ID:-}" ]]; then
+  : "${NOTARY_PASSWORD:?set NOTARY_PASSWORD (app-specific password)}"
+  : "${NOTARY_TEAM_ID:?set NOTARY_TEAM_ID}"
+  NOTARY=(--apple-id "$NOTARY_APPLE_ID" --password "$NOTARY_PASSWORD" --team-id "$NOTARY_TEAM_ID")
+else
+  echo "error: provide notarization credentials via either:" >&2
+  echo "  ASC_API_KEY_PATH + ASC_API_KEY_ID + ASC_API_ISSUER_ID   (App Store Connect API key), or" >&2
+  echo "  NOTARY_APPLE_ID + NOTARY_PASSWORD + NOTARY_TEAM_ID       (Apple ID + app-specific password)" >&2
   exit 1
 fi
-
-NOTARY=(--key "$ASC_API_KEY_PATH" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID")
 
 submit_and_wait() {
   # $1 = file to notarize. Submits, waits, fails (and dumps the log) unless Accepted.

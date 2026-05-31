@@ -24,7 +24,8 @@
 #   CMUX_TIMESTAMP            set to "none" for un-timestamped local sigs
 #
 # Signs in Apple's inside-out order: CLI helpers -> plugins -> frameworks ->
-# main bundle (no --deep on main, to preserve nested signatures).
+# bundled remote-daemon Mach-O binaries -> main bundle (no --deep on main, to
+# preserve nested signatures). Asserts no unsigned Mach-O remains before exit.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -86,6 +87,19 @@ if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
   done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
 fi
 
+# 3b. Bundled remote-daemon binaries (Contents/Resources/remote-daemons/...).
+#     darwin builds are Mach-O and MUST be Developer ID signed + hardened +
+#     timestamped or notarization rejects the whole archive. linux builds are
+#     ELF -- skip (codesign cannot sign ELF; Apple ignores non-Mach-O).
+if [[ -d "$APP_PATH/Contents/Resources/remote-daemons" ]]; then
+  while IFS= read -r -d '' bin; do
+    if /usr/bin/file "$bin" | grep -q "Mach-O"; then
+      echo "==> signing remote-daemon $(basename "$(dirname "$bin")")/$(basename "$bin")"
+      /usr/bin/codesign "${COMMON[@]}" "$bin"
+    fi
+  done < <(find "$APP_PATH/Contents/Resources/remote-daemons" -type f -print0)
+fi
+
 # 4. Main app bundle (no --deep).
 echo "==> signing main bundle"
 /usr/bin/codesign "${COMMON[@]}" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
@@ -104,6 +118,23 @@ for helper in "$APP_PATH/Contents/Resources/bin"/*; do
     exit 1
   fi
 done
+
+# Final guard: notarization rejects ANY unsigned/adhoc Mach-O in the bundle
+# (codesign --verify --deep does NOT catch loose Mach-O resources like the
+# remote daemons). Fail here, fast, instead of after a multi-minute round-trip.
+# NB: capture codesign output to a variable first — piping it into `grep -q`
+# triggers SIGPIPE on codesign under `pipefail`, which corrupts the exit status.
+echo "==> checking every Mach-O is signed"
+UNSIGNED=0
+while IFS= read -r -d '' f; do
+  /usr/bin/file "$f" 2>/dev/null | grep -q "Mach-O" || continue
+  status="$(/usr/bin/codesign -dvv "$f" 2>&1 || true)"
+  if grep -qE "Signature=adhoc|not signed at all|is not signed" <<<"$status"; then
+    echo "error: unsigned/adhoc Mach-O: ${f#"$APP_PATH"/}" >&2
+    UNSIGNED=1
+  fi
+done < <(find "$APP_PATH" -type f -print0)
+[[ "$UNSIGNED" -eq 0 ]] || { echo "error: bundle has unsigned Mach-O (would fail notarization)" >&2; exit 1; }
 
 echo "==> signing OK: $APP_PATH"
 echo "    identity: $IDENTITY"
