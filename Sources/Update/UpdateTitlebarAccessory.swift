@@ -401,6 +401,56 @@ func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFl
     max(14, config.iconSize + 1)
 }
 
+/// Width of a titlebar shortcut-hint pill, measured with the same font `ShortcutHintPill`
+/// renders with (SF Rounded at the pill's font size). Measuring with the default
+/// (non-rounded) system font underestimated command-symbol glyphs and let the pill
+/// overflow its reserved slot. The `+ 12` matches the pill's 6pt horizontal padding per side.
+func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
+    let pillFontSize = max(8, config.iconSize - 5)
+    let baseFont = NSFont.systemFont(ofSize: pillFontSize, weight: .semibold)
+    let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
+        .flatMap { NSFont(descriptor: $0, size: pillFontSize) } ?? baseFont
+    let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
+    return ceil(textWidth) + 12
+}
+
+/// The rightmost edge the shortcut-hint pills occupy, in the controls' content
+/// coordinate space (measured from the leading edge of the button row), after the
+/// horizontal planner resolves overlaps.
+///
+/// This mirrors `TitlebarControlsView.titlebarHintIntervals` and the
+/// `ShortcutHintHorizontalPlanner` so the accessory reserves exactly enough width for
+/// the real layout. It is computed unconditionally for every command-bound slot (not
+/// gated on modifier state) so the reserved width stays stable whether or not the hints
+/// are currently visible. Returns 0 when no slot would show a hint.
+func titlebarHintLayoutRightmostExtent(
+    config: TitlebarControlsStyleConfig,
+    titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
+) -> CGFloat {
+    let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
+    var intervals: [ClosedRange<CGFloat>] = []
+    for slot in TitlebarShortcutHintActionSlot.allCases {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+        guard !shortcut.isUnbound, shortcut.command else { continue }
+        let width = titlebarHintPillWidth(for: shortcut, config: config)
+        let index = CGFloat(slot.rawValue)
+        let buttonRightEdge = (index + 1) * config.buttonSize + index * config.spacing
+        let rightEdge = config.groupPadding.leading
+            + buttonRightEdge
+            + xOffset
+            + TitlebarControlsLayoutMetrics.hintRightSafetyShift
+            + TitlebarControlsLayoutMetrics.hintBaseXShift
+        intervals.append((rightEdge - width)...rightEdge)
+    }
+    guard !intervals.isEmpty else { return 0 }
+    let assignedRightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(
+        for: intervals,
+        minSpacing: 6,
+        minLeadingEdge: config.groupPadding.leading
+    )
+    return assignedRightEdges.max() ?? 0
+}
+
 enum TitlebarShortcutHintMetrics {
     static let verticalGap: CGFloat = -3
 }
@@ -438,6 +488,15 @@ enum TitlebarControlsLayoutMetrics {
     static let hintRightSafetyShift: CGFloat = 10
     static let hintTrailingBaseInset: CGFloat = 8
     static let trafficLightGap: CGFloat = 2
+    /// Constant X shift applied to every hint's right edge in the view's layout. Must
+    /// match `TitlebarControlsView.titlebarHintBaseXShift` so the reserved width matches
+    /// the rendered positions.
+    static let hintBaseXShift: CGFloat = -10
+    /// Leading inset the controls content sits at inside the accessory; must match the
+    /// `.padding(.leading, …)` applied to `controlsGroup` in the view body.
+    static let hintLeadingPadding: CGFloat = 4
+    /// Extra trailing room past the rightmost pill for its capsule stroke and shadow.
+    static let hintShadowMargin: CGFloat = 4
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -455,12 +514,24 @@ enum TitlebarControlsLayoutMetrics {
         config: TitlebarControlsStyleConfig,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
     ) -> NSSize {
-        NSSize(
-            width: outerLeadingPadding
-                + config.groupPadding.leading
-                + buttonRowWidth(config: config)
-                + config.groupPadding.trailing
-                + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset),
+        // Two width requirements; reserve the larger so neither the buttons nor the
+        // shortcut hints are clipped by the accessory's allocated frame.
+        let buttonReservation = outerLeadingPadding
+            + config.groupPadding.leading
+            + buttonRowWidth(config: config)
+            + config.groupPadding.trailing
+            + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
+        // Drive the reservation from the planner's actual rightmost hint edge so the
+        // overlap-shift the planner applies (which the fixed inset above ignores) is
+        // always covered. This is what prevents the rightmost pill from clipping.
+        let hintReservation = hintLeadingPadding
+            + titlebarHintLayoutRightmostExtent(
+                config: config,
+                titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
+            )
+            + hintShadowMargin
+        return NSSize(
+            width: max(buttonReservation, hintReservation),
             height: max(
                 WindowChromeMetrics.appTitlebarHeight,
                 config.groupPadding.top + config.buttonSize + config.groupPadding.bottom
@@ -751,7 +822,7 @@ struct TitlebarControlsView: View {
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
-    private let titlebarHintBaseXShift: CGFloat = -10
+    private let titlebarHintBaseXShift: CGFloat = TitlebarControlsLayoutMetrics.hintBaseXShift
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
@@ -790,7 +861,7 @@ struct TitlebarControlsView: View {
         controlsGroup(config: config, foregroundColor: foregroundColor)
             .padding(.top, -1)
             .padding(.bottom, 1)
-            .padding(.leading, 4)
+            .padding(.leading, TitlebarControlsLayoutMetrics.hintLeadingPadding)
             .padding(.trailing, titlebarHintTrailingInset)
             .frame(width: contentSize.width, height: contentSize.height, alignment: .leading)
             .fixedSize()
@@ -1049,9 +1120,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
-        let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: font]).width
-        return ceil(textWidth) + 12
+        titlebarHintPillWidth(for: shortcut, config: config)
     }
 
     private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
