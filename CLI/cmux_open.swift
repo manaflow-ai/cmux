@@ -310,6 +310,12 @@ extension CMUXCLI {
     private struct DiffViewerURLMapper {
         static let scheme = "cmux-diff-viewer"
         static let sessionHistoryMarker = "cmux-diff-viewer"
+
+        enum Transport {
+            case http
+            case appScheme
+        }
+
         private static let requestPathAllowedCharacters: CharacterSet = {
             var characters = CharacterSet.urlPathAllowed
             characters.remove(charactersIn: "/?#%")
@@ -318,19 +324,36 @@ extension CMUXCLI {
 
         var token: String
         var rootDirectory: URL
-        var origin: URL
+        var origin: URL?
+        var transport: Transport = .http
 
         func viewerURL(for fileURL: URL) throws -> URL {
-            guard var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) else {
-                throw CLIError(message: "Failed to build diff viewer URL")
+            let requestPath = try requestPath(for: fileURL)
+            switch transport {
+            case .http:
+                guard let origin,
+                      var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) else {
+                    throw CLIError(message: "Failed to build diff viewer URL")
+                }
+                components.percentEncodedPath = "/\(token)\(requestPath)"
+                components.query = nil
+                components.fragment = Self.sessionHistoryMarker
+                guard let url = components.url else {
+                    throw CLIError(message: "Failed to build diff viewer URL")
+                }
+                return url
+            case .appScheme:
+                var components = URLComponents()
+                components.scheme = Self.scheme
+                components.host = token
+                components.percentEncodedPath = requestPath
+                components.query = nil
+                components.fragment = nil
+                guard let url = components.url else {
+                    throw CLIError(message: "Failed to build diff viewer URL")
+                }
+                return url
             }
-            components.percentEncodedPath = "/\(token)\(try requestPath(for: fileURL))"
-            components.query = nil
-            components.fragment = Self.sessionHistoryMarker
-            guard let url = components.url else {
-                throw CLIError(message: "Failed to build diff viewer URL")
-            }
-            return url
         }
 
         func allowedFile(fileURL: URL, mimeType: String) throws -> DiffViewerAllowedFile {
@@ -832,7 +855,7 @@ extension CMUXCLI {
             branchBaseRef: parsedArgs.branchBase
         )
         if let cwd = parsedArgs.cwd {
-            diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
+            diffSourceContext.repoRoot = resolvePath(cwd)
         }
         if parsedArgs.source != nil {
             try resolveTargetIfNeeded()
@@ -3118,8 +3141,8 @@ extension CMUXCLI {
         context: DiffSourceContext,
         runtime: URL?
     ) throws -> DiffViewerWriteResult {
-        let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
         if selectedSource != .lastTurn {
+            let target = try makeDiffViewerGitOpeningHTMLSetTarget(runtime: runtime)
             return try writeOpeningGitDiffViewerHTMLSet(
                 selectedSource: selectedSource,
                 titleOverride: titleOverride,
@@ -3130,6 +3153,7 @@ extension CMUXCLI {
                 target: target
             )
         }
+        let target = try makeDiffViewerGitHTMLSetTarget(runtime: runtime)
         return try writeCompleteGitDiffViewerHTMLSet(
             selectedSource: selectedSource,
             titleOverride: titleOverride,
@@ -3138,6 +3162,39 @@ extension CMUXCLI {
             appearance: appearance,
             context: context,
             target: target
+        )
+    }
+
+    private func makeDiffViewerGitOpeningHTMLSetTarget(runtime: URL?) throws -> DiffViewerGitHTMLSetTarget {
+        let directory = try diffViewerDirectory()
+        let mapper = DiffViewerURLMapper(
+            token: UUID().uuidString.lowercased(),
+            rootDirectory: directory,
+            origin: nil,
+            transport: .appScheme
+        )
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let groupID = "\(timestamp)-\(UUID().uuidString.prefix(8))"
+        return DiffViewerGitHTMLSetTarget(directory: directory, mapper: mapper, groupID: groupID, runtime: runtime)
+    }
+
+    private func makeDiffViewerGitCompletionHTMLSetTarget(
+        openingTarget: DiffViewerGitHTMLSetTarget
+    ) throws -> DiffViewerGitHTMLSetTarget {
+        let origin = try diffViewerHTTPServerOrigin(
+            rootDirectory: openingTarget.directory,
+            runtime: openingTarget.runtime
+        )
+        let mapper = DiffViewerURLMapper(
+            token: UUID().uuidString.lowercased(),
+            rootDirectory: openingTarget.directory,
+            origin: origin
+        )
+        return DiffViewerGitHTMLSetTarget(
+            directory: openingTarget.directory,
+            mapper: mapper,
+            groupID: openingTarget.groupID,
+            runtime: openingTarget.runtime
         )
     }
 
@@ -3174,7 +3231,6 @@ extension CMUXCLI {
         let directory = target.directory
         let mapper = target.mapper
         let groupID = target.groupID
-        let repoRoot = try gitRepoRootForDiff(context)
         let openingFileURL = directory.appendingPathComponent(
             "diff-\(groupID)-opening.html",
             isDirectory: false
@@ -3183,33 +3239,25 @@ extension CMUXCLI {
         let sourceLabel = "git \(selectedSource.slug)"
         let title = titleOverride ?? selectedSource.title
         let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
-        try writeDiffViewerStatusHTML(
+        try writeDiffViewerOpeningStatusHTML(
             to: openingFileURL,
             title: title,
             sourceLabel: sourceLabel,
             message: message,
-            isError: false,
-            pollForReplacement: true,
             layout: layout,
-            layoutSource: layoutSource,
-            appearance: appearance,
-            sourceOptions: [],
-            repoOptions: [],
-            baseOptions: [],
-            repoRoot: repoRoot,
-            branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
-            runtime: target.runtime
+            appearance: appearance
         )
-        let assets = try ensureDiffViewerAssets(nextTo: openingFileURL, runtime: target.runtime)
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [openingFileURL],
-            assets: assets,
+            assets: DiffViewerAssets(
+                appModuleURL: "",
+                diffsModuleURL: "",
+                treesModuleURL: "",
+                workerPoolModuleURL: "",
+                workerModuleURL: "",
+                files: []
+            ),
             mapper: mapper
-        )
-        try writeDiffViewerHTTPManifest(
-            token: mapper.token,
-            files: allowedFiles,
-            rootDirectory: directory
         )
 
         let responseInput = DiffInput(
@@ -3227,6 +3275,7 @@ extension CMUXCLI {
             allowedFiles: allowedFiles,
             completeDeferred: { [self] in
                 do {
+                    let completionTarget = try makeDiffViewerGitCompletionHTMLSetTarget(openingTarget: target)
                     let completed = try writeCompleteGitDiffViewerHTMLSet(
                         selectedSource: selectedSource,
                         titleOverride: titleOverride,
@@ -3234,40 +3283,49 @@ extension CMUXCLI {
                         layoutSource: layoutSource,
                         appearance: appearance,
                         context: context,
-                        target: target,
-                        extraAllowedPageURL: openingFileURL
+                        target: completionTarget
                     )
                     var finalized = completed
 
                     var completedPageURLs = Set<URL>()
                     do {
-                        if let selectedCompletion = try completeDeferredDiffViewerSelectedSource(
+                        guard let selectedCompletion = try completeDeferredDiffViewerSelectedSource(
                             completed.deferredSourceSet,
                             selectedURL: completed.fileURL
-                        ) {
-                            completedPageURLs.formUnion(selectedCompletion.completedPageURLs)
-                            finalized.fileURL = selectedCompletion.fileURL
-                            finalized.url = selectedCompletion.viewerURL
-                            finalized.input = selectedCompletion.input
-                            finalized.title = titleOverride ?? selectedCompletion.input.defaultTitle
+                        ) else {
+                            throw CLIError(message: "Failed to finish diff viewer")
                         }
+                        completedPageURLs.formUnion(selectedCompletion.completedPageURLs)
+                        try writeDiffViewerEmbeddedHTML(
+                            to: openingFileURL,
+                            title: titleOverride ?? selectedCompletion.input.defaultTitle,
+                            targetURL: selectedCompletion.viewerURL,
+                            appearance: appearance
+                        )
+                        finalized.fileURL = selectedCompletion.fileURL
+                        finalized.url = selectedCompletion.viewerURL
+                        finalized.input = selectedCompletion.input
+                        finalized.title = titleOverride ?? selectedCompletion.input.defaultTitle
                     } catch {
-                        try? writeDiffViewerRedirectHTML(
+                        try? writeDiffViewerStatusHTML(
                             to: openingFileURL,
                             title: title,
-                            targetURL: completed.url,
+                            sourceLabel: sourceLabel,
+                            message: diffViewerErrorMessage(error),
+                            isError: true,
+                            pollForReplacement: false,
+                            layout: layout,
+                            layoutSource: layoutSource,
                             appearance: appearance,
+                            sourceOptions: [],
+                            repoOptions: [],
+                            baseOptions: [],
+                            repoRoot: context.repoRoot,
+                            branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
                             runtime: target.runtime
                         )
                         throw error
                     }
-                    try writeDiffViewerRedirectHTML(
-                        to: openingFileURL,
-                        title: finalized.title,
-                        targetURL: finalized.url,
-                        appearance: appearance,
-                        runtime: target.runtime
-                    )
                     _ = try completeDeferredDiffViewerSources(
                         completed.deferredSourceSet,
                         selectedURL: completed.fileURL,
@@ -3289,7 +3347,7 @@ extension CMUXCLI {
                         sourceOptions: [],
                         repoOptions: [],
                         baseOptions: [],
-                        repoRoot: repoRoot,
+                        repoRoot: context.repoRoot,
                         branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil,
                         runtime: target.runtime
                     )
@@ -5544,34 +5602,246 @@ extension CMUXCLI {
         )
     }
 
-    private func writeDiffViewerRedirectHTML(
+    private func writeDiffViewerOpeningStatusHTML(
+        to viewerURL: URL,
+        title: String,
+        sourceLabel: String,
+        message: String,
+        layout: String,
+        appearance: DiffViewerAppearance
+    ) throws {
+        try writeDiffViewerPatchSidecar("", for: viewerURL)
+        let labels = DiffViewerLabels.localized()
+        let escapedTitle = htmlEscaped(title)
+        let escapedSourceLabel = htmlEscaped(sourceLabel)
+        let escapedMessage = htmlEscaped(message)
+        let renderFailedLabel = try jsonStringLiteral(labels["renderFailed"])
+        let lightBackground = htmlEscaped(appearance.lightTheme.background)
+        let lightForeground = htmlEscaped(appearance.lightTheme.foreground)
+        let lightBorder = htmlEscaped(appearance.lightTheme.selectionBackground)
+        let darkBackground = htmlEscaped(appearance.darkTheme.background)
+        let darkForeground = htmlEscaped(appearance.darkTheme.foreground)
+        let darkBorder = htmlEscaped(appearance.darkTheme.selectionBackground)
+        let fontFamily = try jsonStringLiteral(appearance.fontFamily)
+        let fontSize = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), appearance.fontSize)
+        let escapedLayout = htmlEscaped(layout)
+        let html = """
+        <!doctype html>
+        <html data-cmux-diff-pending="true">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>\(escapedTitle)</title>
+          <style>
+            :root { color-scheme: dark light; }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              min-height: 100vh;
+              background: \(lightBackground);
+              color: \(lightForeground);
+              font: \(fontSize)px \(fontFamily), -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+            }
+            #toolbar {
+              min-height: 44px;
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 0 16px;
+              border-bottom: 1px solid \(lightBorder);
+            }
+            #viewer {
+              min-height: calc(100vh - 44px);
+              display: grid;
+              place-items: center;
+              padding: 32px;
+            }
+            body[data-cmux-diff-embedded="true"] {
+              overflow: hidden;
+            }
+            #diff-viewer-frame {
+              display: block;
+              width: 100vw;
+              height: 100vh;
+              border: 0;
+              background: \(lightBackground);
+            }
+            #status {
+              max-width: 680px;
+              display: flex;
+              align-items: center;
+              gap: 14px;
+              color: inherit;
+              opacity: 0.88;
+            }
+            #spinner {
+              width: 22px;
+              height: 22px;
+              border-radius: 50%;
+              border: 2px solid rgba(128, 128, 128, 0.35);
+              border-top-color: currentColor;
+              animation: spin 0.8s linear infinite;
+              flex: 0 0 auto;
+            }
+            #title {
+              font-weight: 600;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            #source {
+              opacity: 0.62;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            @media (prefers-color-scheme: dark) {
+              body {
+                background: \(darkBackground);
+                color: \(darkForeground);
+              }
+              #toolbar {
+                border-bottom-color: \(darkBorder);
+              }
+            }
+          </style>
+        </head>
+        <body data-status-only="true" data-layout="\(escapedLayout)">
+          <div id="toolbar">
+            <div id="title">\(escapedTitle)</div>
+            <div id="source">\(escapedSourceLabel)</div>
+          </div>
+          <main id="viewer">
+            <div id="status" data-pending="true">
+              <div id="spinner" aria-hidden="true"></div>
+              <div>\(escapedMessage)</div>
+            </div>
+          </main>
+          <script>
+            const renderFailedLabel = \(renderFailedLabel);
+            function trustedEmbeddedURL(rawURL) {
+              if (!rawURL) { return null; }
+              try {
+                const url = new URL(rawURL);
+                if (url.protocol === "http:" && url.hostname === "127.0.0.1") {
+                  return url.href;
+                }
+              } catch {}
+              return null;
+            }
+            function embeddedViewerURLFrom(text) {
+              const parsed = new DOMParser().parseFromString(text, "text/html");
+              const marker = parsed.querySelector("[data-cmux-diff-embed-url]");
+              return trustedEmbeddedURL(marker?.getAttribute("data-cmux-diff-embed-url"));
+            }
+            function restartScripts() {
+              for (const inertScript of Array.from(document.scripts)) {
+                const script = document.createElement("script");
+                for (const attribute of Array.from(inertScript.attributes)) {
+                  script.setAttribute(attribute.name, attribute.value);
+                }
+                script.text = inertScript.text;
+                inertScript.replaceWith(script);
+              }
+            }
+            function replaceDocumentWith(text) {
+              const parsed = new DOMParser().parseFromString(text, "text/html");
+              document.title = parsed.title || document.title;
+              for (const attribute of Array.from(document.documentElement.attributes)) {
+                document.documentElement.removeAttribute(attribute.name);
+              }
+              for (const attribute of Array.from(parsed.documentElement.attributes)) {
+                document.documentElement.setAttribute(attribute.name, attribute.value);
+              }
+              document.head.replaceChildren(...Array.from(parsed.head.childNodes).map((node) => document.importNode(node, true)));
+              document.body.replaceWith(document.importNode(parsed.body, true));
+              restartScripts();
+            }
+            function showEmbeddedViewer(targetURL) {
+              document.documentElement.removeAttribute("data-cmux-diff-pending");
+              document.documentElement.dataset.cmuxDiffReady = "true";
+              document.body.dataset.cmuxDiffEmbedded = "true";
+              document.body.replaceChildren();
+              const frame = document.createElement("iframe");
+              frame.id = "diff-viewer-frame";
+              frame.src = targetURL;
+              frame.title = document.title;
+              frame.referrerPolicy = "no-referrer";
+              document.body.append(frame);
+            }
+            function showFailure() {
+              document.documentElement.dataset.cmuxDiffWait = "failed";
+              const spinner = document.getElementById("spinner");
+              spinner?.remove();
+              const status = document.getElementById("status");
+              if (status) {
+                status.dataset.error = "true";
+                status.textContent = renderFailedLabel;
+              }
+            }
+            async function waitForReplacement() {
+              try {
+                const response = await fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" });
+                const text = await response.text();
+                if (!response.ok || text.includes("data-cmux-diff-pending=\\"true\\"")) {
+                  showFailure();
+                  return;
+                }
+                const embeddedURL = embeddedViewerURLFrom(text);
+                if (embeddedURL) {
+                  showEmbeddedViewer(embeddedURL);
+                } else {
+                  replaceDocumentWith(text);
+                }
+              } catch {
+                showFailure();
+              }
+            }
+            waitForReplacement();
+          </script>
+        </body>
+        </html>
+        """
+        try html.write(to: viewerURL, atomically: true, encoding: .utf8)
+    }
+
+    private func writeDiffViewerEmbeddedHTML(
         to viewerURL: URL,
         title: String,
         targetURL: URL,
-        appearance: DiffViewerAppearance,
-        runtime: URL? = nil
+        appearance: DiffViewerAppearance
     ) throws {
         try writeDiffViewerPatchSidecar("", for: viewerURL)
-        _ = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let target = targetURL.absoluteString
-        let targetLiteral = try jsonStringLiteral(target)
         let escapedTitle = htmlEscaped(title)
         let escapedTarget = htmlEscaped(target)
         let prepaintStyle = diffViewerPrepaintStyle(appearance: appearance)
         let html = """
         <!doctype html>
-        <html>
+        <html data-cmux-diff-embedded="true">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
-          <meta http-equiv="refresh" content="0;url=\(escapedTarget)">
           <title>\(escapedTitle)</title>
           \(prepaintStyle)
+          <style>
+            html, body {
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+            }
+            #diff-viewer-frame {
+              display: block;
+              width: 100vw;
+              height: 100vh;
+              border: 0;
+              background: transparent;
+            }
+          </style>
         </head>
-        <body data-cmux-diff-redirect="\(escapedTarget)">
-          <script>
-            window.location.replace(\(targetLiteral));
-          </script>
+        <body data-cmux-diff-embedded="true" data-cmux-diff-embed-url="\(escapedTarget)">
+          <iframe id="diff-viewer-frame" src="\(escapedTarget)" title="\(escapedTitle)" referrerpolicy="no-referrer"></iframe>
         </body>
         </html>
         """

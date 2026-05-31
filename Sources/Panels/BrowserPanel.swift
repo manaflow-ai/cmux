@@ -2559,6 +2559,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
     static let maxRegisteredFiles = 1024
+    private static let replacementWaitPrefix = "/__cmux_diff_viewer_wait/"
+    private static let pendingReplacementMarker = Data("data-cmux-diff-pending=\"true\"".utf8)
+    private static let replacementWaitTimeout: TimeInterval = 120
 
     struct RegisteredFile {
         let requestPath: String
@@ -2576,6 +2579,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let condition = NSCondition()
         var isStopped = false
         var callbacksInFlight = 0
+        var replacementWaitFinished = false
+        var replacementWatcher: DispatchSourceFileSystemObject?
+        var replacementTimeout: DispatchSourceTimer?
     }
 
     private let lock = NSLock()
@@ -2659,8 +2665,17 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let requestURL = urlSchemeTask.request.url,
-              let file = registeredFile(for: requestURL) else {
+        guard let requestURL = urlSchemeTask.request.url else {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
+            return
+        }
+
+        if let file = registeredReplacementWaitFile(for: requestURL) {
+            startStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask, waitForReplacement: true)
+            return
+        }
+
+        guard let file = registeredFile(for: requestURL) else {
             urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
             return
         }
@@ -2808,6 +2823,33 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return requestPath
     }
 
+    private func registeredReplacementWaitFile(for url: URL, now: Date = Date()) -> RegisteredFile? {
+        guard url.scheme == Self.scheme,
+              let token = url.host,
+              url.query == nil,
+              url.fragment == nil,
+              Self.isValidToken(token) else {
+            return nil
+        }
+        let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        guard rawPath.hasPrefix(Self.replacementWaitPrefix) else {
+            return nil
+        }
+        let targetPath = "/" + String(rawPath.dropFirst(Self.replacementWaitPrefix.count))
+        guard Self.isValidRequestPath(targetPath) else {
+            return nil
+        }
+
+        lock.lock()
+        pruneExpiredSessionsLocked(now: now)
+        let file = sessions[token]?.filesByPath[targetPath]
+        lock.unlock()
+        guard file?.mimeType == "text/html" else {
+            return nil
+        }
+        return file
+    }
+
     private static func isAllowedMimeType(_ mimeType: String) -> Bool {
         mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
     }
@@ -2828,7 +2870,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private func startStreamingFile(
         _ file: RegisteredFile,
         requestURL: URL,
-        urlSchemeTask: WKURLSchemeTask
+        urlSchemeTask: WKURLSchemeTask,
+        waitForReplacement: Bool = false
     ) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
         let state = SchemeTaskState()
@@ -2836,6 +2879,24 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         activeSchemeTasks[taskID] = state
         lock.unlock()
 
+        if waitForReplacement {
+            startWaitingForReplacement(
+                file,
+                requestURL: requestURL,
+                urlSchemeTask: urlSchemeTask,
+                taskID: taskID
+            )
+        } else {
+            enqueueStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask, taskID: taskID)
+        }
+    }
+
+    private func enqueueStreamingFile(
+        _ file: RegisteredFile,
+        requestURL: URL,
+        urlSchemeTask: WKURLSchemeTask,
+        taskID: ObjectIdentifier
+    ) {
         streamQueue.async { [weak self] in
             guard let self else { return }
             do {
@@ -2880,6 +2941,134 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 }) else { return }
                 self.finishSchemeTask(taskID)
             }
+        }
+    }
+
+    private func startWaitingForReplacement(
+        _ file: RegisteredFile,
+        requestURL: URL,
+        urlSchemeTask: WKURLSchemeTask,
+        taskID: ObjectIdentifier
+    ) {
+        guard isSchemeTaskActive(taskID) else { return }
+        guard diffViewerReplacementIsPending(file.fileURL) else {
+            enqueueStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask, taskID: taskID)
+            return
+        }
+
+        let fd = open(file.fileURL.path, O_EVTONLY)
+        guard fd >= 0 else {
+            failSchemeTask(taskID, urlSchemeTask: urlSchemeTask, errorCode: NSURLErrorFileDoesNotExist)
+            return
+        }
+
+        let watcher = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend, .attrib, .delete, .rename],
+            queue: streamQueue
+        )
+        let timeout = DispatchSource.makeTimerSource(queue: streamQueue)
+
+        watcher.setEventHandler { [weak self, weak watcher, weak timeout] in
+            guard let self else { return }
+            guard !self.diffViewerReplacementIsPending(file.fileURL) else { return }
+            guard self.finishReplacementWait(taskID, watcher: watcher, timeout: timeout) else { return }
+            self.enqueueStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask, taskID: taskID)
+        }
+        watcher.setCancelHandler {
+            close(fd)
+        }
+        timeout.setEventHandler { [weak self, weak watcher, weak timeout] in
+            guard let self else { return }
+            guard self.finishReplacementWait(taskID, watcher: watcher, timeout: timeout) else { return }
+            self.failSchemeTask(taskID, urlSchemeTask: urlSchemeTask, errorCode: NSURLErrorTimedOut)
+        }
+        timeout.schedule(deadline: .now() + Self.replacementWaitTimeout)
+
+        guard storeReplacementWaitSources(taskID, watcher: watcher, timeout: timeout) else {
+            watcher.cancel()
+            watcher.resume()
+            timeout.cancel()
+            timeout.resume()
+            return
+        }
+        watcher.resume()
+        timeout.resume()
+
+        guard !diffViewerReplacementIsPending(file.fileURL) else { return }
+        guard finishReplacementWait(taskID, watcher: watcher, timeout: timeout) else { return }
+        enqueueStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask, taskID: taskID)
+    }
+
+    private func diffViewerReplacementIsPending(_ fileURL: URL) -> Bool {
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return true
+        }
+        return data.range(of: Self.pendingReplacementMarker) != nil
+    }
+
+    private func storeReplacementWaitSources(
+        _ taskID: ObjectIdentifier,
+        watcher: DispatchSourceFileSystemObject,
+        timeout: DispatchSourceTimer
+    ) -> Bool {
+        lock.lock()
+        let state = activeSchemeTasks[taskID]
+        lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        guard !state.isStopped else {
+            state.condition.unlock()
+            return false
+        }
+        state.replacementWatcher = watcher
+        state.replacementTimeout = timeout
+        state.condition.unlock()
+        return true
+    }
+
+    private func finishReplacementWait(
+        _ taskID: ObjectIdentifier,
+        watcher suppliedWatcher: DispatchSourceFileSystemObject?,
+        timeout suppliedTimeout: DispatchSourceTimer?
+    ) -> Bool {
+        lock.lock()
+        let state = activeSchemeTasks[taskID]
+        lock.unlock()
+        guard let state else { return false }
+
+        let watcher: DispatchSourceFileSystemObject?
+        let timeout: DispatchSourceTimer?
+        state.condition.lock()
+        guard !state.isStopped,
+              !state.replacementWaitFinished else {
+            state.condition.unlock()
+            return false
+        }
+        state.replacementWaitFinished = true
+        watcher = state.replacementWatcher ?? suppliedWatcher
+        timeout = state.replacementTimeout ?? suppliedTimeout
+        state.replacementWatcher = nil
+        state.replacementTimeout = nil
+        state.condition.unlock()
+
+        watcher?.cancel()
+        timeout?.cancel()
+        return true
+    }
+
+    private func failSchemeTask(
+        _ taskID: ObjectIdentifier,
+        urlSchemeTask: WKURLSchemeTask,
+        errorCode: Int
+    ) {
+        streamQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.performSchemeTaskCallback(taskID, {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: errorCode))
+            }) else { return }
+            self.finishSchemeTask(taskID)
         }
     }
 
@@ -2931,12 +3120,21 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         lock.unlock()
         guard let state else { return }
 
+        let watcher: DispatchSourceFileSystemObject?
+        let timeout: DispatchSourceTimer?
         state.condition.lock()
         state.isStopped = true
+        watcher = state.replacementWatcher
+        timeout = state.replacementTimeout
+        state.replacementWatcher = nil
+        state.replacementTimeout = nil
         while state.callbacksInFlight > 0 {
             state.condition.wait()
         }
         state.condition.unlock()
+
+        watcher?.cancel()
+        timeout?.cancel()
     }
 
     private static func fileSize(for url: URL) -> Int {
@@ -2972,6 +3170,8 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 "style-src 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",
+                "frame-src http://127.0.0.1:*",
+                "child-src http://127.0.0.1:*",
                 "font-src 'none'",
                 "object-src 'none'",
                 "base-uri 'none'",
