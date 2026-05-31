@@ -84,9 +84,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     }
 
     func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
-        try withRegisteredMoveContext { app, _, manager in
-            let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-            try replaceFocusedTerminalWithLightweightPanel(in: sourceWorkspace)
+        try withRegisteredLightweightMoveContext { app, _, manager, sourceWorkspace in
             let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
             let browserPanel = LightweightMovePanel(
                 panelType: .browser,
@@ -192,6 +190,37 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         try body(app, windowId, manager)
     }
 
+    private func withRegisteredLightweightMoveContext(
+        _ body: (AppDelegate, UUID, TabManager, Workspace) throws -> Void
+    ) throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager(debugCreateInitialWorkspace: false)
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer {
+            teardownTabManagerForTesting(manager)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            drainMainActorTasksForTesting()
+        }
+
+        let terminalPanel = LightweightMovePanel(
+            panelType: .terminal,
+            displayTitle: "Terminal",
+            displayIcon: "terminal.fill",
+            preferredFocusIntent: .terminal(.surface)
+        )
+        let sourceWorkspace = try XCTUnwrap(manager.addWorkspace(
+            fromDetachedSurface: makeLightweightDetachedSurfaceTransfer(
+                panel: terminalPanel,
+                kind: Workspace.SurfaceKind.terminal
+            ),
+            title: "Terminal",
+            select: true
+        ))
+
+        try body(app, windowId, manager, sourceWorkspace)
+    }
+
     private func teardownTabManagerForTesting(_ manager: TabManager) {
         for workspace in Array(manager.tabs) {
             workspace.teardownAllPanels()
@@ -228,19 +257,36 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         return tabId.uuid
     }
 
-    private func replaceFocusedTerminalWithLightweightPanel(in workspace: Workspace) throws {
-        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        let terminalPanelId = terminalPanel.id
-        terminalPanel.close()
-        let lightweightTerminal = LightweightMovePanel(
-            id: terminalPanelId,
-            panelType: .terminal,
-            displayTitle: terminalPanel.displayTitle,
-            displayIcon: terminalPanel.displayIcon,
-            preferredFocusIntent: .terminal(.surface)
+    private func makeLightweightDetachedSurfaceTransfer(
+        panel: LightweightMovePanel,
+        kind: String,
+        sourceWorkspaceId: UUID = UUID()
+    ) -> Workspace.DetachedSurfaceTransfer {
+        Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: sourceWorkspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            iconImageData: nil,
+            kind: kind,
+            isLoading: false,
+            isPinned: false,
+            directory: nil,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            manuallyUnread: false,
+            restoredUnreadIndicator: nil,
+            restorableAgent: nil,
+            restorableAgentResumeState: nil,
+            resumeBinding: nil,
+            agentRuntime: nil,
+            isRemoteTerminal: false,
+            remoteRelayPort: nil,
+            remotePTYSessionID: nil,
+            remoteCleanupConfiguration: nil
         )
-        workspace.panels[terminalPanelId] = lightweightTerminal
-        workspace.panelTitles[terminalPanelId] = lightweightTerminal.displayTitle
     }
 }
 
