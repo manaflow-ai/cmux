@@ -191,6 +191,48 @@ button {
   opacity: var(--background-opacity, .16);
 }
 
+.shell.has-background .sidebar,
+.shell.has-background .topbar,
+.shell.has-background .surface-tabs,
+.shell.has-background .statusbar,
+.shell.has-background .inspector {
+  background: color-mix(in oklch, var(--color-chrome) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.shell.has-background .main,
+.shell.has-background .pane-grid {
+  background: color-mix(in oklch, var(--color-canvas) 82%, transparent);
+}
+
+.shell.has-background .pane,
+.shell.has-background .terminal-host {
+  background: color-mix(in oklch, var(--color-pane) 90%, transparent);
+}
+
+.shell.has-background .pane-header,
+.shell.has-background .browser-tabs,
+.shell.has-background .browser-bar {
+  background: color-mix(in oklch, var(--color-pane-warm) 84%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.shell.has-background .browser-tab.is-active,
+.shell.has-background .surface-tab.is-active {
+  background: color-mix(in oklch, var(--color-pane-warm) 90%, transparent);
+}
+
+.shell.performance-mode.has-background .sidebar,
+.shell.performance-mode.has-background .topbar,
+.shell.performance-mode.has-background .surface-tabs,
+.shell.performance-mode.has-background .statusbar,
+.shell.performance-mode.has-background .inspector,
+.shell.performance-mode.has-background .pane-header,
+.shell.performance-mode.has-background .browser-tabs,
+.shell.performance-mode.has-background .browser-bar {
+  backdrop-filter: none;
+}
+
 .shell.performance-mode *,
 .shell.performance-mode *::before,
 .shell.performance-mode *::after {
