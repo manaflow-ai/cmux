@@ -7788,6 +7788,13 @@ const quickSettingsShortcuts = [
 function quickSetupActionGrid() {
   const actions = [
     {
+      label: "Rename",
+      body: "Name the active workspace without opening more chrome.",
+      meta: () => activeWorkspace()?.title || "Workspace",
+      search: "rename workspace name title quick setup",
+      run: () => renameActiveWorkspace()
+    },
+    {
       label: "Clean UI",
       body: "Apply compact chrome and quieter pane controls.",
       meta: activeSettingsPresetLabel,
@@ -7820,6 +7827,13 @@ function quickSetupActionGrid() {
       meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
       search: "background image wallpaper choose local file appearance",
       run: () => chooseBackgroundImage()
+    },
+    {
+      label: "Save layout",
+      body: "Store this pane shape as a reusable workspace blueprint.",
+      meta: () => `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`,
+      search: "save layout workspace blueprint panes shape split",
+      run: () => saveCurrentWorkspaceBlueprint()
     }
   ];
   const grid = document.createElement("div");
