@@ -86,6 +86,7 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
     func testMoveBrowserBonsplitTabToNewWorkspaceRequestsAddressBarFocus() throws {
         try withRegisteredMoveContext { app, _, manager in
             let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+            try replaceFocusedTerminalWithLightweightPanel(in: sourceWorkspace)
             let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
             let browserPanel = LightweightMovePanel(
                 panelType: .browser,
@@ -226,23 +227,40 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         workspace.surfaceIdToPanelId[tabId] = panel.id
         return tabId.uuid
     }
+
+    private func replaceFocusedTerminalWithLightweightPanel(in workspace: Workspace) throws {
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let terminalPanelId = terminalPanel.id
+        terminalPanel.close()
+        let lightweightTerminal = LightweightMovePanel(
+            id: terminalPanelId,
+            panelType: .terminal,
+            displayTitle: terminalPanel.displayTitle,
+            displayIcon: terminalPanel.displayIcon,
+            preferredFocusIntent: .terminal(.surface)
+        )
+        workspace.panels[terminalPanelId] = lightweightTerminal
+        workspace.panelTitles[terminalPanelId] = lightweightTerminal.displayTitle
+    }
 }
 
 @MainActor
-private final class LightweightMovePanel: Panel, ObservableObject {
+private final class LightweightMovePanel: Panel, @preconcurrency ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
-    let id = UUID()
+    let id: UUID
     let panelType: PanelType
     let displayTitle: String
     let displayIcon: String?
     private var preferredFocusIntent: PanelFocusIntent
 
     init(
+        id: UUID = UUID(),
         panelType: PanelType,
         displayTitle: String,
         displayIcon: String? = nil,
         preferredFocusIntent: PanelFocusIntent = .panel
     ) {
+        self.id = id
         self.panelType = panelType
         self.displayTitle = displayTitle
         self.displayIcon = displayIcon
