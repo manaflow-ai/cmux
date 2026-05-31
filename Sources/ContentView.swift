@@ -14544,7 +14544,10 @@ struct TabItemView: View, Equatable {
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
-        selectedTabIds.contains(tab.id)
+        sidebarWorkspaceRowShowsMultiSelectHighlight(
+            tabId: tab.id,
+            selectedTabIds: selectedTabIds
+        )
     }
 
     private var sidebarShortcutHintXOffset: Double {

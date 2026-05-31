@@ -326,3 +326,90 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         )
     }
 }
+
+// Guards the predicate that decides when a sidebar row paints the faint
+// secondary "also-selected" background. The user-visible bug it protects against
+// is the transient "two workspaces look selected (one half blue)" flash on
+// Cmd+N / workspace switch: the active selection moves immediately but the
+// sidebar's `selectedTabIds` set lags one render, so a stale single-element set
+// must not paint a second faint row. (The one-frame flash itself is a SwiftUI
+// render-timing artifact and is verified by dogfood, not here; this test pins
+// the rule that makes the stale frame paint identically to the settled one.)
+final class SidebarWorkspaceMultiSelectHighlightTests: XCTestCase {
+    func testLoneSelectedIdNeverPaintsSecondaryHighlight() {
+        let onlySelected = UUID()
+        XCTAssertFalse(
+            sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: onlySelected,
+                selectedTabIds: [onlySelected]
+            ),
+            "A single selected id is the active workspace and must not also paint the faint multi-select background"
+        )
+
+        // The non-active row of a stale single-element selection must look
+        // identical to an unselected row (clear), not a faint second selection.
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: onlySelected,
+                selectedTabIds: [onlySelected]
+            ),
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        XCTAssertNil(style.color)
+        XCTAssertEqual(style.opacity, 0, accuracy: 0.001)
+    }
+
+    func testGenuineMultiSelectionStillPaintsFaintAccentOnNonActiveMembers() {
+        let active = UUID()
+        let other = UUID()
+        let selection: Set<UUID> = [active, other]
+
+        XCTAssertTrue(
+            sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: other,
+                selectedTabIds: selection
+            )
+        )
+
+        let style = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: .solidFill,
+            isActive: false,
+            isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                tabId: other,
+                selectedTabIds: selection
+            ),
+            customColorHex: nil,
+            colorScheme: .dark,
+            sidebarSelectionColorHex: nil
+        )
+        XCTAssertNotNil(style.color)
+        XCTAssertEqual(style.opacity, 0.25, accuracy: 0.001)
+    }
+
+    func testActiveRowPaintsFullStrengthWhetherOrNotMultiSelected() {
+        let active = UUID()
+        for selection in [Set([active]), Set([active, UUID()])] {
+            let style = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .solidFill,
+                isActive: true,
+                isMultiSelected: sidebarWorkspaceRowShowsMultiSelectHighlight(
+                    tabId: active,
+                    selectedTabIds: selection
+                ),
+                customColorHex: nil,
+                colorScheme: .dark,
+                sidebarSelectionColorHex: nil
+            )
+            XCTAssertEqual(
+                style.opacity,
+                1,
+                accuracy: 0.001,
+                "Active row always uses the full-strength selection background"
+            )
+        }
+    }
+}

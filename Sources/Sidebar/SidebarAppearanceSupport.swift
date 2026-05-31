@@ -316,3 +316,22 @@ func sidebarWorkspaceRowBackgroundStyle(
         return .clear
     }
 }
+
+// Whether a sidebar workspace row should paint the secondary (faint)
+// multi-selection background.
+//
+// The faint accent denotes an *additional* member of a multi-selection, so it
+// only applies when more than one workspace is selected. A single selected id is
+// always the active workspace, which paints the full-strength `isActive`
+// background instead, so a lone id must never paint faint. Gating on count > 1
+// also removes a one-frame "two rows selected" flash when the active workspace
+// changes (Cmd+N, workspace switch, CLI select): the sidebar's `selectedTabIds`
+// set is re-synced to the new active id one render later via `onChange`, and the
+// stale single-element set would otherwise paint the previously-active row faint
+// blue for the frame where its `isActive` drops to false.
+func sidebarWorkspaceRowShowsMultiSelectHighlight(
+    tabId: UUID,
+    selectedTabIds: Set<UUID>
+) -> Bool {
+    selectedTabIds.count > 1 && selectedTabIds.contains(tabId)
+}
