@@ -85,11 +85,11 @@ def main() -> int:
     _must("usage: cmux ping" in conflict_subcommand_help_out, f"subcommand --help should show command usage: {conflict_subcommand_help_out!r}")
     for docs_cmd, expected in [
         ([cli, "docs"], "topics:"),
-        ([cli, "docs", "settings"], "settings files:"),
-        ([cli, "settings", "path"], "settings files:"),
-        ([cli, "settings", "--", "path"], "settings files:"),
-        ([cli, "settings", "docs"], "settings files:"),
-        ([cli, "settings", "--", "docs"], "settings files:"),
+        ([cli, "docs", "settings"], "config files:"),
+        ([cli, "settings", "path"], "config files:"),
+        ([cli, "settings", "--", "path"], "config files:"),
+        ([cli, "settings", "docs"], "config files:"),
+        ([cli, "settings", "--", "docs"], "config files:"),
         ([cli, "welcome"], "built for coding agents"),
     ]:
         docs_proc = _run(docs_cmd, env=conflict_env)

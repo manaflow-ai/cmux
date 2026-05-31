@@ -39,6 +39,37 @@ class UpdateViewModel: ObservableObject {
         detectedUpdateVersion = nil
     }
 
+    func dismissDetectedAvailableUpdate() {
+        clearDetectedUpdate()
+
+        var didDismissUpdate = false
+        if case .updateAvailable(let update) = state {
+            update.reply(.dismiss)
+            didDismissUpdate = true
+            state = .idle
+        }
+
+        if let overrideState, case .updateAvailable(let update) = overrideState {
+            if !didDismissUpdate {
+                update.reply(.dismiss)
+            }
+            self.overrideState = nil
+        }
+    }
+
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
+    func applyDriverState(_ newState: UpdateState) {
+        if case .updateAvailable(let update) = newState {
+            recordDetectedUpdate(update.appcastItem)
+        }
+        state = newState
+    }
+
     var text: String {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }
@@ -269,13 +300,13 @@ class UpdateViewModel: ObservableObject {
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
-                return privacyModeBranded("Panecho can’t reach the update server. Check your internet connection and try again.", stable: String(localized: "update.error.noInternet.message", defaultValue: "cmux can’t reach the update server. Check your internet connection and try again."))
+                return String(localized: "update.error.noInternet.message", defaultValue: "cmux can’t reach the update server. Check your internet connection and try again.")
             case NSURLErrorTimedOut:
                 return String(localized: "update.error.timedOut.message", defaultValue: "The update server took too long to respond. Try again in a moment.")
             case NSURLErrorCannotFindHost:
                 return String(localized: "update.error.serverNotFound.message", defaultValue: "The update server can’t be found. Check your connection or try again later.")
             case NSURLErrorCannotConnectToHost:
-                return privacyModeBranded("Panecho couldn’t connect to the update server. Check your connection or try again later.", stable: String(localized: "update.error.serverUnreachable.message", defaultValue: "cmux couldn’t connect to the update server. Check your connection or try again later."))
+                return String(localized: "update.error.serverUnreachable.message", defaultValue: "cmux couldn’t connect to the update server. Check your connection or try again later.")
             case NSURLErrorNetworkConnectionLost:
                 return String(localized: "update.error.connectionLost.message", defaultValue: "The network connection was lost while checking for updates. Try again.")
             case NSURLErrorSecureConnectionFailed,
@@ -291,7 +322,7 @@ class UpdateViewModel: ObservableObject {
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
-                return privacyModeBranded("Panecho couldn't download the update feed. Check your connection and try again.", stable: String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again."))
+                return String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again.")
             case 1000, 1002:
                 return String(localized: "update.error.feedRead.message", defaultValue: "The update feed could not be read. Please try again later.")
             case 4:
@@ -301,7 +332,7 @@ class UpdateViewModel: ObservableObject {
             case 1, 2, 3001, 3002:
                 return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
             case 1003, 1005, 4005:
-                return privacyModeBranded("Move Panecho into Applications and relaunch to enable updates.", stable: String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates."))
+                return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
             default:
                 break
             }

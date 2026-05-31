@@ -65,7 +65,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .spm-cache
-          key: panecho-spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: panecho-spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             panecho-spm-
 
@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project GhosttyTabs.xcodeproj \
+            -project cmux.xcodeproj \
             -scheme cmux \
             -configuration Release \
             -derivedDataPath build-panecho \
@@ -125,6 +125,8 @@ jobs:
           [[ "$APP_ARCHS" == "arm64" ]]
           [[ "$CLI_ARCHS" == "arm64" ]]
           [[ "$HELPER_ARCHS" == "arm64" ]]
+          ! /usr/bin/otool -L "$APP_BINARY" | grep -E 'Sentry|PostHog'
+          ! /usr/bin/find "$APP_PATH" \( -iname '*Sentry*' -o -iname '*PostHog*' \) -print -quit | grep -q .
 
       - name: Build remote daemon assets
         run: |

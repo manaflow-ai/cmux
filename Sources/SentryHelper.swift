@@ -1,4 +1,4 @@
-#if PRIVACY_MODE
+#if PRIVACY_MODE || !canImport(Sentry)
 
 func sentryBreadcrumb(_ message: String, category: String = "ui", data: [String: Any]? = nil) {
     _ = message

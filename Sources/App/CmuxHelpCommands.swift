@@ -84,8 +84,7 @@ extension cmuxApp {
             return
         }
 
-        AppDelegate.shared?.showMainWindowFromMenuBar()
-        if let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow {
+        if let targetWindow = AppDelegate.shared?.showMainWindowFromMenuBar() {
             FeedbackComposerBridge.openComposer(in: targetWindow)
         }
     }

@@ -8,6 +8,7 @@ export type Shortcut = {
   combos: string[][];
   description: LocalizedText;
   note?: LocalizedText;
+  configValue?: string;
 };
 
 export type ShortcutCategory = {
@@ -31,11 +32,34 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Show/hide all cmux windows", ja: "すべてのcmuxウインドウを表示/非表示" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
+      {
+        id: "globalSearch",
+        combos: [["⌥", "⌘", "F"]],
+        description: { en: "Global search", ja: "グローバル検索" },
+        note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
+      },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
+      {
+        id: "commandPaletteNext",
+        combos: [["⌃", "N"]],
+        description: { en: "Command palette next result", ja: "コマンドパレットの次の結果" },
+        note: { en: "when the command palette is open", ja: "コマンドパレットを開いている間" },
+      },
+      {
+        id: "commandPalettePrevious",
+        combos: [["⌃", "P"]],
+        description: { en: "Command palette previous result", ja: "コマンドパレットの前の結果" },
+        note: { en: "when the command palette is open", ja: "コマンドパレットを開いている間" },
+      },
       { id: "newWindow", combos: [["⌘", "⇧", "N"]], description: { en: "New window", ja: "新規ウインドウ" } },
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },
-      { id: "sendFeedback", combos: [["⌥", "⌘", "F"]], description: { en: "Send feedback", ja: "フィードバックを送信" } },
+      {
+        id: "sendFeedback",
+        combos: [],
+        description: { en: "Send feedback", ja: "フィードバックを送信" },
+        note: { en: "unbound by default", ja: "デフォルトでは未割り当て" },
+      },
       {
         id: "reopenPreviousSession",
         combos: [["⌘", "⇧", "O"]],
@@ -49,7 +73,8 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "workspaces",
     blurbKey: "workspacesBlurb",
     shortcuts: [
-      { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle sidebar", ja: "サイドバーを切り替え" } },
+      { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
+      { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
@@ -60,16 +85,28 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "nextSidebarTab", combos: [["⌃", "⌘", "]"]], description: { en: "Next workspace", ja: "次のワークスペース" } },
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
+      {
+        id: "focusHistoryBack",
+        combos: [["⌘", "["]],
+        description: { en: "Focus back", ja: "フォーカスを戻す" },
+        note: {
+          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
+          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+        },
+      },
+      {
+        id: "focusHistoryForward",
+        combos: [["⌘", "]"]],
+        description: { en: "Focus forward", ja: "フォーカスを進める" },
+        note: {
+          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
+          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+        },
+      },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
-      { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Focus right sidebar", ja: "右サイドバーにフォーカス" } },
-      {
-        id: "switchRightSidebarMode",
-        combos: [["⌃", "1 / 2 / 3 / 4 / 5"]],
-        description: { en: "Switch Files / Find / Sessions / Feed / Dock", ja: "ファイル / 検索 / セッション / フィード / Dockを切り替え" },
-        note: { en: "when the right sidebar is focused", ja: "右サイドバーにフォーカス中" },
-      },
+      { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],
@@ -94,8 +131,10 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "renameTab", combos: [["⌘", "R"]], description: { en: "Rename tab", ja: "タブ名を変更" } },
       { id: "closeTab", combos: [["⌘", "W"]], description: { en: "Close tab", ja: "タブを閉じる" } },
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
-      { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed browser panel", ja: "閉じたブラウザパネルを再度開く" } },
+      { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
+      { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
         id: "saveFilePreview",
         combos: [["⌘", "S"]],
@@ -117,6 +156,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },
       { id: "splitBrowserDown", combos: [["⌥", "⌘", "⇧", "D"]], description: { en: "Split browser down", ja: "下にブラウザ分割" } },
       { id: "toggleSplitZoom", combos: [["⌘", "⇧", "↩"]], description: { en: "Toggle pane zoom", ja: "ペインズームを切り替え" } },
+      { id: "equalizeSplits", combos: [["⌃", "⌘", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
     ],
   },
   {
@@ -150,6 +190,43 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
   {
+    id: "diff-viewer",
+    titleKey: "diffViewer",
+    shortcuts: [
+      {
+        id: "diffViewerScrollDown",
+        combos: [["J"]],
+        description: { en: "Scroll diff down", ja: "差分を下にスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+      {
+        id: "diffViewerScrollUp",
+        combos: [["K"]],
+        description: { en: "Scroll diff up", ja: "差分を上にスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+      {
+        id: "diffViewerScrollToBottom",
+        combos: [["⇧", "G"]],
+        description: { en: "Scroll diff to bottom", ja: "差分の末尾へスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+      {
+        id: "diffViewerScrollToTop",
+        combos: [["G", "G"]],
+        description: { en: "Scroll diff to top", ja: "差分の先頭へスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '["g", "g"]',
+      },
+      {
+        id: "diffViewerOpenFileSearch",
+        combos: [["/"]],
+        description: { en: "Open diff file search", ja: "差分ファイル検索を開く" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+      },
+    ],
+  },
+  {
     id: "find",
     titleKey: "find",
     shortcuts: [
@@ -167,6 +244,8 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "showNotifications", combos: [["⌘", "I"]], description: { en: "Show notifications", ja: "通知を表示" } },
       { id: "jumpToUnread", combos: [["⌘", "⇧", "U"]], description: { en: "Jump to latest unread", ja: "最新の未読へ移動" } },
+      { id: "toggleUnread", combos: [["⌥", "⌘", "U"]], description: { en: "Toggle current item unread state", ja: "現在の項目の未読状態を切り替え" } },
+      { id: "markOldestUnreadAndJumpNext", combos: [["⌃", "⌘", "U"]], description: { en: "Mark current item as oldest unread and jump to the next latest unread", ja: "現在の項目を最古の未読にして次の最新未読へ移動" } },
       { id: "triggerFlash", combos: [["⌘", "⇧", "H"]], description: { en: "Flash focused panel", ja: "フォーカス中のパネルをフラッシュ" } },
     ],
   },

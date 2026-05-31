@@ -26,6 +26,30 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Terminal shell script</string>
+			<key>CFBundleTypeRole</key>
+			<string>Shell</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.terminal.shell-script</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>UNIX executable</string>
+			<key>CFBundleTypeRole</key>
+			<string>Shell</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.unix-executable</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
@@ -44,13 +68,13 @@
 	<key>NSMainStoryboardFile</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within Panecho would like to use your microphone.</string>
+	<string>A program running within $(PRODUCT_NAME) would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>A program running within Panecho would like to use your camera.</string>
+	<string>A program running within $(PRODUCT_NAME) would like to use your camera.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>A program running within Panecho would like to use Bluetooth to discover passkeys and security keys.</string>
+	<string>A program running within $(PRODUCT_NAME) would like to use Bluetooth to discover passkeys and security keys.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>A program running within Panecho would like to use AppleScript.</string>
+	<string>A program running within $(PRODUCT_NAME) would like to use AppleScript.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -76,6 +100,18 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>SSH URL</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ssh</string>
 			</array>
 		</dict>
 	</array>
@@ -124,6 +160,27 @@
 				<string>NSFilenamesPboardType</string>
 				<string>public.plain-text</string>
 			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.terminal.shell-script</string>
+			<key>UTTypeDescription</key>
+			<string>Terminal shell script</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.shell-script</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>command</string>
+					<string>tool</string>
+				</array>
+			</dict>
 		</dict>
 	</array>
 	<key>UTExportedTypeDeclarations</key>
@@ -177,14 +234,12 @@
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
+	<false/>
+
 	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
+	<integer>0</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
-	<key>SUPublicEDKey</key>
-	<string>$(SPARKLE_PUBLIC_KEY)</string>
+
 </dict>
 </plist>

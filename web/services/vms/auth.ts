@@ -6,7 +6,15 @@ export type AuthedUser = {
   primaryEmail: string | null;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
+  selectedTeamId: string | null;
+  teams: readonly AuthedTeam[];
   teamIds: readonly string[];
+  userBillingPlanId: string | null;
+  billingPlanId: string | null;
+};
+
+export type AuthedTeam = {
+  id: string;
   billingPlanId: string | null;
 };
 
@@ -17,7 +25,10 @@ export type AuthedUser = {
  *
  * Returns the resolved user or null if unauthenticated.
  */
-export async function verifyRequest(request: Request): Promise<AuthedUser | null> {
+export async function verifyRequest(
+  request: Request,
+  options: { readonly requestedTeamId?: string | null } = {},
+): Promise<AuthedUser | null> {
   if (!isStackConfigured()) {
     return null;
   }
@@ -34,7 +45,7 @@ export async function verifyRequest(request: Request): Promise<AuthedUser | null
         tokenStore: { accessToken, refreshToken },
       });
       if (user) {
-        return await authedUserFromStackUser(user);
+        return await authedUserFromStackUser(user, options);
       }
     }
   }
@@ -42,21 +53,31 @@ export async function verifyRequest(request: Request): Promise<AuthedUser | null
   // Fall back to the Next.js cookie flow (when browser hits the route).
   const user = await stackServerApp.getUser({ tokenStore: request as unknown as { headers: { get(name: string): string | null } } });
   if (user) {
-    return await authedUserFromStackUser(user);
+    return await authedUserFromStackUser(user, options);
   }
   return null;
 }
 
-async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser> {
+async function authedUserFromStackUser(
+  user: StackUserLike,
+  options: { readonly requestedTeamId?: string | null },
+): Promise<AuthedUser> {
   const selectedTeam = teamLike(user.selectedTeam);
-  const listedTeams = typeof user.listTeams === "function"
+  const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
+  // When the selected team is enough, entitlements resolve from it before any
+  // multi-team guard needs a full team list.
+  const needsListedTeams = !selectedTeam || (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
+  const listedTeams = needsListedTeams && typeof user.listTeams === "function"
     ? (await user.listTeams()).map(teamLike).filter((team): team is TeamLike => !!team)
     : [];
   const teamIds = uniqueStrings([
     selectedTeam?.id,
     ...listedTeams.map((team) => team.id),
   ]);
-  const billingTeam = selectedTeam ?? listedTeams[0] ?? null;
+  const teams = uniqueTeams([selectedTeam, ...listedTeams]);
+  const billingTeam = selectedTeam ?? (teams.length === 1 ? teams[0] : null);
+  const userBillingPlanId = planIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = planIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
 
   return {
     id: user.id,
@@ -64,10 +85,14 @@ async function authedUserFromStackUser(user: StackUserLike): Promise<AuthedUser>
     primaryEmail: user.primaryEmail,
     billingCustomerType: billingTeam ? "team" : "user",
     billingTeamId: billingTeam?.id ?? user.id,
+    selectedTeamId: selectedTeam?.id ?? null,
+    teams: teams.map((team) => ({
+      id: team.id,
+      billingPlanId: planIdFromMetadata(team.clientReadOnlyMetadata),
+    })),
     teamIds,
-    billingPlanId: planIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ??
-      planIdFromMetadata(user.clientReadOnlyMetadata) ??
-      null,
+    userBillingPlanId,
+    billingPlanId,
   };
 }
 
@@ -104,6 +129,22 @@ function planIdFromMetadata(metadata: unknown): string | null {
 
 function uniqueStrings(values: readonly (string | undefined)[]): readonly string[] {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.length > 0))];
+}
+
+function uniqueTeams(values: readonly (TeamLike | null | undefined)[]): readonly TeamLike[] {
+  const teams: TeamLike[] = [];
+  const seen = new Set<string>();
+  for (const team of values) {
+    if (!team || seen.has(team.id)) continue;
+    seen.add(team.id);
+    teams.push(team);
+  }
+  return teams;
+}
+
+function normalizedOptionalString(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }
 
 export function unauthorized(): Response {

@@ -108,8 +108,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     @Published private(set) var flashStartedAt: Date?
     @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
 
-    private var lastWorkspaceId: UUID?
-    private var lastFlashToken: UInt64?
+    private var currentWorkspaceId: UUID?
+    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -119,20 +119,21 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = state.flashRect
         flashReason = state.flashReason
 
-        let didChangeWorkspace = lastWorkspaceId != state.workspaceId
-        if didChangeWorkspace {
-            lastWorkspaceId = state.workspaceId
-            lastFlashToken = state.flashToken
-            flashStartedAt = nil
-            return
-        }
-
-        if let lastFlashToken,
-           state.flashToken != lastFlashToken,
+        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
+        if didChangeFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
+        } else if didChangeWorkspace {
+            flashStartedAt = nil
         }
-        self.lastFlashToken = state.flashToken
+        currentWorkspaceId = state.workspaceId
+        if (previousFlashToken == nil && state.flashToken == 0) ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
     }
 
     func clear() {
@@ -140,8 +141,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = nil
         flashStartedAt = nil
         flashReason = nil
-        lastWorkspaceId = nil
-        lastFlashToken = nil
+        currentWorkspaceId = nil
+        lastFlashTokenByWorkspaceId = [:]
     }
 }
 
@@ -195,11 +196,12 @@ struct WorkspaceContentView: View {
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-
 
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
@@ -230,10 +232,14 @@ struct WorkspaceContentView: View {
                         forTabId: workspace.id,
                         surfaceId: panel.id
                     ),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
+                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panel.id) ||
+                        workspace.restoredUnreadPanelIds.contains(panel.id),
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
                 PanelContentView(
                     panel: panel,
+                    workspaceId: workspace.id,
                     paneId: paneId,
                     isFocused: isFocused,
                     isSelectedInPane: isSelectedInPane,
@@ -242,6 +248,7 @@ struct WorkspaceContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -259,6 +266,16 @@ struct WorkspaceContentView: View {
                             in: NSApp.keyWindow ?? NSApp.mainWindow
                         )
                         workspace.focusPanel(panel.id)
+                    },
+                    onResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+                    },
+                    onAutoResumeAgentHibernation: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
@@ -283,17 +300,34 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateAgentHibernationPresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
         .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: isWorkspaceManuallyUnread) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
@@ -305,10 +339,11 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let foregroundHex = (notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)?.hexString() ?? "nil"
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
             let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
             logTheme(
-                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
             // Payload ordering can lag across rapid config/theme updates.
             // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
@@ -327,6 +362,9 @@ struct WorkspaceContentView: View {
 
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
+        let restoredUnread = workspace.restoredUnreadPanelIds
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
@@ -334,8 +372,15 @@ struct WorkspaceContentView: View {
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
                 let shouldShow = panelId.map {
-                    notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: $0) ||
-                        manualUnread.contains($0)
+                    Workspace.shouldShowUnreadIndicator(
+                        hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                            forTabId: workspace.id,
+                            surfaceId: $0
+                        ),
+                        hasPanelUnreadIndicator: manualUnread.contains($0) || restoredUnread.contains($0),
+                        isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                        isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == $0
+                    )
                 } ?? false
                 let kindUpdate: String?? = expectedKind.map { .some($0) }
 
@@ -418,6 +463,8 @@ struct WorkspaceContentView: View {
         trimMode: TmuxWorkspacePaneOverlayTrimMode
     ) -> [CGRect] {
         guard let layoutSnapshot else { return [] }
+        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
         return layoutSnapshot.panes.compactMap { pane in
             guard let selectedTabId = pane.selectedTabId,
@@ -431,7 +478,10 @@ struct WorkspaceContentView: View {
                     forTabId: workspace.id,
                     surfaceId: panelId
                 ),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
+                    workspace.restoredUnreadPanelIds.contains(panelId),
+                isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panelId
             )
             guard shouldShowUnread else { return nil }
 
@@ -527,52 +577,6 @@ struct WorkspaceContentView: View {
             }
     }
 
-    static func resolveGhosttyAppearanceConfig(
-        reason: String = "unspecified",
-        backgroundOverride: NSColor? = nil,
-        loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
-        defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
-    ) -> GhosttyConfig {
-        var next = loadConfig()
-        let loadedBackgroundHex = next.backgroundColor.hexString()
-        let defaultBackgroundHex: String
-        let resolvedBackground: NSColor
-
-        if let backgroundOverride {
-            resolvedBackground = backgroundOverride
-            defaultBackgroundHex = "skipped"
-        } else {
-            let fallback = defaultBackground()
-            resolvedBackground = fallback
-            defaultBackgroundHex = fallback.hexString()
-        }
-
-        next.backgroundColor = resolvedBackground
-        // Use the runtime opacity from the Ghostty engine, which may differ from the
-        // file-level value parsed by GhosttyConfig.load().
-        next.backgroundOpacity = defaultBackgroundOpacity()
-        if GhosttyApp.shared.backgroundLogEnabled {
-            GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
-            )
-        }
-        return next
-    }
-
-    private static func ghosttyAppearanceSignature(_ config: GhosttyConfig, usesHostLayerBackground: Bool) -> String {
-        [
-            config.backgroundColor.hexString(includeAlpha: true),
-            String(format: "%.4f", config.backgroundOpacity),
-            String(describing: config.backgroundBlur),
-            String(format: "%.4f", config.surfaceTabBarFontSize),
-            String(format: "%.4f", config.unfocusedSplitOpacity),
-            config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
-            config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",
-            String(usesHostLayerBackground),
-        ].joined(separator: "|")
-    }
-
     private func flushDeferredThemeRefreshIfNeeded() {
         guard isWorkspaceVisible,
               let deferredRefresh = deferredThemeRefresh else { return }
@@ -585,6 +589,10 @@ struct WorkspaceContentView: View {
             notificationPayloadHex: deferredRefresh.notificationPayloadHex,
             forceInitialApply: deferredRefresh.forceInitialApply
         )
+    }
+
+    private func updateAgentHibernationPresentationVisibility() {
+        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
 
     private func refreshGhosttyAppearanceConfig(
@@ -698,6 +706,30 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
+    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
+        var parts: [String] = []
+        if let terminalPanel = panel as? TerminalPanel {
+            if let initialCommand = terminalPanel.surface.initialCommand {
+                parts.append("initialCommand:\(initialCommand)")
+            }
+            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
+                parts.append("tmuxStartCommand:\(tmuxStartCommand)")
+            }
+        }
+        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+            parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
+        }
+        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
+            for key in agentPIDKeys.sorted() {
+                parts.append("agentPIDKey:\(key)")
+            }
+        }
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil

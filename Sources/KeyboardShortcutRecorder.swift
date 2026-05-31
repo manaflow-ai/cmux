@@ -17,6 +17,7 @@ struct KeyboardShortcutRecorder: View {
     var onUndoButtonPressed: (() -> Void)? = nil
     var hasPendingRejection: Bool = false
     var isDisabled: Bool = false
+    var firstStrokeRequiresModifier: Bool = true
     var onRecordingChanged: (Bool) -> Void = { _ in }
     var onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void = { _ in }
     @State private var isRecording = false
@@ -40,6 +41,7 @@ struct KeyboardShortcutRecorder: View {
                     shortcut: $shortcut,
                     isRecording: $isRecording,
                     hasPendingRejection: hasPendingRejection,
+                    firstStrokeRequiresModifier: firstStrokeRequiresModifier,
                     displayString: displayString,
                     transformRecordedShortcut: transformRecordedShortcut,
                     onRecordingChanged: onRecordingChanged,
@@ -129,6 +131,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
     @Binding var shortcut: StoredShortcut
     @Binding var isRecording: Bool
     var hasPendingRejection: Bool = false
+    var firstStrokeRequiresModifier: Bool = true
     let displayString: (StoredShortcut) -> String
     let transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution
     let onRecordingChanged: (Bool) -> Void
@@ -138,6 +141,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
         let button = ShortcutRecorderNSButton()
         button.shortcut = shortcut
         button.displayString = displayString
+        button.firstStrokeRequiresModifier = firstStrokeRequiresModifier
         button.transformRecordedShortcut = transformRecordedShortcut
         button.onShortcutRecorded = { newShortcut in
             shortcut = newShortcut
@@ -155,6 +159,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
     func updateNSView(_ nsView: ShortcutRecorderNSButton, context: Context) {
         nsView.shortcut = shortcut
         nsView.displayString = displayString
+        nsView.firstStrokeRequiresModifier = firstStrokeRequiresModifier
         nsView.transformRecordedShortcut = transformRecordedShortcut
         nsView.onRecordingChanged = { recording in
             isRecording = recording
@@ -169,6 +174,8 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
 }
 
 final class ShortcutRecorderNSButton: NSButton {
+    private static weak var activeRecorder: ShortcutRecorderNSButton?
+
     var shortcut: StoredShortcut = KeyboardShortcutSettings.showNotificationsDefault {
         didSet {
             if shortcut != oldValue {
@@ -180,6 +187,7 @@ final class ShortcutRecorderNSButton: NSButton {
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
+    var firstStrokeRequiresModifier = true
     var onShortcutRecorded: ((StoredShortcut) -> Void)?
     var onRecordingChanged: ((Bool) -> Void)?
     var onRecorderFeedbackChanged: ((ShortcutRecorderRejectedAttempt?) -> Void)?
@@ -278,6 +286,7 @@ final class ShortcutRecorderNSButton: NSButton {
         isRecording = true
         hasPendingRejection = false
         pendingChordStart = nil
+        Self.activeRecorder = self
         previousFirstResponder = window?.firstResponder
         window?.makeFirstResponder(self)
         registerRecordingActivityIfNeeded()
@@ -305,7 +314,7 @@ final class ShortcutRecorderNSButton: NSButton {
         }
 
         if pendingChordStart == nil {
-            switch ShortcutStroke.recordingResult(from: event, requireModifier: true) {
+            switch ShortcutStroke.recordingResult(from: event, requireModifier: firstStrokeRequiresModifier) {
             case let .accepted(firstStroke):
                 let firstShortcut = StoredShortcut(first: firstStroke)
                 switch transformRecordedShortcut(firstShortcut) {
@@ -367,6 +376,9 @@ final class ShortcutRecorderNSButton: NSButton {
         guard isRecording else { return }
         isRecording = false
         pendingChordStart = nil
+        if Self.activeRecorder === self {
+            Self.activeRecorder = nil
+        }
         unregisterRecordingActivityIfNeeded()
         onRecordingChanged?(false)
         updateTitle()
@@ -410,6 +422,39 @@ final class ShortcutRecorderNSButton: NSButton {
         KeyboardShortcutRecorderActivity.endRecording()
     }
 
+    fileprivate static func dispatchActiveRecordingEvent(
+        _ event: NSEvent,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              event.type == .keyDown || event.type == .systemDefined,
+              let recorder = activeRecordingCandidate(preferredWindow: preferredWindow) else {
+            return false
+        }
+
+        return recorder.consumeRecordingEvent(event)
+    }
+
+    private static func activeRecordingCandidate(preferredWindow: NSWindow?) -> ShortcutRecorderNSButton? {
+        if let activeRecorder, activeRecorder.isRecording {
+            return activeRecorder
+        }
+
+        let responders = [
+            preferredWindow?.firstResponder,
+            NSApp.keyWindow?.firstResponder,
+            NSApp.mainWindow?.firstResponder,
+        ]
+
+        return responders.compactMap { $0 as? ShortcutRecorderNSButton }.first { $0.isRecording }
+    }
+
+    private func consumeRecordingEvent(_ event: NSEvent) -> Bool {
+        guard isRecording else { return false }
+        _ = handleRecordingEvent(event)
+        return true
+    }
+
 #if DEBUG
     var debugIsRecording: Bool {
         isRecording
@@ -441,5 +486,14 @@ final class ShortcutRecorderNSButton: NSButton {
             name: KeyboardShortcutRecorderActivity.stopAllNotification,
             object: nil
         )
+    }
+}
+
+enum ShortcutRecorderEventRouter {
+    static func dispatchActiveRecordingEvent(
+        _ event: NSEvent,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        ShortcutRecorderNSButton.dispatchActiveRecordingEvent(event, preferredWindow: preferredWindow)
     }
 }

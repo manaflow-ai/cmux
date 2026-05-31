@@ -25,6 +25,33 @@ extension AppDelegate {
         return canMoveSurfaceToNewWorkspace(panelId: located.panelId)
     }
 
+    func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
+        guard let located = locateBonsplitSurface(tabId: tabId),
+              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+              sourceWorkspace.panels[located.panelId] != nil,
+              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
+              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
+            return false
+        }
+        return true
+    }
+
+    func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
+        guard let source = locateSurface(surfaceId: panelId) else { return [] }
+        return workspaceMoveTargets(
+            excludingWorkspaceId: source.workspaceId,
+            referenceWindowId: source.windowId
+        )
+    }
+
+    func workspaceMoveTargets(forBonsplitTab tabId: UUID) -> [WorkspaceMoveTarget] {
+        guard let located = locateBonsplitSurface(tabId: tabId) else { return [] }
+        return workspaceMoveTargets(
+            excludingWorkspaceId: located.workspaceId,
+            referenceWindowId: located.windowId
+        )
+    }
+
     @discardableResult
     func moveBonsplitTabToNewWorkspace(
         tabId: UUID,
@@ -32,7 +59,8 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil
+        placementOverride: NewWorkspacePlacement? = nil,
+        insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
         return moveSurfaceToNewWorkspace(
@@ -41,7 +69,8 @@ extension AppDelegate {
             title: title,
             focus: focus,
             focusWindow: focusWindow,
-            placementOverride: placementOverride
+            placementOverride: placementOverride,
+            insertionIndexOverride: insertionIndexOverride
         )
     }
 
@@ -52,7 +81,8 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil
+        placementOverride: NewWorkspacePlacement? = nil,
+        insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
               let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
@@ -78,6 +108,7 @@ extension AppDelegate {
             title: destinationTitle,
             select: false,
             placementOverride: placementOverride,
+            insertionIndexOverride: insertionIndexOverride,
             focusIntent: activationIntent
         ) else {
             rollbackDetachedSurface(

@@ -1,10 +1,10 @@
 import AppKit
 import Foundation
-#if !PRIVACY_MODE
+#if !PRIVACY_MODE && canImport(PostHog)
 import PostHog
 #endif
 
-#if PRIVACY_MODE
+#if PRIVACY_MODE || !canImport(PostHog)
 
 final class PostHogAnalytics {
     static let shared = PostHogAnalytics()
@@ -16,6 +16,41 @@ final class PostHogAnalytics {
     func trackDailyActive(reason _: String) {}
     func trackHourlyActive(reason _: String) {}
     func flush() {}
+
+    nonisolated static func superProperties(infoDictionary: [String: Any]) -> [String: Any] {
+        versionProperties(infoDictionary: infoDictionary).merging(["platform": "cmuxterm"]) { current, _ in current }
+    }
+
+    nonisolated static func dailyActiveProperties(
+        dayUTC: String,
+        reason: String,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        ["day_utc": dayUTC, "reason": reason].merging(versionProperties(infoDictionary: infoDictionary)) { current, _ in current }
+    }
+
+    nonisolated static func hourlyActiveProperties(
+        hourUTC: String,
+        reason: String,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        ["hour_utc": hourUTC, "reason": reason].merging(versionProperties(infoDictionary: infoDictionary)) { current, _ in current }
+    }
+
+    nonisolated static func shouldFlushAfterCapture(event: String) -> Bool {
+        event == "cmux_daily_active" || event == "cmux_hourly_active"
+    }
+
+    nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
+        var properties: [String: Any] = [:]
+        if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
+            properties["app_version"] = value
+        }
+        if let value = infoDictionary["CFBundleVersion"] as? String, !value.isEmpty {
+            properties["app_build"] = value
+        }
+        return properties
+    }
 }
 
 #else

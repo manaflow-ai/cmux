@@ -14,20 +14,11 @@ enum UpdateSettings {
 
     static func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
-            automaticChecksKey: false,
+            automaticChecksKey: true,
             automaticallyUpdateKey: false,
             scheduledCheckIntervalKey: scheduledCheckInterval,
             sendProfileInfoKey: false,
         ])
-
-        if PrivacyMode.isEnabled {
-            defaults.set(false, forKey: automaticChecksKey)
-            defaults.set(false, forKey: automaticallyUpdateKey)
-            defaults.set(scheduledCheckInterval, forKey: scheduledCheckIntervalKey)
-            defaults.set(false, forKey: sendProfileInfoKey)
-            defaults.set(true, forKey: migrationKey)
-            return
-        }
 
         guard !defaults.bool(forKey: migrationKey) else { return }
 
@@ -105,28 +96,8 @@ class UpdateController {
         backgroundProbeTimer?.invalidate()
     }
 
-    private func presentPrivacyModeDisabledState() {
-        UpdateLogStore.shared.append("update checks blocked in privacy mode")
-        userDriver.viewModel.state = .error(.init(
-            error: PrivacyMode.disabledNSError(
-                feature: "automatic update checks",
-                recoverySuggestion: "Install Panecho updates from your internal distribution channel."
-            ),
-            retry: { [weak self] in
-                self?.presentPrivacyModeDisabledState()
-            },
-            dismiss: { [weak self] in
-                self?.userDriver.viewModel.state = .idle
-            }
-        ))
-    }
-
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     func startUpdaterIfNeeded() {
-        guard !PrivacyMode.isEnabled else {
-            UpdateLogStore.shared.append("updater startup skipped in privacy mode")
-            return
-        }
         guard !didStartUpdater else { return }
         ensureSparkleInstallationCache()
 #if DEBUG
@@ -204,10 +175,6 @@ class UpdateController {
 
     /// Check for updates and auto-confirm install if one is found.
     func attemptUpdate() {
-        guard !PrivacyMode.isEnabled else {
-            presentPrivacyModeDisabledState()
-            return
-        }
         stopAttemptUpdateMonitoring()
         didObserveAttemptUpdateProgress = false
 
@@ -240,28 +207,16 @@ class UpdateController {
 
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
-        guard !PrivacyMode.isEnabled else {
-            presentPrivacyModeDisabledState()
-            return
-        }
         UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
         checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 
     /// Check for updates using the custom popover-based UI.
     func checkForUpdatesInCustomUI() {
-        guard !PrivacyMode.isEnabled else {
-            presentPrivacyModeDisabledState()
-            return
-        }
         checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 
     private func performCheckForUpdates() {
-        guard !PrivacyMode.isEnabled else {
-            presentPrivacyModeDisabledState()
-            return
-        }
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         if viewModel.state == .idle {
@@ -270,7 +225,7 @@ class UpdateController {
         }
 
         installCancellable?.cancel()
-        viewModel.state.cancel()
+        viewModel.cancelActiveStateForNewCheck()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
             self?.updater.checkForUpdates()
@@ -279,10 +234,6 @@ class UpdateController {
 
     /// Check for updates once the updater is ready (used by UI tests).
     func checkForUpdatesWhenReady(retries: Int = 10) {
-        guard !PrivacyMode.isEnabled else {
-            presentPrivacyModeDisabledState()
-            return
-        }
         readyCheckWorkItem?.cancel()
         readyCheckWorkItem = nil
         startUpdaterIfNeeded()
@@ -321,7 +272,8 @@ class UpdateController {
     /// Validate the check for updates menu item.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(checkForUpdates) {
-            return !PrivacyMode.isEnabled
+            // Always allow user-initiated checks; Sparkle can safely surface current progress.
+            return true
         }
         return true
     }

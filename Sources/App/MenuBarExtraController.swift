@@ -5,8 +5,9 @@ import Foundation
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let menu = NSMenu(title: PrivacyMode.productName)
+    private let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
+    private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
     private let onShowNotifications: () -> Void
     private let onOpenNotification: (TerminalNotification) -> Void
@@ -20,7 +21,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private let showMainWindowItem = NSMenuItem(title: privacyModeBranded("Show Panecho", stable: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux")), action: nil, keyEquivalent: "")
+    private let globalSearchItem = NSMenuItem(title: String(localized: "statusMenu.searchAllWindows", defaultValue: "Search All Windows..."), action: nil, keyEquivalent: "")
+    private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
     private let taskManagerItem = NSMenuItem(title: String(localized: "statusMenu.taskManager", defaultValue: "Task Manager..."), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
@@ -30,11 +32,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let clearAllItem = NSMenuItem(title: String(localized: "statusMenu.clearAll", defaultValue: "Clear All"), action: nil, keyEquivalent: "")
     private let checkForUpdatesItem = NSMenuItem(title: String(localized: "menu.checkForUpdates", defaultValue: "Check for Updates…"), action: nil, keyEquivalent: "")
     private let preferencesItem = NSMenuItem(title: String(localized: "menu.preferences", defaultValue: "Preferences…"), action: nil, keyEquivalent: "")
-    private let quitItem = NSMenuItem(title: privacyModeBranded("Quit Panecho", stable: String(localized: "menu.quitCmux", defaultValue: "Quit cmux")), action: nil, keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
     private var notificationItems: [NSMenuItem] = []
     init(
         notificationStore: TerminalNotificationStore,
+        onShowGlobalSearch: @escaping (NSStatusBarButton, (() -> Void)?) -> Void,
         onShowMainWindow: @escaping () -> Void,
         onShowNotifications: @escaping () -> Void,
         onOpenNotification: @escaping (TerminalNotification) -> Void,
@@ -45,6 +48,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onQuitApp: @escaping () -> Void
     ) {
         self.notificationStore = notificationStore
+        self.onShowGlobalSearch = onShowGlobalSearch
         self.onShowMainWindow = onShowMainWindow
         self.onShowNotifications = onShowNotifications
         self.onOpenNotification = onOpenNotification
@@ -58,12 +62,14 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         super.init()
 
         buildMenu()
-        statusItem.menu = menu
         if let button = statusItem.button {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
             button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
-            button.toolTip = PrivacyMode.productName
+            button.toolTip = "cmux"
+            button.target = self
+            button.action = #selector(statusItemButtonAction(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
@@ -88,6 +94,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+
+        globalSearchItem.target = self
+        globalSearchItem.action = #selector(globalSearchAction)
+        menu.addItem(globalSearchItem)
 
         showMainWindowItem.target = self
         showMainWindowItem.action = #selector(showMainWindowAction)
@@ -166,8 +176,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         stateHintItem.title = snapshot.stateHintTitle
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
 
-        applyShortcut(KeyboardShortcutSettings.shortcut(for: .showNotifications), to: showNotificationsItem)
-        applyShortcut(KeyboardShortcutSettings.shortcut(for: .jumpToUnread), to: jumpToUnreadItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .globalSearch), to: globalSearchItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .jumpToUnread), to: jumpToUnreadItem)
 
         jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
         markAllReadItem.isEnabled = snapshot.hasUnreadNotifications
@@ -228,6 +239,32 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? NotificationMenuItemPayload else { return }
         onOpenNotification(payload.notification)
+    }
+
+    @objc private func statusItemButtonAction(_ sender: NSStatusBarButton) {
+        guard let event = NSApp.currentEvent else {
+            onShowGlobalSearch(sender, nil)
+            return
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.type == .rightMouseUp || flags.contains(.control) {
+            refreshUI()
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
+        } else {
+            onShowGlobalSearch(sender, nil)
+        }
+    }
+
+    @discardableResult
+    func toggleGlobalSearchPalette(onDismiss: (() -> Void)? = nil) -> Bool {
+        guard let button = statusItem.button else { return false }
+        onShowGlobalSearch(button, onDismiss)
+        return true
+    }
+
+    @objc private func globalSearchAction() {
+        toggleGlobalSearchPalette()
     }
 
     @objc private func showMainWindowAction() {
@@ -295,18 +332,19 @@ enum NotificationMenuSnapshotBuilder {
 
     static func make(
         notifications: [TerminalNotification],
+        workspaceUnreadIndicatorCount: Int = 0,
         maxInlineNotificationItems: Int = defaultInlineNotificationLimit
     ) -> NotificationMenuSnapshot {
         let unreadCount = notifications.reduce(into: 0) { count, notification in
             if !notification.isRead {
                 count += 1
             }
-        }
+        } + workspaceUnreadIndicatorCount
 
         let inlineLimit = max(0, maxInlineNotificationItems)
         return NotificationMenuSnapshot(
             unreadCount: unreadCount,
-            hasNotifications: !notifications.isEmpty,
+            hasNotifications: !notifications.isEmpty || workspaceUnreadIndicatorCount > 0,
             recentNotifications: Array(notifications.prefix(inlineLimit))
         )
     }

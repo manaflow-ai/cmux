@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -47,6 +48,18 @@ type commandSpec struct {
 	defaultParams map[string]any
 }
 
+type browserCommandSpec struct {
+	method                string
+	flagKeys              []string
+	allowPositionalURL    bool
+	allowPositionalScript bool
+	allowPositionalKey    bool
+	allowPositionalQuery  bool
+	allowPositionalValue  bool
+	useWorkspaceEnv       bool
+	useSurfaceEnv         bool
+}
+
 var commands = []commandSpec{
 	// V1 text protocol commands
 	{name: "ping", proto: protoV1, v1Cmd: "ping", noParams: true},
@@ -75,6 +88,36 @@ var commands = []commandSpec{
 	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
 	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
 	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
+}
+
+var browserCommands = map[string]browserCommandSpec{
+	"open":       {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
+	"open-split": {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
+	"new":        {method: "browser.open_split", flagKeys: []string{"url", "workspace", "surface"}, allowPositionalURL: true, useWorkspaceEnv: true},
+	"navigate":   {method: "browser.navigate", flagKeys: []string{"url", "surface"}, allowPositionalURL: true, useSurfaceEnv: true},
+	"goto":       {method: "browser.navigate", flagKeys: []string{"url", "surface"}, allowPositionalURL: true, useSurfaceEnv: true},
+	"back":       {method: "browser.back", flagKeys: []string{"surface"}, useSurfaceEnv: true},
+	"forward":    {method: "browser.forward", flagKeys: []string{"surface"}, useSurfaceEnv: true},
+	"reload":     {method: "browser.reload", flagKeys: []string{"surface"}, useSurfaceEnv: true},
+	"get-url":    {method: "browser.url.get", flagKeys: []string{"surface"}, useSurfaceEnv: true},
+	"url":        {method: "browser.url.get", flagKeys: []string{"surface"}, useSurfaceEnv: true},
+	"snapshot":   {method: "browser.snapshot", flagKeys: []string{"surface", "selector", "max-depth"}, useSurfaceEnv: true},
+	"eval":       {method: "browser.eval", flagKeys: []string{"surface", "script"}, allowPositionalScript: true, useSurfaceEnv: true},
+	"wait":       {method: "browser.wait", flagKeys: []string{"surface", "selector", "text", "url-contains", "load-state", "function", "timeout-ms"}, useSurfaceEnv: true},
+	"click":      {method: "browser.click", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
+	"dblclick":   {method: "browser.dblclick", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
+	"hover":      {method: "browser.hover", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
+	"focus":      {method: "browser.focus", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
+	"check":      {method: "browser.check", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
+	"uncheck":    {method: "browser.uncheck", flagKeys: []string{"surface", "selector"}, allowPositionalQuery: true, useSurfaceEnv: true},
+	"type":       {method: "browser.type", flagKeys: []string{"surface", "selector", "text"}, allowPositionalValue: true, useSurfaceEnv: true},
+	"fill":       {method: "browser.fill", flagKeys: []string{"surface", "selector", "text"}, allowPositionalValue: true, useSurfaceEnv: true},
+	"press":      {method: "browser.press", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
+	"key":        {method: "browser.press", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
+	"keydown":    {method: "browser.keydown", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
+	"keyup":      {method: "browser.keyup", flagKeys: []string{"surface", "key"}, allowPositionalKey: true, useSurfaceEnv: true},
+	"select":     {method: "browser.select", flagKeys: []string{"surface", "selector", "value"}, allowPositionalValue: true, useSurfaceEnv: true},
+	"screenshot": {method: "browser.screenshot", flagKeys: []string{"surface"}, useSurfaceEnv: true},
 }
 
 var commandIndex map[string]*commandSpec
@@ -286,75 +329,67 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 // runBrowserRelay handles "cmux browser <subcommand>" by mapping to browser.* v2 methods.
 func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "cmux browser: requires a subcommand (open, navigate, back, forward, reload, get-url)")
+		fmt.Fprintf(os.Stderr, "cmux browser: requires a subcommand (%s)\n", browserSubcommandHint())
 		return 2
 	}
 
 	sub := args[0]
 	subArgs := args[1:]
 
-	var method string
-	var flagKeys []string
-	var allowPositionalURL bool
-	var useWorkspaceEnv bool
-	var useSurfaceEnv bool
-	switch sub {
-	case "open", "open-split", "new":
-		method = "browser.open_split"
-		flagKeys = []string{"url", "workspace", "surface"}
-		allowPositionalURL = true
-		useWorkspaceEnv = true
-	case "navigate":
-		method = "browser.navigate"
-		flagKeys = []string{"url", "surface"}
-		allowPositionalURL = true
-		useSurfaceEnv = true
-	case "back":
-		method = "browser.back"
-		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
-	case "forward":
-		method = "browser.forward"
-		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
-	case "reload":
-		method = "browser.reload"
-		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
-	case "get-url":
-		method = "browser.url.get"
-		flagKeys = []string{"surface"}
-		useSurfaceEnv = true
-	default:
+	spec, ok := browserCommands[sub]
+	if !ok {
 		fmt.Fprintf(os.Stderr, "cmux browser: unknown subcommand %q\n", sub)
 		return 2
 	}
 
 	params := make(map[string]any)
-	parsed, err := parseFlags(subArgs, flagKeys)
+	parsed, err := parseFlags(subArgs, spec.flagKeys)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
 		return 2
 	}
-	for _, key := range flagKeys {
+	for _, key := range spec.flagKeys {
 		if val, ok := parsed.flags[key]; ok {
 			paramKey := flagToParamKey(key)
 			params[paramKey] = val
 		}
 	}
-	if allowPositionalURL {
+	if spec.allowPositionalURL {
 		if _, ok := params["url"]; !ok && len(parsed.positional) > 0 {
 			params["url"] = strings.Join(parsed.positional, " ")
 		}
 	}
-	if useWorkspaceEnv {
+	if spec.allowPositionalScript {
+		if _, ok := params["script"]; !ok && len(parsed.positional) > 0 {
+			params["script"] = strings.Join(parsed.positional, " ")
+		}
+	}
+	if spec.allowPositionalKey {
+		if _, ok := params["key"]; !ok && len(parsed.positional) > 0 {
+			params["key"] = strings.Join(parsed.positional, " ")
+		}
+	}
+	if spec.allowPositionalQuery {
+		if _, ok := params["selector"]; !ok && len(parsed.positional) > 0 {
+			params["selector"] = strings.Join(parsed.positional, " ")
+		}
+	}
+	if spec.allowPositionalValue {
+		applyBrowserValuePositionals(
+			params,
+			parsed.positional,
+			browserSpecSupportsParam(spec, "value"),
+			browserSpecSupportsParam(spec, "text"),
+		)
+	}
+	if spec.useWorkspaceEnv {
 		applyWorkspaceEnvFallback(params)
 	}
-	if useSurfaceEnv {
+	if spec.useSurfaceEnv {
 		applySurfaceEnvFallback(params)
 	}
 
-	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
+	resp, err := socketRoundTripV2(socketPath, spec.method, params, refreshAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
 		return 1
@@ -365,6 +400,53 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
+}
+
+func browserSubcommandHint() string {
+	names := make([]string, 0, len(browserCommands))
+	for name := range browserCommands {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+func browserSpecSupportsParam(spec browserCommandSpec, paramKey string) bool {
+	for _, key := range spec.flagKeys {
+		if flagToParamKey(key) == paramKey {
+			return true
+		}
+	}
+	return false
+}
+
+func applyBrowserValuePositionals(params map[string]any, positionals []string, allowValue bool, allowText bool) {
+	if len(positionals) == 0 {
+		return
+	}
+	if _, ok := params["selector"]; !ok {
+		params["selector"] = positionals[0]
+		positionals = positionals[1:]
+	}
+	joined := strings.Join(positionals, " ")
+	if allowValue {
+		if _, ok := params["value"]; !ok {
+			if joined != "" {
+				params["value"] = joined
+			} else if text, ok := params["text"]; ok {
+				params["value"] = text
+			}
+		}
+	}
+	if allowText {
+		if _, ok := params["text"]; !ok {
+			if joined != "" {
+				params["text"] = joined
+			} else if value, ok := params["value"]; ok {
+				params["text"] = value
+			}
+		}
+	}
 }
 
 func applyWorkspaceEnvFallback(params map[string]any) {
@@ -445,6 +527,14 @@ func flagToParamKey(key string) string {
 		return "title"
 	case "working-directory":
 		return "working_directory"
+	case "max-depth":
+		return "max_depth"
+	case "timeout-ms":
+		return "timeout_ms"
+	case "url-contains":
+		return "url_contains"
+	case "load-state":
+		return "load_state"
 	default:
 		return key
 	}
@@ -478,10 +568,11 @@ func parseFlags(args []string, keys []string) (parsedFlags, error) {
 		if !allowed[key] {
 			return parsedFlags{}, fmt.Errorf("unknown flag --%s", key)
 		}
-		if i+1 < len(args) {
-			result.flags[key] = args[i+1]
-			i++
+		if i+1 >= len(args) {
+			return parsedFlags{}, fmt.Errorf("flag --%s requires a value", key)
 		}
+		result.flags[key] = args[i+1]
+		i++
 	}
 	return result, nil
 }
@@ -773,7 +864,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  send                      Send text to a surface")
 	fmt.Fprintln(os.Stderr, "  send-key                  Send a key to a surface")
 	fmt.Fprintln(os.Stderr, "  notify                    Create a notification")
-	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands (open, navigate, back, forward, reload, get-url)")
+	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")

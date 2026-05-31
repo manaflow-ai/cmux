@@ -1,303 +1,58 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import Combine
+import Darwin
 import Foundation
+import os
 import SQLite3
 
-// MARK: - Agents
+nonisolated private let sessionIndexLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "SessionIndexStore"
+)
 
-enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable, Sendable {
-    case claude
-    case codex
-    case opencode
+/// Locked cancellation state shared by synchronous `Process` callbacks.
+/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
+final class SessionIndexRipgrepCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
+    private var activeProcessIdentifier: pid_t?
+    private var finishedProcessIdentifier: pid_t?
 
-    var id: String { rawValue }
+    init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
+        self.sendSignal = sendSignal
+    }
 
-    var displayName: String {
-        switch self {
-        case .claude: return String(localized: "sessionIndex.agent.claude", defaultValue: "Claude Code")
-        case .codex: return String(localized: "sessionIndex.agent.codex", defaultValue: "Codex")
-        case .opencode: return String(localized: "sessionIndex.agent.opencode", defaultValue: "OpenCode")
+    func markStarted(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if finishedProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
+        } else {
+            activeProcessIdentifier = processIdentifier
         }
     }
 
-    /// Asset catalog image name for the agent's brand mark.
-    var assetName: String {
-        switch self {
-        case .claude: return "AgentIcons/Claude"
-        case .codex: return "AgentIcons/Codex"
-        case .opencode: return "AgentIcons/OpenCode"
-        }
-    }
-}
+    func markFinished(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
 
-enum OpenCodeDatabaseSnapshot {
-    struct Snapshot {
-        let databaseURL: URL
-        private let directoryURL: URL
-
-        init(databaseURL: URL, directoryURL: URL) {
-            self.databaseURL = databaseURL
-            self.directoryURL = directoryURL
-        }
-
-        func remove() {
-            try? FileManager.default.removeItem(at: directoryURL)
+        finishedProcessIdentifier = processIdentifier
+        if activeProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
         }
     }
 
-    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
+    func cancel() {
+        lock.lock()
+        let processIdentifier = activeProcessIdentifier
+        activeProcessIdentifier = nil
+        lock.unlock()
 
-    static func make(prefix: String) throws -> Snapshot? {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
-
-        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "\(prefix)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
-
-        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
-        do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-
-        do {
-            for sidecar in ["-wal", "-shm"] {
-                let source = sourcePath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try fileManager.copyItem(atPath: source, toPath: destination)
-                }
-            }
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-
-        return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
-    }
-}
-
-// MARK: - Session entry
-
-struct PullRequestLink: Hashable {
-    let number: Int
-    let url: String
-    let repository: String?
-}
-
-/// Agent-specific fields used to build the resume command with appropriate flags.
-enum AgentSpecifics: Hashable {
-    case claude(model: String?, permissionMode: String?)
-    case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
-    case opencode(providerModel: String?, agentName: String?)
-}
-
-struct SessionEntry: Identifiable, Hashable {
-    let id: String
-    let agent: SessionAgent
-    /// Native session identifier for the agent's CLI (used to build the resume command).
-    let sessionId: String
-    let title: String
-    let cwd: String?
-    let gitBranch: String?
-    let pullRequest: PullRequestLink?
-    let modified: Date
-    let fileURL: URL?
-    let specifics: AgentSpecifics
-
-    /// Shell command that resumes this session in a new terminal, with the agent's
-    /// known per-session settings injected as CLI flags.
-    var resumeCommand: String {
-        switch specifics {
-        case let .claude(model, permissionMode):
-            var parts = ["claude --resume \(sessionId)"]
-            if let model, !model.isEmpty {
-                parts.append("--model \(Self.shellQuote(model))")
-            }
-            if let permissionMode, !permissionMode.isEmpty {
-                parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
-            }
-            return Self.withShellEnvironment(
-                claudeConfigDirectoryForResume.map { ["CLAUDE_CONFIG_DIR": $0] } ?? [:],
-                command: parts.joined(separator: " ")
-            )
-        case let .codex(model, approval, sandbox, effort):
-            var parts = ["codex resume \(sessionId)"]
-            if let model, !model.isEmpty {
-                parts.append("-m \(Self.shellQuote(model))")
-            }
-            if let approval, !approval.isEmpty {
-                parts.append("-a \(Self.shellQuote(approval))")
-            }
-            if let sandbox, !sandbox.isEmpty {
-                parts.append("-s \(Self.shellQuote(sandbox))")
-            }
-            if let effort, !effort.isEmpty {
-                parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
-            }
-            return parts.joined(separator: " ")
-        case let .opencode(providerModel, agentName):
-            var parts = ["opencode --session \(sessionId)"]
-            if let providerModel, !providerModel.isEmpty {
-                parts.append("-m \(Self.shellQuote(providerModel))")
-            }
-            if let agentName, !agentName.isEmpty {
-                parts.append("--agent \(Self.shellQuote(agentName))")
-            }
-            return parts.joined(separator: " ")
-        }
-    }
-
-    var resumeCommandWithCwd: String {
-        guard let cwd, !cwd.isEmpty else {
-            return resumeCommand
-        }
-        return "cd \(Self.shellQuote(cwd)) && \(resumeCommand)"
-    }
-
-    private var claudeConfigDirectoryForResume: String? {
-        guard agent == .claude,
-              let fileURL else {
-            return nil
-        }
-        let pathComponents = fileURL.standardizedFileURL.pathComponents
-        guard let projectsIndex = pathComponents.lastIndex(of: "projects"),
-              projectsIndex > 0 else {
-            return nil
-        }
-        let configComponents = Array(pathComponents[..<projectsIndex])
-        let configDir = NSString.path(withComponents: configComponents)
-        return configDir.isEmpty ? nil : configDir
-    }
-
-    private static func withShellEnvironment(
-        _ environment: [String: String],
-        command: String
-    ) -> String {
-        let assignments = environment
-            .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
-            }
-            .sorted { $0.key < $1.key }
-            .map { key, value in "\(key)=\(shellQuote(value))" }
-        guard !assignments.isEmpty else { return command }
-        return "env \(assignments.joined(separator: " ")) \(command)"
-    }
-
-    /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
-    private static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
-        }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
-    }
-
-    var displayTitle: String {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if agent == .claude {
-            if let title = Self.claudeDisplayTitle(from: trimmed) {
-                return title
-            }
-            if Self.isClaudeLocalCommandEnvelope(trimmed) {
-                return String(localized: "sessionIndex.localCommand", defaultValue: "Local command")
-            }
-            if Self.isClaudeSyntheticEnvelope(trimmed) {
-                return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
-            }
-        }
-        if trimmed.isEmpty {
-            return String(localized: "sessionIndex.untitled", defaultValue: "Untitled session")
-        }
-        return trimmed
-    }
-
-    static func claudeDisplayTitle(from raw: String, isMeta: Bool = false) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if isMeta || isClaudeSyntheticEnvelope(trimmed) {
-            return nil
-        }
-        if let commandTitle = claudeSlashCommandTitle(from: trimmed) {
-            return commandTitle
-        }
-        return trimmed
-    }
-
-    private static func claudeSlashCommandTitle(from raw: String) -> String? {
-        let commandName = claudeTagValue("command-name", in: raw)
-        let commandMessage = claudeTagValue("command-message", in: raw)
-        var parts: [String] = []
-        if let commandName {
-            parts.append(commandName)
-        }
-        if let commandMessage,
-           !isDuplicateClaudeCommandMessage(commandMessage, commandName: commandName) {
-            parts.append(commandMessage)
-        }
-        if let args = claudeTagValue("command-args", in: raw) {
-            parts.append(args)
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
-    }
-
-    private static func isDuplicateClaudeCommandMessage(_ message: String, commandName: String?) -> Bool {
-        guard let commandName else { return false }
-        let commandWithoutSlash = commandName.hasPrefix("/")
-            ? String(commandName.dropFirst())
-            : commandName
-        return message.caseInsensitiveCompare(commandName) == .orderedSame
-            || message.caseInsensitiveCompare(commandWithoutSlash) == .orderedSame
-    }
-
-    private static func claudeTagValue(_ tag: String, in raw: String) -> String? {
-        let open = "<\(tag)>"
-        let close = "</\(tag)>"
-        guard let start = raw.range(of: open),
-              let end = raw.range(of: close, range: start.upperBound..<raw.endIndex) else {
-            return nil
-        }
-        let value = String(raw[start.upperBound..<end.lowerBound])
-        let collapsed = collapseWhitespace(value)
-        return collapsed.isEmpty ? nil : collapsed
-    }
-
-    private static func isClaudeSyntheticEnvelope(_ raw: String) -> Bool {
-        isClaudeLocalCommandEnvelope(raw)
-            || raw.hasPrefix("<system-reminder>")
-    }
-
-    private static func isClaudeLocalCommandEnvelope(_ raw: String) -> Bool {
-        raw.hasPrefix("<local-command-")
-    }
-
-    private static func collapseWhitespace(_ value: String) -> String {
-        value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-    }
-
-    var cwdLabel: String? {
-        guard let cwd, !cwd.isEmpty else { return nil }
-        let home = NSHomeDirectory()
-        // Compare on a path boundary so /Users/al doesn't get matched by a
-        // home of /Users/alice (would render as "~ice/foo").
-        if cwd == home {
-            return "~"
-        }
-        if cwd.hasPrefix(home + "/") {
-            return "~" + cwd.dropFirst(home.count)
-        }
-        return cwd
-    }
-
-    var cwdBasename: String? {
-        guard let cwd, !cwd.isEmpty else { return nil }
-        return (cwd as NSString).lastPathComponent
+        guard let processIdentifier else { return }
+        _ = sendSignal(processIdentifier, SIGTERM)
     }
 }
 
@@ -342,30 +97,25 @@ final class ClaudeMetadataCache: @unchecked Sendable {
 /// Used to forward sessions through bonsplit's external-tab-drop hook (which only
 /// carries UUIDs in its payload). Workspace.handleExternalTabDrop consults this
 /// to decide whether a drop should spawn a brand new terminal vs. move an existing tab.
+@MainActor
 final class SessionDragRegistry {
     static let shared = SessionDragRegistry()
 
-    private let lock = NSLock()
     private var pending: [UUID: SessionEntry] = [:]
 
     func register(_ entry: SessionEntry) -> UUID {
         let id = UUID()
-        lock.lock()
         pending[id] = entry
-        lock.unlock()
         // Auto-expire so a cancelled drag doesn't leak forever.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60) { [weak self] in
-            self?.lock.lock()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(60))
             self?.pending.removeValue(forKey: id)
-            self?.lock.unlock()
         }
         return id
     }
 
     func consume(id: UUID) -> SessionEntry? {
-        lock.lock()
-        defer { lock.unlock() }
-        return pending.removeValue(forKey: id)
+        pending.removeValue(forKey: id)
     }
 }
 
@@ -468,14 +218,18 @@ final class SessionIndexStore: ObservableObject {
             invalidateSectionsCache()
             // Switching into directory grouping can expose cwds that were never
             // backfilled while the user was viewing agent grouping.
-            if grouping == .directory { backfillDirectoryOrderFromEntries() }
+            if grouping == .directory {
+                backfillDirectoryOrderFromEntries()
+            } else {
+                backfillAgentOrderFromEntries()
+            }
         }
     }
 
     /// Persisted order for agent sections.
     @Published var agentOrder: [SessionAgent] {
         didSet {
-            guard agentOrder != oldValue else { return }
+            guard !Self.agentOrderPresentationEqual(agentOrder, oldValue) else { return }
             Self.persistAgentOrder(agentOrder)
             invalidateSectionsCache()
         }
@@ -514,12 +268,14 @@ final class SessionIndexStore: ObservableObject {
         let sections: [IndexSection]
         switch grouping {
         case .agent:
-            sections = agentOrder.map { agent in
-                IndexSection(
+            let buckets = Dictionary(grouping: visible, by: { $0.agent.rawValue })
+            sections = agentOrder.compactMap { agent in
+                guard let entries = buckets[agent.rawValue], !entries.isEmpty else { return nil }
+                return IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: visible.filter { $0.agent == agent }
+                    entries: entries
                 )
             }
         case .directory:
@@ -561,20 +317,75 @@ final class SessionIndexStore: ObservableObject {
     /// state and must only run in response to real data changes (new scan
     /// results, grouping switch) — not on every SwiftUI update tick.
     private func backfillDirectoryOrderFromEntries() {
-        var seen = Set(directoryOrder)
-        var additions: [(path: String, latest: Date)] = []
+        let knownPaths = Set(directoryOrder)
+        var latestByPath: [String: Date] = [:]
         for entry in entries {
             let path = entry.cwd ?? ""
-            if seen.insert(path).inserted {
-                additions.append((path, entry.modified))
-            } else if let idx = additions.firstIndex(where: { $0.path == path }),
-                      additions[idx].latest < entry.modified {
-                additions[idx].latest = entry.modified
+            guard !knownPaths.contains(path) else { continue }
+            if let latest = latestByPath[path] {
+                if latest < entry.modified {
+                    latestByPath[path] = entry.modified
+                }
+            } else {
+                latestByPath[path] = entry.modified
             }
         }
-        guard !additions.isEmpty else { return }
-        additions.sort { $0.latest > $1.latest }
-        directoryOrder.append(contentsOf: additions.map(\.path))
+        guard !latestByPath.isEmpty else { return }
+        let additions = latestByPath
+            .sorted { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+            }
+            .map(\.key)
+        directoryOrder.append(contentsOf: additions)
+    }
+
+    private func backfillAgentOrderFromEntries() {
+        let registeredAgentsByID = Dictionary(
+            entries.compactMap { entry -> (String, RegisteredSessionAgent)? in
+                guard case .registered(let agent) = entry.agent else { return nil }
+                return (agent.id, agent)
+            },
+            uniquingKeysWith: { existing, replacement in
+                existing.name == nil ? replacement : existing
+            }
+        )
+        var nextOrder = agentOrder.map { agent -> SessionAgent in
+            guard case .registered(let registered) = agent,
+                  let refreshed = registeredAgentsByID[registered.id],
+                  refreshed != registered else {
+                return agent
+            }
+            return .registered(refreshed)
+        }
+        let knownAgentIds = Set(nextOrder.map(\.rawValue))
+        var additionsByAgentId: [String: (agent: SessionAgent, latest: Date)] = [:]
+        for entry in entries {
+            let agentId = entry.agent.rawValue
+            guard !knownAgentIds.contains(agentId) else { continue }
+            if let existing = additionsByAgentId[agentId] {
+                if existing.latest < entry.modified {
+                    additionsByAgentId[agentId] = (existing.agent, entry.modified)
+                }
+            } else {
+                additionsByAgentId[agentId] = (entry.agent, entry.modified)
+            }
+        }
+        if additionsByAgentId.isEmpty {
+            setAgentOrderIfPresentationChanged(nextOrder)
+            return
+        }
+        let additions = additionsByAgentId.values.sorted { lhs, rhs in
+            lhs.latest == rhs.latest
+                ? lhs.agent.rawValue < rhs.agent.rawValue
+                : lhs.latest > rhs.latest
+        }
+        nextOrder.append(contentsOf: additions.map(\.agent))
+        setAgentOrderIfPresentationChanged(nextOrder)
+    }
+
+    private func setAgentOrderIfPresentationChanged(_ nextOrder: [SessionAgent]) {
+        guard !Self.agentOrderPresentationEqual(nextOrder, agentOrder) else { return }
+        agentOrder = nextOrder
     }
 
     private func invalidateSectionsCache() {
@@ -608,16 +419,16 @@ final class SessionIndexStore: ObservableObject {
         case .agent:
             guard key.raw.hasPrefix("agent:"),
                   let agent = SessionAgent(rawValue: String(key.raw.dropFirst("agent:".count))) else { return }
-            guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
+            guard let oldIndex = agentOrder.firstIndex(where: { $0.rawValue == agent.rawValue }) else { return }
             var next = agentOrder
-            next.remove(at: oldIndex)
+            let moved = next.remove(at: oldIndex)
             if let referenceKey,
                referenceKey.raw.hasPrefix("agent:"),
                let refAgent = SessionAgent(rawValue: String(referenceKey.raw.dropFirst("agent:".count))),
-               let refIndex = next.firstIndex(of: refAgent) {
-                next.insert(agent, at: refIndex)
+               let refIndex = next.firstIndex(where: { $0.rawValue == refAgent.rawValue }) {
+                next.insert(moved, at: refIndex)
             } else {
-                next.append(agent)
+                next.append(moved)
             }
             if next != agentOrder { agentOrder = next }
         case .directory:
@@ -644,12 +455,38 @@ final class SessionIndexStore: ObservableObject {
     private static func loadAgentOrder() -> [SessionAgent] {
         let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
-        for agent in SessionAgent.allCases where !ordered.contains(agent) {
+        for agent in SessionAgent.builtInCases where !ordered.contains(agent) {
             ordered.append(agent)
         }
-        var seen = Set<SessionAgent>()
-        ordered = ordered.filter { seen.insert($0).inserted }
+        var seen = Set<String>()
+        ordered = ordered.filter { seen.insert($0.rawValue).inserted }
         return ordered
+    }
+
+    private struct LoadedAgentOrder: Sendable {
+        let agents: [SessionAgent]
+        let registry: CmuxVaultAgentRegistry
+    }
+
+    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
+        await Task.detached(priority: .utility) {
+            defaultAgentOrderSync(workingDirectory: workingDirectory)
+        }.value
+    }
+
+    nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> LoadedAgentOrder {
+        let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
+        let registry = CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        let agents = SessionAgent.builtInCases + registry.registrations.compactMap {
+            builtInIDs.contains($0.id) ? nil : .registered(RegisteredSessionAgent(registration: $0))
+        }
+        return LoadedAgentOrder(agents: agents, registry: registry)
+    }
+
+    nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
+        await Task.detached(priority: .utility) {
+            CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        }.value
     }
 
     private static func loadDirectoryOrder() -> [String] {
@@ -658,6 +495,20 @@ final class SessionIndexStore: ObservableObject {
 
     private static func persistAgentOrder(_ order: [SessionAgent]) {
         UserDefaults.standard.set(order.map { $0.rawValue }, forKey: agentOrderDefaultsKey)
+    }
+
+    private static func agentOrderPresentationEqual(_ lhs: [SessionAgent], _ rhs: [SessionAgent]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { left, right in
+            guard left.rawValue == right.rawValue else { return false }
+            switch (left, right) {
+            case (.registered(let leftAgent), .registered(let rightAgent)):
+                return leftAgent.name == rightAgent.name
+                    && leftAgent.iconAssetName == rightAgent.iconAssetName
+            default:
+                return true
+            }
+        }
     }
 
     private static func persistDirectoryOrder(_ order: [String]) {
@@ -678,10 +529,19 @@ final class SessionIndexStore: ObservableObject {
                 if Task.isCancelled { return }
                 self.entries = scanned
                 self.isLoading = false
+                self.backfillAgentOrderFromEntries()
                 self.backfillDirectoryOrderFromEntries()
             }
         }
     }
+
+#if DEBUG
+    func replaceEntriesForTesting(_ entries: [SessionEntry]) {
+        self.entries = entries
+        backfillAgentOrderFromEntries()
+        backfillDirectoryOrderFromEntries()
+    }
+#endif
 
     // MARK: - Directory snapshot cache
 
@@ -719,19 +579,16 @@ final class SessionIndexStore: ObservableObject {
         // Claude's `searchMaxFiles` cap still applies (currently 1500); if
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
-        async let c = Self.timedAgent(
-            needle: "", agent: .claude, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
+        let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        var merged = await Self.loadAgents(
+            order.agents,
+            registry: order.registry,
+            needle: "",
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: bigLimit,
+            errorBag: bag
         )
-        async let x = Self.timedAgent(
-            needle: "", agent: .codex, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        async let o = Self.timedAgent(
-            needle: "", agent: .opencode, cwdFilter: cwdFilter,
-            offset: 0, limit: bigLimit, errorBag: bag
-        )
-        var merged = (await c) + (await x) + (await o)
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
@@ -789,8 +646,8 @@ final class SessionIndexStore: ObservableObject {
     // MARK: - Scanning
 
     private static let perAgentLimit = 30
-    private static let headByteCap = 64 * 1024
-    private static let tailByteCap = 32 * 1024
+    nonisolated static let headByteCap = 64 * 1024
+    nonisolated static let tailByteCap = 32 * 1024
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
@@ -799,10 +656,16 @@ final class SessionIndexStore: ObservableObject {
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
         let bag = ErrorBag()
-        async let claude = loadClaudeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit)
-        async let codex = loadCodexEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        async let opencode = loadOpenCodeEntries(needle: "", cwdFilter: nil, offset: 0, limit: perAgentLimit, errorBag: bag)
-        let combined = await claude + codex + opencode
+        let order = await defaultAgentOrder(workingDirectory: nil)
+        let combined = await loadAgents(
+            order.agents,
+            registry: order.registry,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: perAgentLimit,
+            errorBag: bag
+        )
         return combined.sorted { $0.modified > $1.modified }
     }
 
@@ -817,6 +680,7 @@ final class SessionIndexStore: ObservableObject {
 
     private struct ClaudeSessionRoot: Hashable {
         let configDir: String
+        let resumeConfigDirectory: String?
 
         var projectsRoot: String {
             (configDir as NSString).appendingPathComponent("projects")
@@ -827,12 +691,13 @@ final class SessionIndexStore: ObservableObject {
         let url: URL
         let mtime: Date
         let dirName: String
+        let resumeConfigDirectory: String?
         let prefilteredByRipgrep: Bool
     }
 
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
         let fm = FileManager.default
-        var roots: [String] = []
+        var roots: [ClaudeSessionRoot] = []
         var seen: Set<String> = []
 
         func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
@@ -840,18 +705,27 @@ final class SessionIndexStore: ObservableObject {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = (configDir as NSString).standardizingPath
+            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
             let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
                   isDirectory.boolValue else {
                 return
             }
-            if requireConfigured, !isLikelyConfiguredClaudeRoot(standardized) {
+            let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
+                standardized,
+                fileManager: fm
+            )
+            if requireConfigured, resumeConfigDirectory == nil {
                 return
             }
             guard seen.insert(standardized).inserted else { return }
-            roots.append(standardized)
+            roots.append(
+                ClaudeSessionRoot(
+                    configDir: standardized,
+                    resumeConfigDirectory: resumeConfigDirectory
+                )
+            )
         }
 
         let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
@@ -872,18 +746,7 @@ final class SessionIndexStore: ObservableObject {
             requireConfigured: false
         )
 
-        return roots.map(ClaudeSessionRoot.init(configDir:))
-    }
-
-    nonisolated private static func isLikelyConfiguredClaudeRoot(_ configDir: String) -> Bool {
-        let configPath = (configDir as NSString).appendingPathComponent(".claude.json")
-        guard let data = FileManager.default.contents(atPath: configPath),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return false
-        }
-        return obj["oauthAccount"] != nil
-            || obj["primaryApiKey"] != nil
-            || obj["apiKey"] != nil
+        return roots
     }
 
     nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
@@ -1036,6 +899,7 @@ final class SessionIndexStore: ObservableObject {
                         url: url,
                         mtime: mtime,
                         dirName: dirName,
+                        resumeConfigDirectory: root.resumeConfigDirectory,
                         prefilteredByRipgrep: prefilteredByRipgrep
                     )
                 )
@@ -1166,7 +1030,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
     /// Caps total bytes read at `maxBytes`.
-    nonisolated private static func forEachJSONLine(
+    nonisolated static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
         body: ([String: Any]) -> Bool
@@ -1289,95 +1153,174 @@ final class SessionIndexStore: ObservableObject {
         let entries: [SessionEntry]
         switch scope {
         case .agent(let a):
+            let registry: CmuxVaultAgentRegistry
+            let cwdFilter: String?
+            if case .registered = a {
+                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
+            } else if a == .grok {
+                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                registry = await Self.vaultAgentRegistry(
+                    workingDirectory: cwdFilter
+                )
+            } else {
+                cwdFilter = nil
+                registry = CmuxVaultAgentRegistry(registrations: [])
+            }
             entries = await Self.searchAgent(
-                needle: needle, agent: a, cwdFilter: nil,
-                offset: offset, limit: limit, errorBag: bag
+                needle: needle, agent: a, cwdFilter: cwdFilter,
+                offset: offset, limit: limit, errorBag: bag, registry: registry
             )
         case .directory(let path):
-            let cwdFilter = (path?.isEmpty == false) ? path : nil
+            let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
+            let cwdFilter = noFolderScope ? nil : path
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            async let c = Self.timedAgent(
-                needle: needle, agent: .claude, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
+            let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+            var merged = await Self.loadAgents(
+                order.agents,
+                registry: order.registry,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: 0,
+                limit: target,
+                errorBag: bag
             )
-            async let x = Self.timedAgent(
-                needle: needle, agent: .codex, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            async let o = Self.timedAgent(
-                needle: needle, agent: .opencode, cwdFilter: cwdFilter,
-                offset: 0, limit: target, errorBag: bag
-            )
-            let merged = (await c) + (await x) + (await o)
+            if noFolderScope {
+                merged = merged.filter { ($0.cwd ?? "").isEmpty }
+            }
             let sorted = merged.sorted { $0.modified > $1.modified }
             entries = Array(sorted.dropFirst(offset).prefix(limit))
         }
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
 
+    nonisolated private static func loadAgents(
+        _ agents: [SessionAgent],
+        registry: CmuxVaultAgentRegistry,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        errorBag: ErrorBag
+    ) async -> [SessionEntry] {
+        await withTaskGroup(of: [SessionEntry].self) { group in
+            for agent in agents {
+                group.addTask {
+                    await timedAgent(
+                        needle: needle,
+                        agent: agent,
+                        cwdFilter: cwdFilter,
+                        offset: offset,
+                        limit: limit,
+                        errorBag: errorBag,
+                        registry: registry
+                    )
+                }
+            }
+            var merged: [SessionEntry] = []
+            for await entries in group {
+                merged.append(contentsOf: entries)
+            }
+            return merged
+        }
+    }
+
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
-        offset: Int, limit: Int, errorBag: ErrorBag
+        offset: Int, limit: Int, errorBag: ErrorBag,
+        registry: CmuxVaultAgentRegistry
     ) async -> [SessionEntry] {
         #if DEBUG
         let start = ProcessInfo.processInfo.systemUptime
-        let result = await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        let result = await searchAgent(
+            needle: needle,
+            agent: agent,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag,
+            registry: registry
+        )
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         cmuxDebugLog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
         return result
         #else
-        return await searchAgent(needle: needle, agent: agent, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        return await searchAgent(
+            needle: needle,
+            agent: agent,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag,
+            registry: registry
+        )
         #endif
     }
 
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
-        offset: Int, limit: Int, errorBag: ErrorBag
+        offset: Int, limit: Int, errorBag: ErrorBag,
+        registry: CmuxVaultAgentRegistry
     ) async -> [SessionEntry] {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .grok:
+            return await loadGrokEntries(
+                registration: registry.registration(id: "grok") ?? .builtInGrok,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
+        case .registered(let agent):
+            guard let registration = registry.registration(id: agent.id) else {
+                return []
+            }
+            return await loadRegisteredAgentEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
         }
     }
 
-    /// Path to `rg` (ripgrep), if installed. Resolved once. nil when not found —
-    /// the search code falls back to the Foundation substring scan.
-    nonisolated private static let cachedRipgrepPath: String? = {
-        let fm = FileManager.default
-        let common = [
-            "/opt/homebrew/bin/rg",
-            "/usr/local/bin/rg",
-            "/usr/bin/rg",
-            "/opt/local/bin/rg",
-        ]
-        for path in common where fm.isExecutableFile(atPath: path) {
-            return path
+    /// Path to `rg` (ripgrep), if installed. nil when not found — the search
+    /// code falls back to the Foundation substring scan.
+    nonisolated private static func resolvedRipgrepPath() -> String? {
+        switch RipgrepExecutableResolver.resolution() {
+        case .found(let executable):
+            return executable.url.path
+        case .configuredPathNotExecutable(let path):
+            sessionIndexLogger.warning(
+                "Configured ripgrep path is not executable; falling back to Foundation session search: \(path, privacy: .public)"
+            )
+            return nil
+        case .notFound:
+            return nil
         }
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
-            for dir in pathEnv.split(separator: ":") {
-                let full = String(dir) + "/rg"
-                if fm.isExecutableFile(atPath: full) { return full }
-            }
-        }
-        return nil
-    }()
+    }
 
     /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
     /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
     /// URLs, or nil if rg isn't available or the run failed (caller falls back).
     ///
     /// Async by design so we can wire cancellation: when the awaiting Task is
-    /// cancelled (e.g. user types another key), `onCancel` calls
-    /// `process.terminate()`, killing the in-flight rg instead of letting it
-    /// grind to completion. Wait is also async (via `terminationHandler`) so we
-    /// don't tie up a cooperative-pool thread on `waitUntilExit`.
+    /// cancelled (e.g. user types another key), `onCancel` signals the launched
+    /// rg process instead of letting it grind to completion.
     nonisolated static func ripgrepMatchingPaths(
-        needle: String, root: String, fileGlob: String
+        needle: String, root: String, fileGlob: String, ripgrepPath: String? = nil
     ) async -> [URL]? {
-        guard let rg = cachedRipgrepPath else { return nil }
+        guard let rg = ripgrepPath ?? resolvedRipgrepPath() else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
         process.arguments = [
@@ -1398,19 +1341,35 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let cancellation = SessionIndexRipgrepCancellation()
+        process.terminationHandler = { process in
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+        }
 
         return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
+            guard !Task.isCancelled else { return [] }
+            do {
+                try process.run()
+            } catch {
+                if Task.isCancelled { return [] }
+                return nil as [URL]?
+            }
+            cancellation.markStarted(processIdentifier: process.processIdentifier)
+            if Task.isCancelled {
+                cancellation.cancel()
+            }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once readDataToEndOfFile returns, the process is already exiting,
+            // Once the pipe read returns, the process is already exiting,
             // so waitUntilExit is essentially instant — we just need it to make
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
             process.waitUntilExit()
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+            if Task.isCancelled { return [] }
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
@@ -1423,10 +1382,10 @@ final class SessionIndexStore: ObservableObject {
                 return nil
             }
         } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            // Fires synchronously when the awaiting Task is cancelled. SIGTERM
+            // closes stdout, lets the pipe read return, and unblocks the
+            // body so this call can complete cleanly.
+            cancellation.cancel()
         }
     }
 
@@ -1473,6 +1432,7 @@ final class SessionIndexStore: ObservableObject {
                             url: url,
                             mtime: mtime,
                             dirName: dirName,
+                            resumeConfigDirectory: root.resumeConfigDirectory,
                             prefilteredByRipgrep: true
                         )
                     )
@@ -1526,7 +1486,11 @@ final class SessionIndexStore: ObservableObject {
                     let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (idx, cached, true)
+                        return (
+                            idx,
+                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                            true
+                        )
                     }
                     let head = readFileHead(url: candidate.url, byteCap: headByteCap)
                     let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
@@ -1538,7 +1502,11 @@ final class SessionIndexStore: ObservableObject {
                     }
                     if let cached {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (idx, cached, true)
+                        return (
+                            idx,
+                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                            true
+                        )
                     }
                     let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
@@ -1553,7 +1521,11 @@ final class SessionIndexStore: ObservableObject {
                         pullRequest: parsed.pr,
                         modified: candidate.mtime,
                         fileURL: candidate.url,
-                        specifics: .claude(model: parsed.model, permissionMode: parsed.permissionMode)
+                        specifics: .claude(
+                            model: parsed.model,
+                            permissionMode: parsed.permissionMode,
+                            configDirectoryForResume: candidate.resumeConfigDirectory
+                        )
                     )
                     if needle.isEmpty {
                         ClaudeMetadataCache.shared.put(
@@ -1788,7 +1760,7 @@ final class SessionIndexStore: ObservableObject {
     // MARK: Helpers
 
     /// Read up to `byteCap` bytes from the start of the file as UTF-8.
-    nonisolated private static func readFileHead(url: URL, byteCap: Int) -> String {
+    nonisolated static func readFileHead(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let data: Data
@@ -1802,7 +1774,7 @@ final class SessionIndexStore: ObservableObject {
 
     /// Read up to `byteCap` bytes from the end of the file as UTF-8.
     /// Used to find late-arriving events like pr-link without scanning the whole file.
-    nonisolated private static func readFileTail(url: URL, byteCap: Int) -> String {
+    nonisolated static func readFileTail(url: URL, byteCap: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         let size: UInt64

@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -19,6 +20,124 @@ private func drainBrowserPanelMainQueue() {
         expectation.fulfill()
     }
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
+}
+
+private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDelegate {
+    let expectation: XCTestExpectation
+    var error: Error?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+}
+
+private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    let expectation: XCTestExpectation
+    var body: Any?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        body = message.body
+        expectation.fulfill()
+    }
+}
+
+@MainActor
+private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
+    var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
+    var hiddenAt: Date?
+    var webViewInstanceID = UUID()
+    var discardRequestCount = 0
+
+    init(snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot, hiddenAt: Date?) {
+        self.snapshot = snapshot
+        self.hiddenAt = hiddenAt
+    }
+
+    var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+        snapshot
+    }
+
+    var hiddenWebViewDiscardHiddenAt: Date? {
+        hiddenAt
+    }
+
+    var hiddenWebViewDiscardWebViewInstanceID: UUID {
+        webViewInstanceID
+    }
+
+    func hiddenWebViewDiscardManagerDidRequestDiscard(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String
+    ) {
+        discardRequestCount += 1
+    }
+
+    func hiddenWebViewDiscardManagerPolicyDidChange(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String
+    ) {}
+}
+
+@MainActor
+final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
+    func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+        }
+
+        let snapshot = BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+            isClosing: false,
+            isVisibleInUI: false,
+            shouldRenderWebView: true,
+            hasPendingRemoteNavigation: false,
+            hasCurrentURL: true,
+            isLoading: false,
+            webViewIsLoading: false,
+            isDownloading: false,
+            activeDownloadCount: 0,
+            preferredDeveloperToolsVisible: false,
+            isDeveloperToolsVisible: false,
+            isElementFullscreenActive: false,
+            isReactGrabActive: false,
+            hasPopups: false,
+            isCapturingMedia: true
+        )
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["media_capture"])
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
 }
 
 @MainActor
@@ -66,6 +185,129 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 
 
 @MainActor
+final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
+    func testShowOpenFilePickerIsInstalledInBrowserPages() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.evaluateJavaScript("typeof window.showOpenFilePicker")
+        XCTAssertEqual(result as? String, "function")
+    }
+
+    func testShowOpenFilePickerRejectsWhenWindowFocusReturnsWithoutCancelEvent() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.webView.callAsyncJavaScript(
+            """
+            const inputCount = () => document.querySelectorAll("input[type='file']").length;
+            const originalClick = HTMLInputElement.prototype.click;
+            HTMLInputElement.prototype.click = function() {};
+            const pickerPromise = window.showOpenFilePicker();
+            HTMLInputElement.prototype.click = originalClick;
+
+            return await new Promise((resolve) => {
+              pickerPromise.then(
+                () => resolve({ status: "resolved", inputCount: inputCount() }),
+                (error) => resolve({
+                  status: "rejected",
+                  name: error && error.name,
+                  inputCount: inputCount(),
+                })
+              );
+
+              window.dispatchEvent(new Event("focus"));
+              setTimeout(() => resolve({ status: "pending", inputCount: inputCount() }), 100);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let dictionary = try XCTUnwrap(result as? [String: Any])
+        let inputCount = try XCTUnwrap(dictionary["inputCount"] as? NSNumber)
+        XCTAssertEqual(dictionary["status"] as? String, "rejected")
+        XCTAssertEqual(dictionary["name"] as? String, "AbortError")
+        XCTAssertEqual(inputCount.intValue, 0)
+    }
+
+    func testShowOpenFilePickerDoesNotRejectOnElementFocus() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.webView.callAsyncJavaScript(
+            """
+            const inputCount = () => document.querySelectorAll("input[type='file']").length;
+            const originalClick = HTMLInputElement.prototype.click;
+            HTMLInputElement.prototype.click = function() {};
+            const pickerPromise = window.showOpenFilePicker();
+            HTMLInputElement.prototype.click = originalClick;
+
+            let settled = false;
+            pickerPromise.finally(() => { settled = true; }).catch(() => {});
+
+            const textInput = document.createElement("input");
+            textInput.type = "text";
+            document.body.appendChild(textInput);
+            textInput.focus();
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            const beforeWindowFocus = {
+              settled,
+              inputCount: inputCount(),
+            };
+
+            window.dispatchEvent(new Event("focus"));
+            const afterWindowFocus = await new Promise((resolve) => {
+              pickerPromise.then(
+                () => resolve({ status: "resolved", inputCount: inputCount() }),
+                (error) => resolve({
+                  status: "rejected",
+                  name: error && error.name,
+                  inputCount: inputCount(),
+                })
+              );
+            });
+
+            return { beforeWindowFocus, afterWindowFocus };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let dictionary = try XCTUnwrap(result as? [String: Any])
+        let beforeWindowFocus = try XCTUnwrap(dictionary["beforeWindowFocus"] as? [String: Any])
+        let beforeInputCount = try XCTUnwrap(beforeWindowFocus["inputCount"] as? NSNumber)
+        XCTAssertEqual(beforeWindowFocus["settled"] as? Bool, false)
+        XCTAssertEqual(beforeInputCount.intValue, 1)
+
+        let afterWindowFocus = try XCTUnwrap(dictionary["afterWindowFocus"] as? [String: Any])
+        let afterInputCount = try XCTUnwrap(afterWindowFocus["inputCount"] as? NSNumber)
+        XCTAssertEqual(afterWindowFocus["status"] as? String, "rejected")
+        XCTAssertEqual(afterWindowFocus["name"] as? String, "AbortError")
+        XCTAssertEqual(afterInputCount.intValue, 0)
+    }
+
+    private func loadFilePickerTestPage() async throws -> BrowserPanel {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test/file-picker"))
+        let loaded = expectation(description: "browser panel test page loaded")
+        let previousDelegate = panel.webView.navigationDelegate
+        let loadDelegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        panel.webView.navigationDelegate = loadDelegate
+        defer { panel.webView.navigationDelegate = previousDelegate }
+
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><body>browser panel test page</body></html>",
+            baseURL: baseURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+        return panel
+    }
+}
+
+
+@MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
@@ -78,6 +320,228 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertEqual(panel.currentURL, url)
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
+    }
+
+    func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
+        let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let schemePanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: schemeURL,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(schemePanel.preferredURLStringForOmnibar(), schemeURL.absoluteString)
+        XCTAssertNil(schemePanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(schemePanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(schemePanel.shouldRenderWebViewForSessionSnapshot())
+
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let loopbackPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: loopbackURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(loopbackPanel.preferredURLStringForOmnibar(), loopbackURL.absoluteString)
+        XCTAssertNil(loopbackPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
+
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: aliasURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertNil(aliasPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(aliasPanel.shouldPersistSessionSnapshot())
+
+        let normalLocalhostURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app"))
+        let normalLocalhostPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: normalLocalhostURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(normalLocalhostPanel.preferredURLStringForSessionSnapshot(), normalLocalhostURL.absoluteString)
+        XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
+    }
+
+    func testDiffViewerURLIsNotRecordedInBrowserHistory() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString).json")
+        let store = BrowserHistoryStore(fileURL: fileURL)
+        defer {
+            store.clearHistory()
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+
+        let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
+        let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
+
+        store.recordVisit(url: schemeURL, title: "Diff")
+        store.recordVisit(url: loopbackURL, title: "Diff")
+        store.recordVisit(url: aliasURL, title: "Diff")
+        store.recordTypedNavigation(url: aliasURL)
+        store.recordTypedNavigation(url: loopbackURL)
+        XCTAssertTrue(store.entries.isEmpty)
+
+        store.recordVisit(url: normalURL, title: "Normal")
+        XCTAssertEqual(store.entries.map(\.url), [normalURL.absoluteString])
+    }
+}
+
+
+@MainActor
+final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
+    private func trustedDiffViewerTestRoot() -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    func testDiffViewerSchemeRegistrationIsIdempotentForCopiedConfiguration() {
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
+
+        BrowserPanel.configureWebViewConfiguration(
+            config,
+            websiteDataStore: .nonPersistent()
+        )
+
+        XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
+    }
+
+    func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = trustedDiffViewerTestRoot()
+        let assetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("mod.mjs", isDirectory: false)
+        let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try """
+        export const marker = "module-ok";
+        """.write(to: assetURL, atomically: true, encoding: .utf8)
+        try """
+        <!doctype html>
+        <html>
+        <body>
+        <script type="module">
+          import { marker } from "./assets/mod.mjs";
+          WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
+            .then(() => {
+              const result = `${marker}:wasm-ok`;
+              document.body.dataset.loaded = result;
+              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+            })
+            .catch((error) => {
+              const result = `wasm-error:${error.message}`;
+              document.body.dataset.loaded = result;
+              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+            });
+        </script>
+        </body>
+        </html>
+        """.write(to: indexURL, atomically: true, encoding: .utf8)
+        let patchURL = rootURL.appendingPathComponent("index.patch", isDirectory: false)
+        try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
+
+        try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
+                .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
+            ]
+        )
+
+        let allowedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"))
+        let allowedPatchURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.patch"))
+        let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
+        let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
+
+        let config = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+        let moduleLoaded = expectation(description: "module evaluated")
+        let moduleHandler = BrowserPanelTestScriptMessageHandler(expectation: moduleLoaded)
+        contentController.add(moduleHandler, name: "moduleLoaded")
+        config.userContentController = contentController
+        config.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
+        defer {
+            contentController.removeScriptMessageHandler(forName: "moduleLoaded")
+        }
+        let webView = WKWebView(frame: .zero, configuration: config)
+        let loaded = expectation(description: "diff viewer loaded")
+        let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        webView.navigationDelegate = delegate
+        webView.load(URLRequest(url: allowedURL))
+        wait(for: [loaded], timeout: 3)
+        XCTAssertNil(delegate.error)
+        wait(for: [moduleLoaded], timeout: 3)
+        XCTAssertEqual(moduleHandler.body as? String, "module-ok:wasm-ok")
+
+        let evaluated = expectation(description: "module evaluated")
+        webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
+            XCTAssertNil(error)
+            XCTAssertEqual(value as? String, "module-ok:wasm-ok")
+            evaluated.fulfill()
+        }
+        wait(for: [evaluated], timeout: 3)
+    }
+
+    func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {
+        let token = UUID().uuidString.lowercased()
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-security-\(UUID().uuidString)", isDirectory: true)
+        let trustedRootURL = trustedDiffViewerTestRoot()
+        let outsideURL = temporaryURL.appendingPathComponent("outside.html", isDirectory: false)
+        let linkURL = trustedRootURL.appendingPathComponent("link.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trustedRootURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            try? FileManager.default.removeItem(at: trustedRootURL)
+        }
+
+        try "<!doctype html>".write(to: outsideURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
+
+        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/link.html", fileURL: linkURL, mimeType: "text/html"),
+            ]
+        ))
+    }
+
+    func testDiffViewerSchemeRejectsMismatchedPatchMimeType() throws {
+        let token = UUID().uuidString.lowercased()
+        let trustedRootURL = trustedDiffViewerTestRoot()
+        let patchURL = trustedRootURL.appendingPathComponent("diff.patch", isDirectory: false)
+        try FileManager.default.createDirectory(at: trustedRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: trustedRootURL) }
+
+        try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
+            ]
+        ))
     }
 }
 
@@ -224,6 +688,25 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
         XCTAssertFalse(panel.requestExplicitWebViewFocus())
         XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
+    }
+
+    func testOmnibarVisibilityIsPanelScopedAndFocusRequestShowsIt() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertTrue(panel.isOmnibarVisible)
+        _ = panel.requestAddressBarFocus()
+        XCTAssertNotNil(panel.pendingAddressBarFocusRequestId)
+
+        XCTAssertTrue(panel.setOmnibarVisible(false))
+        XCTAssertFalse(panel.isOmnibarVisible)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.preferredFocusIntent, .webView)
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+
+        let requestId = panel.requestAddressBarFocus()
+        XCTAssertTrue(panel.isOmnibarVisible)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
+        XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
     }
 
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {

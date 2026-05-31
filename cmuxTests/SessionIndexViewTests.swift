@@ -56,31 +56,84 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() {
+    func testClaudeResumeCommandPinsSnapshotConfigDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(fileURLWithPath: "/tmp/claude config/projects/-tmp/claude-session-123.jsonl")
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
-    func testClaudeResumeCommandUsesNearestProjectsDirectory() {
+    func testClaudeResumeCommandUsesSnapshotConfigDirectoryWithNestedProjectsPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(
-                fileURLWithPath: "/tmp/projects/claude config/projects/-tmp/claude-session-123.jsonl"
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
+        )
+
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+        )
+    }
+
+    func testGrokResumeCommandPreservesSpecifics() {
+        let entry = makeEntry(
+            agent: .grok,
+            sessionId: "grok-session-123",
+            title: "resume me",
+            specifics: .grok(
+                model: "grok-4",
+                permissionMode: "auto",
+                sandboxMode: "danger-full-access",
+                grokHome: "/tmp/grok home"
             )
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' claude --resume claude-session-123"
+            "'env' 'GROK_HOME=/tmp/grok home' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -96,6 +149,69 @@ final class SessionIndexViewTests: XCTestCase {
         store.setCurrentDirectoryIfChanged("/foo")
 
         XCTAssertEqual(emittedValues, ["/foo"])
+    }
+
+    func testDirectoryOrderBackfillUsesLatestModifiedForDuplicateDirectories() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.directoryOrder = ["/existing"]
+
+            store.replaceEntriesForTesting([
+                makeEntry(title: "old project", cwd: "/project-a", modified: Date(timeIntervalSince1970: 1)),
+                makeEntry(title: "new project", cwd: "/project-b", modified: Date(timeIntervalSince1970: 2)),
+                makeEntry(title: "newer project", cwd: "/project-a", modified: Date(timeIntervalSince1970: 3)),
+                makeEntry(title: "known project", cwd: "/existing", modified: Date(timeIntervalSince1970: 4))
+            ])
+
+            XCTAssertEqual(store.directoryOrder, ["/existing", "/project-a", "/project-b"])
+        }
+    }
+
+    func testDirectoryOrderBackfillUsesPathTieBreakForEqualModifiedDates() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            let sameModified = Date(timeIntervalSince1970: 10)
+
+            store.replaceEntriesForTesting([
+                makeEntry(title: "project b", cwd: "/project-b", modified: sameModified),
+                makeEntry(title: "project a", cwd: "/project-a", modified: sameModified),
+                makeEntry(title: "project c", cwd: "/project-c", modified: Date(timeIntervalSince1970: 1))
+            ])
+
+            XCTAssertEqual(store.directoryOrder, ["/project-a", "/project-b", "/project-c"])
+        }
+    }
+
+    func testAgentOrderBackfillUsesLatestModifiedForDuplicateAgents() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            store.agentOrder = [.claude]
+
+            store.replaceEntriesForTesting([
+                makeEntry(agent: .codex, title: "old codex", modified: Date(timeIntervalSince1970: 1)),
+                makeEntry(agent: .grok, title: "grok", modified: Date(timeIntervalSince1970: 2)),
+                makeEntry(agent: .codex, title: "newer codex", modified: Date(timeIntervalSince1970: 3)),
+                makeEntry(agent: .claude, title: "known claude", modified: Date(timeIntervalSince1970: 4))
+            ])
+
+            XCTAssertEqual(store.agentOrder.map(\.rawValue), ["claude", "codex", "grok"])
+        }
+    }
+
+    func testAgentOrderBackfillUsesAgentIdTieBreakForEqualModifiedDates() {
+        preservingSessionIndexDefaults {
+            let store = SessionIndexStore()
+            let sameModified = Date(timeIntervalSince1970: 10)
+            store.agentOrder = []
+
+            store.replaceEntriesForTesting([
+                makeEntry(agent: .grok, title: "grok", modified: sameModified),
+                makeEntry(agent: .codex, title: "codex", modified: sameModified),
+                makeEntry(agent: .claude, title: "claude", modified: Date(timeIntervalSince1970: 1))
+            ])
+
+            XCTAssertEqual(store.agentOrder.map(\.rawValue), ["codex", "grok", "claude"])
+        }
     }
 
     func testCodexSQLSearchMatchesRolloutTranscriptContent() async throws {
@@ -230,26 +346,57 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     private func makeEntry(
+        agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        cwd: String? = nil,
+        modified: Date = Date(timeIntervalSince1970: 0),
+        fileURL: URL? = nil,
+        specifics: AgentSpecifics? = nil,
+        claudeConfigDirectoryForResume: String? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
-            agent: .claude,
+            agent: agent,
             sessionId: sessionId,
             title: title,
-            cwd: nil,
+            cwd: cwd,
             gitBranch: nil,
             pullRequest: nil,
-            modified: Date(timeIntervalSince1970: 0),
+            modified: modified,
             fileURL: fileURL,
-            specifics: .claude(model: nil, permissionMode: nil)
+            specifics: specifics ?? agent.defaultSpecificsForTesting(
+                claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
+            )
         )
     }
 
     private func pumpRunLoop() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    private func preservingSessionIndexDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sessionIndex.agentOrder",
+            "sessionIndex.directoryOrder",
+            "sessionIndex.grouping"
+        ]
+        let previousValues = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
+        defer {
+            for previousValue in previousValues {
+                if let value = previousValue.value {
+                    defaults.set(value, forKey: previousValue.key)
+                } else {
+                    defaults.removeObject(forKey: previousValue.key)
+                }
+            }
+        }
+
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        body()
     }
 
     private func makeCodexStateDatabase(
@@ -323,6 +470,36 @@ final class SessionIndexViewTests: XCTestCase {
     private func sqliteMessage(_ db: OpaquePointer) -> String? {
         guard let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
+    }
+}
+
+private extension SessionAgent {
+    func defaultSpecificsForTesting(
+        claudeConfigDirectoryForResume: String? = nil
+    ) -> AgentSpecifics {
+        switch self {
+        case .claude:
+            return .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: claudeConfigDirectoryForResume
+            )
+        case .codex:
+            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .grok:
+            return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
+        case .opencode:
+            return .opencode(providerModel: nil, agentName: nil)
+        case .rovodev:
+            return .rovodev
+        case .hermesAgent:
+            return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        case .registered:
+            // Registered (Vault) agents aren't exercised by these tests; if a
+            // future test reaches this branch, point them at the missing
+            // helper instead of silently returning a misleading default.
+            fatalError("defaultSpecificsForTesting does not support .registered SessionAgent; extend the helper when adding registered-agent coverage")
+        }
     }
 }
 

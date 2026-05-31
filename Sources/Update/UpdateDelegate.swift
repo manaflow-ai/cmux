@@ -18,10 +18,6 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        guard !PrivacyMode.isEnabled else {
-            UpdateLogStore.shared.append("update feed disabled in privacy mode")
-            return nil
-        }
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
         if let override = env["CMUX_UI_TEST_FEED_URL"], !override.isEmpty {
@@ -89,7 +85,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
         DispatchQueue.main.async { [weak viewModel] in
-            viewModel?.clearDetectedUpdate()
+            viewModel?.dismissDetectedAvailableUpdate()
         }
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue

@@ -35,9 +35,8 @@ enum AuthCallbackRouter {
 
     private static func isAllowedScheme(_ scheme: String?) -> Bool {
         guard let normalized = scheme?.lowercased() else { return false }
-        // In privacy mode we register only `panecho://`, so reject the
-        // upstream cmux schemes even if a co-installed app re-registers them.
-        if !PrivacyMode.isEnabled, normalized == "cmux" || normalized == "cmux-dev" {
+        if !PrivacyMode.isEnabled,
+           normalized == "cmux" || normalized == "cmux-nightly" || normalized == "cmux-dev" {
             return true
         }
         // Honor the runtime override so any AuthEnvironment.callbackScheme

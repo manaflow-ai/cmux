@@ -10,7 +10,7 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-PROJECT_PATH="$ROOT_DIR/GhosttyTabs.xcodeproj"
+PROJECT_PATH="$ROOT_DIR/cmux.xcodeproj"
 XCCONFIG_PATH="${PANECHO_XCCONFIG:-$ROOT_DIR/Config/PrivacyOverrides.xcconfig}"
 DERIVED_DATA_PATH="${PANECHO_DERIVED_DATA_PATH:-$ROOT_DIR/build/panecho-derived-data}"
 SCHEME="${PANECHO_SCHEME:-cmux}"

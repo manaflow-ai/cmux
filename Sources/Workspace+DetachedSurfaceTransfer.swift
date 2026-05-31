@@ -1,7 +1,16 @@
 import Foundation
+import Darwin
 
 extension Workspace {
+    struct DetachedAgentRuntimeState {
+        let panelId: UUID
+        let statusEntries: [String: SidebarStatusEntry]
+        let agentPIDs: [String: pid_t]
+        let agentPIDKeys: Set<String>
+    }
+
     struct DetachedSurfaceTransfer {
+        let sourceWorkspaceId: UUID
         let panelId: UUID
         let panel: any Panel
         let title: String
@@ -15,12 +24,19 @@ extension Workspace {
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
+        let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
+        let restorableAgent: SessionRestorableAgentSnapshot?
+        let restorableAgentResumeState: RestoredAgentResumeState?
+        let resumeBinding: SurfaceResumeBindingSnapshot?
+        let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
+        let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
+                sourceWorkspaceId: sourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
                 title: title,
@@ -34,8 +50,14 @@ extension Workspace {
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 manuallyUnread: manuallyUnread,
+                restoredUnreadIndicator: restoredUnreadIndicator,
+                restorableAgent: restorableAgent,
+                restorableAgentResumeState: restorableAgentResumeState,
+                resumeBinding: resumeBinding,
+                agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
+                remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
             )
         }

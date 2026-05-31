@@ -4,12 +4,14 @@ import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
-import settingsSchema from "../../../../data/cmux-settings.schema.json";
+import settingsSchema from "../../../../data/cmux.schema.json";
 import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
   title?: string;
   description?: string;
+  descriptionKey?: string;
   type?: string | string[];
   enum?: string[];
   default?: unknown;
@@ -30,18 +32,21 @@ const typedSettingsSchema = settingsSchema as SchemaDocument;
 const schemaProperties = typedSettingsSchema.properties ?? {};
 const schemaUrl =
   typedSettingsSchema.$id ??
-  "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json";
+  "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json";
 const schemaSourceUrl =
-  "https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux-settings.schema.json";
+  "https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux.schema.json";
 const sectionOrder = [
   "app",
   "terminal",
   "notifications",
   "sidebar",
+  "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
-  "customCommands",
+  "actions",
+  "ui",
+  "commands",
   "browser",
   "shortcuts",
 ] as const;
@@ -54,16 +59,37 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "confirmQuit": "always",
+  //   "openSupportedFilesInCmux": true,
+  //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },
 
   // "terminal": {
-  //   "showScrollBar": false
+  //   "showScrollBar": false,
+  //   "copyOnSelect": true,
+  //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 3600,
+  //     "maxLiveTerminals": 12
+  //   },
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
+  //   "defaultSearchEngine": "kagi",
+  //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
+  //   "customSearchEngineName": "My Search",
+  //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "automation": {
+  //   "suppressSubagentNotifications": true
   // },
 
   // "workspaceColors": {
@@ -74,10 +100,16 @@ const settingsFileExample = `{
   //   }
   // },
 
+  // "workspaceGroups": {
+  //   "newWorkspacePlacement": "afterCurrent"
+  // },
+
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
-  //     "newTab": ["ctrl+b", "c"]
+  //     "toggleFileExplorer": "cmd+opt+b",
+  //     "newTab": ["ctrl+b", "c"],
+  //     "commandPalettePrevious": null
   //   }
   // },
 }`;
@@ -94,6 +126,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 function localizedText(text: LocalizedText, locale: string) {
   return locale.startsWith("ja") ? text.ja : text.en;
+}
+
+function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
+  if (shortcut.configValue) return shortcut.configValue;
+  return shortcutComboToConfig(shortcut.combos[0] ?? []);
 }
 
 function shortcutComboToConfig(combo: string[]) {
@@ -152,12 +189,15 @@ function hasComplexDefaultValue(value: unknown): boolean {
 }
 
 function PropertyCard({ path, property }: { path: string; property: SchemaProperty }) {
+  const t = useTranslations("docs.configuration");
+  const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
+
   return (
     <div className="rounded-xl border border-border/70 bg-background/40 p-4">
       <div className="mb-2 flex items-center gap-2">
         <code className="text-[12px] font-medium">{path}</code>
       </div>
-      {property.description && <p className="mb-3 text-sm text-muted">{property.description}</p>}
+      {description && <p className="mb-3 text-sm text-muted">{description}</p>}
       <dl className="space-y-2 text-sm">
         <div>
           <dt className="font-medium text-foreground">Type</dt>
@@ -225,10 +265,10 @@ export default function ConfigurationPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("configLocations")}</h2>
+      <DocsHeading level={2} id="config-locations">{t("configLocations")}</DocsHeading>
       <p>{t("configLocationsDesc")}</p>
       <ol>
         <li>
@@ -242,7 +282,7 @@ export default function ConfigurationPage() {
       <CodeBlock lang="bash">{`mkdir -p ~/.config/ghostty
 touch ~/.config/ghostty/config`}</CodeBlock>
 
-      <h2>{t("exampleConfig")}</h2>
+      <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
 theme = One Dark
@@ -250,28 +290,30 @@ scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
-      <h2 id="settings-json" className="scroll-mt-24">cmux settings.json</h2>
+      <DocsHeading level={2} id="cmux-json" className="scroll-mt-24">cmux.json</DocsHeading>
       <p>
-        cmux keeps app-owned settings in a separate user file instead of mixing them into Ghostty
-        config. On launch, if neither settings location exists, cmux writes a commented template to{" "}
-        <code>~/.config/cmux/settings.json</code>.
+        cmux keeps app-owned settings, shortcuts, actions, custom commands, and workspace layouts in{" "}
+        <code>~/.config/cmux/cmux.json</code>. Terminal rendering still lives in Ghostty config.
+        On launch, if the file is missing, cmux writes a commented template there.
       </p>
       <p>
-        Open cmux Settings, then use the <code>settings.json</code> section to open the active file
+        Open cmux Settings, then use the <code>cmux.json</code> section to open the canonical file
         in your preferred text editor.
       </p>
       <ol>
         <li>
-          <code>~/.config/cmux/settings.json</code>
+          <code>~/.config/cmux/cmux.json</code>
         </li>
         <li>
-          <code>~/Library/Application Support/com.cmuxterm.app/settings.json</code>
+          <code>.cmux/cmux.json</code> in a project for project-scoped actions and workspace commands
         </li>
       </ol>
       <Callout type="info">
-        <strong>Precedence:</strong> <code>~/.config/cmux/settings.json</code> wins over the
-        Application Support fallback. File-managed values override the value saved in the Settings
-        window. Remove a key to fall back to the Settings value again.
+        <strong>Precedence:</strong> global <code>~/.config/cmux/cmux.json</code> settings override
+        values saved in the Settings window. Legacy <code>~/.config/cmux/settings.json</code> and
+        Application Support settings files are read only as fallback for missing settings keys.
+        Project-local <code>.cmux/cmux.json</code> can override actions, commands, UI action
+        wiring, and notification hooks, but not global app preferences.
       </Callout>
       <Callout type="info">
         <strong>Reload:</strong> edit the file, then use <code>Cmd+Shift+,</code> or{" "}
@@ -287,18 +329,19 @@ working-directory = ~/code`}</CodeBlock>
         at <a href={schemaUrl}>{schemaUrl}</a> and the source lives at{" "}
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
-      <CodeBlock title="~/.config/cmux/settings.json" lang="json">
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
         {settingsFileExample}
       </CodeBlock>
 
-      <h2>Schema reference</h2>
+      <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>
       <p>
-        This reference covers every supported key in <code>settings.json</code>. The embedded
+        This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
         browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
-        all live here.
+        all live here. Actions and workspace commands are documented on the{" "}
+        <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 
-      <h3>Metadata</h3>
+      <DocsHeading level={3} id="metadata">Metadata</DocsHeading>
       <PropertyGrid
         prefix=""
         properties={Object.fromEntries(
@@ -316,9 +359,9 @@ working-directory = ~/code`}</CodeBlock>
 
         return (
           <section key={sectionName}>
-            <h3>
+            <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
-            </h3>
+            </DocsHeading>
             {property.description && <p>{property.description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
@@ -345,13 +388,17 @@ working-directory = ~/code`}</CodeBlock>
         );
       })}
 
-      <h3>
+      <DocsHeading level={3} id="shortcuts-bindings">
         <code>shortcuts.bindings</code>
-      </h3>
+      </DocsHeading>
       <p>
-        Use a string for a single shortcut, or a two-item array for a chord. Example:{" "}
-        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use <code>1</code> as
-        the stored default and still match digits <code>1</code> through <code>9</code>.
+        Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
+        unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
+        empty string (<code>&quot;&quot;</code>), <code>none</code>, <code>clear</code>,{" "}
+        <code>unbound</code>, and <code>disabled</code>. Example chord:{" "}
+        <code>[&quot;ctrl+b&quot;, &quot;c&quot;]</code>. Numbered actions use{" "}
+        <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
+        <code>9</code>.
       </p>
       <p>
         The defaults below are the same cmux-owned actions listed on the{" "}
@@ -383,7 +430,7 @@ working-directory = ~/code`}</CodeBlock>
                 </div>
                 <div className="text-sm text-muted">
                   <div className="font-medium text-foreground">Default file value</div>
-                  <code>{shortcutComboToConfig(shortcut.combos[0] ?? [])}</code>
+                  <code>{shortcutToConfig(shortcut)}</code>
                 </div>
               </div>
             ))}

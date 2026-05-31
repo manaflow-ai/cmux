@@ -93,73 +93,6 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 
 ## Install
 
-For the hardened `Panecho` fork built from this repository, the simplest path is now the prebuilt ZIP installer below. It uses only built-in macOS tools and does **not** require local Xcode, Homebrew, Go, Python, or GitHub CLI. For the broader installer that can also consume local artifacts or build from source, see [`INSTALL.md`](INSTALL.md).
-
-### Panecho ZIP install (no local toolchain required)
-
-The prebuilt installer now defaults to the fork’s latest `Panecho` release asset from `xxshubhamxx/cmux`, with an automatic fallback to `panecho-nightly` if a stable release is not available yet.
-
-Install it with:
-
-```bash
-./scripts/install-panecho-prebuilt.sh
-```
-
-That script tries, in order:
-
-```text
-https://github.com/xxshubhamxx/cmux/releases/latest/download/panecho-macos.zip
-https://github.com/xxshubhamxx/cmux/releases/download/panecho-nightly/panecho-macos.zip
-```
-
-and installs `Panecho.app` into `/Applications` when writable, or `~/Applications` otherwise.
-
-If you want the same experience without cloning the repo first:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/xxshubhamxx/cmux/main/scripts/install-panecho-prebuilt.sh | bash
-```
-
-If you already downloaded the ZIP manually, point the installer at it directly:
-
-```bash
-./scripts/install-panecho-prebuilt.sh --zip ~/Downloads/panecho-macos.zip
-```
-
-If you prefer the fully manual route, this does the same thing with built-in macOS commands only:
-
-```bash
-TMP_DIR="$(mktemp -d)"
-INSTALL_DIR="/Applications"
-[[ -w "$INSTALL_DIR" ]] || INSTALL_DIR="$HOME/Applications"
-curl -L --fail -o "$TMP_DIR/panecho-macos.zip" "https://github.com/xxshubhamxx/cmux/releases/latest/download/panecho-macos.zip"
-ditto -xk "$TMP_DIR/panecho-macos.zip" "$TMP_DIR/unpacked"
-mkdir -p "$INSTALL_DIR"
-rm -rf "$INSTALL_DIR/Panecho.app"
-mv "$TMP_DIR/unpacked/Panecho.app" "$INSTALL_DIR/Panecho.app"
-open "$INSTALL_DIR/Panecho.app"
-```
-
-### Panecho uninstall
-
-To remove the app bundle later:
-
-```bash
-./scripts/uninstall-panecho.sh
-```
-
-Or run the same uninstaller straight from GitHub:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR-ORG/YOUR-PANECHO-FORK/main/scripts/uninstall-panecho.sh | bash
-```
-
-To also remove local preferences, caches, and saved state:
-
-```bash
-PANECHO_REMOVE_USER_DATA=1 ./scripts/uninstall-panecho.sh
-```
-
 ### DMG (recommended)
 
 <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
@@ -224,8 +157,8 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ ⇧ R | Rename workspace |
 | ⌥ ⌘ E | Edit workspace description |
 | ⌘ B | Toggle sidebar |
-| ⌘ ⇧ E | Focus right sidebar |
-| ⌃ 1 / ⌃ 2 / ⌃ 3 | Switch Files / Sessions / Feed when the right sidebar is focused |
+| ⌥ ⌘ B | Toggle right sidebar |
+| ⌘ ⇧ E | Toggle right sidebar focus |
 
 ### Surfaces
 
@@ -252,6 +185,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 ### Browser
 
 Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+Command palette navigation shortcuts, including ⌃ P, are also customizable and can be cleared so the keypress reaches the active terminal.
 
 | Shortcut | Action |
 |----------|--------|
@@ -269,14 +203,17 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 |----------|--------|
 | ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
+| ⌥ ⌘ U | Toggle current item unread state |
+| ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
 
 ### Find
 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ F | Find |
-| ⌘ G / ⌘ ⇧ G | Find next / previous |
-| ⌘ ⇧ F | Hide find bar |
+| ⌘ ⇧ F | Find in directory |
+| ⌘ G / ⌥ ⌘ G | Find next / previous |
+| ⌥ ⌘ ⇧ F | Hide find bar |
 | ⌘ E | Use selection for find |
 
 ### Terminal
@@ -309,19 +246,76 @@ Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issue
 
 ## Session restore
 
-Quitting cmux saves the current session. On relaunch, cmux restores:
+Quitting cmux saves the current session. On relaunch, cmux restores app-owned
+state:
 - Window/workspace/pane layout
 - Working directories
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
-- Saved Claude Code and Codex sessions, when cmux has a resume token for the panel
+
+cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
+unsupported terminal apps reopen as normal terminals.
+
+Supported agent sessions can resume when hooks have saved a native session ID.
+Install hooks after installing the agent CLI so its binary is on `PATH`:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+`cmux hooks setup` installs supported agents it can find and prints a summary
+for skipped agents. Supported resume integrations include Claude Code, Codex,
+Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy,
+Factory, and Qoder. Claude Code is handled by the cmux Claude wrapper when Claude
+integration is enabled in Settings.
+
+Advanced users and integrations can attach a custom resume command to the
+current terminal surface. This is useful for tools with their own durable state,
+such as tmux sessions or custom agent CLIs:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+The binding stays attached to the cmux surface. Public CLI or socket-created
+bindings are stored for inspection and manual restore unless you approve a
+signed command prefix for automatic restore. Approved prefixes are also bound to
+the working directory and exact environment values, when present. Review or edit
+approvals in **Settings > Terminal > Resume Commands**. cmux only auto-runs
+resume bindings it marks trusted, such as live process-detected tmux bindings or
+user-approved prefixes. Sensitive environment keys such as tokens, passwords,
+secrets, and API keys are dropped before a resume binding is stored.
+
+To keep restored agent terminals idle instead of automatically running their resume commands,
+turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set this in
+`~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+This only disables automatic agent resume commands. cmux still restores the saved layout,
+working directories, scrollback, and browser history.
 
 If you need to reapply the last saved snapshot manually, use:
 - `File > Reopen Previous Session`
 - `⌘ ⇧ O`
 - `cmux restore-session`
 
-cmux does **not** restore arbitrary live terminal process state. tmux, vim, shells, and other tools without a cmux resume flow still reopen as normal terminals rather than resuming in-process state.
+Under the hood, cmux writes a versioned snapshot under
+`~/Library/Application Support/cmux/` and agent hooks write session mappings
+under `~/.cmuxterm/`. On restore, cmux rebuilds the layout first, then runs the
+supported agent's native resume command when automatic agent resume is enabled.
+
+Read the full guide at <https://cmux.com/docs/session-restore>.
 
 ## Star History
 
