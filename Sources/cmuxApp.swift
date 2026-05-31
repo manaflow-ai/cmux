@@ -7206,6 +7206,7 @@ private struct GlobalFontMagnificationControl: View {
             .controlSize(.small)
             .disabled(isAtDefault)
         }
+        .cmuxFont(.body)
     }
 }
 
@@ -7240,7 +7241,7 @@ private struct SettingsCardRow<Trailing: View>: View {
                     Text(subtitle)
                         .cmuxFont(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
