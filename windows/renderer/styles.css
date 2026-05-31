@@ -4280,7 +4280,7 @@ body.reduce-motion *::after {
 }
 
 .settings-profile-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .workspace-blueprint-list {
@@ -4289,7 +4289,7 @@ body.reduce-motion *::after {
 }
 
 .workspace-blueprint-actions {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .quick-setup-overview {

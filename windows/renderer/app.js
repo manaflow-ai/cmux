@@ -9248,7 +9248,7 @@ async function deleteSavedSettingsProfile(profileId) {
 function workspaceBlueprintsPanel() {
   const wrapper = document.createElement("div");
   wrapper.className = "workspace-blueprint-list";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("workspace blueprints saved layout pane template terminal browser split apply new save rename delete");
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("workspace blueprints saved layout pane template terminal browser split apply new save update rename delete");
 
   const header = document.createElement("div");
   header.className = "recent-folder-header";
@@ -9299,6 +9299,7 @@ function workspaceBlueprintCard(blueprint) {
   actions.append(
     settingsActionButton("New", () => createWorkspaceFromBlueprint(blueprint.id), "", `new workspace from blueprint ${blueprint.label}`),
     settingsActionButton("Add", () => applyWorkspaceBlueprint(blueprint.id), "", `add apply workspace blueprint ${blueprint.label}`),
+    settingsActionButton("Update", () => updateWorkspaceBlueprint(blueprint.id), "", `update workspace blueprint ${blueprint.label} current layout`),
     settingsActionButton("Rename", () => renameWorkspaceBlueprint(blueprint.id), "", `rename workspace blueprint ${blueprint.label}`),
     settingsActionButton("Delete", () => deleteWorkspaceBlueprint(blueprint.id), "danger", `delete workspace blueprint ${blueprint.label}`)
   );
@@ -9306,7 +9307,7 @@ function workspaceBlueprintCard(blueprint) {
   return card;
 }
 
-function currentWorkspaceBlueprintSnapshot(label) {
+function currentWorkspaceBlueprintSnapshot(label, overrides = {}) {
   const workspace = activeWorkspace();
   if (!workspace || workspace.panels.length === 0) return null;
   const direction = paneLayoutDirection(workspace);
@@ -9315,11 +9316,12 @@ function currentWorkspaceBlueprintSnapshot(label) {
   }
   const equalWeight = Math.round(paneLayoutScale / Math.max(1, workspace.panels.length));
   return normalizeWorkspaceBlueprint({
-    id: createWorkspaceBlueprintId(),
+    id: overrides.id || createWorkspaceBlueprintId(),
     label,
     splitDirection: direction,
     color: workspace.color || "",
     cwd: workspace.cwd || "",
+    createdAt: overrides.createdAt,
     panels: workspace.panels.slice(0, workspaceBlueprintPanelLimit).map((panel) => ({
       type: panel.type,
       title: panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal"),
@@ -9352,6 +9354,28 @@ async function saveCurrentWorkspaceBlueprint() {
   if (!saved) return;
   renderSettingsInspector();
   toast("Workspace blueprint saved.");
+}
+
+async function updateWorkspaceBlueprint(blueprintId) {
+  const blueprint = state.workspaceBlueprints.find((candidate) => candidate.id === blueprintId);
+  if (!blueprint) return;
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length === 0) {
+    toast("Open panes before updating a blueprint.");
+    return;
+  }
+  if (!await showConfirmDialog({
+    title: "Update blueprint",
+    message: `Replace "${blueprint.label}" with the current workspace layout?`,
+    confirmLabel: "Update"
+  })) return;
+  const updated = upsertWorkspaceBlueprint(currentWorkspaceBlueprintSnapshot(blueprint.label, {
+    id: blueprint.id,
+    createdAt: blueprint.createdAt
+  }));
+  if (!updated) return;
+  renderSettingsInspector();
+  toast(`${blueprint.label} blueprint updated.`);
 }
 
 function defaultWorkspaceBlueprintName(workspace = activeWorkspace()) {
