@@ -341,7 +341,7 @@
 		F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */; };
 
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
-		C0DEF0C10000000000000001 /* PrivacyEgressGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* PrivacyEgressGuard.swift */; };
+		C0DEF0D10000000000000001 /* PrivacyEgressGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0D10000000000000002 /* PrivacyEgressGuard.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		C47110020000000000000001 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
 		C47110020000000000000003 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
@@ -977,7 +977,7 @@
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
-		C0DEF0C10000000000000002 /* PrivacyEgressGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PrivacyEgressGuard.swift; sourceTree = "<group>"; };
+		C0DEF0D10000000000000002 /* PrivacyEgressGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PrivacyEgressGuard.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		C47110020000000000000002 /* ProcessPipeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReader.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
@@ -1493,7 +1493,7 @@
 					E30750000000000000000001 /* WorkspaceTabColorResolution.swift */,
 					A5001511 /* UITestRecorder.swift */,
 					A5001520 /* PostHogAnalytics.swift */,
-					C0DEF0C10000000000000002 /* PrivacyEgressGuard.swift */,
+					C0DEF0D10000000000000002 /* PrivacyEgressGuard.swift */,
 					A5001416 /* Workspace.swift */,
 					D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 					C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
@@ -2371,7 +2371,7 @@
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
-				C0DEF0C10000000000000001 /* PrivacyEgressGuard.swift in Sources */,
+				C0DEF0D10000000000000001 /* PrivacyEgressGuard.swift in Sources */,
 				C47110020000000000000001 /* ProcessPipeReader.swift in Sources */,
 					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
 					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
