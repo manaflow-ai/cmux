@@ -1897,6 +1897,7 @@ extension Workspace {
             guard let projectPath = snapshot.project?.projectPath,
                   let projectPanel = newProjectSurface(
                     inPane: paneId,
+                    controller: controller,
                     projectPath: projectPath,
                     focus: false
                   ) else {
@@ -2258,6 +2259,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
+                controller: controller,
                 projectPath: surface.url ?? surface.cwd ?? "",
                 focus: false
             ) {
@@ -2306,6 +2308,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
+                controller: controller,
                 projectPath: surface.url ?? surface.cwd ?? "",
                 focus: false
             ) {
@@ -14774,13 +14777,15 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func newProjectSurface(
         inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil,
         projectPath: String,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> ProjectPanel? {
         guard !projectPath.isEmpty else { return nil }
         let url = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let controller = targetController ?? bonsplitController(containingPane: paneId) ?? bonsplitController
+        let shouldFocusNewTab = focus ?? (controller.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -14788,7 +14793,7 @@ final class Workspace: Identifiable, ObservableObject {
         panels[projectPanel.id] = projectPanel
         panelTitles[projectPanel.id] = projectPanel.displayTitle
 
-        guard let newTabId = bonsplitController.createTab(
+        guard let newTabId = controller.createTab(
             title: projectPanel.displayTitle,
             icon: projectPanel.displayIcon,
             kind: SurfaceKind.project,
@@ -14804,13 +14809,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceIdToPanelId[newTabId] = projectPanel.id
         if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+            _ = controller.reorderTab(newTabId, toIndex: targetIndex)
         }
         publishCmuxSurfaceCreated(projectPanel.id, paneId: paneId, kind: SurfaceKind.project, origin: "project_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId)
+            controller.focusPane(paneId)
+            controller.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId, controller: controller)
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,

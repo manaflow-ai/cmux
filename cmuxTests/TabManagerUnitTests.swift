@@ -2529,6 +2529,42 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, createdPanelId)
     }
 
+    func testNewProjectSurfaceUsesFocusedDockPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        guard let dockPaneId = dock.controller.allPaneIds.first else {
+            XCTFail("Expected dock to have a pane")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        let mainTabCount = workspace.bonsplitController.allTabIds.count
+        let dockTabCount = dock.controller.allTabIds.count
+
+        // A project pane id from a dock controller must not be routed to the
+        // main BonsplitController. Before the multi-dock controller fix this
+        // created the tab on the main tree (or failed outright).
+        guard let projectPanel = workspace.newProjectSurface(
+            inPane: dockPaneId,
+            projectPath: "/tmp/cmux-multi-dock-project-routing.xcodeproj",
+            focus: true
+        ) else {
+            XCTFail("Expected project surface to be created in the dock pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.bonsplitController.allTabIds.count, mainTabCount)
+        XCTAssertEqual(dock.controller.allTabIds.count, dockTabCount + 1)
+        XCTAssertEqual(workspace.paneId(forPanelId: projectPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allPaneIds.contains(dockPaneId))
+        XCTAssertTrue(workspace.panels[projectPanel.id] is ProjectPanel)
+        XCTAssertEqual(workspace.focusedPanelId, projectPanel.id)
+    }
+
     func testFocusHiddenDockPanelReopensDockEdge() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {

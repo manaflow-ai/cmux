@@ -38,6 +38,7 @@ extension Workspace {
             if pathExtension == "xcodeproj" || pathExtension == "xcworkspace" {
                 panel = newProjectSurface(
                     inPane: paneId,
+                    controller: controller,
                     projectPath: filePath,
                     focus: shouldFocusNewTabs,
                     targetIndex: nextIndex
