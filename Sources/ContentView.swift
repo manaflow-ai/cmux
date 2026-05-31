@@ -11785,13 +11785,15 @@ struct VerticalTabsSidebar: View {
         Task {
             do {
                 let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
+                let spawnArgs = result.workspaceSpawnArgs()
                 tabManager.addWorkspace(
-                    title: result.workspaceTitle,
-                    workingDirectory: result.worktreePath,
-                    initialTerminalCommand: result.initialCommand,
-                    inheritWorkingDirectory: false,
+                    title: spawnArgs.title,
+                    workingDirectory: spawnArgs.workingDirectory,
+                    initialTerminalInput: spawnArgs.initialTerminalInput,
+                    inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,
                     select: true,
-                    eagerLoadTerminal: false
+                    eagerLoadTerminal: false,
+                    autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
                 )
             } catch {
                 NSSound.beep()
