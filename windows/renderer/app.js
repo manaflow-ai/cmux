@@ -4671,66 +4671,90 @@ function browserTabSnapshotForPanelId(panelId, fallbackUrl = state.settings.brow
 
 function renderBrowserTabs(session) {
   if (!session?.tabList) return;
+  if (!session.tabButtons) session.tabButtons = new Map();
+  const validTabIds = new Set(session.tabs.map((tab) => tab.id));
+  for (const [tabId, button] of [...session.tabButtons.entries()]) {
+    if (validTabIds.has(tabId)) continue;
+    button.remove();
+    session.tabButtons.delete(tabId);
+  }
   const nodes = session.tabs.map((tab) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.draggable = true;
-    button.className = `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`;
-    button.title = tab.url;
-    button.dataset.browserTabId = tab.id;
-    const label = document.createElement("span");
-    label.className = "browser-tab-label";
-    label.textContent = tab.title || browserTabTitle(tab.url);
-    const close = document.createElement("span");
-    close.className = "browser-tab-close";
-    close.title = session.tabs.length <= 1 ? "Reset tab" : "Close tab";
-    close.textContent = "×";
-    close.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      closeBrowserTab(session, tab.id);
-    });
-    button.append(label, close);
-    button.addEventListener("click", () => activateBrowserTab(session, tab.id));
-    button.addEventListener("mousedown", (event) => {
-      if (event.button === 1) event.preventDefault();
-    });
-    button.addEventListener("auxclick", (event) => {
-      if (event.button !== 1) return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeBrowserTab(session, tab.id);
-    });
-    button.addEventListener("dragstart", (event) => {
-      session.dragBrowserTabId = tab.id;
-      button.classList.add("is-dragging");
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", tab.id);
-    });
-    button.addEventListener("dragover", (event) => {
-      if (!session.dragBrowserTabId || session.dragBrowserTabId === tab.id) return;
-      event.preventDefault();
-      clearBrowserTabDropTargets(session);
-      button.classList.add(browserTabDropPlacement(event, button) === "after" ? "is-drop-after" : "is-drop-before");
-    });
-    button.addEventListener("dragleave", () => {
-      button.classList.remove("is-drop-before", "is-drop-after");
-    });
-    button.addEventListener("drop", (event) => {
-      event.preventDefault();
-      const placement = browserTabDropPlacement(event, button);
-      const draggedTabId = session.dragBrowserTabId;
-      clearBrowserTabDropTargets(session);
-      if (draggedTabId && draggedTabId !== tab.id) moveBrowserTab(session, draggedTabId, tab.id, placement);
-    });
-    button.addEventListener("dragend", () => {
-      session.dragBrowserTabId = "";
-      button.classList.remove("is-dragging");
-      clearBrowserTabDropTargets(session);
-    });
+    let button = session.tabButtons.get(tab.id);
+    if (!button) {
+      button = createBrowserTabButton(session);
+      session.tabButtons.set(tab.id, button);
+    }
+    updateBrowserTabButton(session, button, tab);
     return button;
   });
   replaceChildrenIfChanged(session.tabList, nodes);
+}
+
+function createBrowserTabButton(session) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.draggable = true;
+  button.className = "browser-tab";
+  const label = document.createElement("span");
+  label.className = "browser-tab-label";
+  const close = document.createElement("span");
+  close.className = "browser-tab-close";
+  close.textContent = "×";
+  close.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeBrowserTab(session, button.dataset.browserTabId);
+  });
+  button.append(label, close);
+  button.addEventListener("click", () => activateBrowserTab(session, button.dataset.browserTabId));
+  button.addEventListener("mousedown", (event) => {
+    if (event.button === 1) event.preventDefault();
+  });
+  button.addEventListener("auxclick", (event) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeBrowserTab(session, button.dataset.browserTabId);
+  });
+  button.addEventListener("dragstart", (event) => {
+    const tabId = button.dataset.browserTabId;
+    session.dragBrowserTabId = tabId;
+    button.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", tabId);
+  });
+  button.addEventListener("dragover", (event) => {
+    const targetTabId = button.dataset.browserTabId;
+    if (!session.dragBrowserTabId || session.dragBrowserTabId === targetTabId) return;
+    event.preventDefault();
+    clearBrowserTabDropTargets(session);
+    button.classList.add(browserTabDropPlacement(event, button) === "after" ? "is-drop-after" : "is-drop-before");
+  });
+  button.addEventListener("dragleave", () => {
+    button.classList.remove("is-drop-before", "is-drop-after");
+  });
+  button.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const placement = browserTabDropPlacement(event, button);
+    const draggedTabId = session.dragBrowserTabId;
+    const targetTabId = button.dataset.browserTabId;
+    clearBrowserTabDropTargets(session);
+    if (draggedTabId && draggedTabId !== targetTabId) moveBrowserTab(session, draggedTabId, targetTabId, placement);
+  });
+  button.addEventListener("dragend", () => {
+    session.dragBrowserTabId = "";
+    button.classList.remove("is-dragging");
+    clearBrowserTabDropTargets(session);
+  });
+  return button;
+}
+
+function updateBrowserTabButton(session, button, tab) {
+  setClassNameIfChanged(button, `browser-tab${tab.id === session.activeTabId ? " is-active" : ""}`);
+  setDatasetIfChanged(button, "browserTabId", tab.id);
+  setTitleIfChanged(button, tab.url);
+  setTextIfChanged(button.querySelector(".browser-tab-label"), tab.title || browserTabTitle(tab.url));
+  setTitleIfChanged(button.querySelector(".browser-tab-close"), session.tabs.length <= 1 ? "Reset tab" : "Close tab");
 }
 
 function browserTabDropPlacement(event, button) {
@@ -4742,6 +4766,7 @@ function clearBrowserTabDropTargets(session) {
   for (const button of session?.tabList?.querySelectorAll(".browser-tab.is-drop-before, .browser-tab.is-drop-after") || []) {
     button.classList.remove("is-drop-before", "is-drop-after");
   }
+  session?.tabNew?.classList.remove("is-drop-before");
 }
 
 function moveBrowserTab(session, tabId, targetTabId, placement = "before") {
@@ -4754,6 +4779,17 @@ function moveBrowserTab(session, tabId, targetTabId, placement = "before") {
   if (insertIndex < 0) insertIndex = session.tabs.length;
   if (placement === "after") insertIndex += 1;
   session.tabs.splice(insertIndex, 0, tab);
+  saveBrowserSessionTabs(session);
+  renderBrowserTabs(session);
+  return true;
+}
+
+function moveBrowserTabToEnd(session, tabId) {
+  if (!session) return false;
+  const fromIndex = session.tabs.findIndex((tab) => tab.id === tabId);
+  if (fromIndex < 0 || fromIndex === session.tabs.length - 1) return false;
+  const [tab] = session.tabs.splice(fromIndex, 1);
+  session.tabs.push(tab);
   saveBrowserSessionTabs(session);
   renderBrowserTabs(session);
   return true;
@@ -5023,6 +5059,17 @@ function ensureBrowser(panel, body) {
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
+  tabNew.addEventListener("dragover", (event) => {
+    if (!session?.dragBrowserTabId) return;
+    event.preventDefault();
+    tabNew.classList.add("is-drop-before");
+  });
+  tabNew.addEventListener("dragleave", () => tabNew.classList.remove("is-drop-before"));
+  tabNew.addEventListener("drop", (event) => {
+    event.preventDefault();
+    tabNew.classList.remove("is-drop-before");
+    if (session?.dragBrowserTabId) moveBrowserTabToEnd(session, session.dragBrowserTabId);
+  });
   errorPane.querySelector(".browser-error-retry").onclick = () => {
     hideBrowserError();
     reloadBrowserPanel(panel);
@@ -5149,6 +5196,7 @@ function ensureBrowser(panel, body) {
     tabNew,
     tabs: tabSnapshot.tabs,
     activeTabId: tabSnapshot.activeTabId,
+    tabButtons: new Map(),
     setStatus,
     setLoading,
     view,

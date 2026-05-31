@@ -1111,13 +1111,13 @@ body.reduce-motion *::after {
   min-width: var(--surface-tab-min, 104px);
   max-width: var(--surface-tab-max, 220px);
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) 22px;
+  grid-template-columns: 10px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   border: 1px solid transparent;
   border-bottom-color: transparent;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
-  padding: 0 var(--space-2);
+  padding: 0 calc(var(--space-2) + 2px) 0 var(--space-2);
   background: transparent;
   color: var(--color-muted);
   font: inherit;
@@ -1176,6 +1176,10 @@ body.reduce-motion *::after {
 }
 
 .surface-close {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   place-items: center;
   width: 22px;
@@ -1184,6 +1188,7 @@ body.reduce-motion *::after {
   color: var(--color-faint);
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
   transition:
     opacity var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out),
@@ -1194,6 +1199,13 @@ body.reduce-motion *::after {
 .surface-tab.is-active .surface-close,
 .surface-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
+}
+
+.surface-tab:hover .surface-label,
+.surface-tab.is-active .surface-label,
+.surface-tab:focus-within .surface-label {
+  padding-right: 18px;
 }
 
 .surface-close:hover {
@@ -2057,10 +2069,10 @@ body.reduce-motion *::after {
   flex: 1 1 128px;
   height: 26px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 18px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
-  padding: 0 4px 0 var(--space-2);
+  padding: 0 calc(var(--space-2) + 2px) 0 var(--space-2);
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
@@ -2111,12 +2123,35 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-close {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
   width: 18px;
   height: 18px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-1);
   color: var(--color-faint);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.browser-tab:hover .browser-tab-close,
+.browser-tab.is-active .browser-tab-close,
+.browser-tab:focus-within .browser-tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.browser-tab:hover .browser-tab-label,
+.browser-tab.is-active .browser-tab-label,
+.browser-tab:focus-within .browser-tab-label {
+  padding-right: 18px;
 }
 
 .browser-tab-close:hover {
@@ -2138,6 +2173,33 @@ body.reduce-motion *::after {
 .browser-tab-new:hover {
   color: var(--color-text);
   background: var(--color-pane);
+}
+
+.browser-tab-new.is-drop-before {
+  color: var(--color-text);
+  background: var(--color-pane);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+@container (max-width: 260px) {
+  .browser-tab-list {
+    gap: 0;
+  }
+
+  .browser-tab {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .browser-tab:not(.is-active) {
+    display: none;
+  }
+
+  .browser-tab-new {
+    flex-basis: 26px;
+    width: 26px;
+  }
 }
 
 .browser-bar {
@@ -2321,6 +2383,18 @@ body.reduce-motion *::after {
   .browser-address {
     padding-inline: var(--space-1);
     font-size: 11px;
+  }
+}
+
+@container (max-width: 140px) {
+  .browser-shell {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .browser-tabs,
+  .browser-bar,
+  .browser-status {
+    display: none;
   }
 }
 
