@@ -27007,6 +27007,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        // Destructive session teardown shared by a genuine (non-turn-boundary)
+        // `session-end` and the dedicated `session-finalize` action: consume the
+        // restore record, clear the surface resume binding, and clear PID routing.
+        func performAgentSessionTeardown() {
+            guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
+            sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+            if suppressVisibleMutations {
+                telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
+            } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: consumed.workspaceId,
+                    surfaceId: consumed.surfaceId,
+                    sessionId: consumed.sessionId
+                )
+                _ = try? sendV1Command(
+                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                    client: client
+                )
+            }
+        }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
             switch notificationStatus {
             case .idle?:
@@ -28041,7 +28063,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
-            if def.name == "grok" || def.name == "antigravity" {
+            if def.sessionEndIsTurnBoundary {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                     _ = try? store.recordPromptStop(
@@ -28065,24 +28087,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 break
             }
-            if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
-                if suppressVisibleMutations {
-                    telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
-                } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
-                    clearAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: consumed.workspaceId,
-                        surfaceId: consumed.surfaceId,
-                        sessionId: consumed.sessionId
-                    )
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
-                        client: client
-                    )
-                }
-            }
+            // A non-turn-boundary session-end is a genuine teardown.
+            performAgentSessionTeardown()
+
+        case .sessionFinalize:
+            performAgentSessionTeardown()
 
         case .noop:
             break
