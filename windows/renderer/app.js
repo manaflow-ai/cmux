@@ -361,6 +361,7 @@ const state = {
   suppressPaneHeaderClick: false,
   renderFrame: 0,
   paneLayoutFrame: 0,
+  workspaceTerminalFitFrames: new Map(),
   scheduledRenderPrevious: null,
   pendingRender: false,
   pendingRenderPrevious: null,
@@ -2075,13 +2076,8 @@ function applyActivePaneLayoutPercent(percent, options = {}) {
     })));
     if (options.save) savePaneTreeLayouts(state.paneTrees);
     clearZoomedPanelForWorkspace(workspace);
-    render();
-    requestAnimationFrame(() => {
-      for (const panel of workspace.panels) {
-        const terminal = state.terminals.get(panel.id);
-        if (terminal) scheduleFitTerminal(terminal, true);
-      }
-    });
+    scheduleRender();
+    scheduleWorkspaceTerminalFits(workspace.id, true);
     if (options.toast) toast(`Active pane ${nextPercent}%.`);
     return nextPercent;
   }
@@ -3775,8 +3771,8 @@ function setPaneSplitterPercent(splitter, percent, options = {}) {
   if (!changed) return false;
   state.paneTrees.set(workspace.id, nextTree);
   savePaneTreeLayouts(state.paneTrees);
-  render();
-  requestAnimationFrame(() => fitWorkspaceTerminals(workspace.id));
+  scheduleRender();
+  scheduleWorkspaceTerminalFits(workspace.id, true);
   if (options.toast) toast(`Split ${nextPercent}% / ${100 - nextPercent}%.`);
   return true;
 }
@@ -3805,11 +3801,20 @@ function handlePaneSplitterKeydown(event) {
   setPaneSplitterPercent(splitter, currentPercent + (growsFirst ? step : -step));
 }
 
-function fitWorkspaceTerminals(workspaceId) {
+function scheduleWorkspaceTerminalFits(workspaceId, force = true) {
+  if (!workspaceId || state.workspaceTerminalFitFrames.has(workspaceId)) return;
+  const frame = requestAnimationFrame(() => {
+    state.workspaceTerminalFitFrames.delete(workspaceId);
+    fitWorkspaceTerminals(workspaceId, force);
+  });
+  state.workspaceTerminalFitFrames.set(workspaceId, frame);
+}
+
+function fitWorkspaceTerminals(workspaceId, force = true) {
   const workspace = state.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   for (const panel of workspace?.panels || []) {
     const terminal = state.terminals.get(panel.id);
-    if (terminal) scheduleFitTerminal(terminal, true);
+    if (terminal) scheduleFitTerminal(terminal, force);
   }
 }
 
