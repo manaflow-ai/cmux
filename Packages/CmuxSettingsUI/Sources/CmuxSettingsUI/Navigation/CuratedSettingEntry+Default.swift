@@ -57,11 +57,11 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
             // File Opening
-            .init(section: .fileOpening, id: "file-drops", title: "File Drops", synonyms: "drag drop files finder path text terminal editor split preview shift"),
-            .init(section: .fileOpening, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
-            .init(section: .fileOpening, id: "file-extension-openers", title: "File Extension Openers", synonyms: "app.fileExtensionOpeners cmd click html htm browser preview markdown system default editor extension opener"),
-            .init(section: .fileOpening, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
-            .init(section: .fileOpening, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
+            .init(section: .fileOpening, id: "file-drops", title: String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), synonyms: "drag drop files finder path text terminal editor split preview shift"),
+            .init(section: .fileOpening, id: "preferred-editor", title: String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
+            .init(section: .fileOpening, id: "file-extension-openers", title: String(localized: "settings.app.fileExtensionOpeners", defaultValue: "File Extension Openers"), synonyms: "app.fileExtensionOpeners cmd click html htm browser preview markdown system default editor extension opener"),
+            .init(section: .fileOpening, id: "supported-file-previews", title: String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
+            .init(section: .fileOpening, id: "markdown-viewer", title: String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
 
             // Terminal
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),

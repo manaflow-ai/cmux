@@ -439,7 +439,7 @@ final class CmuxSettingsFileStore {
                 guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(rawExtension),
                       let behavior = FileExtensionOpenBehavior(rawValue: rawBehavior) else {
                     logInvalid("app.fileExtensionOpeners", sourcePath: sourcePath)
-                    return
+                    continue
                 }
                 normalized[normalizedExtension] = behavior.rawValue
             }

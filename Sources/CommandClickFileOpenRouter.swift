@@ -195,6 +195,11 @@ enum CommandClickFileOpenRouter {
         }
     }
 
+    /// Defers command-click routing until Ghostty's mouse callback has unwound.
+    ///
+    /// This mirrors `deferredOpenFileInCmux`, but routes through the full
+    /// extension-aware action model and falls back through `fallback` when cmux
+    /// does not handle the file.
     @MainActor
     static func deferredOpenCommandClickFile(
         workspace: Workspace,
@@ -203,7 +208,7 @@ enum CommandClickFileOpenRouter {
         filePath: String,
         fallback: Fallback
     ) {
-        DispatchQueue.main.async {
+        Task { @MainActor in
             let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId

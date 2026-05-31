@@ -44,4 +44,17 @@ struct SettingCodableTests {
         #expect([String: FileExtensionOpenBehavior].decodeFromUserDefaults(encoded) == value)
         #expect([String: FileExtensionOpenBehavior].decodeFromJSON(encoded) == value)
     }
+
+    @Test func fileExtensionOpenersPreserveDefaultsWithOverrides() throws {
+        let suiteName = "cmux.fileExtensionOpeners.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(["md": "markdownViewer"], forKey: FileExtensionOpenBehaviorSettings.key)
+
+        let openers = FileExtensionOpenBehaviorSettings.openers(defaults: defaults)
+        #expect(openers["html"] == .cmuxBrowser)
+        #expect(openers["htm"] == .cmuxBrowser)
+        #expect(openers["md"] == .markdownViewer)
+    }
 }

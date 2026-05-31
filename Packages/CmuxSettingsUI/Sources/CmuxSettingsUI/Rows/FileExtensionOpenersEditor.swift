@@ -6,15 +6,20 @@ public struct FileExtensionOpenersEditor: View {
     @Binding private var openers: [String: FileExtensionOpenBehavior]
     @State private var draftExtension = ""
     @State private var showsAllExtensions = false
+    @State private var normalizedOpenersCache: [String: FileExtensionOpenBehavior]
+    @State private var sortedExtensionCache: [String]
 
     private static let initiallyVisibleExtensionLimit = 32
 
     public init(openers: Binding<[String: FileExtensionOpenBehavior]>) {
+        let normalized = Self.normalizedOpeners(openers.wrappedValue)
         self._openers = openers
+        self._normalizedOpenersCache = State(initialValue: normalized)
+        self._sortedExtensionCache = State(initialValue: Self.sortedExtensions(from: normalized))
     }
 
     public var body: some View {
-        let extensions = sortedExtensions
+        let extensions = sortedExtensionCache
 
         VStack(alignment: .leading, spacing: 0) {
             SettingsCardRow(
@@ -56,11 +61,8 @@ public struct FileExtensionOpenersEditor: View {
                 }
             }
         }
-    }
-
-    private var sortedExtensions: [String] {
-        openers.keys.sorted { lhs, rhs in
-            lhs.localizedStandardCompare(rhs) == .orderedAscending
+        .onChange(of: openers) { _, newValue in
+            refreshCaches(for: newValue)
         }
     }
 
@@ -115,7 +117,7 @@ public struct FileExtensionOpenersEditor: View {
             Picker(
                 "",
                 selection: Binding(
-                    get: { openers[fileExtension] ?? .automatic },
+                    get: { normalizedOpenersCache[fileExtension] ?? .automatic },
                     set: { setBehavior($0, for: fileExtension) }
                 )
             ) {
@@ -144,27 +146,46 @@ public struct FileExtensionOpenersEditor: View {
 
     private func addDraftExtension() {
         guard let normalized = normalizedDraftExtension else { return }
-        var next = normalizedOpeners(openers)
+        var next = normalizedOpenersCache
         if next[normalized] == nil {
             next[normalized] = .cmuxPreview
         }
-        openers = next
+        applyOpeners(next)
         draftExtension = ""
     }
 
     private func setBehavior(_ behavior: FileExtensionOpenBehavior, for fileExtension: String) {
-        var next = normalizedOpeners(openers)
-        next[fileExtension] = behavior
-        openers = next
+        guard let normalized = FileExtensionOpenBehavior.normalizedExtension(fileExtension) else { return }
+        var next = normalizedOpenersCache
+        next[normalized] = behavior
+        applyOpeners(next)
     }
 
     private func remove(_ fileExtension: String) {
-        var next = normalizedOpeners(openers)
-        next.removeValue(forKey: fileExtension)
-        openers = next
+        guard let normalized = FileExtensionOpenBehavior.normalizedExtension(fileExtension) else { return }
+        var next = normalizedOpenersCache
+        next.removeValue(forKey: normalized)
+        applyOpeners(next)
     }
 
-    private func normalizedOpeners(_ value: [String: FileExtensionOpenBehavior]) -> [String: FileExtensionOpenBehavior] {
+    private func applyOpeners(_ value: [String: FileExtensionOpenBehavior]) {
+        refreshCaches(for: value)
+        openers = value
+    }
+
+    private func refreshCaches(for value: [String: FileExtensionOpenBehavior]) {
+        let normalized = Self.normalizedOpeners(value)
+        normalizedOpenersCache = normalized
+        sortedExtensionCache = Self.sortedExtensions(from: normalized)
+    }
+
+    private static func sortedExtensions(from value: [String: FileExtensionOpenBehavior]) -> [String] {
+        value.keys.sorted { lhs, rhs in
+            lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+    }
+
+    private static func normalizedOpeners(_ value: [String: FileExtensionOpenBehavior]) -> [String: FileExtensionOpenBehavior] {
         var normalized: [String: FileExtensionOpenBehavior] = [:]
         for (rawExtension, behavior) in value {
             guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(rawExtension) else { continue }

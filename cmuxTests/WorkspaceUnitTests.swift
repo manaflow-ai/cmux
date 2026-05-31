@@ -1932,12 +1932,19 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let defaults = UserDefaults.standard
         let managedKey = FileExtensionOpenBehaviorSettings.key
         let previousValue = defaults.object(forKey: managedKey)
+        let previousSupportedRouting = defaults.object(forKey: CmdClickSupportedFileRouteSettings.key)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousValue {
                 defaults.set(previousValue, forKey: managedKey)
             } else {
                 defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousSupportedRouting {
+                defaults.set(previousSupportedRouting, forKey: CmdClickSupportedFileRouteSettings.key)
+            } else {
+                defaults.removeObject(forKey: CmdClickSupportedFileRouteSettings.key)
             }
 
             if let previousBackups {
@@ -1948,6 +1955,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         }
 
         defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: CmdClickSupportedFileRouteSettings.key)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -1961,8 +1969,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 "fileExtensionOpeners": {
                   ".CSS": "cmuxBrowser",
                   "json": "systemDefault",
-                  "tsx": "preferredEditor"
-                }
+                  "tsx": "preferredEditor",
+                  "bad": "notARealBehavior"
+                },
+                "openSupportedFilesInCmux": false
               }
             }
             """,
@@ -1979,9 +1989,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(stored?["css"], "cmuxBrowser")
         XCTAssertEqual(stored?["json"], "systemDefault")
         XCTAssertEqual(stored?["tsx"], "preferredEditor")
-        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/styles.css"), .cmuxBrowser)
-        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/package.json"), .systemDefault)
-        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/component.tsx"), .preferredEditor)
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/styles.css", defaults: defaults), .cmuxBrowser)
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/package.json", defaults: defaults), .systemDefault)
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/component.tsx", defaults: defaults), .preferredEditor)
+        XCTAssertEqual(defaults.object(forKey: CmdClickSupportedFileRouteSettings.key) as? Bool, false)
     }
 
     func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {

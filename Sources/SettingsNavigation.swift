@@ -129,7 +129,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 }
 
 struct FileExtensionOpenersSettingsCard: View {
-    @State private var openers = FileExtensionOpenBehaviorSettings.openers()
+    @State private var openers = FileExtensionOpenBehaviorSettings.openers(defaults: .standard)
 
     var body: some View {
         FileExtensionOpenersEditor(
@@ -137,15 +137,19 @@ struct FileExtensionOpenersSettingsCard: View {
                 get: { openers },
                 set: { newValue in
                     openers = newValue
-                    FileExtensionOpenBehaviorSettings.setOpeners(newValue)
+                    FileExtensionOpenBehaviorSettings.setOpeners(
+                        newValue,
+                        defaults: .standard,
+                        notificationCenter: .default
+                    )
                 }
             )
         )
         .onReceive(NotificationCenter.default.publisher(for: FileExtensionOpenBehaviorSettings.didChangeNotification)) { _ in
-            openers = FileExtensionOpenBehaviorSettings.openers()
+            openers = FileExtensionOpenBehaviorSettings.openers(defaults: .standard)
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            openers = FileExtensionOpenBehaviorSettings.openers()
+            openers = FileExtensionOpenBehaviorSettings.openers(defaults: .standard)
         }
     }
 }

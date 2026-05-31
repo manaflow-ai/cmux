@@ -53,7 +53,7 @@ public struct FileOpeningSection: View {
                 SettingsCardRow(
                     configurationReview: .json("app.preferredEditor"),
                     String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
-                    subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default.")
+                    subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command used when an extension is set to Preferred Editor, or when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default.")
                 ) {
                     TextField(
                         String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),

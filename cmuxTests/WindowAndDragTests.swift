@@ -3289,7 +3289,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let fileURL = try temporaryTextFile(contents: "<!doctype html>", encoding: .utf8, pathExtension: "html")
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        FileExtensionOpenBehaviorSettings.setOpeners(["html": .cmuxPreview], defaults: defaults)
+        FileExtensionOpenBehaviorSettings.setOpeners(
+            ["html": .cmuxPreview],
+            defaults: defaults,
+            notificationCenter: .default
+        )
 
         XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: fileURL.path, defaults: defaults), .cmuxPreview)
         XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
@@ -3304,7 +3308,11 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         let fileURL = try temporaryTextFile(contents: "notes", encoding: .utf8, pathExtension: "txt")
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        FileExtensionOpenBehaviorSettings.setOpeners(["txt": .preferredEditor], defaults: defaults)
+        FileExtensionOpenBehaviorSettings.setOpeners(
+            ["txt": .preferredEditor],
+            defaults: defaults,
+            notificationCenter: .default
+        )
 
         XCTAssertFalse(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
         XCTAssertTrue(CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path, defaults: defaults))
