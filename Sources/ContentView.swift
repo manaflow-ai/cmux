@@ -11935,6 +11935,11 @@ struct VerticalTabsSidebar: View {
                             )
                         }
                     )
+                    SidebarWorkspaceDragCursorTrackingView(
+                        dragAutoScrollController: dragAutoScrollController
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .allowsHitTesting(false)
                     SidebarWorkspaceDragFollowerOverlay(
                         dragState: dragState,
                         renderItems: renderItems,
@@ -12151,13 +12156,13 @@ private struct SidebarWorkspaceDragFollowerOverlay: View {
 
     var body: some View {
         if let draggedWorkspaceId = dragState.draggedTabId,
-           let dragLocation = dragState.dragLocationInDocument,
            let item = renderItems.first(where: { $0.representedWorkspaceId == draggedWorkspaceId }),
            let anchor = anchors[draggedWorkspaceId] {
             let frame = proxy[anchor]
+            let y = dragState.dragLocationInDocument?.y ?? frame.midY
             rowContent(item)
                 .frame(width: max(frame.width, 1), alignment: .topLeading)
-                .position(x: frame.midX, y: dragLocation.y)
+                .position(x: frame.midX, y: y)
                 .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -12165,6 +12170,46 @@ private struct SidebarWorkspaceDragFollowerOverlay: View {
                 .transaction { transaction in
                     transaction.animation = nil
                 }
+        }
+    }
+}
+
+private struct SidebarWorkspaceDragCursorTrackingView: NSViewRepresentable {
+    let dragAutoScrollController: SidebarDragAutoScrollController
+
+    func makeNSView(context: Context) -> SidebarWorkspaceDragCursorTrackingNSView {
+        let view = SidebarWorkspaceDragCursorTrackingNSView()
+        view.onAttach = { [weak dragAutoScrollController] view in
+            dragAutoScrollController?.attach(cursorTrackingView: view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: SidebarWorkspaceDragCursorTrackingNSView, context: Context) {
+        nsView.onAttach = { [weak dragAutoScrollController] view in
+            dragAutoScrollController?.attach(cursorTrackingView: view)
+        }
+        dragAutoScrollController.attach(cursorTrackingView: nsView)
+    }
+
+    static func dismantleNSView(_ nsView: SidebarWorkspaceDragCursorTrackingNSView, coordinator: ()) {
+        nsView.onAttach = nil
+    }
+}
+
+private final class SidebarWorkspaceDragCursorTrackingNSView: NSView {
+    var onAttach: ((NSView) -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            onAttach?(self)
         }
     }
 }
@@ -16794,6 +16839,7 @@ enum SidebarDragAutoScrollPlanner {
 final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
     private weak var dragState: SidebarDragState?
+    private weak var cursorTrackingView: NSView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
 
@@ -16803,6 +16849,10 @@ final class SidebarDragAutoScrollController: ObservableObject {
 
     func attach(dragState: SidebarDragState?) {
         self.dragState = dragState
+    }
+
+    func attach(cursorTrackingView: NSView?) {
+        self.cursorTrackingView = cursorTrackingView
     }
 
     @discardableResult
@@ -16953,6 +17003,9 @@ final class SidebarDragAutoScrollController: ObservableObject {
     }
 
     private func dragLocationInDocument(for scrollView: NSScrollView) -> CGPoint? {
+        if let location = dragLocationInCursorTrackingView() {
+            return location
+        }
         guard let documentView = scrollView.documentView,
               let window = scrollView.window else {
             return nil
@@ -16969,6 +17022,22 @@ final class SidebarDragAutoScrollController: ObservableObject {
             return point
         }
         return CGPoint(x: point.x, y: documentView.bounds.height - point.y)
+    }
+
+    private func dragLocationInCursorTrackingView() -> CGPoint? {
+        guard let view = cursorTrackingView,
+              let window = view.window,
+              view.bounds.width > 0,
+              view.bounds.height > 0 else {
+            return nil
+        }
+        let mouseInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let point = view.convert(mouseInWindow, from: nil)
+        guard point.x.isFinite, point.y.isFinite else { return nil }
+        if view.isFlipped {
+            return point
+        }
+        return CGPoint(x: point.x, y: view.bounds.height - point.y)
     }
 }
 
