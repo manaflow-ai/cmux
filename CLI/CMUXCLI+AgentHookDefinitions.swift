@@ -28,6 +28,10 @@ extension CMUXCLI {
         /// approve/deny a permission / plan / question.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
+        /// Optional CLI note printed after a successful install (or
+        /// "already up to date") to guide a required activation step — e.g.
+        /// Kiro applies its hooks only when run as the `cmux` agent.
+        let postInstallNote: String?
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
@@ -83,7 +87,8 @@ extension CMUXCLI {
              aliases: Set<String> = [],
              publishesStopNotification: Bool = true,
              feedHookEvents: [String] = [],
-             postInstallAction: PostInstallAction? = nil) {
+             postInstallAction: PostInstallAction? = nil,
+             postInstallNote: String? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
             self.configDirEnvOverride = configDirEnvOverride
@@ -99,11 +104,12 @@ extension CMUXCLI {
             })
             self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
+            self.postInstallNote = postInstallNote
         }
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, sessionEnd, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -113,6 +119,7 @@ extension CMUXCLI {
         "notification": .notification,
         "notify": .notification,
         "agent-response": .stop,
+        "approval-response": .approvalResponse,
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
         "session-end": .sessionEnd,
@@ -211,7 +218,8 @@ extension CMUXCLI {
                 .init(agentEvent: "userPromptSubmit", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
             ],
-            feedHookEvents: ["preToolUse", "postToolUse"]
+            feedHookEvents: ["preToolUse", "postToolUse"],
+            postInstallNote: "Kiro applies these hooks only when run as the cmux agent. Start Kiro with `kiro-cli chat --agent cmux`, or make it the default with `kiro-cli settings chat.defaultAgent cmux`."
         ),
         AgentHookDef(
             name: "antigravity", displayName: "Antigravity", statusKey: "antigravity",
@@ -252,6 +260,8 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_start", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "pre_llm_call", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "post_llm_call", cmuxSubcommand: "agent-response"),
+                .init(agentEvent: "pre_approval_request", cmuxSubcommand: "notification"),
+                .init(agentEvent: "post_approval_response", cmuxSubcommand: "approval-response"),
                 .init(agentEvent: "on_session_end", cmuxSubcommand: "session-end"),
                 .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-end"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),

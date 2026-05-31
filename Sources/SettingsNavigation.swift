@@ -4,6 +4,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
     case terminal
+    case textBox
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -25,6 +26,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .textBox:
+            return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -56,6 +59,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "gearshape"
         case .terminal:
             return "terminal"
+        case .textBox:
+            return "textformat"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -84,9 +89,11 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .account:
             return "\(title) sign in team sync"
         case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry"
+            return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
+        case .textBox:
+            return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -293,6 +300,8 @@ enum SettingsSearchIndex {
         setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
         setting(.app, "app-icon", String(localized: "settings.app.appIcon", defaultValue: "App Icon"), "dock icon alternate"),
         setting(.app, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
+        setting(.app, "workspace-group-new-workspace-placement", String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"), "workspace group command n plus insert position after current top end"),
+        setting(.app, "fork-conversation-default", String(localized: "settings.app.forkConversationDefaultDestination", defaultValue: "Fork Conversation Default"), "fork conversation default right left top bottom split tab workspace"),
         setting(.app, "workspace-inherit-working-directory", String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"), "workspace cwd directory current ghostty working-directory"),
         setting(.app, "minimal-mode", String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"), "presentation compact chrome"),
         setting(.app, "keep-workspace-open", String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"), "close last surface shortcut"),
@@ -313,6 +322,7 @@ enum SettingsSearchIndex {
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
         setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
+        setting(.app, "default-terminal", String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"), "ssh links command tool unix executable launch services handler registration system default"),
         setting(.app, "warn-before-quit", String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), "cmd q confirmation confirmQuit"),
         setting(.app, "warn-before-closing-tab", String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), "cmd w close tab confirmation"),
         setting(
@@ -330,13 +340,16 @@ enum SettingsSearchIndex {
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
-        setting(.terminal, "textbox-max-lines", String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"), "terminal textbox text box rich input prompt max height lines grow scroll"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
         setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
+        setting(.textBox, "show-textbox-new-terminals", String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"), "terminal.showTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
+        setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
+        setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
+        setting(.sidebarAppearance, "wrap-workspace-titles", String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), "workspace title wrap multiline pr pull request"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
         setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
         setting(.sidebarAppearance, "stack-branch-directory", String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), "branch directory cwd path stack two rows separate lines"),
@@ -366,7 +379,7 @@ enum SettingsSearchIndex {
         setting(.automation, "kiro-notification-level", String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"), "agent hooks notifications verbosity tool events"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
-        setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo"),
+        setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
@@ -407,6 +420,8 @@ enum SettingsSearchIndex {
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
         "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
+        "workspaceGroups.newWorkspacePlacement": settingID(for: .app, idSuffix: "workspace-group-new-workspace-placement"),
+        "app.forkConversationDefaultDestination": settingID(for: .app, idSuffix: "fork-conversation-default"),
         "app.workspaceInheritWorkingDirectory": settingID(for: .app, idSuffix: "workspace-inherit-working-directory"),
         "app.minimalMode": settingID(for: .app, idSuffix: "minimal-mode"),
         "app.keepWorkspaceOpenWhenClosingLastSurface": settingID(for: .app, idSuffix: "keep-workspace-open"),
@@ -427,6 +442,7 @@ enum SettingsSearchIndex {
         "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
         "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
+        "app.defaultTerminal": settingID(for: .app, idSuffix: "default-terminal"),
         "app.confirmQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeQuit": settingID(for: .app, idSuffix: "warn-before-quit"),
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
@@ -435,6 +451,7 @@ enum SettingsSearchIndex {
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
+        "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
         "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
         "sidebar.stackBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "stack-branch-directory"),
@@ -452,7 +469,9 @@ enum SettingsSearchIndex {
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
-        "terminal.textBoxMaxLines": settingID(for: .terminal, idSuffix: "textbox-max-lines"),
+        "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
+        "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
+        "terminal.textBoxMaxLines": settingID(for: .textBox, idSuffix: "textbox-max-lines"),
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),
@@ -476,6 +495,8 @@ enum SettingsSearchIndex {
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
         "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
+        "browser.customSearchEngineName": settingID(for: .browser, idSuffix: "search-engine"),
+        "browser.customSearchEngineURLTemplate": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
         "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),

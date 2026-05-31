@@ -212,7 +212,10 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: app,
                 keywords: ["app.openMarkdownInCmuxViewer", "markdown", "md", "viewer", "preview", "file"],
                 defaultValue: CmdClickMarkdownRouteSettings.defaultValue,
-                defaultsKey: CmdClickMarkdownRouteSettings.key
+                defaultsKey: CmdClickMarkdownRouteSettings.key,
+                didSet: { _, _, notificationCenter in
+                    CmdClickMarkdownRouteSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
@@ -457,6 +460,20 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["sidebar.hideAllDetails", "sidebar", "hide", "details", "compact", "title"],
                 defaultValue: SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                 defaultsKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "wrapWorkspaceTitlesInSidebar",
+                settingsKey: "sidebar.wrapWorkspaceTitles",
+                title: {
+                    String(
+                        localized: "settings.app.wrapWorkspaceTitles",
+                        defaultValue: "Wrap Workspace Titles in Sidebar"
+                    )
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.wrapWorkspaceTitles", "sidebar", "workspace", "title", "wrap", "pr", "pull", "request"],
+                defaultValue: SidebarWorkspaceTitleWrapSettings.defaultWrap,
+                defaultsKey: SidebarWorkspaceTitleWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showWorkspaceDescriptionInSidebar",

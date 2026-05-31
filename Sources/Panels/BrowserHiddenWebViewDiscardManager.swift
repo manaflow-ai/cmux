@@ -33,6 +33,7 @@ final class BrowserHiddenWebViewDiscardManager {
         let isElementFullscreenActive: Bool
         let isReactGrabActive: Bool
         let hasPopups: Bool
+        let isCapturingMedia: Bool
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
@@ -63,6 +64,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
         if snapshot.isLoading || snapshot.webViewIsLoading { blockers.append("loading") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
+        if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.preferredDeveloperToolsVisible || snapshot.isDeveloperToolsVisible {
             blockers.append("developer_tools")
         }

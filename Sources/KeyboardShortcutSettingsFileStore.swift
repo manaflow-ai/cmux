@@ -359,6 +359,9 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
+            parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let shortcutsSection = root["shortcuts"] {
             parseShortcutsSection(shortcutsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -403,6 +406,13 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
+        }
+        if let raw = jsonString(section["forkConversationDefaultDestination"]) {
+            if let destination = AgentConversationForkDestination(rawValue: raw) {
+                snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
+            } else {
+                logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
+            }
         }
         if let value = jsonBool(section["workspaceInheritWorkingDirectory"]) {
             snapshot.managedUserDefaults[WorkspaceWorkingDirectoryInheritanceSettings.key] = .bool(value)
@@ -527,6 +537,18 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
+            snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
+        } else if section.keys.contains("showTextBoxOnNewTerminals") {
+            logInvalid("terminal.showTextBoxOnNewTerminals", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["focusTextBoxOnNewTerminals"]) {
+            snapshot.managedUserDefaults[TerminalTextBoxInputSettings.focusOnNewTerminalsKey] = .bool(value)
+        } else if section.keys.contains("focusTextBoxOnNewTerminals") {
+            logInvalid("terminal.focusTextBoxOnNewTerminals", sourcePath: sourcePath)
+        }
+
         if let rawHibernation = section["agentHibernation"],
            let hibernation = rawHibernation as? [String: Any] {
             if let value = jsonBool(hibernation["enabled"]) {
@@ -571,6 +593,9 @@ final class CmuxSettingsFileStore {
     ) {
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)
+        }
+        if let value = jsonBool(section["wrapWorkspaceTitles"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceTitleWrapSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["showWorkspaceDescription"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey] = .bool(value)
@@ -843,6 +868,19 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[BrowserSearchSettings.searchEngineKey] = .string(engine.rawValue)
         }
+        if let raw = jsonString(section["customSearchEngineName"]) {
+            snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineNameKey] = .string(
+                BrowserSearchSettings.normalizedCustomSearchEngineName(raw)
+                    ?? BrowserSearchSettings.defaultCustomSearchEngineName
+            )
+        }
+        if let raw = jsonString(section["customSearchEngineURLTemplate"]) {
+            if BrowserSearchSettings.isValidSearchURLTemplate(raw) {
+                snapshot.managedUserDefaults[BrowserSearchSettings.customSearchEngineURLTemplateKey] = .string(raw)
+            } else {
+                logInvalid("browser.customSearchEngineURLTemplate", sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["showSearchSuggestions"]) {
             snapshot.managedUserDefaults[BrowserSearchSettings.searchSuggestionsEnabledKey] = .bool(value)
         }
@@ -902,6 +940,20 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
+        }
+    }
+
+    private func parseWorkspaceGroupsSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let raw = jsonString(section["newWorkspacePlacement"]) {
+            guard let placement = WorkspaceGroupNewPlacement(rawString: raw) else {
+                logInvalid("workspaceGroups.newWorkspacePlacement", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[WorkspaceGroupNewWorkspacePlacementSettings.key] = .string(placement.rawValue)
         }
     }
 

@@ -978,6 +978,20 @@ func cmuxResolveQuicklookPathForTesting(
 func cmuxTrimTerminalPathTrailingPunctuationForTesting(_ token: String) -> String {
     cmuxTrimTerminalPathTrailingPunctuation(token)
 }
+
+func cmuxResolveTerminalOpenURLFilePathForTesting(
+    _ rawText: String,
+    cwd: String?,
+    existingPaths: Set<String>
+) -> String? {
+    cmuxResolveTerminalOpenURLFilePath(
+        rawText,
+        cwd: cwd,
+        fileExists: { path in
+            existingPaths.contains((path as NSString).standardizingPath)
+        }
+    )
+}
 #endif
 
 private func cmuxResolveQuicklookPath(
@@ -1271,6 +1285,17 @@ private func cmuxResolveVisibleLinePath(
         }
     }
     return nil
+}
+
+private func cmuxResolveTerminalOpenURLFilePath(
+    _ rawText: String,
+    cwd: String?,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> String? {
+    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard URL(string: trimmed)?.scheme == nil else { return nil }
+    return cmuxResolveQuicklookPath(trimmed, cwd: cwd, fileExists: fileExists)
 }
 
 enum TerminalOpenURLTarget: Equatable {
@@ -2381,10 +2406,31 @@ class GhosttyApp {
         )
     }
 
+    private func loadConditionalThemeOverrideIfNeeded(
+        _ config: ghostty_config_t,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let contents = Self.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme
+        ) else { return }
+
+        loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: "cmux-conditional-theme",
+            logLabel: "conditional theme override"
+        )
+    }
+
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
+        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
+        // Surface-only reloads may use a terminal-derived scheme for background
+        // handling, while Ghostty split-theme pairs follow app appearance.
+        let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
+
         #if DEBUG
         let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
         if startupPreviewProfile.loadsRealUserConfig {
@@ -2392,6 +2438,10 @@ class GhosttyApp {
             loadLegacyGhosttyConfigIfNeeded(config)
             loadCmuxAppSupportGhosttyConfigIfNeeded(config)
             ghostty_config_load_recursive_files(config)
+            loadConditionalThemeOverrideIfNeeded(
+                config,
+                preferredColorScheme: themeColorScheme
+            )
             if Self.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
@@ -2410,6 +2460,10 @@ class GhosttyApp {
         loadLegacyGhosttyConfigIfNeeded(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadConditionalThemeOverrideIfNeeded(
+            config,
+            preferredColorScheme: themeColorScheme
+        )
         if Self.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
@@ -2584,15 +2638,18 @@ class GhosttyApp {
     private struct UserAppearanceConfigSummary {
         var hasThemeDirective = false
         var hasExplicitTerminalColorDirective = false
+        var lastThemeDirective: String?
 
         var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
-        mutating func recordDirective(key: String) {
+        mutating func recordDirective(key: String, value: String?) {
             switch key {
             case "theme":
                 hasThemeDirective = true
+                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
             case "background",
                  "foreground",
                  "palette",
@@ -2711,6 +2768,39 @@ class GhosttyApp {
         configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
         userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+    }
+
+    static func conditionalThemeOverrideConfigContents(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        configPaths: [String] = loadedGhosttyConfigScanPaths()
+    ) -> String? {
+        let summary = userAppearanceConfigSummary(configPaths: configPaths)
+        guard let rawThemeValue = summary.lastThemeDirective else { return nil }
+
+        let lightTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .light
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let darkTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: .dark
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lightTheme.isEmpty,
+              !darkTheme.isEmpty,
+              lightTheme.caseInsensitiveCompare(darkTheme) != .orderedSame else {
+            return nil
+        }
+
+        let resolvedTheme = GhosttyConfig.resolveThemeName(
+            from: rawThemeValue,
+            preferredColorScheme: preferredColorScheme
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedTheme.isEmpty,
+              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
+            return nil
+        }
+
+        return "theme = \(resolvedTheme)"
     }
 
     /// Resolve auto-injected CJK families through the regular-weight descriptor
@@ -3019,7 +3109,7 @@ class GhosttyApp {
                  "cursor-text",
                  "selection-background",
                  "selection-foreground":
-                summary.recordDirective(key: entry.key)
+                summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
@@ -4663,29 +4753,30 @@ class GhosttyApp {
             #endif
 
             // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match relative file paths that
-            // contain slashes or dots (e.g. "docs/spec.md.") as URLs.
+            // Ghostty's link detection can match file paths that contain
+            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
             // Attempt to resolve the raw string as a local file first
             // (with trailing-punctuation trimming via cmuxResolveQuicklookPath).
             // If the file exists and cmux can handle it, route through the
             // file viewer instead of the browser.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedUrlString.isEmpty,
-               !NSString(string: trimmedUrlString).isAbsolutePath,
-               URL(string: trimmedUrlString)?.scheme == nil {
-                let filePathRouted: Bool = performOnMain {
+            var normalizedOpenURLString = urlString
+            if !trimmedUrlString.isEmpty {
+                let filePathResolution: (routed: Bool, fallbackPath: String?) = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id) else {
-                        return false
+                        return (false, nil)
                     }
                     let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = cmuxResolveQuicklookPath(trimmedUrlString, cwd: cwd),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return false
+                    guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
+                        return (false, nil)
+                    }
+                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
+                        return (false, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
@@ -4699,14 +4790,17 @@ class GhosttyApp {
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }
-                    return true
+                    return (true, resolvedPath)
                 }
-                if filePathRouted {
+                if let fallbackPath = filePathResolution.fallbackPath {
+                    normalizedOpenURLString = fallbackPath
+                }
+                if filePathResolution.routed {
                     return true
                 }
             }
 
-            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
                 #endif
@@ -8341,6 +8435,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
+        guard let terminalSurface else { return }
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspaceId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
+            )
+        )
+    }
+
     private func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
         recordAgentHibernationTerminalInput(
@@ -10407,6 +10511,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             identifiersItem.target = self
+            let linkItem = menu.addItem(
+                withTitle: String(localized: "command.copySurfaceLink.title", defaultValue: "Copy Surface Link"),
+                action: #selector(copyCurrentSurfaceLink(_:)),
+                keyEquivalent: ""
+            )
+            linkItem.target = self
         }
         return menu
     }

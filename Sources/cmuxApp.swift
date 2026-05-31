@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 import Observation
 import Darwin
@@ -6,6 +8,12 @@ import Bonsplit
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
+    /// Dependency container for the new settings packages. Constructed
+    /// once at app launch and injected into the SwiftUI environment via
+    /// `.settingsRuntime(_:)`; descendant views resolve their settings
+    /// through it via the `@Setting` property wrapper.
+    private let settingsRuntime: SettingsRuntime
+
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -26,6 +34,24 @@ struct cmuxApp: App {
     }
 
     init() {
+        // Build the settings container once. All injected dependencies
+        // (the catalog, the two stores, the error log) live on this
+        // single struct; nothing in the package or app references a
+        // shared static.
+        let settingsCatalog = SettingCatalog()
+        let configFileURL = CmuxConfigLocation().userConfigFile
+        self.settingsRuntime = SettingsRuntime(
+            catalog: settingsCatalog,
+            userDefaultsStore: UserDefaultsSettingsStore(
+                defaults: .standard,
+                migrating: settingsCatalog.all
+            ),
+            jsonStore: JSONConfigStore(fileURL: configFileURL),
+            errorLog: SettingsErrorLog(),
+            accountFlow: HostAccountFlow(authManager: .shared),
+            hostActions: HostSettingsActions(configFileURL: configFileURL)
+        )
+
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
@@ -217,6 +243,7 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             MainWindowBootstrapView()
+                .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
@@ -254,7 +281,10 @@ struct cmuxApp: App {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
-                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
+                    dispatchReloadConfigurationMenuCommand()
+                }
+                Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
+                    DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
                 }
             }
 
@@ -644,7 +674,11 @@ struct cmuxApp: App {
         }
 
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
-            SettingsWindowRootView()
+            SettingsWindowRoot(runtime: settingsRuntime)
+                .settingsRuntime(settingsRuntime)
+                .background(WindowAccessor(dedupeByWindow: false) { window in
+                    SettingsWindowPresenter.configure(window: window)
+                })
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
         .defaultSize(width: 980, height: 680)
@@ -655,6 +689,7 @@ struct cmuxApp: App {
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
+                .settingsRuntime(settingsRuntime)
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
@@ -874,6 +909,7 @@ struct cmuxApp: App {
 
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
+        appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
     }
 
@@ -1121,6 +1157,14 @@ struct cmuxApp: App {
         }
     }
 
+    private func dispatchReloadConfigurationMenuCommand() {
+        NSApp.sendAction(
+            #selector(AppDelegate.reloadConfigurationMenuItem(_:)),
+            to: appDelegate,
+            from: nil
+        )
+    }
+
     private func closePanelOrWindow() {
         if let window = NSApp.keyWindow ?? NSApp.mainWindow,
            cmuxWindowShouldOwnCloseShortcut(window) {
@@ -1186,6 +1230,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
     "cmux.configEditor",
+    "cmux.defaultTerminalRegistrationError",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",
     "cmux.feedTextEditorDebug",
@@ -4188,10 +4233,17 @@ private struct StartupAppearanceDebugView: View {
         applyAppearance(selectedAppearance)
         GhosttyStartupAppearancePreviewState.profile = selectedProfile
         GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearancePreview",
-            reloadSettingsFromFile: false
-        )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "debug.startupAppearancePreview",
+                reloadSettingsFromFile: false
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "debug.startupAppearancePreview",
+                reloadSettingsFromFile: false
+            )
+        }
         lastAppliedProfile = selectedProfile
         lastAppliedAppearance = selectedAppearance
     }
@@ -4202,10 +4254,17 @@ private struct StartupAppearanceDebugView: View {
         applyAppearance(.stored)
         GhosttyStartupAppearancePreviewState.profile = .realUserConfig
         GhosttyConfig.invalidateLoadCache()
-        GhosttyApp.shared.reloadConfiguration(
-            source: "debug.startupAppearanceRestore",
-            reloadSettingsFromFile: false
-        )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reloadConfiguration(
+                source: "debug.startupAppearanceRestore",
+                reloadSettingsFromFile: false
+            )
+        } else {
+            GhosttyApp.shared.reloadConfiguration(
+                source: "debug.startupAppearanceRestore",
+                reloadSettingsFromFile: false
+            )
+        }
         lastAppliedProfile = .realUserConfig
         lastAppliedAppearance = .stored
     }
@@ -4982,10 +5041,24 @@ enum TelemetrySettings {
 
 enum CmdClickMarkdownRouteSettings {
     static let key = "openMarkdownInCmuxViewer"
-    static let defaultValue = false
+    static let didChangeNotification = Notification.Name("cmux.cmdClickMarkdownRouteDidChange")
+    static let defaultValue = true
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        defaults.set(enabled, forKey: key)
+        notifyDidChange(notificationCenter: notificationCenter)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 
     /// Cheap extension check. Safe to call off the main thread before any
@@ -5264,43 +5337,39 @@ struct SettingsView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
-    private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-    @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
-    private var customClaudePath = ""
-    @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
-    private var customRipgrepPath = ""
-    @AppStorage(AgentSubagentNotificationSettings.suppressNotificationsKey)
-    private var suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
-    @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
-    private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
-    @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
-    private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+    @Setting(\.integrations.claudeCodeHooksEnabled) private var claudeCodeHooksEnabled
+    @Setting(\.integrations.claudeCodeCustomClaudePath) private var customClaudePath
+    @Setting(\.integrations.ripgrepCustomBinaryPath) private var customRipgrepPath
+    @Setting(\.integrations.suppressSubagentNotifications) private var suppressSubagentNotifications
+    @Setting(\.integrations.cursorHooksEnabled) private var cursorHooksEnabled
+    @Setting(\.integrations.geminiHooksEnabled) private var geminiHooksEnabled
+    // Kiro stays on @AppStorage here: this legacy SettingsView is no longer
+    // the presented settings window (CmuxSettingsUI's AutomationSection is),
+    // and Kiro's live toggle lives there. Both read the same UserDefaults
+    // keys, so they stay in sync.
     @AppStorage(KiroIntegrationSettings.hooksEnabledKey)
     private var kiroHooksEnabled = KiroIntegrationSettings.defaultHooksEnabled
     @AppStorage(KiroIntegrationSettings.notificationLevelKey)
     private var kiroNotificationLevel = KiroIntegrationSettings.defaultNotificationLevel.rawValue
-    @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
-    private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
-    @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
-    @AppStorage(CmdClickSupportedFileRouteSettings.key)
-    private var openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
-    @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+    @Setting(\.app.sendAnonymousTelemetry) private var sendAnonymousTelemetry
+    @Setting(\.app.preferredEditor) private var preferredEditorCommand
+    @Setting(\.app.openSupportedFilesInCmux) private var openSupportedFilesInCmux
+    @Setting(\.app.openMarkdownInCmuxViewer) private var openMarkdownInCmuxViewer
     @AppStorage(AutomationSettings.portBaseKey) private var cmuxPortBase = AutomationSettings.defaultPortBase
     @AppStorage(AutomationSettings.portRangeKey) private var cmuxPortRange = AutomationSettings.defaultPortRange
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
-    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserSearchSettings.customSearchEngineNameKey) private var browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
+    @AppStorage(BrowserSearchSettings.customSearchEngineURLTemplateKey) private var browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
-    @AppStorage(BrowserAvailabilitySettings.disabledKey) private var browserDisabled = BrowserAvailabilitySettings.defaultDisabled
-    @AppStorage(BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    private var browserHiddenWebViewDiscardEnabled = BrowserHiddenWebViewDiscardPolicy.defaultEnabled
-    @AppStorage(BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-    private var browserHiddenWebViewDiscardDelay = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
-    @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
-    @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
-    @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @Setting(\.browser.showSearchSuggestions) private var browserSearchSuggestionsEnabled
+    @Setting(\.browser.disabled) private var browserDisabled
+    @Setting(\.browser.discardHiddenWebViews) private var browserHiddenWebViewDiscardEnabled
+    @Setting(\.browser.hiddenWebViewDiscardDelaySeconds) private var browserHiddenWebViewDiscardDelay
+    @Setting(\.browser.importHintDismissed) private var isBrowserImportHintDismissed
+    @Setting(\.browser.showImportHintOnBlankTabs) private var showBrowserImportHintOnBlankTabs
+    @Setting(\.browser.reactGrabVersion) private var reactGrabVersion
+    @Setting(\.browser.openTerminalLinksInCmuxBrowser) private var openTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
@@ -5311,52 +5380,52 @@ struct SettingsView: View {
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
-    @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-    @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
-    @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
-    @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
-    @AppStorage(MenuBarOnlySettings.menuBarOnlyKey) private var menuBarOnly = MenuBarOnlySettings.defaultMenuBarOnly
+    @Setting(\.notifications.dockBadge) private var notificationDockBadgeEnabled
+    @Setting(\.notifications.unreadPaneRing) private var notificationPaneRingEnabled
+    @Setting(\.notifications.paneFlash) private var notificationPaneFlashEnabled
+    @Setting(\.notifications.showInMenuBar) private var showMenuBarExtra
+    @Setting(\.app.menuBarOnly) private var menuBarOnly
     @AppStorage(QuitWarningSettings.confirmQuitKey)
     private var confirmQuitModeRaw = QuitWarningSettings.defaultConfirmQuitMode.rawValue
-    @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
-    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabKey) private var warnBeforeClosingTab = CloseTabWarningSettings.defaultWarnBeforeClosingTab
-    @AppStorage(CloseTabWarningSettings.warnBeforeClosingTabXButtonKey)
-    private var warnBeforeClosingTabXButton = CloseTabWarningSettings.defaultWarnBeforeClosingTabXButton
-    @AppStorage(CloseTabWarningSettings.hideTabCloseButtonKey)
-    private var hideTabCloseButton = CloseTabWarningSettings.defaultHideTabCloseButton
-    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
-    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
-    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+    @Setting(\.app.warnBeforeQuit) private var warnBeforeQuitShortcut
+    @Setting(\.app.warnBeforeClosingTab) private var warnBeforeClosingTab
+    @Setting(\.app.warnBeforeClosingTabXButton) private var warnBeforeClosingTabXButton
+    @Setting(\.app.hideTabCloseButton) private var hideTabCloseButton
+    @Setting(\.app.renameSelectsExistingName) private var commandPaletteRenameSelectAllOnFocus
+    @Setting(\.app.commandPaletteSearchesAllSurfaces) private var commandPaletteSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
-    @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
-    private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
-    @AppStorage(LastSurfaceCloseShortcutSettings.key)
-    private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
-    @AppStorage(PaneFirstClickFocusSettings.enabledKey)
-    private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
-    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
-    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
-    @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
-    private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
-    @AppStorage(TerminalCopyOnSelectSettings.copyOnSelectKey)
-    private var terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
+    @AppStorage(WorkspaceGroupNewWorkspacePlacementSettings.key)
+    private var workspaceGroupNewWorkspacePlacement = WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue
+    @AppStorage(AgentConversationForkDefaultSettings.key)
+    private var forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
+    @Setting(\.app.workspaceInheritWorkingDirectory) private var workspaceInheritWorkingDirectory
+    @Setting(\.app.keepWorkspaceOpenWhenClosingLastSurface) private var closeWorkspaceOnLastSurfaceShortcut
+    @Setting(\.app.focusPaneOnFirstClick) private var paneFirstClickFocusEnabled
+    @Setting(\.terminal.showScrollBar) private var showTerminalScrollBar
+    @Setting(\.terminal.showTextBoxOnNewTerminals) private var showTextBoxOnNewTerminals
+    @Setting(\.terminal.focusTextBoxOnNewTerminals) private var focusTextBoxOnNewTerminals
+    @Setting(\.terminal.textBoxMaxLines) private var textBoxMaxLines
+    @Setting(\.terminal.copyOnSelect) private var terminalCopyOnSelect
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
-    @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-    private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
-    @AppStorage(AgentHibernationSettings.enabledKey)
-    private var agentHibernationEnabled = AgentHibernationSettings.defaultEnabled
+    @Setting(\.terminal.autoResumeAgentSessions) private var autoResumeAgentSessions
+    @Setting(\.terminal.agentHibernationEnabled) private var agentHibernationEnabled
     @AppStorage(AgentHibernationSettings.idleSecondsKey)
     private var agentHibernationIdleSeconds = AgentHibernationSettings.defaultIdleSeconds
     @AppStorage(AgentHibernationSettings.maxLiveTerminalsKey)
     private var agentHibernationMaxLiveTerminals = AgentHibernationSettings.defaultMaxLiveTerminals
-    @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
-    @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
+    @Setting(\.app.reorderOnNotification) private var workspaceAutoReorder
+    @Setting(\.app.iMessageMode) private var iMessageMode
+    // iMessageModeGroupSortSettings.{sortInsideGroupsKey,floatGroupsKey}
+    // exist in UserDefaults but are not surfaced in Settings yet — the
+    // sort path doesn't read them yet. Re-add @AppStorage bindings here
+    // when the sort logic lands.
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
     private var sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
+    @AppStorage(SidebarWorkspaceTitleWrapSettings.key)
+    private var sidebarWrapWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.defaultWrap
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -5384,8 +5453,13 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    // Dogfood: first @AppStorage call site converted to the new
+    // CmuxSettings/CmuxSettingsUI primitives. Resolves the
+    // SettingsRuntime injected on the Settings Window scene and
+    // routes reads/writes through UserDefaultsSettingsStore actor +
+    // DefaultsValueModel observation. UserDefaults key is the same
+    // ("rightSidebar.beta.dock.enabled") so existing values round-trip.
+    @Setting(\.betaFeatures.rightSidebarDock) private var rightSidebarDockEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -5409,11 +5483,37 @@ struct SettingsView: View {
     @State private var notificationCustomSoundErrorAlertMessage = ""
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
+    @State private var defaultTerminalStatus = DefaultTerminalRegistrationStatus(
+        matchedTargetCount: 0,
+        targetCount: DefaultTerminalRegistration.targetCount
+    )
+    @State private var isSettingDefaultTerminal = false
+    @State private var showSetDefaultTerminalConfirmation = false
+    @State private var defaultTerminalErrorMessage: String?
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedForkConversationDefaultDestination: AgentConversationForkDestination {
+        AgentConversationForkDestination(rawValue: forkConversationDefaultDestination) ?? AgentConversationForkDefaultSettings.defaultDestination
+    }
+
+    private var forkConversationDefaultDestinationBinding: Binding<String> {
+        Binding(
+            get: {
+                selectedForkConversationDefaultDestination.rawValue
+            },
+            set: { newValue in
+                guard let destination = AgentConversationForkDestination(rawValue: newValue) else {
+                    forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
+                    return
+                }
+                forkConversationDefaultDestination = destination.rawValue
+            }
+        )
     }
 
     private var workspaceWorkingDirectoryInheritanceSubtitle: String {
@@ -5444,6 +5544,38 @@ struct SettingsView: View {
             localized: "settings.app.minimalMode.subtitleOff",
             defaultValue: "Use the standard workspace title bar and controls."
         )
+    }
+
+    private var defaultTerminalSubtitle: String {
+        if let defaultTerminalErrorMessage {
+            return defaultTerminalErrorMessage
+        }
+        if isSettingDefaultTerminal {
+            return String(
+                localized: "settings.app.defaultTerminal.subtitleSetting",
+                defaultValue: "macOS may ask you to confirm this change."
+            )
+        }
+        if defaultTerminalStatus.isDefault {
+            return String(
+                localized: "settings.app.defaultTerminal.subtitleDefault",
+                defaultValue: "cmux handles SSH links, .command/.tool files, and UNIX executables."
+            )
+        }
+        return String(
+            localized: "settings.app.defaultTerminal.subtitleNotDefault",
+            defaultValue: "Set cmux as the handler for SSH links, .command/.tool files, and UNIX executables."
+        )
+    }
+
+    private var defaultTerminalActionTitle: String {
+        if isSettingDefaultTerminal {
+            return String(localized: "settings.app.defaultTerminal.buttonSetting", defaultValue: "Setting...")
+        }
+        if defaultTerminalStatus.isDefault {
+            return String(localized: "settings.app.defaultTerminal.buttonDefault", defaultValue: "Default")
+        }
+        return String(localized: "settings.app.defaultTerminal.buttonSet", defaultValue: "Set Default")
     }
 
     private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
@@ -5713,6 +5845,16 @@ struct SettingsView: View {
             set: { newValue in
                 CmdClickSupportedFileRouteSettings.setEnabled(newValue)
                 openSupportedFilesInCmux = newValue
+            }
+        )
+    }
+
+    private var markdownRoutingBinding: Binding<Bool> {
+        Binding(
+            get: { openMarkdownInCmuxViewer },
+            set: { newValue in
+                CmdClickMarkdownRouteSettings.setEnabled(newValue)
+                openMarkdownInCmuxViewer = newValue
             }
         )
     }
@@ -6226,6 +6368,42 @@ struct SettingsView: View {
         }
     }
 
+    private func refreshDefaultTerminalStatus(clearError: Bool = true) {
+        defaultTerminalStatus = DefaultTerminalRegistration.currentStatus()
+        if clearError {
+            defaultTerminalErrorMessage = nil
+        }
+    }
+
+    private func setDefaultTerminal() {
+        refreshDefaultTerminalStatus()
+        guard !defaultTerminalStatus.isDefault else {
+            showSetDefaultTerminalConfirmation = false
+            return
+        }
+        guard !isSettingDefaultTerminal else { return }
+        isSettingDefaultTerminal = true
+        defaultTerminalErrorMessage = nil
+        Task {
+            do {
+                try await DefaultTerminalUserAction.registerAsDefault()
+                await MainActor.run {
+                    isSettingDefaultTerminal = false
+                    refreshDefaultTerminalStatus()
+                }
+            } catch {
+                await MainActor.run {
+                    isSettingDefaultTerminal = false
+                    defaultTerminalErrorMessage = String(
+                        localized: "defaultTerminal.updateFailed.message",
+                        defaultValue: "macOS could not update every default terminal handler."
+                    )
+                    refreshDefaultTerminalStatus(clearError: false)
+                }
+            }
+        }
+    }
+
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
@@ -6300,6 +6478,22 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .action,
+                            String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"),
+                            subtitle: defaultTerminalSubtitle,
+                            searchAnchorID: SettingsSearchIndex.settingID(for: .app, idSuffix: "default-terminal")
+                        ) {
+                            Button(defaultTerminalActionTitle) {
+                                showSetDefaultTerminalConfirmation = true
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(defaultTerminalStatus.isDefault || isSettingDefaultTerminal)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             configurationReview: .json("app.newWorkspacePlacement"),
                             String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
@@ -6309,6 +6503,27 @@ struct SettingsView: View {
                         ) {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        WorkspaceGroupNewWorkspacePlacementSettingsRow(
+                            controlWidth: pickerColumnWidth,
+                            selection: $workspaceGroupNewWorkspacePlacement
+                        )
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("app.forkConversationDefaultDestination"),
+                            String(localized: "settings.app.forkConversationDefaultDestination", defaultValue: "Fork Conversation Default"),
+                            subtitle: selectedForkConversationDefaultDestination.settingsDescription,
+                            controlWidth: pickerColumnWidth,
+                            selection: forkConversationDefaultDestinationBinding
+                        ) {
+                            ForEach(AgentConversationForkDestination.allCases) { destination in
+                                Text(destination.settingsTitle).tag(destination.rawValue)
                             }
                         }
 
@@ -6449,9 +6664,9 @@ struct SettingsView: View {
                         SettingsCardRow(
                             configurationReview: .json("app.openMarkdownInCmuxViewer"),
                             String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
                         ) {
-                            Toggle("", isOn: $openMarkdownInCmuxViewer)
+                            Toggle("", isOn: markdownRoutingBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityLabel(
@@ -6803,29 +7018,6 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            configurationReview: .json("terminal.textBoxMaxLines"),
-                            String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
-                            subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
-                            controlWidth: pickerColumnWidth
-                        ) {
-                            Stepper(
-                                value: textBoxMaxLinesBinding,
-                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
-                            ) {
-                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
-                                    .monospacedDigit()
-                                    .frame(width: 28, alignment: .trailing)
-                            }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
-                            .accessibilityLabel(
-                                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines")
-                            )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
                             configurationReview: .json("terminal.copyOnSelect"),
                             String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
                             subtitle: terminalCopyOnSelect
@@ -6914,6 +7106,84 @@ struct SettingsView: View {
 
                     SurfaceResumeApprovalSettingsCard()
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .textBox))
+                    SettingsCard {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.yellow)
+                                .accessibilityHidden(true)
+
+                            Text(String(localized: "settings.textBox.betaWarning", defaultValue: "TextBox is a beta feature. Its defaults and behavior may change while it is being tested."))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showTextBoxOnNewTerminals"),
+                            String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals"),
+                            subtitle: showTextBoxOnNewTerminals
+                                ? String(localized: "settings.textBox.showOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces open with the TextBox visible.")
+                                : String(localized: "settings.textBox.showOnNewTerminals.subtitleOff", defaultValue: "New terminals start with the TextBox hidden until you open it.")
+                        ) {
+                            Toggle("", isOn: $showTextBoxOnNewTerminals)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTextBoxShowOnNewTerminalsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.textBox.showOnNewTerminals", defaultValue: "Show TextBox on New Terminals")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.focusTextBoxOnNewTerminals"),
+                            String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"),
+                            subtitle: focusTextBoxOnNewTerminals
+                                ? String(localized: "settings.textBox.focusOnNewTerminals.subtitleOn", defaultValue: "New terminal tabs, splits, and workspaces put keyboard focus in the TextBox.")
+                                : String(localized: "settings.textBox.focusOnNewTerminals.subtitleOff", defaultValue: "New terminals keep keyboard focus in the terminal surface.")
+                        ) {
+                            Toggle("", isOn: $focusTextBoxOnNewTerminals)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTextBoxFocusOnNewTerminalsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.textBoxMaxLines"),
+                            String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"),
+                            subtitle: String(localized: "settings.textBox.maxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Stepper(
+                                value: textBoxMaxLinesBinding,
+                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
+                            ) {
+                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
+                                    .monospacedDigit()
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsTextBoxMaxLinesStepper")
+                            .accessibilityLabel(
+                                String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines")
+                            )
+                        }
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
@@ -6938,6 +7208,20 @@ struct SettingsView: View {
                                 : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
                         ) {
                             Toggle("", isOn: $sidebarHideAllDetails)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.wrapWorkspaceTitles"),
+                            String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"),
+                            subtitle: sidebarWrapWorkspaceTitles
+                                ? String(localized: "settings.app.wrapWorkspaceTitles.subtitleOn", defaultValue: "Long workspace titles can use as many lines as they need.")
+                                : String(localized: "settings.app.wrapWorkspaceTitles.subtitleOff", defaultValue: "Workspace titles stay on one line and truncate at the end.")
+                        ) {
+                            Toggle("", isOn: $sidebarWrapWorkspaceTitles)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -7054,6 +7338,15 @@ struct SettingsView: View {
                         SettingsCardRow(configurationReview: .json("sidebar.makePullRequestsClickable"), String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")) { Toggle("", isOn: $sidebarMakePullRequestClickable).labelsHidden().controlSize(.small).accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle") }
                         .disabled(sidebarHideAllDetails || !sidebarShowPullRequest)
                         SettingsCardDivider()
+
+                        // iMessage-mode group sort toggles are deliberately
+                        // not surfaced in Settings yet — the underlying
+                        // reorder path doesn't read
+                        // IMessageModeGroupSortSettings.{sortInsideGroups,
+                        // floatGroups} yet, so flipping the toggles wouldn't
+                        // change behavior. The settings keys ship persisted
+                        // so user-set values survive the upgrade that
+                        // activates the sort.
                         SettingsCardRow(
                             configurationReview: .json("sidebar.openPullRequestLinksInCmuxBrowser"),
                             String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
@@ -7390,6 +7683,32 @@ struct SettingsView: View {
                         }
 
                         SettingsCardDivider()
+
+                        if browserSearchEngine == BrowserSearchEngine.custom.rawValue {
+                            SettingsCardRow(
+                                configurationReview: .json("browser.customSearchEngineName"),
+                                String(localized: "settings.browser.customSearchEngineName", defaultValue: "Custom Search Engine Name"),
+                                subtitle: String(localized: "settings.browser.customSearchEngineName.subtitle", defaultValue: "Shown in browser address bar search suggestions."),
+                                controlWidth: pickerColumnWidth
+                            ) {
+                                TextField("", text: $browserCustomSearchEngineName)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            SettingsCardDivider()
+
+                            SettingsCardRow(
+                                configurationReview: .json("browser.customSearchEngineURLTemplate"),
+                                String(localized: "settings.browser.customSearchEngineURLTemplate", defaultValue: "Custom Search URL"),
+                                subtitle: String(localized: "settings.browser.customSearchEngineURLTemplate.subtitle", defaultValue: "Use {query} or %s for the search terms. Without a placeholder, cmux appends q=."),
+                                controlWidth: 330
+                            ) {
+                                TextField("", text: $browserCustomSearchEngineURLTemplate)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            SettingsCardDivider()
+                        }
 
                         SettingsCardRow(configurationReview: .json("browser.showSearchSuggestions"), String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions")) {
                             Toggle("", isOn: $browserSearchSuggestionsEnabled)
@@ -8010,6 +8329,7 @@ struct SettingsView: View {
             draftState.syncBrowserInsecureHTTPAllowlistFromSavedValue(browserInsecureHTTPAllowlist)
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+            refreshDefaultTerminalStatus()
             let target = SettingsWindowPresenter.consumePendingContentNavigationTarget()
                 ?? SettingsNavigationTarget(rawValue: selectedSettingsSectionRaw)
                 ?? .account
@@ -8043,6 +8363,24 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let destination = SettingsNavigationRequest.destination(from: notification) else { return }
             applySettingsNavigation(destination, proxy: proxy)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .defaultTerminalRegistrationDidChange)) { _ in
+            refreshDefaultTerminalStatus()
+            if defaultTerminalStatus.isDefault {
+                showSetDefaultTerminalConfirmation = false
+            }
+        }
+        .confirmationDialog(
+            String(localized: "settings.app.defaultTerminal.dialog.title", defaultValue: "Set cmux as default terminal?"),
+            isPresented: $showSetDefaultTerminalConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "settings.app.defaultTerminal.dialog.confirm", defaultValue: "Set Default")) {
+                setDefaultTerminal()
+            }
+            Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "settings.app.defaultTerminal.dialog.message", defaultValue: "cmux will ask macOS to use this app for SSH links, .command/.tool files, and UNIX executables. macOS may show a confirmation prompt."))
         }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
@@ -8141,8 +8479,11 @@ struct SettingsView: View {
         preferredEditorCommand = ""
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
+        CmdClickMarkdownRouteSettings.setEnabled(CmdClickMarkdownRouteSettings.defaultValue)
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
+        browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
+        browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         BrowserAvailabilitySettings.setDisabled(BrowserAvailabilitySettings.defaultDisabled)
@@ -8181,6 +8522,8 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceGroupNewWorkspacePlacement = WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue
+        forkConversationDefaultDestination = AgentConversationForkDefaultSettings.defaultDestination.rawValue
         workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
@@ -8195,7 +8538,8 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
-        textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+        showTextBoxOnNewTerminals = TerminalTextBoxInputSettings.defaultShowOnNewTerminals
+        focusTextBoxOnNewTerminals = TerminalTextBoxInputSettings.defaultFocusOnNewTerminals
         textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
         let previousTerminalCopyOnSelect = terminalCopyOnSelect
         terminalCopyOnSelect = TerminalCopyOnSelectSettings.defaultCopyOnSelect
@@ -8212,6 +8556,7 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+        sidebarWrapWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.defaultWrap
         sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -8443,6 +8788,29 @@ private struct AuthSettingsRow: View {
             }
         } else {
             authManager.beginSignIn()
+        }
+    }
+}
+
+private struct WorkspaceGroupNewWorkspacePlacementSettingsRow: View {
+    let controlWidth: CGFloat
+    @Binding var selection: String
+
+    private var selectedPlacement: WorkspaceGroupNewPlacement {
+        WorkspaceGroupNewPlacement(rawString: selection) ?? WorkspaceGroupNewWorkspacePlacementSettings.defaultValue
+    }
+
+    var body: some View {
+        SettingsPickerRow(
+            configurationReview: .json("workspaceGroups.newWorkspacePlacement"),
+            String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"),
+            subtitle: selectedPlacement.settingsDescription,
+            controlWidth: controlWidth,
+            selection: $selection
+        ) {
+            ForEach(WorkspaceGroupNewPlacement.allCases) { placement in
+                Text(placement.displayName).tag(placement.rawValue)
+            }
         }
     }
 }
@@ -9018,68 +9386,13 @@ private struct GlobalHotkeySection: View {
 
 private struct SettingsWindowRootView: View {
     @State private var draftState = SettingsDraftState()
-    @State private var windowReference = WeakSettingsWindowReference()
-    @State private var shouldRenderSettingsContent = true
 
     var body: some View {
-        Group {
-            if shouldRenderSettingsContent {
-                SettingsRootView(draftState: draftState)
-            } else {
-                Color.clear
-                    .frame(
-                        minWidth: SettingsWindowPresenter.minimumSize.width,
-                        minHeight: SettingsWindowPresenter.minimumSize.height
-                    )
-            }
-        }
-        .background(WindowAccessor { window in
-            windowReference.window = window
-            SettingsWindowPresenter.configure(window: window)
-            setContentVisibility(!window.isMiniaturized)
-        })
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeMainNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(true)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-            guard isObservedWindow(notification.object) else { return }
-            setContentVisibility(false)
-            windowReference.window = nil
-        }
+        SettingsRootView(draftState: draftState)
+            .background(WindowAccessor(dedupeByWindow: false) { window in
+                SettingsWindowPresenter.configure(window: window)
+            })
     }
-
-    private func isObservedWindow(_ object: Any?) -> Bool {
-        guard
-            let notificationWindow = object as? NSWindow,
-            let window = windowReference.window
-        else {
-            return false
-        }
-        return notificationWindow === window
-    }
-
-    private func setContentVisibility(_ isVisible: Bool) {
-        guard shouldRenderSettingsContent != isVisible else { return }
-        shouldRenderSettingsContent = isVisible
-    }
-}
-
-@MainActor
-private final class WeakSettingsWindowReference {
-    weak var window: NSWindow?
 }
 
 @MainActor

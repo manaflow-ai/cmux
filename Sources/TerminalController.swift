@@ -264,6 +264,7 @@ class TerminalController {
         "workspace.next",
         "workspace.previous",
         "workspace.last",
+        "workspace.group.focus",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -283,6 +284,7 @@ class TerminalController {
     enum V2HandleKind: String, CaseIterable {
         case window
         case workspace
+        case workspaceGroup = "workspace_group"
         case pane
         case surface
     }
@@ -290,18 +292,21 @@ class TerminalController {
     private var v2NextHandleOrdinal: [V2HandleKind: Int] = [
         .window: 1,
         .workspace: 1,
+        .workspaceGroup: 1,
         .pane: 1,
         .surface: 1,
     ]
     private var v2RefByUUID: [V2HandleKind: [UUID: String]] = [
         .window: [:],
         .workspace: [:],
+        .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
     ]
     private var v2UUIDByRef: [V2HandleKind: [String: UUID]] = [
         .window: [:],
         .workspace: [:],
+        .workspaceGroup: [:],
         .pane: [:],
         .surface: [:],
     ]
@@ -3402,6 +3407,40 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.group.list":
+            return v2Result(id: id, self.v2WorkspaceGroupList(params: params))
+        case "workspace.group.create":
+            return v2Result(id: id, self.v2WorkspaceGroupCreate(params: params))
+        case "workspace.group.ungroup":
+            return v2Result(id: id, self.v2WorkspaceGroupUngroup(params: params))
+        case "workspace.group.delete":
+            return v2Result(id: id, self.v2WorkspaceGroupDelete(params: params))
+        case "workspace.group.rename":
+            return v2Result(id: id, self.v2WorkspaceGroupRename(params: params))
+        case "workspace.group.collapse":
+            return v2Result(id: id, self.v2WorkspaceGroupSetCollapsed(params: params, isCollapsed: true))
+        case "workspace.group.expand":
+            return v2Result(id: id, self.v2WorkspaceGroupSetCollapsed(params: params, isCollapsed: false))
+        case "workspace.group.pin":
+            return v2Result(id: id, self.v2WorkspaceGroupSetPinned(params: params, isPinned: true))
+        case "workspace.group.unpin":
+            return v2Result(id: id, self.v2WorkspaceGroupSetPinned(params: params, isPinned: false))
+        case "workspace.group.add":
+            return v2Result(id: id, self.v2WorkspaceGroupAdd(params: params))
+        case "workspace.group.remove":
+            return v2Result(id: id, self.v2WorkspaceGroupRemove(params: params))
+        case "workspace.group.set_anchor":
+            return v2Result(id: id, self.v2WorkspaceGroupSetAnchor(params: params))
+        case "workspace.group.new_workspace":
+            return v2Result(id: id, self.v2WorkspaceGroupNewWorkspace(params: params))
+        case "workspace.group.set_color":
+            return v2Result(id: id, self.v2WorkspaceGroupSetColor(params: params))
+        case "workspace.group.set_icon":
+            return v2Result(id: id, self.v2WorkspaceGroupSetIcon(params: params))
+        case "workspace.group.move":
+            return v2Result(id: id, self.v2WorkspaceGroupMove(params: params))
+        case "workspace.group.focus":
+            return v2Result(id: id, self.v2WorkspaceGroupFocus(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
         case "extension.sidebar.snapshot":
@@ -3722,6 +3761,24 @@ class TerminalController {
         case "file.open":
             return v2Result(id: id, self.v2FileOpen(params: params))
 
+        // Project
+        case "project.open":
+            return v2Result(id: id, self.v2ProjectOpen(params: params))
+        case "project.set_tab":
+            return v2Result(id: id, self.v2ProjectSetTab(params: params))
+        case "project.set_scheme":
+            return v2Result(id: id, self.v2ProjectSetScheme(params: params))
+        case "project.set_configuration":
+            return v2Result(id: id, self.v2ProjectSetConfiguration(params: params))
+        case "project.set_selected_target":
+            return v2Result(id: id, self.v2ProjectSetSelectedTarget(params: params))
+        case "project.set_selected_file":
+            return v2Result(id: id, self.v2ProjectSetSelectedFile(params: params))
+        case "project.set_settings_filter":
+            return v2Result(id: id, self.v2ProjectSetSettingsFilter(params: params))
+        case "project.get_state":
+            return v2Result(id: id, self.v2ProjectGetState(params: params))
+
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
@@ -3845,6 +3902,23 @@ class TerminalController {
             "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
+            "workspace.group.list",
+            "workspace.group.create",
+            "workspace.group.ungroup",
+            "workspace.group.delete",
+            "workspace.group.rename",
+            "workspace.group.collapse",
+            "workspace.group.expand",
+            "workspace.group.pin",
+            "workspace.group.unpin",
+            "workspace.group.add",
+            "workspace.group.remove",
+            "workspace.group.set_anchor",
+            "workspace.group.new_workspace",
+            "workspace.group.set_color",
+            "workspace.group.set_icon",
+            "workspace.group.move",
+            "workspace.group.focus",
             "workspace.action",
             "extension.sidebar.snapshot",
             "workspace.next",
@@ -5228,6 +5302,13 @@ class TerminalController {
                         _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
                     }
                 }
+                // Mint workspace_group refs for groups that exist before any
+                // workspace.group.* call so callers can pass `workspace_group:N`
+                // immediately after restore (otherwise the first ref hand-off
+                // happens only on `list`/`create`).
+                for group in tm.workspaceGroups {
+                    _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
+                }
             }
         }
     }
@@ -5235,11 +5316,20 @@ class TerminalController {
     // MARK: - V2 Context Resolution
 
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
-        // and finally to the active window's TabManager.
+        // Prefer explicit window_id routing. Otherwise prefer group_id (group
+        // methods are the only routing key for cross-window group ops, and
+        // CLI helpers always inject caller workspace_id/surface_id, which
+        // would otherwise win even when the group belongs to a different
+        // window). Fall back to workspace/surface/pane lookup, then the
+        // active window's TabManager.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
+        }
+        if let groupId = v2UUID(params, "group_id") {
+            if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
+                return tm
+            }
         }
         if let wsId = v2UUID(params, "workspace_id") {
             if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
@@ -5257,6 +5347,18 @@ class TerminalController {
             }
         }
         return tabManager ?? v2MainSync { AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(forGroupId groupId: UUID) -> TabManager? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tm = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            if tm.workspaceGroups.contains(where: { $0.id == groupId }) {
+                return tm
+            }
+        }
+        return nil
     }
 
     func v2ResolveWindowId(tabManager: TabManager?) -> UUID? {
@@ -6018,6 +6120,523 @@ class TerminalController {
             "message_preview": v2OrNull(preview),
             "reordered": outcome.reordered,
             "index": outcome.index
+        ])
+    }
+
+    // MARK: - Workspace Groups (v2)
+
+    @MainActor
+    private func v2WorkspaceGroupPayload(_ group: WorkspaceGroup, tabManager: TabManager) -> [String: Any] {
+        let memberIds = tabManager.tabs.compactMap { $0.groupId == group.id ? $0.id : nil }
+        return [
+            "id": group.id.uuidString,
+            "ref": v2Ref(kind: .workspaceGroup, uuid: group.id),
+            "name": group.name,
+            "is_collapsed": group.isCollapsed,
+            "is_pinned": group.isPinned,
+            "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
+            "anchor_workspace_ref": v2Ref(kind: .workspace, uuid: group.anchorWorkspaceId),
+            "custom_color": v2OrNull(group.customColor),
+            "icon_symbol": v2OrNull(group.iconSymbol),
+            "member_workspace_ids": memberIds.map { $0.uuidString },
+            "member_workspace_refs": memberIds.map { v2Ref(kind: .workspace, uuid: $0) },
+            "member_count": memberIds.count
+        ]
+    }
+
+    private func v2WorkspaceGroupList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        var groups: [[String: Any]] = []
+        v2MainSync {
+            groups = tabManager.workspaceGroups.map { v2WorkspaceGroupPayload($0, tabManager: tabManager) }
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "groups": groups
+        ])
+    }
+
+    private func v2WorkspaceGroupCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let name = (params["name"] as? String) ?? ""
+        let cwd = params["cwd"] as? String
+        // child_workspace_ids accepts raw UUID strings AND v2 handle refs
+        // (workspace:1, ws:1, etc.) so callers can use whatever they got back
+        // from workspace.list / workspace-group list.
+        //
+        // Default behavior when the param is absent (e.g. `cmux workspace-group
+        // create --name foo` from a cmux terminal): group the active sidebar
+        // selection, or fall back to the caller workspace_id, or the focused
+        // workspace. An empty array (explicit `--from ""`) still creates an
+        // anchor-only group.
+        let rawChildren: [String]
+        let childrenExplicit: Bool
+        if let provided = params["child_workspace_ids"] as? [String] {
+            rawChildren = provided
+            childrenExplicit = true
+        } else if params["child_workspace_ids"] != nil,
+                  !(params["child_workspace_ids"] is NSNull) {
+            // Reject malformed shapes (single string, mixed array, etc.) so
+            // a typo in a script doesn't silently apply the create to the
+            // current sidebar selection. Empty/absent → fall through.
+            return .err(
+                code: "invalid_params",
+                message: "child_workspace_ids must be an array of workspace handles",
+                data: ["child_workspace_ids": String(describing: params["child_workspace_ids"] ?? "")]
+            )
+        } else {
+            let fallbackIds: [UUID] = v2MainSync {
+                let selected = tabManager.sidebarSelectedWorkspaceIds
+                if !selected.isEmpty {
+                    return tabManager.tabs.compactMap { selected.contains($0.id) ? $0.id : nil }
+                }
+                if let callerId = v2UUID(params, "workspace_id"),
+                   tabManager.tabs.contains(where: { $0.id == callerId }) {
+                    return [callerId]
+                }
+                if let selectedId = tabManager.selectedTabId {
+                    return [selectedId]
+                }
+                return []
+            }
+            rawChildren = fallbackIds.map { $0.uuidString }
+            childrenExplicit = false
+        }
+        var unresolved: [String] = []
+        let parsedChildIds: [UUID] = rawChildren.compactMap { raw -> UUID? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            if let uuid = v2UUIDAny(trimmed) {
+                return uuid
+            }
+            unresolved.append(trimmed)
+            return nil
+        }
+        if !unresolved.isEmpty {
+            return .err(
+                code: "invalid_params",
+                message: "Unresolved child workspace handles: \(unresolved.joined(separator: ", "))",
+                data: ["unresolved": unresolved]
+            )
+        }
+        // A syntactically valid UUID can still reference a workspace that
+        // doesn't exist in this TabManager (typo, stale snapshot from a
+        // closed window). Surface those explicitly instead of letting
+        // createWorkspaceGroup silently drop them and produce an
+        // anchor-only group.
+        let knownTabIds: Set<UUID> = v2MainSync { Set(tabManager.tabs.map(\.id)) }
+        let missing: [String] = parsedChildIds.compactMap { id in
+            knownTabIds.contains(id) ? nil : id.uuidString
+        }
+        if !missing.isEmpty {
+            return .err(
+                code: "not_found",
+                message: "Child workspace not found in target window: \(missing.joined(separator: ", "))",
+                data: ["unknown_workspace_ids": missing]
+            )
+        }
+        let childIds = parsedChildIds
+        // When the caller explicitly listed children, refuse to create an
+        // anchor-only group if every one of them was ineligible (pinned or
+        // already an anchor of another group). The keyboard-shortcut path
+        // already enforces this; the socket/CLI path used to return OK with
+        // a fresh empty group, hiding the real failure.
+        if childrenExplicit, !parsedChildIds.isEmpty {
+            let ineligible: [String] = v2MainSync {
+                let existingAnchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                return parsedChildIds.compactMap { id -> String? in
+                    guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
+                    if tab.isPinned || existingAnchorIds.contains(id) {
+                        return id.uuidString
+                    }
+                    return nil
+                }
+            }
+            if ineligible.count == parsedChildIds.count {
+                return .err(
+                    code: "invalid_state",
+                    message: "All requested children are ineligible (pinned or already an anchor); ungroup or unpin them first",
+                    data: ["ineligible_workspace_ids": ineligible]
+                )
+            }
+        }
+        // workspace.group.create is NOT a focus-intent method. The select
+        // option used to be honored here, but the socket focus policy says
+        // non-focus commands must not change the user's active workspace.
+        // Callers that want to focus the new anchor should call
+        // workspace.group.focus afterward (which IS focus-intent).
+        var createdGroupId: UUID?
+        v2MainSync {
+            createdGroupId = tabManager.createWorkspaceGroup(
+                name: name,
+                childWorkspaceIds: childIds,
+                anchorWorkingDirectory: cwd,
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            )
+        }
+        guard let gid = createdGroupId,
+              let group = v2MainSync({ tabManager.workspaceGroups.first(where: { $0.id == gid }) }) else {
+            return .err(code: "not_created", message: "Group was not created", data: nil)
+        }
+        return .ok([
+            "group": v2MainSync { v2WorkspaceGroupPayload(group, tabManager: tabManager) }
+        ])
+    }
+
+    private func v2WorkspaceGroupUngroup(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var found = false
+        v2MainSync {
+            found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if found {
+                tabManager.ungroupWorkspaceGroup(groupId: gid)
+            }
+        }
+        guard found else {
+            return .err(code: "not_found", message: "Group not found", data: [
+                "group_id": gid.uuidString
+            ])
+        }
+        return .ok(["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupDelete(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var found = false
+        var closedCount = 0
+        v2MainSync {
+            found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if found {
+                closedCount = tabManager.deleteWorkspaceGroup(groupId: gid)
+            }
+        }
+        guard found else {
+            return .err(code: "not_found", message: "Group not found", data: [
+                "group_id": gid.uuidString
+            ])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "closed_workspace_count": closedCount,
+        ])
+    }
+
+    private func v2WorkspaceGroupRename(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id"),
+              let name = v2String(params, "name") else {
+            return .err(code: "invalid_params", message: "Missing group_id or name", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.renameWorkspaceGroup(groupId: gid, name: name) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "name": name])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetCollapsed(params: [String: Any], isCollapsed: Bool) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupCollapsed(groupId: gid, isCollapsed: isCollapsed) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "is_collapsed": isCollapsed])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetPinned(params: [String: Any], isPinned: Bool) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupPinned(groupId: gid, isPinned: isPinned) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "is_pinned": isPinned])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupAdd(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id"),
+              let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing group_id or workspace_id", data: nil)
+        }
+        var failureCode = "not_found"
+        var failureMessage = "Group or workspace not found"
+        var ok = false
+        v2MainSync {
+            let hasGroup = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            guard let tab = tabManager.tabs.first(where: { $0.id == wsId }), hasGroup else {
+                return
+            }
+            // addWorkspaceToGroup silently no-ops for pinned workspaces and
+            // for anchors of other groups. Confirm membership actually
+            // changed before reporting success so scripts don't get OK on a
+            // no-op.
+            tabManager.addWorkspaceToGroup(workspaceId: wsId, groupId: gid)
+            if tab.groupId == gid {
+                ok = true
+            } else {
+                if tab.isPinned {
+                    failureCode = "invalid_state"
+                    failureMessage = "Workspace is pinned and cannot join a group"
+                } else if tabManager.workspaceGroups.contains(where: { $0.id != gid && $0.anchorWorkspaceId == wsId }) {
+                    failureCode = "invalid_state"
+                    failureMessage = "Workspace is the anchor of another group; ungroup it first"
+                }
+            }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "workspace_id": wsId.uuidString])
+            : .err(code: failureCode, message: failureMessage, data: [
+                "group_id": gid.uuidString,
+                "workspace_id": wsId.uuidString
+            ])
+    }
+
+    private func v2WorkspaceGroupRemove(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            if let tab = tabManager.tabs.first(where: { $0.id == wsId }), tab.groupId != nil {
+                tabManager.removeWorkspaceFromGroup(workspaceId: wsId)
+                ok = true
+            }
+        }
+        return ok
+            ? .ok(["workspace_id": wsId.uuidString])
+            : .err(code: "not_found", message: "Workspace not in a group", data: ["workspace_id": wsId.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetAnchor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id"),
+              let wsId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing group_id or workspace_id", data: nil)
+        }
+        var ok = false
+        v2MainSync {
+            let hasGroup = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            let hasWs = tabManager.tabs.contains(where: { $0.id == wsId && $0.groupId == gid })
+            if hasGroup && hasWs {
+                tabManager.setWorkspaceGroupAnchor(groupId: gid, workspaceId: wsId)
+                ok = true
+            }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "anchor_workspace_id": wsId.uuidString])
+            : .err(code: "not_found", message: "Group not found or workspace not a member", data: [
+                "group_id": gid.uuidString,
+                "workspace_id": wsId.uuidString
+            ])
+    }
+
+    private func v2WorkspaceGroupNewWorkspace(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // workspace.group.new_workspace is NOT a focus-intent method. The
+        // socket focus policy says non-focus commands must not change the
+        // user's active workspace; callers that want to focus the new
+        // workspace should call workspace.select / workspace.group.focus
+        // afterward.
+        //
+        // Placement resolution: explicit `placement` param wins, then the
+        // group's per-cwd `newWorkspacePlacement` from cmux.json, then the
+        // global default. The CLI exposes this as
+        // `cmux workspace-group new-workspace <group> --placement <afterCurrent|top|end>`.
+        let placementRaw = v2String(params, "placement")
+        let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
+        if let raw = placementRaw,
+           !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           explicitPlacement == nil {
+            return .err(
+                code: "invalid_params",
+                message: "placement must be one of: afterCurrent, top, end",
+                data: ["placement": raw]
+            )
+        }
+        var createdId: UUID?
+        v2MainSync {
+            guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
+            let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+            let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
+            let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+            let placement = explicitPlacement
+                ?? configured
+                ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            if let newWs = tabManager.createWorkspaceInGroup(
+                groupId: gid,
+                placement: placement,
+                select: false
+            ) {
+                createdId = newWs.id
+            }
+        }
+        guard let createdId else {
+            return .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "workspace_id": createdId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: createdId)
+        ])
+    }
+
+    private func v2WorkspaceGroupSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // Accept "hex": null to clear the override, or omit it entirely.
+        let hex: String? = (params["hex"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (hex?.isEmpty == false) ? hex : nil
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupColor(groupId: gid, hex: normalized) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "custom_color": v2OrNull(normalized)])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupSetIcon(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        let symbol: String? = (params["symbol"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
+        var ok = false
+        v2MainSync {
+            ok = tabManager.workspaceGroups.contains(where: { $0.id == gid })
+            if ok { tabManager.setWorkspaceGroupIcon(groupId: gid, symbol: normalized) }
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString, "icon_symbol": v2OrNull(normalized)])
+            : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupMove(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        // Resolve target via explicit absolute index OR relative position to
+        // another group via `before_group_id` / `after_group_id`.
+        var ok = false
+        v2MainSync {
+            guard let current = tabManager.workspaceGroups.firstIndex(where: { $0.id == gid }) else { return }
+            // moveWorkspaceGroup interprets toIndex as the FINAL position the
+            // group should occupy. before/after refer to a peer's CURRENT
+            // index, so when the source comes before the peer in the original
+            // order, removing the source shifts the peer left by one, and the
+            // translated final position must shift with it.
+            let target: Int? = {
+                if let toIndex = v2Int(params, "to_index") {
+                    return toIndex
+                }
+                if let beforeId = v2UUID(params, "before_group_id"),
+                   let beforeIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == beforeId }) {
+                    return current < beforeIndex ? beforeIndex - 1 : beforeIndex
+                }
+                if let afterId = v2UUID(params, "after_group_id"),
+                   let afterIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == afterId }) {
+                    return current < afterIndex ? afterIndex : afterIndex + 1
+                }
+                return nil
+            }()
+            guard let target else { return }
+            tabManager.moveWorkspaceGroup(groupId: gid, toIndex: target)
+            ok = true
+        }
+        return ok
+            ? .ok(["group_id": gid.uuidString])
+            : .err(code: "invalid_params", message: "Missing or unresolvable target position", data: ["group_id": gid.uuidString])
+    }
+
+    private func v2WorkspaceGroupFocus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        var anchorId: UUID?
+        v2MainSync {
+            guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }),
+                  let anchor = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId }) else { return }
+            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(tabManager)
+            }
+            // Route through selectWorkspace so the explicit-resume
+            // notification dismissal and other selection side effects fire,
+            // matching workspace.select and the sidebar header click path.
+            tabManager.selectWorkspace(anchor)
+            anchorId = anchor.id
+        }
+        guard let anchorId else {
+            return .err(code: "not_found", message: "Group or anchor not found", data: ["group_id": gid.uuidString])
+        }
+        return .ok([
+            "group_id": gid.uuidString,
+            "anchor_workspace_id": anchorId.uuidString,
+            "anchor_workspace_ref": v2Ref(kind: .workspace, uuid: anchorId)
         ])
     }
 
@@ -11647,6 +12266,182 @@ class TerminalController {
         return result
     }
 
+    // MARK: - Project
+
+    private func v2ProjectOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+        let expanded = (rawPath as NSString).expandingTildeInPath
+        let resolved: String
+        if expanded.hasPrefix("/") {
+            resolved = expanded
+        } else {
+            resolved = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+        }
+        guard FileManager.default.fileExists(atPath: resolved) else {
+            return .err(code: "not_found", message: "Project not found at \(resolved)", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create project panel", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            guard let paneId = ws.bonsplitController.focusedPaneId else {
+                result = .err(code: "not_found", message: "No focused pane to open project in", data: nil)
+                return
+            }
+
+            guard let panel = ws.newProjectSurface(
+                inPane: paneId,
+                projectPath: resolved,
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to create project panel", data: nil)
+                return
+            }
+            let targetPaneUUID = ws.paneId(forPanelId: panel.id)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "workspace_id": ws.id.uuidString,
+                "pane_id": v2OrNull(targetPaneUUID?.uuidString),
+                "surface_id": panel.id.uuidString,
+                "path": resolved
+            ])
+        }
+        return result
+    }
+
+    // MARK: - Project state driving (debug RPC for autonomous iteration)
+
+    private func v2ResolveProjectPanel(params: [String: Any]) -> (Workspace, ProjectPanel)? {
+        guard let tabManager = v2ResolveTabManager(params: params) else { return nil }
+        var result: (Workspace, ProjectPanel)?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId,
+                  let panel = ws.panels[surfaceId] as? ProjectPanel else { return }
+            result = (ws, panel)
+        }
+        return result
+    }
+
+    private func v2ProjectSetTab(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        guard let raw = v2String(params, "tab"),
+              let tab = ProjectPanelTab(rawValue: raw) else {
+            return .err(code: "invalid_params", message: "tab must be one of files|targets|buildSettings|schemes", data: nil)
+        }
+        v2MainSync { panel.activeTab = tab }
+        return .ok(["tab": tab.rawValue])
+    }
+
+    private func v2ProjectSetScheme(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        v2MainSync { panel.selectedSchemeName = name }
+        return .ok(["scheme": name ?? ""])
+    }
+
+    private func v2ProjectSetConfiguration(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        v2MainSync { panel.selectedConfigurationName = name }
+        return .ok(["configuration": name ?? ""])
+    }
+
+    private func v2ProjectSetSelectedTarget(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let name = v2String(params, "name")
+        var resolvedID: String?
+        v2MainSync {
+            if let name, !name.isEmpty,
+               let module = panel.loadState.model?.modules.first,
+               let target = module.targets.first(where: { $0.displayName == name }) {
+                panel.selectedTargetID = target.id
+                resolvedID = target.id.rawValue
+            } else {
+                panel.selectedTargetID = nil
+            }
+        }
+        return .ok(["target_name": name ?? "", "target_id": resolvedID ?? ""])
+    }
+
+    private func v2ProjectSetSelectedFile(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let path = v2String(params, "path")
+        v2MainSync { panel.selectedFilePath = path }
+        return .ok(["selected_file": path ?? ""])
+    }
+
+    private func v2ProjectSetSettingsFilter(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        let text = v2String(params, "text") ?? ""
+        v2MainSync { panel.settingsSearchText = text }
+        return .ok(["filter": text])
+    }
+
+    private func v2ProjectGetState(params: [String: Any]) -> V2CallResult {
+        guard let (_, panel) = v2ResolveProjectPanel(params: params) else {
+            return .err(code: "not_found", message: "Project surface not found", data: nil)
+        }
+        var snapshot: [String: Any] = [:]
+        v2MainSync {
+            snapshot["surface_id"] = panel.id.uuidString
+            snapshot["project_url"] = panel.projectURL.path
+            snapshot["active_tab"] = panel.activeTab.rawValue
+            snapshot["selected_scheme"] = panel.selectedSchemeName ?? ""
+            snapshot["selected_configuration"] = panel.selectedConfigurationName ?? ""
+            snapshot["selected_target_id"] = panel.selectedTargetID?.rawValue ?? ""
+            snapshot["selected_file"] = panel.selectedFilePath ?? ""
+            snapshot["settings_filter"] = panel.settingsSearchText
+            switch panel.loadState {
+            case .idle:
+                snapshot["load_state"] = "idle"
+            case .loading:
+                snapshot["load_state"] = "loading"
+            case let .failed(reason):
+                snapshot["load_state"] = "failed"
+                snapshot["load_error"] = reason
+            case let .loaded(model):
+                snapshot["load_state"] = "loaded"
+                snapshot["module_count"] = model.modules.count
+                if let module = model.modules.first {
+                    snapshot["module_name"] = module.displayName
+                    snapshot["target_count"] = module.targets.count
+                    snapshot["target_names"] = module.targets.map(\.displayName)
+                    snapshot["scheme_count"] = module.schemes.count
+                    snapshot["scheme_names"] = module.schemes.map(\.name)
+                    snapshot["configuration_names"] = module.configurationNames
+                    snapshot["root_group_children"] = module.rootGroup.children.count
+                }
+            }
+        }
+        return .ok(snapshot)
+    }
+
     // MARK: - Browser
 
     private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
@@ -11656,9 +12451,14 @@ class TerminalController {
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
-
         if BrowserAvailabilitySettings.isDisabled() {
+            if v2IsDiffViewerURL(url) {
+                return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
+            }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
+        }
+        if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
+            return error
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -11710,6 +12510,8 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -11719,7 +12521,10 @@ class TerminalController {
                     inPane: targetPane,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    selectWhenNotFocused: true,
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
@@ -11729,7 +12534,9 @@ class TerminalController {
                     orientation: .horizontal,
                     url: url,
                     focus: focus,
-                    creationPolicy: .automationPreload
+                    creationPolicy: .automationPreload,
+                    omnibarVisible: omnibarVisible,
+                    bypassRemoteProxy: bypassRemoteProxy
                 )
             }
 
@@ -11756,10 +12563,52 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
-                "placement_strategy": placementStrategy
+                "placement_strategy": placementStrategy,
+                "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
+                "bypass_remote_proxy": bypassRemoteProxy
             ])
         }
         return result
+    }
+
+    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+            return true
+        }
+        return url.scheme?.lowercased() == "http" &&
+            url.host == "127.0.0.1" &&
+            url.fragment == "cmux-diff-viewer"
+    }
+
+    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
+        guard let url,
+              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
+            return nil
+        }
+        guard let token = v2String(params, "diff_viewer_token"),
+              token == url.host,
+              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
+              !rawFiles.isEmpty,
+              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
+            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
+        }
+
+        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
+        guard files.count == rawFiles.count else {
+            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
+        }
+
+        do {
+            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
+            return nil
+        } catch {
+            return .err(
+                code: "invalid_params",
+                message: "Invalid trusted diff viewer allowlist",
+                data: ["details": error.localizedDescription]
+            )
+        }
     }
 
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -15797,8 +16646,7 @@ class TerminalController {
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
             dragState.isSimulated = true
-            dragState.draggedTabId = fromTabId
-            dragState.dropIndicator = nil
+            dragState.beginDragging(tabId: fromTabId)
             return true
         }
         guard startedOK else {
@@ -15820,7 +16668,7 @@ class TerminalController {
             }
             let tickOK: Bool = v2MainSync {
                 guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-                dragState.dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: edge)
+                dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
             if !tickOK {
@@ -15834,8 +16682,7 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
+            dragState.clearDrag()
             dragState.isSimulated = false
         }
 
@@ -20618,7 +21465,11 @@ class TerminalController {
         }
 
         v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.reloadConfiguration(source: "socket.reload_config")
+            } else {
+                GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            }
         }
         return "OK Reloaded config"
     }

@@ -206,6 +206,22 @@ final class TerminalPanel: Panel, ObservableObject {
         tmuxLayoutReport = report
     }
 
+    func preferTextBoxInputWhenActivated() {
+        isTextBoxActive = true
+        textBoxInputFocusIntent = .textBox
+        shouldFocusTextBoxWhenAvailable = false
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+    }
+
+    func showTextBoxInputWhenAvailable() {
+        isTextBoxActive = true
+        textBoxInputFocusIntent = .terminal
+        shouldFocusTextBoxWhenAvailable = false
+        shouldOpenTextBoxFilePickerWhenAvailable = false
+        shouldHideTextBoxOnNextEscape = false
+    }
+
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {
         textBoxInputView = view
         if let restoredTextBoxDraft {
@@ -635,9 +651,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     // MARK: - Terminal-specific methods
 
-    func sendText(_ text: String) {
+    @discardableResult
+    func sendText(_ text: String) -> Bool {
         resumeForExplicitInputIfNeeded()
-        surface.sendText(text)
+        return surface.sendText(text)
     }
 
     func sendInput(_ text: String) {

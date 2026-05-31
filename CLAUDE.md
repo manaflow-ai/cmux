@@ -2,11 +2,19 @@
 
 ## Initial setup
 
-Run the setup script to initialize submodules and build GhosttyKit:
+Run the setup script to initialize submodules, build GhosttyKit, and install the pbxproj normalization pre-commit hook:
 
 ```bash
 ./scripts/setup.sh
 ```
+
+## Xcode toolchain
+
+The team is pinned to Xcode 26.x. `.xcode-version` records the major; `cmux.xcodeproj/project.pbxproj` carries `objectVersion = 60`, which is what Xcode 26 writes by default. (objectVersion 77 is reserved for projects that adopt synchronized folder groups, which cmux does not use yet. Bumping to a different value requires a deliberate team decision.)
+
+`scripts/setup.sh` installs a tracked pre-commit hook (`scripts/git-hooks/pre-commit`) that runs `scripts/normalize-pbxproj.py` on any staged `cmux.xcodeproj/project.pbxproj`, sorting the high-churn sections so Xcode's nondeterministic reordering never reaches a commit. The hook is idempotent. CI runs `scripts/check-pbxproj.sh` to enforce both the `objectVersion` pin and normalization, so anyone who skips the hook (or never ran setup) gets a clear failure on their PR.
+
+`.xcode-version` is the single source of truth. To bump the pin: edit `.xcode-version`, open `cmux.xcodeproj` in the new Xcode (which rewrites `objectVersion` automatically when it touches the file), and add a case for the new Xcode major in `scripts/check-pbxproj.sh` mapping it to the `objectVersion` that major writes.
 
 ## Local dev
 
@@ -238,6 +246,115 @@ The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use i
 - **Foundation, SwiftUI, AttributeGraph, and WebKit semantics change silently between macOS major versions.** A function that "obviously" returns the same value on every macOS is not a reliable assumption. Concrete case from https://github.com/manaflow-ai/cmux/issues/4529: `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26 — Apple silently fixed the underlying CFURL normalization. The repo's `macos-26` CI and every maintainer's dev machine were on the fixed-behavior side; every reporter on the issue was on the broken side. Always test on the reporter's macOS before declaring a user-reported repro disproven. AWS M4 Pro builders (`cmux-aws-mac`, `cmux-aws-m4pro`, `aws-m4pro-1..6`) are pre-provisioned on macOS 15.7.4 and the preferred empirical-repro path; see the `regression-hunt` skill in the cmuxterm-hq sibling repo for the full playbook.
 - **Test files in `cmuxTests/` must be wired into `cmux.xcodeproj/project.pbxproj`.** A `.swift` file added to the worktree without a matching `PBXFileReference` + `PBXSourcesBuildPhase` entry is silently ignored by Xcode and never compiles or runs on CI. Both `xcodebuild test -only-testing:cmuxTests/<TestClass>` and bot reviews pass with "Executed 0 tests" — so the missing wiring is indistinguishable from a clean two-commit red/green regression test until a real user hits the bug. The `workflow-guard-tests` job runs `./scripts/lint-pbxproj-test-wiring.sh` to catch this at PR time; surfaced during the https://github.com/manaflow-ai/cmux/issues/4529 investigation against https://github.com/manaflow-ai/cmux/pull/4536. Add via Xcode (drag the file into the cmuxTests target) or hand-edit the four pbxproj entries; reference any wired sibling like `TabManagerUnitTests.swift` as a template.
 
+## Package architecture
+
+We are migrating cmux from a single app target into Swift Packages under `Packages/`. Every new package must satisfy three rules:
+
+- **Ergonomic.** Public API surface matches what callers naturally want to write. Default to internal access; expose `public` only for types and functions that downstream consumers actually use. Avoid friction such as forcing every call site through a builder or wrapper when a direct API is fine.
+- **No dependency cycles.** Packages form a strict DAG. A package may only depend on packages strictly lower in the graph. When two packages need to share a type, lift it to a common lower-level package or define a protocol seam in the consumer. Every new dependency edge requires re-checking that the graph stays acyclic.
+- **Clear but not overly narrow responsibilities.** A package owns one full domain (e.g. _settings_, _appearance_, _workspace_, _terminal_, _browser_, _command palette_), not a slice of one. A package called "appearance math" or "workspace model" is too narrow — it forces every consumer that touches the surrounding domain to also depend on the sibling slices. Prefer a single `CmuxAppearance` that owns settings, theming, colors, glass, and snapshots together, over `CmuxAppearanceMath` + `CmuxAppearanceTheme` + `CmuxAppearanceSettings`. Don't fragment a domain into `CmuxFooFormatting` + `CmuxFooLogic` + `CmuxFooState` — that's folder structure inside a single package, not module structure. A package boundary exists because more than one consumer needs the contents, or a build/test seam needs to exist.
+
+When in doubt, **extract leaf-first**: pull out the package that has no internal dependencies. Consumers in the app target stay put and only update imports. Each leaf shrinks the app target without requiring downstream packages to exist yet.
+
+The existing packages under `Packages/` predate this policy and should not be used as design references.
+
+## File organization
+
+One major type per file. Each `struct`, `class`, `enum`, `actor`, or `protocol` that is part of a public API (or has any meaningful body) lives in its own file named after the type (`Control.swift`, `LabeledChoice.swift`, `ListControl.swift` — not one shared `SettingControl.swift`). This rule applies to all new code in `Packages/` and to any new files added to the app target.
+
+- Small, closely-bound helpers (`private struct`, nested types, single-line extensions used only inside the file) can stay with the parent type. Anything bigger or independently meaningful gets its own file.
+- Conformance-adding extensions for a type defined elsewhere go in `TypeName+Conformance.swift` or `TypeName+Feature.swift`, not bundled into the consuming feature file.
+- Type-erased wrappers (`AnyFoo`) live next to the type they erase (`Foo.swift` and `AnyFoo.swift`), each in its own file.
+- Existing god files (`ContentView.swift`, `Workspace.swift`, `TabManager.swift`, `cmuxApp.swift`) are the pattern this rule exists to stop. When migrating code out of them, split into one file per type even if it triples the file count. File count is cheap; "find this type" being unanswerable is expensive.
+
+## Documentation
+
+Every `public` symbol in any new Swift package under `Packages/` is documented with a Swift-DocC triple-slash comment at the time of writing. Treat docs as part of the API surface, not as follow-up work.
+
+- **Format.** Use `///` doc comments above the symbol. First line is a one-sentence summary that fits on a single line and ends with a period. If more context is needed, leave a blank `///` line, then add a discussion paragraph. Use `- Parameter name:` / `- Returns:` / `- Throws:` callouts on `init` and `func` symbols that take parameters or throw. Use Markdown freely (bold, fenced code blocks for examples, backticks for inline code).
+- **Cross-references.** Refer to other symbols using double-backticks: `` ``CmuxSetting`` ``. Plain backticks are for non-symbol code (`UserDefaults.standard`, `@AppStorage`).
+- **What to document on each symbol.** Types: what they represent and when to use them. Enums: meaning of each case. Init parameters: especially defaults and the reason for them. Properties: what value they hold and any invariants. Methods: what they do, plus parameters/returns/throws. Generic constraints: which `Value` / `Element` shapes the type accepts and why (e.g., `Sendable & Codable`).
+- **Examples.** Non-trivial APIs get at least one example in a fenced ` ```swift ` block, ideally a real declaration from this codebase. Keep examples short and idiomatic.
+- **Internal vs public.** `internal` and `private` symbols get a one-line `///` when the intent is non-obvious; verbosity is not required at that scope. The public boundary is the one that needs full coverage.
+- **No stale docs.** When you change a symbol's behavior or signature, update its doc comment in the same edit. Docs that describe last week's behavior are worse than no docs.
+- **Don't comment-narrate the body.** Doc comments describe the contract from the outside. Inline `//` comments inside method bodies are reserved for non-obvious *why*, not *what* (the existing rule from the top-level guidance still applies).
+
+This rule applies to all packages under `Packages/`. Code in the main app target is not retroactively required to be documented, but new `public` symbols added to packages must be.
+
+## Package design discipline
+
+These are the recurring design mistakes that have to be caught at the design step, not at code review:
+
+- **No shared-singleton accessors.** `static let standard` / `shared` / `default` on a package type that holds runtime state is a singleton-by-another-name. Construct the package type at the app's startup site and inject it. `static let` is fine for *declarations* — identifiers, schema entries, enum cases — but not for behavior.
+- **No namespace-enums.** `enum Foo { static func bar() }` (a no-case enum used as a namespace) is a fake namespace that fights the rest of the design (no instances, no DI, no test seam). Prefer a value-typed struct passed via constructor when the helper might gain configuration, or a file-scope `private func` for pure helpers internal to one file.
+- **No parallel hand-maintained registries.** When a list mirrors a set of declared items (e.g. `catalog.all` mirroring the catalog's stored properties), derive the list via `Mirror` reflection or a macro. Two sources of truth drift silently; the IDE doesn't tell you.
+- **Prefer compile-time invariants to runtime traps.** If the pattern is `guard ... else { assertionFailure(...); return default }` for a "programmer error" case, encode it in the type system (phantom types, separate concrete flavors). Runtime traps become silent fallbacks in release builds.
+- **File-scope `private func` is not `private static func`.** `private static` inside a type signals "this operation belongs to the type." File-scope `private func` signals "pure helper local to this file, unrelated to any type." Use the latter for recursive helpers that take a sliced view as input and never read host-type state.
+- **Nested types still count for the one-major-type-per-file rule.** A `private final class WatcherAttachment` inside `JSONConfigFileWatcher.swift` is a major type. Move it to its own file the moment it has a meaningful body.
+
+## Testability
+
+Every public type added to `Packages/` must be **testable from a test target** without launching the app target, without booting AppKit, and without depending on the user's filesystem or `UserDefaults.standard`. Production-grade designs surface a test seam at every boundary:
+
+- **No global state in package code.** Every public type that needs `UserDefaults`, `FileManager`, an on-disk path, an environment variable, or a clock takes it via initializer parameter. Tests pass a `UserDefaults(suiteName:)` scoped to the test, a temp directory URL, a fixed `Date`, etc.
+- **No reliance on `.shared` / `.standard`.** A public type that hardcodes `UserDefaults.standard` or `FileManager.default` inside its implementation cannot be tested without polluting the developer's actual settings. Inject these at the seam.
+- **Public APIs return values, not side effects, where possible.** A function that mutates global UserDefaults and returns `Void` is harder to test than one that returns the changed value and lets the caller persist. Prefer pure transformations + thin imperative layers.
+- **Asynchronous APIs surface their observation as `AsyncStream`.** Tests can iterate `AsyncStream` deterministically and assert the sequence of yielded values. Avoid `NotificationCenter`-only patterns where the test has to spin a runloop.
+- **Document the test pattern** alongside any non-trivial public surface. The package's `README.md` and any DocC catalog should show how to instantiate the type with test-friendly dependencies.
+
+If a design is hard to test, it is wrong. Reach for the constructor parameter list, not the test bench.
+
+## Modern Swift concurrency
+
+All new code in `Packages/` and any new files added to the app target use Swift 6 concurrency primitives: `actor`, `async`/`await`, `AsyncStream`/`AsyncSequence`, `@Observable`, `@MainActor`. Old primitives — locks, manual KVO, `@Published`, completion handlers, `DispatchQueue` used as a serial lock — are not allowed.
+
+If you find yourself reaching for a lock, the type is the wrong shape. Promote it to an `actor`.
+
+**Forbidden in new code (no exceptions without a written justification in the PR description):**
+
+- **Locks.** `NSLock`, `NSRecursiveLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `pthread_mutex_t`, `Synchronization.Mutex`, `DispatchSemaphore` used as a lock. Use `actor` isolation. Mutable shared state belongs in an actor; reads and writes are `async`.
+- **KVO via `NSObject` subclassing.** Any `class Foo: NSObject` whose purpose is to override `observeValue(forKeyPath:...)` or call `addObserver(_:forKeyPath:...)`. Replace with `NotificationCenter.default.notifications(named:)` `AsyncSequence`, or the `NSKeyValueObservation` token API at the seam only.
+- **`DispatchQueue` used as a synchronization primitive.** A `DispatchQueue(label:)` accessed via `queue.sync { ... }` to serialize mutable state is a lock with different syntax. Use an `actor`. Queues are fine for *event delivery* (e.g. a `DispatchSource` handler), not for protecting state.
+- **Combine for change propagation.** No `@Published`, no `ObservableObject`, no `PassthroughSubject`/`CurrentValueSubject`, no `AnyCancellable` for change observation. Use `@Observable` (Observation framework, Swift 5.9+) for SwiftUI state, or `AsyncStream`/`AsyncSequence` for cross-actor change propagation.
+- **Completion-handler APIs.** Authoring a new public API with a `(Result<T, Error>) -> Void` or `(T?, Error?) -> Void` callback is forbidden. Use `async throws -> T`. When wrapping a legacy callback at the boundary, use `withCheckedContinuation`/`withCheckedThrowingContinuation` and keep it confined to that one seam.
+- **`DispatchQueue.main.async { ... }`.** Annotate the destination with `@MainActor`. Call sites either `await` the main-isolated function or are themselves `@MainActor`.
+- **`Task.sleep` in app/runtime code.** Already forbidden by the cmuxterm-hq top-level rule against sleep-based timing. Allowed in tests only.
+
+**Required shape:**
+
+- Mutable shared state → `actor`. Reads/writes/reset are `async`. Observers receive `AsyncStream` returned by the actor.
+- SwiftUI view-render-friendly state → `@Observable @MainActor` view-model that subscribes to the actor's `AsyncStream` and projects snapshots. Don't read actor state synchronously from view code.
+- Cross-process / cross-thread invariants → expressed via actor isolation, not via locks or queues.
+- New public observable surfaces → `AsyncStream` or `AsyncSequence`. Not callbacks, not `@Published`, not raw `NotificationCenter` subscription.
+
+**Acceptable with a one-line justification comment on the declaration:**
+
+These low-level primitives have no async-native replacement. They must be hidden behind an `AsyncStream` or `actor` surface; callers never see them.
+
+- `DispatchSource.makeFileSystemObjectSource` for file watching (no Foundation async equivalent).
+- `DispatchSource.makeReadSource`/`makeWriteSource` for low-level socket I/O.
+- `NSKeyValueObservation` token (the closure-based API) when wrapping a Foundation/AppKit type that exposes change only via KVO.
+
+**`@unchecked Sendable` and `nonisolated(unsafe)`:**
+
+Both require a comment on the declaration explaining the safety argument. Examples that pass review:
+
+```swift
+// Wraps DispatchSourceFileSystemObject; every mutation happens on `queue`.
+private final class WatcherAttachment: @unchecked Sendable { ... }
+
+// UserDefaults is Apple-documented thread-safe; OK to read nonisolated.
+private nonisolated(unsafe) let defaults: UserDefaults
+```
+
+Without a justification comment, the diff is rejected. `@unchecked Sendable` on an entire actor or struct is almost always wrong; prefer `nonisolated(unsafe) let` on the single non-Sendable property.
+
+**Scope and enforcement:**
+
+- Applies to: every new file in `Packages/`, every new file in the app target, every meaningful rewrite of an existing Swift file.
+- Existing app target code may continue to use the old primitives until rewritten. Do not retrofit blindly.
+- Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `NSLock`/`NSRecursiveLock`/`@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`Task.sleep` outside tests in new code. Reject `@unchecked Sendable` or `nonisolated(unsafe)` without a justification comment.
+
 ## Test quality policy
 
 - Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
@@ -246,6 +363,18 @@ The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use i
 - For metadata changes, prefer verifying the built app bundle or the runtime behavior that depends on that metadata, not the checked-in source file.
 - If a behavior cannot be exercised end-to-end yet, add a small runtime seam or harness first, then test through that seam.
 - If no meaningful behavioral or artifact-level test is practical, skip the fake regression test and state that explicitly.
+
+## Test framework
+
+Swift Testing is the current Apple-supported primitive for tests on this codebase (shipped with Swift 6 / Xcode 16, supported on the macOS versions we target). Use it for everything that is not a UI test.
+
+- **Default to Swift Testing for all unit and integration tests.** `import Testing`, annotate tests with `@Test`, group with `@Suite`, assert with `#expect(...)` and `try #require(...)`. Do not write new tests with `import XCTest` unless they are UI tests.
+- **UI tests stay on XCTest / XCUITest.** Swift Testing does not support UI testing (no `XCUIApplication` integration). Files under `cmuxUITests/` continue to use `XCTestCase` + `XCUIApplication`. Do not migrate them and do not try to bridge Swift Testing into UI tests.
+- **New test targets start on Swift Testing.** Every new Swift package's `Tests/<Name>Tests/` directory (e.g. `Packages/CmuxSettings/Tests/CmuxSettingsTests/`) should ship with Swift Testing from the first commit. Xcode 16 auto-detects the framework based on the `import Testing` statement; no extra `Package.swift` configuration is required.
+- **Migration guide when touching an existing XCTest test.** Convert in place: `XCTestCase` subclass becomes a `@Suite struct` (or `final class` if you need a reference type); each `func testFoo()` becomes `@Test func foo()`; `XCTAssertEqual(a, b)` becomes `#expect(a == b)`; `XCTAssertTrue(cond)` becomes `#expect(cond)`; `XCTUnwrap(x)` becomes `try #require(x)`; `XCTFail("msg")` becomes `Issue.record("msg")`. `setUp()` becomes `init()` on the suite; `tearDown()` becomes `deinit`. Async setup is `async init()`. Do not bulk-rewrite untouched tests; migrate incrementally as a side effect of editing the file.
+- **Parameterized tests** use `@Test(arguments: [...])`. Prefer this over duplicate test methods.
+- **Parallelization and shared state.** Swift Testing runs tests in parallel by default, including across suites. If a suite genuinely needs ordering or guards shared mutable state, annotate it with `.serialized` instead of adding locks or sleeps.
+- **Tags** with `@Test(.tags(.something))` (or on a `@Suite`) let CI and local runs filter selectively.
 
 ## Socket command threading policy
 

@@ -2782,9 +2782,25 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         XCTAssertNil(stack.pop())
     }
 
-    private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
+    func testRemoveSnapshotsDropsOnlyEntriesForGivenWorkspaceId() {
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        stack.push(makeSnapshot(index: 1, workspaceId: workspaceA))
+        stack.push(makeSnapshot(index: 2, workspaceId: workspaceB))
+        stack.push(makeSnapshot(index: 3, workspaceId: workspaceA))
+        stack.push(makeSnapshot(index: 4, workspaceId: workspaceB))
+
+        stack.removeSnapshots(forWorkspaceId: workspaceA)
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 4)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 2)
+        XCTAssertNil(stack.pop())
+    }
+
+    private func makeSnapshot(index: Int, workspaceId: UUID = UUID()) -> ClosedBrowserPanelRestoreSnapshot {
         ClosedBrowserPanelRestoreSnapshot(
-            workspaceId: UUID(),
+            workspaceId: workspaceId,
             url: URL(string: "https://example.com/\(index)"),
             profileID: nil,
             originalPaneId: UUID(),
@@ -4076,6 +4092,52 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try withTempConfig("background = #101010\n") { path in
             XCTAssertFalse(
                 GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideResolvesSplitThemeForPreferredScheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = Apple System Colors"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideResolvesLightSplitThemeForPreferredScheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Latte"
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsPlainSingleTheme() throws {
+        try withTempConfig("theme = Catppuccin Mocha\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    func testConditionalThemeOverrideSkipsSameThemePair() throws {
+        try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
             )
         }
     }
