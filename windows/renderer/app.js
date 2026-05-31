@@ -7220,7 +7220,12 @@ function savedColorPalettePanel() {
   const workspace = activeWorkspace();
   const saveWorkspace = settingsActionButton("Save workspace", () => upsertCustomColorPalette(workspace?.color), "", "saved color save workspace");
   saveWorkspace.disabled = !normalizeCustomPaletteColor(workspace?.color);
-  actions.append(saveAccent, saveWorkspace);
+  const pane = focusedPanel();
+  const savePane = settingsActionButton("Save pane", () => upsertCustomColorPalette(pane?.color), "", "saved color save active pane tab");
+  savePane.disabled = !normalizeCustomPaletteColor(pane?.color);
+  const clearPanes = settingsActionButton("Clear panes", () => clearWorkspacePaneColors(), "danger", "saved color clear pane tab colors workspace");
+  clearPanes.disabled = !workspace?.panels?.some((panel) => panel.color);
+  actions.append(saveAccent, saveWorkspace, savePane, clearPanes);
   panel.append(actions);
 
   if (state.customColorPalette.length === 0) {
@@ -7251,6 +7256,7 @@ function savedColorPalettePanel() {
     cardActions.append(
       settingsActionButton("Accent", () => updateSettings({ accent: color }), "", `saved color apply accent ${color}`),
       settingsActionButton("Workspace", () => setWorkspaceColor(color), "", `saved color apply workspace ${color}`),
+      settingsActionButton("Panes", () => setWorkspacePaneColors(color), "", `saved color apply panes tabs workspace ${color}`),
       settingsActionButton("Delete", () => deleteCustomColorPalette(color), "danger", `saved color delete ${color}`)
     );
     card.append(swatch, value, cardActions);
@@ -7258,6 +7264,43 @@ function savedColorPalettePanel() {
   }
   panel.append(list);
   return panel;
+}
+
+async function setWorkspacePaneColors(color, workspace = activeWorkspace()) {
+  const targetColor = String(color || "").trim();
+  if (!workspace || workspace.panels.length === 0) {
+    toast("Open a pane before applying pane colors.");
+    return false;
+  }
+  if (!isAllowedUiColor(targetColor, workspaceColorPalette())) {
+    toast("Choose a saved color first.");
+    return false;
+  }
+  const panels = workspace.panels.filter((panel) => panel.color !== targetColor);
+  if (panels.length === 0) {
+    toast("Pane colors already match.");
+    return false;
+  }
+  await Promise.all(panels.map((panel) => updatePanel(panel.id, { color: targetColor })));
+  if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") renderSettingsInspector();
+  toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} updated.`);
+  return true;
+}
+
+async function clearWorkspacePaneColors(workspace = activeWorkspace()) {
+  if (!workspace || workspace.panels.length === 0) {
+    toast("Open a pane before clearing pane colors.");
+    return false;
+  }
+  const panels = workspace.panels.filter((panel) => panel.color);
+  if (panels.length === 0) {
+    toast("Pane colors already cleared.");
+    return false;
+  }
+  await Promise.all(panels.map((panel) => updatePanel(panel.id, { color: "" })));
+  if (state.inspectorMode === "settings" && state.settingsCategory === "appearance") renderSettingsInspector();
+  toast(`${panels.length} pane${panels.length === 1 ? "" : "s"} cleared.`);
+  return true;
 }
 
 function backgroundPresetGrid() {
