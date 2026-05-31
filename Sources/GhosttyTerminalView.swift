@@ -7118,10 +7118,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             bufferedText.removeAll(keepingCapacity: true)
         }
 
-        func appendKey(_ keycode: UInt32, label: String) {
+        func appendKey(_ keycode: UInt32, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE, label: String) {
             events.append(.key(PendingKeyEvent(
                 keycode: keycode,
-                mods: GHOSTTY_MODS_NONE,
+                mods: mods,
                 label: label
             )))
         }
@@ -7161,7 +7161,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // current cursor-key mode, exactly like a hardware arrow press.
                 if let nav = navigationEscapeKey(scalars, from: index) {
                     flushBufferedText()
-                    appendKey(nav.keycode, label: nav.label)
+                    appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
                 } else {
                     flushBufferedText()
@@ -7193,29 +7193,37 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private static func navigationEscapeKey(
         _ scalars: [Unicode.Scalar],
         from start: Int
-    ) -> (keycode: UInt32, label: String, length: Int)? {
-        guard start + 2 < scalars.count else { return nil }
-        let introducer = scalars[start + 1].value
-        guard introducer == 0x5B || introducer == 0x4F else { return nil } // '[' CSI or 'O' SS3
+    ) -> (keycode: UInt32, mods: ghostty_input_mods_e, label: String, length: Int)? {
+        guard start + 1 < scalars.count else { return nil }
+        let next = scalars[start + 1].value
+        // Meta+Backspace: the iOS app sends ESC 0x7F (or ESC 0x08) for
+        // option-delete-word. Re-issue as Backspace with the Option modifier so
+        // libghostty encodes the meta-backspace for the surface, instead of the
+        // bare-ESC path splitting it into Escape + a plain backspace.
+        if next == 0x7F || next == 0x08 {
+            return (UInt32(kVK_Delete), GHOSTTY_MODS_ALT, "alt-backspace", 2)
+        }
+        // CSI (ESC[) / SS3 (ESCO) cursor + navigation sequences.
+        guard next == 0x5B || next == 0x4F, start + 2 < scalars.count else { return nil }
         let final = scalars[start + 2].value
         switch final {
-        case 0x41: return (UInt32(kVK_UpArrow), "up", 3)        // A
-        case 0x42: return (UInt32(kVK_DownArrow), "down", 3)    // B
-        case 0x43: return (UInt32(kVK_RightArrow), "right", 3)  // C
-        case 0x44: return (UInt32(kVK_LeftArrow), "left", 3)    // D
-        case 0x48: return (UInt32(kVK_Home), "home", 3)         // H
-        case 0x46: return (UInt32(kVK_End), "end", 3)           // F
+        case 0x41: return (UInt32(kVK_UpArrow), GHOSTTY_MODS_NONE, "up", 3)        // A
+        case 0x42: return (UInt32(kVK_DownArrow), GHOSTTY_MODS_NONE, "down", 3)    // B
+        case 0x43: return (UInt32(kVK_RightArrow), GHOSTTY_MODS_NONE, "right", 3)  // C
+        case 0x44: return (UInt32(kVK_LeftArrow), GHOSTTY_MODS_NONE, "left", 3)    // D
+        case 0x48: return (UInt32(kVK_Home), GHOSTTY_MODS_NONE, "home", 3)         // H
+        case 0x46: return (UInt32(kVK_End), GHOSTTY_MODS_NONE, "end", 3)           // F
         default:
             break
         }
         // CSI tilde sequences: ESC [ N ~
-        if introducer == 0x5B, start + 3 < scalars.count, scalars[start + 3].value == 0x7E {
+        if next == 0x5B, start + 3 < scalars.count, scalars[start + 3].value == 0x7E {
             switch final {
-            case 0x31: return (UInt32(kVK_Home), "home", 4)               // 1~
-            case 0x33: return (UInt32(kVK_ForwardDelete), "forwardDelete", 4) // 3~
-            case 0x34: return (UInt32(kVK_End), "end", 4)                 // 4~
-            case 0x35: return (UInt32(kVK_PageUp), "pageUp", 4)           // 5~
-            case 0x36: return (UInt32(kVK_PageDown), "pageDown", 4)       // 6~
+            case 0x31: return (UInt32(kVK_Home), GHOSTTY_MODS_NONE, "home", 4)               // 1~
+            case 0x33: return (UInt32(kVK_ForwardDelete), GHOSTTY_MODS_NONE, "forwardDelete", 4) // 3~
+            case 0x34: return (UInt32(kVK_End), GHOSTTY_MODS_NONE, "end", 4)                 // 4~
+            case 0x35: return (UInt32(kVK_PageUp), GHOSTTY_MODS_NONE, "pageUp", 4)           // 5~
+            case 0x36: return (UInt32(kVK_PageDown), GHOSTTY_MODS_NONE, "pageDown", 4)       // 6~
             default:
                 break
             }
