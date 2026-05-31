@@ -9776,6 +9776,42 @@ function optimisticUpdatePanel(panelId, updates = {}) {
   return true;
 }
 
+function panelUpdateReconcileNeeded(panelId, updates = {}) {
+  const found = findPanelState(panelId);
+  if (!found) return true;
+  if (Object.hasOwn(updates, "workspaceId") && found.workspace.id !== updates.workspaceId) return true;
+  if (Object.hasOwn(updates, "beforePanelId")) {
+    const panelIndex = found.workspace.panels.findIndex((panel) => panel.id === panelId);
+    const beforeIndex = found.workspace.panels.findIndex((panel) => panel.id === updates.beforePanelId);
+    if (beforeIndex >= 0 && panelIndex !== beforeIndex - 1) return true;
+  }
+  if (updates.moveToEnd) {
+    const panelIndex = found.workspace.panels.findIndex((panel) => panel.id === panelId);
+    if (panelIndex !== found.workspace.panels.length - 1) return true;
+  }
+  if (Object.hasOwn(updates, "title")) {
+    const title = String(updates.title || "").trim();
+    if (title && found.panel.title !== title.slice(0, 80)) return true;
+  }
+  if (Object.hasOwn(updates, "color")) {
+    const color = String(updates.color || "").trim();
+    const expected = isAllowedUiColor(color, state.data?.palette || accentOptions) ? color : "";
+    if ((found.panel.color || "") !== expected) return true;
+  }
+  if (Object.hasOwn(updates, "url") && found.panel.type === "browser") {
+    const expected = normalizeUrl(updates.url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    if (found.panel.url !== expected) return true;
+  }
+  if (Object.hasOwn(updates, "terminalFontSize") && found.panel.type === "terminal") {
+    const expected = normalizeTerminalFontSize(updates.terminalFontSize, 0);
+    if (normalizeTerminalFontSize(found.panel.terminalFontSize, 0) !== expected) return true;
+  }
+  if ((updates.direction === "down" || updates.direction === "right") && found.workspace.splitDirection !== updates.direction) {
+    return true;
+  }
+  return false;
+}
+
 function closedPanelSnapshot(panelId) {
   const found = findPanelState(panelId);
   if (!found) return null;
@@ -9902,11 +9938,11 @@ async function closePanesToRight(panelId = activePanel()?.id) {
 async function updatePanel(panelId, updates) {
   optimisticUpdatePanel(panelId, updates);
   try {
-    await api(`/api/panels/${panelId}`, {
+    const result = await api(`/api/panels/${panelId}`, {
       method: "PATCH",
       body: JSON.stringify(updates)
     });
-    await loadState();
+    if (!result?.ok || panelUpdateReconcileNeeded(panelId, updates)) await loadState();
   } catch {
     await loadState();
   }
