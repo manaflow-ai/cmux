@@ -204,6 +204,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("ghostty", isDirectory: true)
             .appendingPathComponent("config", isDirectory: false)
+        let cmuxConfigURL = homeURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
         let cmuxAppSupportConfigURL = homeURL
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
@@ -213,6 +217,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let ghosttyThemesURL = ghosttyResourcesURL.appendingPathComponent("themes", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: ghosttyConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cmuxConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: cmuxAppSupportConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: ghosttyThemesURL, withIntermediateDirectories: true)
         try """
@@ -266,6 +271,17 @@ final class CMUXOpenCommandTests: XCTestCase {
         """
         try ghosttyConfigContents.write(to: ghosttyConfigURL, atomically: true, encoding: .utf8)
         try ghosttyConfigContents.write(to: cmuxAppSupportConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "diffViewerScrollDown": "ctrl+j",
+              "diffViewerScrollToTop": ["g", "g"],
+              "diffViewerOpenFileSearch": null
+            }
+          }
+        }
+        """.write(to: cmuxConfigURL, atomically: true, encoding: .utf8)
         try """
         diff --git a/hello.txt b/hello.txt
         index 8ab686e..d95f3ad 100644
@@ -352,6 +368,20 @@ final class CMUXOpenCommandTests: XCTestCase {
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchText = try String(contentsOf: patchSidecarURL, encoding: .utf8)
         let viewerPayload = try diffViewerPayload(from: html)
+        let shortcuts = try XCTUnwrap(viewerPayload["shortcuts"] as? [String: Any])
+        let scrollDown = try XCTUnwrap(shortcuts["diffViewerScrollDown"] as? [String: Any])
+        let scrollDownFirst = try XCTUnwrap(scrollDown["first"] as? [String: Any])
+        XCTAssertEqual(scrollDownFirst["key"] as? String, "j")
+        XCTAssertEqual(scrollDownFirst["control"] as? Bool, true)
+        let scrollUp = try XCTUnwrap(shortcuts["diffViewerScrollUp"] as? [String: Any])
+        let scrollUpFirst = try XCTUnwrap(scrollUp["first"] as? [String: Any])
+        XCTAssertEqual(scrollUpFirst["key"] as? String, "k")
+        XCTAssertEqual(scrollUpFirst["control"] as? Bool, false)
+        let scrollTop = try XCTUnwrap(shortcuts["diffViewerScrollToTop"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(scrollTop["first"] as? [String: Any]))["key"] as? String, "g")
+        XCTAssertEqual((try XCTUnwrap(scrollTop["second"] as? [String: Any]))["key"] as? String, "g")
+        let fileSearch = try XCTUnwrap(shortcuts["diffViewerOpenFileSearch"] as? [String: Any])
+        XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("id=\"files-sidebar\""), html)

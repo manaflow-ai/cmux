@@ -440,6 +440,78 @@ extension CMUXCLI {
         }
     }
 
+    private enum DiffViewerShortcutAction: String, CaseIterable {
+        case scrollDown = "diffViewerScrollDown"
+        case scrollUp = "diffViewerScrollUp"
+        case scrollToBottom = "diffViewerScrollToBottom"
+        case scrollToTop = "diffViewerScrollToTop"
+        case openFileSearch = "diffViewerOpenFileSearch"
+
+        var defaultShortcut: DiffViewerShortcut {
+            switch self {
+            case .scrollDown:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "j"))
+            case .scrollUp:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "k"))
+            case .scrollToBottom:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "g", shift: true))
+            case .scrollToTop:
+                return DiffViewerShortcut(
+                    first: DiffViewerShortcutStroke(key: "g"),
+                    second: DiffViewerShortcutStroke(key: "g")
+                )
+            case .openFileSearch:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
+            }
+        }
+    }
+
+    private struct DiffViewerShortcutStroke: Equatable {
+        var key: String
+        var command: Bool
+        var shift: Bool
+        var option: Bool
+        var control: Bool
+
+        init(key: String, command: Bool = false, shift: Bool = false, option: Bool = false, control: Bool = false) {
+            self.key = key
+            self.command = command
+            self.shift = shift
+            self.option = option
+            self.control = control
+        }
+
+        var jsonObject: [String: Any] {
+            [
+                "key": key,
+                "command": command,
+                "shift": shift,
+                "option": option,
+                "control": control,
+            ]
+        }
+    }
+
+    private struct DiffViewerShortcut: Equatable {
+        var first: DiffViewerShortcutStroke?
+        var second: DiffViewerShortcutStroke?
+
+        static let unbound = DiffViewerShortcut(first: nil, second: nil)
+
+        var isUnbound: Bool { first == nil }
+
+        var jsonObject: [String: Any] {
+            if isUnbound {
+                return ["unbound": true]
+            }
+            var object: [String: Any] = ["first": first?.jsonObject ?? [:]]
+            if let second {
+                object["second"] = second.jsonObject
+            }
+            return object
+        }
+    }
+
     private enum DiffSource: CaseIterable, Equatable {
         case unstaged
         case staged
@@ -4886,6 +4958,173 @@ extension CMUXCLI {
         return [pageURL.standardizedFileURL.path: remoteURL]
     }
 
+    private func diffViewerShortcutPayload() -> [String: Any] {
+        Dictionary(
+            uniqueKeysWithValues: diffViewerShortcuts().map { action, shortcut in
+                (action.rawValue, shortcut.jsonObject)
+            }
+        )
+    }
+
+    private func diffViewerShortcuts() -> [DiffViewerShortcutAction: DiffViewerShortcut] {
+        var shortcuts = Dictionary(
+            uniqueKeysWithValues: DiffViewerShortcutAction.allCases.map { action in
+                (action, action.defaultShortcut)
+            }
+        )
+        var managedActions = Set<DiffViewerShortcutAction>()
+
+        for path in diffViewerShortcutSettingsPaths() {
+            guard let settings = diffViewerShortcutSettings(at: path) else { continue }
+            for (action, shortcut) in settings where !managedActions.contains(action) {
+                shortcuts[action] = shortcut
+                managedActions.insert(action)
+            }
+        }
+
+        let primaryPath = Self.absoluteDiffViewerSettingsPath(Self.primarySettingsDisplayPath)
+        if let settings = diffViewerShortcutSettings(at: primaryPath) {
+            for (action, shortcut) in settings {
+                shortcuts[action] = shortcut
+                managedActions.insert(action)
+            }
+        }
+
+        return shortcuts
+    }
+
+    private func diffViewerShortcutSettingsPaths() -> [String] {
+        [
+            Self.legacySettingsDisplayPath,
+            Self.fallbackSettingsDisplayPath,
+        ].map(Self.absoluteDiffViewerSettingsPath)
+    }
+
+    private func diffViewerShortcutSettings(at path: String) -> [DiffViewerShortcutAction: DiffViewerShortcut]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              !data.isEmpty,
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let shortcutsSection = root["shortcuts"] as? [String: Any] else {
+            return nil
+        }
+
+        var rawBindings = shortcutsSection["bindings"] as? [String: Any] ?? [:]
+        for (key, rawValue) in shortcutsSection where key != "bindings" && key != "showModifierHoldHints" {
+            rawBindings[key] = rawValue
+        }
+
+        var bindings: [DiffViewerShortcutAction: DiffViewerShortcut] = [:]
+        for action in DiffViewerShortcutAction.allCases {
+            guard let rawBinding = rawBindings[action.rawValue],
+                  let shortcut = Self.parseDiffViewerShortcut(rawBinding) else {
+                continue
+            }
+            bindings[action] = shortcut
+        }
+        return bindings
+    }
+
+    private static func parseDiffViewerShortcut(_ rawValue: Any) -> DiffViewerShortcut? {
+        if rawValue is NSNull {
+            return .unbound
+        }
+        if let rawString = rawValue as? String {
+            return parseDiffViewerShortcut(strokes: [rawString])
+        }
+        if let rawStrings = rawValue as? [String] {
+            return rawStrings.isEmpty ? .unbound : parseDiffViewerShortcut(strokes: rawStrings)
+        }
+        return nil
+    }
+
+    private static func parseDiffViewerShortcut(strokes: [String]) -> DiffViewerShortcut? {
+        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
+        if strokes.count == 1, isUnboundDiffViewerShortcutToken(strokes[0]) {
+            return .unbound
+        }
+        let parsed = strokes.compactMap(parseDiffViewerShortcutStroke)
+        guard parsed.count == strokes.count, let first = parsed.first else { return nil }
+        return DiffViewerShortcut(
+            first: first,
+            second: parsed.count == 2 ? parsed[1] : nil
+        )
+    }
+
+    private static func parseDiffViewerShortcutStroke(_ rawValue: String) -> DiffViewerShortcutStroke? {
+        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false).map(String.init)
+        let parts = rawParts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let lastRawPart = rawParts.last, !lastRawPart.isEmpty else { return nil }
+
+        var command = false
+        var shift = false
+        var option = false
+        var control = false
+        for modifier in parts.dropLast() {
+            switch modifier.lowercased() {
+            case "cmd", "command", "⌘":
+                command = true
+            case "shift", "⇧":
+                shift = true
+            case "opt", "option", "alt", "⌥":
+                option = true
+            case "ctrl", "control", "ctl", "⌃":
+                control = true
+            default:
+                return nil
+            }
+        }
+
+        guard let key = parseDiffViewerShortcutKeyToken(lastRawPart) else { return nil }
+        return DiffViewerShortcutStroke(key: key, command: command, shift: shift, option: option, control: control)
+    }
+
+    private static func parseDiffViewerShortcutKeyToken(_ rawValue: String) -> String? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return rawValue == " " ? "space" : nil
+        }
+
+        switch trimmed.lowercased() {
+        case "space", "spacebar", "<space>":
+            return "space"
+        case "slash":
+            return "/"
+        case "period", "dot":
+            return "."
+        case "comma":
+            return ","
+        default:
+            guard trimmed.count == 1 else { return nil }
+            return trimmed.lowercased()
+        }
+    }
+
+    private static func isUnboundDiffViewerShortcutToken(_ rawValue: String) -> Bool {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "", "none", "clear", "unbound", "disabled":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func absoluteDiffViewerSettingsPath(_ rawPath: String) -> String {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let expanded: String
+        if rawPath == "~" {
+            expanded = homePath
+        } else if rawPath.hasPrefix("~/") {
+            expanded = (homePath as NSString).appendingPathComponent(String(rawPath.dropFirst(2)))
+        } else {
+            expanded = rawPath
+        }
+        let absolute = (expanded as NSString).isAbsolutePath
+            ? expanded
+            : (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+        return URL(fileURLWithPath: absolute).standardizedFileURL.path
+    }
+
     private func diffViewerPatchFileURL(for viewerURL: URL) -> URL {
         viewerURL.deletingPathExtension().appendingPathExtension("patch")
     }
@@ -5023,6 +5262,7 @@ extension CMUXCLI {
             "layout": layout,
             "appearance": appearance.jsonObject,
             "labels": labels.jsonObject,
+            "shortcuts": diffViewerShortcutPayload(),
             "sourceOptions": sourceOptions.map(\.jsonObject),
             "repoOptions": repoOptions.map(\.jsonObject),
             "baseOptions": baseOptions.map(\.jsonObject),
@@ -6566,51 +6806,117 @@ extension CMUXCLI {
             }
 
             function setupKeyboardShortcuts() {
-              let awaitingSecondG = false;
-              let secondGTimeout = 0;
+              const shortcuts = payload.shortcuts ?? {};
+              const scrollDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollDown);
+              const scrollUpShortcut = normalizeShortcut(shortcuts.diffViewerScrollUp);
+              const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
+              const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
+              const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
+              let pendingChord = null;
+              let chordTimeout = 0;
               document.addEventListener("keydown", (event) => {
-                if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isTypingShortcutTarget(event.target)) {
+                if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
                   return;
                 }
-                if (event.key !== "g") {
-                  awaitingSecondG = false;
-                  clearTimeout(secondGTimeout);
+                if (pendingChord && !shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
+                  clearPendingChord();
                 }
-                if (event.key === "j") {
+                if (pendingChord && shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
+                  event.preventDefault();
+                  pendingChord.action();
+                  clearPendingChord();
+                  return;
+                }
+                if (shortcutMatchesEvent(scrollDownShortcut, event)) {
                   event.preventDefault();
                   scrollViewerBy(1);
                   return;
                 }
-                if (event.key === "k") {
+                if (shortcutMatchesEvent(scrollUpShortcut, event)) {
                   event.preventDefault();
                   scrollViewerBy(-1);
                   return;
                 }
-                if (event.key === "G") {
+                if (shortcutMatchesEvent(scrollBottomShortcut, event)) {
                   event.preventDefault();
                   viewerElement.scrollTo({ top: viewerElement.scrollHeight, behavior: "auto" });
                   return;
                 }
-                if (event.key === "g") {
-                  event.preventDefault();
-                  if (awaitingSecondG) {
-                    awaitingSecondG = false;
-                    clearTimeout(secondGTimeout);
-                    viewerElement.scrollTo({ top: 0, behavior: "auto" });
-                    return;
-                  }
-                  awaitingSecondG = true;
-                  secondGTimeout = setTimeout(() => {
-                    awaitingSecondG = false;
-                  }, 700);
-                  return;
-                }
-                if (event.key === "/" && fileTree) {
+                if (shortcutMatchesEvent(fileSearchShortcut, event) && fileTree) {
                   event.preventDefault();
                   setFilesVisible(true);
                   setFileSearchOpen(true);
+                  return;
+                }
+                if (shortcutStartsChord(scrollTopShortcut, event)) {
+                  event.preventDefault();
+                  pendingChord = {
+                    shortcut: scrollTopShortcut,
+                    action: () => viewerElement.scrollTo({ top: 0, behavior: "auto" }),
+                  };
+                  chordTimeout = setTimeout(clearPendingChord, 700);
                 }
               });
+
+              function clearPendingChord() {
+                pendingChord = null;
+                if (chordTimeout !== 0) {
+                  clearTimeout(chordTimeout);
+                  chordTimeout = 0;
+                }
+              }
+            }
+
+            function normalizeShortcut(rawShortcut) {
+              if (!rawShortcut || rawShortcut.unbound === true || !rawShortcut.first) {
+                return null;
+              }
+              return {
+                first: normalizeShortcutStroke(rawShortcut.first),
+                second: rawShortcut.second ? normalizeShortcutStroke(rawShortcut.second) : null,
+              };
+            }
+
+            function normalizeShortcutStroke(rawStroke) {
+              return {
+                key: String(rawStroke?.key ?? "").toLowerCase(),
+                command: rawStroke?.command === true,
+                shift: rawStroke?.shift === true,
+                option: rawStroke?.option === true,
+                control: rawStroke?.control === true,
+              };
+            }
+
+            function shortcutMatchesEvent(shortcut, event) {
+              return shortcut && !shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event);
+            }
+
+            function shortcutStartsChord(shortcut, event) {
+              return shortcut && shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event);
+            }
+
+            function shortcutStrokeMatchesEvent(stroke, event) {
+              if (!stroke || event.metaKey !== stroke.command || event.ctrlKey !== stroke.control || event.altKey !== stroke.option) {
+                return false;
+              }
+              if (event.shiftKey !== stroke.shift) {
+                return false;
+              }
+              const eventKey = normalizedShortcutEventKey(event);
+              return eventKey === stroke.key;
+            }
+
+            function normalizedShortcutEventKey(event) {
+              if (event.code === "Space") {
+                return "space";
+              }
+              if (typeof event.key !== "string" || event.key.length === 0) {
+                return "";
+              }
+              if (event.key.length === 1) {
+                return event.key.toLowerCase();
+              }
+              return event.key.toLowerCase();
             }
 
             function isTypingShortcutTarget(target) {
