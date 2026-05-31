@@ -6584,11 +6584,13 @@ class TabManager: ObservableObject {
         workspaceGroups[index].customColor = hex
     }
 
-    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) {
-        let normalized = WorkspaceGroupIconSymbol.normalized(symbol)
-        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return }
-        guard workspaceGroups[index].iconSymbol != normalized else { return }
+    @discardableResult
+    func setWorkspaceGroupIcon(groupId: UUID, symbol: String?) -> String? {
+        let normalized = RenderableSystemSymbol.normalized(symbol)
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return nil }
+        guard workspaceGroups[index].iconSymbol != normalized else { return normalized }
         workspaceGroups[index].iconSymbol = normalized
+        return normalized
     }
 
     /// Reassign which member workspace serves as the group's anchor.

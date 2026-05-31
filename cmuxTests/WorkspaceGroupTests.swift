@@ -681,9 +681,9 @@ struct WorkspaceGroupTests {
     }
 
     @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {
-        #expect(WorkspaceGroupIconSymbol.resolved(explicit: nil, configured: nil) == "folder.fill")
-        #expect(WorkspaceGroupIconSymbol.resolved(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
-        #expect(WorkspaceGroupIconSymbol.resolved(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: nil, configured: nil) == "folder.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
+        #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
     }
 
     @Test func setWorkspaceGroupIconDropsInvalidSymbols() {
@@ -693,17 +693,19 @@ struct WorkspaceGroupTests {
             childWorkspaceIds: [manager.tabs[0].id]
         )!
 
-        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "not.an.sf.symbol")
+        let invalidStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "not.an.sf.symbol")
+        #expect(invalidStoredIcon == nil)
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
 
-        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        let validStoredIcon = manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        #expect(validStoredIcon == "leaf.fill")
         #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
     }
 
     @Test func surfaceTabIconSymbolResolutionFallsBackForInvalidInput() {
-        #expect(SurfaceTabIconSymbol.resolved("doc.text") == "doc.text")
-        #expect(SurfaceTabIconSymbol.resolved("   doc.text   ") == "doc.text")
-        #expect(SurfaceTabIconSymbol.resolved("not.an.sf.symbol") == "doc.text")
-        #expect(SurfaceTabIconSymbol.resolved("   ") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("doc.text") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   doc.text   ") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("not.an.sf.symbol") == "doc.text")
+        #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 }

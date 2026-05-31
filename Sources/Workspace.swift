@@ -11048,7 +11048,7 @@ final class Workspace: Identifiable, ObservableObject {
                 self.panelTitles[filePreviewPanel.id] = newTitle
             }
             let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
-            let resolvedIcon = SurfaceTabIconSymbol.resolved(displayIcon)
+            let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
             let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
@@ -14179,7 +14179,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: filePreviewPanel.displayTitle,
-            icon: SurfaceTabIconSymbol.resolved(filePreviewPanel.displayIcon),
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
             kind: SurfaceKind.filePreview,
             isDirty: filePreviewPanel.isDirty,
             isLoading: false,
@@ -14295,7 +14295,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let newTab = Bonsplit.Tab(
             title: filePreviewPanel.displayTitle,
-            icon: SurfaceTabIconSymbol.resolved(filePreviewPanel.displayIcon),
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(filePreviewPanel.displayIcon),
             kind: SurfaceKind.filePreview,
             isDirty: filePreviewPanel.isDirty,
             isLoading: false,
