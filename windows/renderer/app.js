@@ -1348,6 +1348,19 @@ function defaultBackgroundLabel(url) {
   }
 }
 
+function backgroundFilePath(value) {
+  const url = normalizedImageUrl(value);
+  if (!/^file:/i.test(url)) return "";
+  try {
+    const parsed = new URL(url);
+    const pathName = decodeURIComponent(parsed.pathname || "").replace(/\//g, "\\");
+    if (parsed.hostname) return `\\\\${parsed.hostname}${pathName}`;
+    return pathName.replace(/^\\([A-Za-z]:\\)/, "$1");
+  } catch {
+    return "";
+  }
+}
+
 function normalizeSavedBackgroundImage(entry) {
   const input = typeof entry === "string" ? { url: entry } : entry || {};
   const url = normalizedImageUrl(input.url || input.value || input.backgroundImage);
@@ -1473,6 +1486,22 @@ async function applySavedBackgroundImage(backgroundId) {
   }
   renderSettingsInspector();
   toast(`${background.label} background applied.`);
+}
+
+async function openBackgroundImageFile(value = state.settings.backgroundImage) {
+  const filePath = backgroundFilePath(value);
+  if (!filePath) {
+    toast("Current background is not a local file.");
+    return false;
+  }
+  if (!window.cmuxNative?.openPath) {
+    toast("Open file is available in the desktop app.");
+    return false;
+  }
+  const result = await window.cmuxNative.openPath(filePath);
+  const ok = result === true || result?.ok;
+  toast(ok ? "Background file opened." : "Background file could not be opened.");
+  return ok;
 }
 
 async function renameSavedBackgroundImage(backgroundId) {
@@ -5154,6 +5183,7 @@ function renderSettingsInspector(options = {}) {
     appearanceSection.append(settingRow("Accent", swatchGrid(accentColorPalette(), state.settings.accent, (accent) => updateSettings({ accent }))));
     appearanceSection.append(settingRow("Custom accent", colorPicker(state.settings.accent, (accent) => updateSettings({ accent })), false, "custom accent color hex picker"));
     appearanceSection.append(settingRow("Saved colors", savedColorPalettePanel(), true, "saved color palette custom accent workspace tab pane color"));
+    appearanceSection.append(activeBackgroundPanel());
     appearanceSection.append(settingRow("Background preset", backgroundPresetGrid(), true));
 
     const imageInput = document.createElement("input");
@@ -5993,6 +6023,55 @@ function appearancePreviewPanel() {
   return preview;
 }
 
+function activeBackgroundPanel() {
+  const panel = document.createElement("div");
+  const background = state.settings.backgroundImage;
+  const normalized = normalizeBackgroundValue(background);
+  const hasBackground = Boolean(normalized);
+  const preset = backgroundPresetMap.get(normalized);
+  const filePath = backgroundFilePath(background);
+  const label = hasBackground ? appearanceBackgroundLabel(background) : "None";
+  const source = !hasBackground
+    ? "No image is applied."
+    : preset
+      ? "Built-in preset"
+      : filePath || normalized;
+  panel.className = `active-background-panel${hasBackground ? " has-image" : ""}`;
+  panel.dataset.settingsSearch = normalizeSettingsQuery("active background image wallpaper current preview source choose save open clear");
+  panel.style.setProperty("--active-background-image", backgroundCss(background));
+  panel.innerHTML = `
+    <button class="active-background-preview" type="button" title="Choose background image"></button>
+    <span class="active-background-copy">
+      <span class="active-background-kicker">Active background</span>
+      <span class="active-background-title"></span>
+      <span class="active-background-source"></span>
+    </span>
+    <span class="active-background-actions"></span>
+  `;
+  panel.querySelector(".active-background-preview").onclick = () => chooseBackgroundImage();
+  panel.querySelector(".active-background-title").textContent = label;
+  panel.querySelector(".active-background-title").title = label;
+  panel.querySelector(".active-background-source").textContent = source;
+  panel.querySelector(".active-background-source").title = source;
+  const actions = panel.querySelector(".active-background-actions");
+  const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
+  save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
+  const open = settingsActionButton("Open", () => openBackgroundImageFile(), "", "active background open local file reveal");
+  open.disabled = !filePath;
+  const clear = settingsActionButton("Clear", () => {
+    const changed = updateSettings({ backgroundImage: "" });
+    if (changed) renderSettingsInspector();
+  }, "danger", "active background clear remove reset");
+  clear.disabled = !hasBackground;
+  actions.append(
+    settingsActionButton("Choose", () => chooseBackgroundImage(), "", "active background choose local file"),
+    save,
+    open,
+    clear
+  );
+  return panel;
+}
+
 function scheduleAppearancePreviewRefresh() {
   if (state.appearancePreviewFrame) return;
   state.appearancePreviewFrame = requestAnimationFrame(() => {
@@ -6004,6 +6083,8 @@ function scheduleAppearancePreviewRefresh() {
 function refreshAppearancePreview() {
   const preview = elements.inspectorBody.querySelector(".appearance-preview");
   if (preview) preview.replaceWith(appearancePreviewPanel());
+  const activeBackground = elements.inspectorBody.querySelector(".active-background-panel");
+  if (activeBackground) activeBackground.replaceWith(activeBackgroundPanel());
   const themeSelect = elements.inspectorBody.querySelector('[data-setting-control="theme"]');
   if (themeSelect && themeSelect.value !== state.settings.theme) themeSelect.value = state.settings.theme;
   for (const button of elements.inspectorBody.querySelectorAll("[data-theme-choice]")) {

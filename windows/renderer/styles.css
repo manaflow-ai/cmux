@@ -510,6 +510,7 @@ body.reduce-motion *::after {
 .terminal-color-preset,
 .saved-color-swatch,
 .saved-background-preview,
+.active-background-preview,
 .workspace-starter,
 .empty-workspace-starter,
 .background-preset,
@@ -609,6 +610,7 @@ body.reduce-motion *::after {
 .terminal-color-preset:focus-visible,
 .saved-color-swatch:focus-visible,
 .saved-background-preview:focus-visible,
+.active-background-preview:focus-visible,
 .workspace-starter:focus-visible,
 .empty-workspace-starter:focus-visible,
 .settings-command-run:focus-visible,
@@ -643,6 +645,7 @@ body.reduce-motion *::after {
 .terminal-color-preset:active,
 .saved-color-swatch:active,
 .saved-background-preview:active,
+.active-background-preview:active,
 .workspace-starter:active,
 .empty-workspace-starter:active,
 .settings-command-run:active,
@@ -5073,6 +5076,75 @@ body.reduce-motion *::after {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
+}
+
+.active-background-panel {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 88%, var(--color-rail) 12%);
+}
+
+.active-background-preview {
+  width: 72px;
+  height: 50px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-1);
+  background-color: var(--color-canvas);
+  background-image:
+    var(--active-background-image),
+    linear-gradient(135deg, color-mix(in oklch, var(--color-text) 8%, transparent), transparent);
+  background-size: cover;
+  background-position: center;
+}
+
+.active-background-panel:not(.has-image) .active-background-preview {
+  background-image: linear-gradient(135deg, var(--color-pane), var(--color-canvas));
+}
+
+.active-background-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.active-background-kicker {
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.active-background-title,
+.active-background-source {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.active-background-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.active-background-source {
+  color: var(--color-muted);
+  font: 10px/1.2 var(--font-mono);
+}
+
+.active-background-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
 }
 
 .background-preset {
