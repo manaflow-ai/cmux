@@ -1801,7 +1801,32 @@ body.reduce-motion *::after {
 }
 
 .terminal-host .xterm-viewport {
-  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+  background-color: transparent !important;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background:
+    linear-gradient(var(--scrollbar-thumb), var(--scrollbar-thumb)) padding-box,
+    transparent border-box;
+}
+
+.terminal-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background:
+    linear-gradient(var(--scrollbar-thumb-hover), var(--scrollbar-thumb-hover)) padding-box,
+    transparent border-box;
 }
 
 .pending-pane {
