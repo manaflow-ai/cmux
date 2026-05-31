@@ -2405,14 +2405,44 @@ function applyPendingFocusToState(nextData) {
   return nextData;
 }
 
+function resolvePendingPanelFromAuthoritativeState(workspace, pendingPanel) {
+  if (!workspace || !pendingPanel?.id) return null;
+  const currentWorkspace = state.data?.workspaces?.find((candidate) => candidate.id === pendingPanel.workspaceId);
+  const currentRealPanelIds = new Set((currentWorkspace?.panels || [])
+    .filter((panel) => panel.id !== pendingPanel.id && !isPendingPanel(panel))
+    .map((panel) => panel.id));
+  const resolvedPanels = (workspace.panels || []).filter((panel) =>
+    panel.id !== pendingPanel.id
+    && panel.type === pendingPanel.type
+    && !currentRealPanelIds.has(panel.id)
+  );
+  if (resolvedPanels.length === 0) return null;
+  return resolvedPanels.find((panel) => panel.id === workspace.activePanelId) || resolvedPanels.at(-1);
+}
+
 function applyPendingPanelsToState(nextData) {
   if (state.pendingPanels.size === 0 || !Array.isArray(nextData?.workspaces)) return nextData;
   const activePendingPanelId = state.data?.workspaces
     ?.find((workspace) => workspace.id === state.data?.activeWorkspaceId)
     ?.activePanelId || "";
-  for (const pendingPanel of state.pendingPanels.values()) {
+  for (const pendingPanel of [...state.pendingPanels.values()]) {
     const workspace = nextData.workspaces.find((candidate) => candidate.id === pendingPanel.workspaceId);
-    if (!workspace || workspace.panels.some((panel) => panel.id === pendingPanel.id)) continue;
+    if (!workspace) continue;
+    const resolvedPanel = resolvePendingPanelFromAuthoritativeState(workspace, pendingPanel);
+    if (resolvedPanel) {
+      state.pendingPanels.delete(pendingPanel.id);
+      state.canceledPendingPanelIds.delete(pendingPanel.id);
+      remapPanelStateId(pendingPanel.id, resolvedPanel.id, workspace.id);
+      cleanupPanel(pendingPanel.id);
+      if (activePendingPanelId === pendingPanel.id || state.focusedPanelId === pendingPanel.id) {
+        workspace.activePanelId = resolvedPanel.id;
+        nextData.activeWorkspaceId = workspace.id;
+        state.focusedPanelId = resolvedPanel.id;
+        state.lastInteractedPanelId = resolvedPanel.id;
+      }
+      continue;
+    }
+    if (workspace.panels.some((panel) => panel.id === pendingPanel.id)) continue;
     workspace.panels.push({ ...pendingPanel });
     workspace.terminalCount = workspace.panels.filter((panel) => panel.type === "terminal").length;
     workspace.browserCount = workspace.panels.filter((panel) => panel.type === "browser").length;
@@ -2578,7 +2608,7 @@ function hasUiOperationKind(kind) {
 }
 
 function paneCreationButtonsDisabled() {
-  return hasUiOperationKind("create-panel") && state.pendingPanels.size === 0;
+  return hasUiOperationKind("create-panel");
 }
 
 function isUiOperationActive(key) {
@@ -9805,8 +9835,18 @@ async function replacePendingPanel(pendingPanelId, createdPanel, workspaceId, op
     workspaceId: workspace.id
   };
   const existingIndex = workspace.panels.findIndex((panel) => panel.id === createdPanel.id);
-  if (existingIndex >= 0) workspace.panels.splice(existingIndex, 1);
   const pendingIndex = workspace.panels.findIndex((panel) => panel.id === pendingPanelId);
+  if (pendingIndex < 0 && existingIndex >= 0) {
+    if (workspace.activePanelId === pendingPanelId || options.focus !== false) workspace.activePanelId = nextPanel.id;
+    remapPanelStateId(pendingPanelId, nextPanel.id, workspace.id);
+    cleanupPanel(pendingPanelId);
+    workspace.cwd = nextPanel.cwd || workspace.cwd;
+    refreshWorkspaceCounts(workspace);
+    if (options.focus !== false) state.data.activeWorkspaceId = workspace.id;
+    render();
+    return true;
+  }
+  if (existingIndex >= 0) workspace.panels.splice(existingIndex, 1);
   if (pendingIndex >= 0) workspace.panels.splice(pendingIndex, 1, nextPanel);
   else workspace.panels.push(nextPanel);
   if (workspace.activePanelId === pendingPanelId || options.focus !== false) workspace.activePanelId = nextPanel.id;
