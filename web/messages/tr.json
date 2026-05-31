@@ -635,7 +635,8 @@
         "notifications": "Bildirimler",
         "find": "Bul",
         "terminal": "Terminal",
-        "window": "Pencere"
+        "window": "Pencere",
+        "diffViewer": "Diff görüntüleyici"
       },
       "sc": {
         "ws-new": "Yeni çalışma alanı",
