@@ -13,6 +13,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case account
     case app
     case terminal
+    case textBox
     case sidebarAppearance
     case betaFeatures
     case automation
@@ -32,6 +33,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "Account"
         case .app: return "App"
         case .terminal: return "Terminal"
+        case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sidebarAppearance: return "Sidebar"
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
@@ -51,6 +53,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "person.crop.circle"
         case .app: return "gearshape"
         case .terminal: return "terminal"
+        case .textBox: return "textformat"
         case .sidebarAppearance: return "sidebar.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
@@ -72,6 +75,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "sign in team sync user profile"
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
+        case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .betaFeatures: return "beta experimental unstable dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini"

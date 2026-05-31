@@ -166,8 +166,10 @@ struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
     var icon: String?
     var contextMenu: [CmuxConfigContextMenuItem]?
     /// Where a newly-created workspace lands inside the group when the user
-    /// clicks the header's `+` button. Valid values: `"top"` (immediately
-    /// after the anchor) or `"end"` (after the last member). When omitted,
+    /// clicks the header's `+` button or invokes Cmd-N from a group member.
+    /// Valid values: `"afterCurrent"` (after the current in-group workspace,
+    /// falling back to top), `"top"` (immediately after the anchor), or
+    /// `"end"` (after the last member). When omitted,
     /// falls back to the global default
     /// (`WorkspaceGroupNewWorkspacePlacementSettings.resolved()`).
     var newWorkspacePlacement: String?

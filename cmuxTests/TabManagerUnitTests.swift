@@ -2200,6 +2200,128 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 @MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
+    func testFocusTextBoxOnNewTerminalsDefaultAppliesToNewWorkspaceAndTerminalSurfaces() {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(false, forKey: showKey)
+        defaults.set(true, forKey: focusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanel = workspace.focusedTerminalPanel,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected initial terminal workspace")
+            return
+        }
+
+        XCTAssertTrue(initialPanel.isTextBoxActive)
+        XCTAssertEqual(initialPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+
+        guard let newTabPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected new terminal tab")
+            return
+        }
+
+        XCTAssertTrue(newTabPanel.isTextBoxActive)
+        XCTAssertEqual(newTabPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+
+        guard let splitPanel = workspace.newTerminalSplit(from: newTabPanel.id, orientation: .horizontal) else {
+            XCTFail("Expected new terminal split")
+            return
+        }
+
+        XCTAssertTrue(splitPanel.isTextBoxActive)
+        XCTAssertEqual(splitPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+    }
+
+    func testShowTextBoxOnNewTerminalsDefaultShowsWithoutStealingFocus() {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(true, forKey: showKey)
+        defaults.set(false, forKey: focusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanel = workspace.focusedTerminalPanel,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let newTabPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected initial and new terminal panels")
+            return
+        }
+
+        XCTAssertTrue(initialPanel.isTextBoxActive)
+        XCTAssertNotEqual(initialPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+        XCTAssertTrue(newTabPanel.isTextBoxActive)
+        XCTAssertNotEqual(newTabPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
+    }
+
+    func testFocusTextBoxOnNewTerminalsDefaultLeavesNewTerminalsHiddenWhenDisabled() {
+        let defaults = UserDefaults.standard
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        let previousShowValue = defaults.object(forKey: showKey)
+        let previousFocusValue = defaults.object(forKey: focusKey)
+        defer {
+            if let previousShowValue {
+                defaults.set(previousShowValue, forKey: showKey)
+            } else {
+                defaults.removeObject(forKey: showKey)
+            }
+            if let previousFocusValue {
+                defaults.set(previousFocusValue, forKey: focusKey)
+            } else {
+                defaults.removeObject(forKey: focusKey)
+            }
+        }
+
+        defaults.set(false, forKey: showKey)
+        defaults.set(false, forKey: focusKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanel = workspace.focusedTerminalPanel,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let newTabPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected initial and new terminal panels")
+            return
+        }
+
+        XCTAssertFalse(initialPanel.isTextBoxActive)
+        XCTAssertFalse(newTabPanel.isTextBoxActive)
+    }
+
     func testNewSurfaceFocusesCreatedSurface() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {

@@ -40,6 +40,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -68,6 +69,8 @@ const settingsFileExample = `{
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {
   //     "enabled": false,
   //     "idleSeconds": 3600,
@@ -95,6 +98,10 @@ const settingsFileExample = `{
   //     "Blue": "#1565C0",
   //     "Neon Mint": "#00F5D4"
   //   }
+  // },
+
+  // "workspaceGroups": {
+  //   "newWorkspacePlacement": "afterCurrent"
   // },
 
   // "shortcuts": {
