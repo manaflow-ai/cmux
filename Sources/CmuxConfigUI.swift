@@ -1,13 +1,14 @@
 import AppKit
 import Bonsplit
 
-struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
+struct CmuxConfigUIDefinition: Codable, Sendable {
     var newWorkspace: CmuxConfigButtonPlacement?
     var surfaceTabBar: CmuxSurfaceTabBarUIDefinition?
 }
 
-struct CmuxSurfaceTabBarUIDefinition: Codable, Sendable, Hashable {
+struct CmuxSurfaceTabBarUIDefinition: Codable, Sendable {
     var buttons: [CmuxSurfaceTabBarButton]?
+    var hideMoreButton: Bool?
 }
 
 struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
