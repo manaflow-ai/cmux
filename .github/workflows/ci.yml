@@ -850,7 +850,12 @@ jobs:
           DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
           DISPLAY_READY="/tmp/cmux-ui-test-display-${TOKEN}.ready"
           DISPLAY_ID_PATH="/tmp/cmux-ui-test-display-${TOKEN}.id"
-          DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
+          SANDBOX_TMP="${TMPDIR:-}"
+          if [ -z "$SANDBOX_TMP" ]; then
+            SANDBOX_TMP="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || printf '/tmp')"
+          fi
+          SANDBOX_TMP="${SANDBOX_TMP%/}"
+          DISPLAY_START="${SANDBOX_TMP}/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
 
