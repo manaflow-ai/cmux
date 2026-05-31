@@ -10548,6 +10548,7 @@ struct VerticalTabsSidebar: View {
         }
         .onDisappear {
             modifierKeyMonitor.stop()
+            dragAutoScrollController.endCursorTracking()
             dragAutoScrollController.stop()
             dragFailsafeMonitor.stop()
             dragState.clearDrag()
@@ -10571,6 +10572,7 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
+                dragAutoScrollController.startCursorTracking()
                 // The failsafe monitor probes the real mouse-button state and
                 // posts `mouse_up_failsafe` if no mouse is held down. That's
                 // correct for HID-driven drags, but `debug.sidebar.simulate_drag`
@@ -10583,6 +10585,7 @@ struct VerticalTabsSidebar: View {
                 }
                 return
             }
+            dragAutoScrollController.endCursorTracking()
             dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dragState.clearDropIndicator()
@@ -12167,7 +12170,9 @@ private struct SidebarWorkspaceDragFollowerOverlay: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .zIndex(1000)
+                .animation(nil, value: y)
                 .transaction { transaction in
+                    transaction.disablesAnimations = true
                     transaction.animation = nil
                 }
         }
@@ -16840,6 +16845,7 @@ final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
     private weak var dragState: SidebarDragState?
     private weak var cursorTrackingView: NSView?
+    private var localDragMonitor: Any?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
 
@@ -16853,6 +16859,32 @@ final class SidebarDragAutoScrollController: ObservableObject {
 
     func attach(cursorTrackingView: NSView?) {
         self.cursorTrackingView = cursorTrackingView
+    }
+
+    func startCursorTracking() {
+        recordDragLocation()
+        guard localDragMonitor == nil else { return }
+        localDragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            Task { @MainActor [weak self] in
+                switch event.type {
+                case .leftMouseDragged:
+                    self?.recordDragLocation()
+                case .leftMouseUp:
+                    self?.endCursorTracking()
+                default:
+                    break
+                }
+            }
+            return event
+        }
+    }
+
+    func endCursorTracking() {
+        if let localDragMonitor {
+            NSEvent.removeMonitor(localDragMonitor)
+            self.localDragMonitor = nil
+        }
+        dragState?.setDragLocationInDocument(nil)
     }
 
     @discardableResult
