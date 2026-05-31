@@ -10514,7 +10514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         awaitingInputId: String? = nil,
         completion: @escaping ([String: String]) -> Void
     ) {
-        let expectedInputIdLiteral = cmuxJavaScriptStringLiteral(awaitingInputId) ?? "null"
+        let expectedInputIdLiteral = awaitingInputId?.javaScriptStringLiteral ?? "null"
         let script = """
         (() => {
           const expectedInputId = \(expectedInputIdLiteral);
