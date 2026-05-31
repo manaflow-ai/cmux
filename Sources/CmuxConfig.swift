@@ -1762,7 +1762,9 @@ struct CmuxSplitDefinition: Codable, Sendable {
     }
 
     var clampedSplitPosition: Double {
-        let value = split ?? 0.5
+        // Aurean: space divides on the golden ratio (61.8 / 38.2), never 50/50, when a
+        // split carries no explicit ratio.
+        let value = split ?? 0.618033988749
         return min(0.9, max(0.1, value))
     }
 
