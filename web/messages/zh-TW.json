@@ -635,7 +635,8 @@
         "notifications": "通知",
         "find": "搜尋",
         "terminal": "終端機",
-        "window": "視窗"
+        "window": "視窗",
+        "diffViewer": "差異檢視器"
       },
       "sc": {
         "ws-new": "新增工作區",

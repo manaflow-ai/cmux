@@ -635,7 +635,8 @@
         "notifications": "ជូនដំណឹង",
         "find": "ស្វែងរក",
         "terminal": "ទែមីណល",
-        "window": "បង្អួច"
+        "window": "បង្អួច",
+        "diffViewer": "កម្មវិធីមើល diff"
       },
       "sc": {
         "ws-new": "Workspace ថ្មី",

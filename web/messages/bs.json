@@ -635,7 +635,8 @@
         "notifications": "Notifikacije",
         "find": "Pretraga",
         "terminal": "Terminal",
-        "window": "Prozor"
+        "window": "Prozor",
+        "diffViewer": "Preglednik diffa"
       },
       "sc": {
         "ws-new": "Novi radni prostor",
