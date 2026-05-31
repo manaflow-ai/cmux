@@ -2373,7 +2373,6 @@ struct ContentView: View {
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
-                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
         }
     }
 
