@@ -632,8 +632,81 @@ final class CMUXOpenCommandTests: XCTestCase {
         let unstagedOption = try XCTUnwrap(sourceOptions.first { $0["value"] as? String == "unstaged" })
         XCTAssertEqual(stagedOption["selected"] as? Bool, true)
         XCTAssertEqual(unstagedOption["selected"] as? Bool, false)
+        let unstagedURLString = try diffViewerOptionURL(value: "unstaged", in: sourceOptions)
+        let unstagedFileURL = try diffViewerHTMLFileURL(for: unstagedURLString, from: stagedFallback.params)
+        let unstagedHTML = try String(contentsOf: unstagedFileURL, encoding: .utf8)
+        XCTAssertTrue(unstagedHTML.contains("No unstaged changes to diff."), unstagedHTML)
+        XCTAssertFalse(unstagedHTML.contains("+two"), unstagedHTML)
         let gitLog = try String(contentsOf: gitLogURL, encoding: .utf8)
         XCTAssertFalse(gitLog.contains(plainSiblingURL.path), gitLog)
+    }
+
+    func testDiffCommandKeepsSelectedEmptyErrorWhenFallbackProbeFails() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let fileURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+
+        let socketPath = makeSocketPath("diff-empty")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String,
+                  method == "browser.open_split",
+                  let params = payload["params"] as? [String: Any],
+                  let rawURL = params["url"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["diff", "--unstaged"],
+            currentDirectoryURL: repoURL
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("No unstaged changes to diff."), result.stderr)
+        XCTAssertFalse(result.stderr.contains("workspace and surface"), result.stderr)
+
+        let commandPayload = try XCTUnwrap(
+            state.commands.compactMap { Self.v2Payload(from: $0) }.first { payload in
+                payload["method"] as? String == "browser.open_split"
+            }
+        )
+        let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        let rawURL = try XCTUnwrap(params["url"] as? String)
+        let openedFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let viewerFileURL = try resolvedDiffViewerHTMLFileURL(openedFileURL, from: params)
+        let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
+        XCTAssertTrue(html.contains("No unstaged changes to diff."), html)
+        XCTAssertFalse(html.contains("No last-turn diff baseline recorded"), html)
     }
 
     func testDiffCommandDoesNotFallbackFromLastTurnBaselineError() throws {
@@ -1998,7 +2071,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
         XCTAssertNil(params["diff_viewer_token"])
         XCTAssertNil(params["diff_viewer_files"])
-        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let openedFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let viewerFileURL = try resolvedDiffViewerHTMLFileURL(openedFileURL, from: params)
+        if openedFileURL != viewerFileURL {
+            defer { try? FileManager.default.removeItem(at: openedFileURL) }
+        }
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
         let patchURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
@@ -2010,6 +2087,28 @@ final class CMUXOpenCommandTests: XCTestCase {
             patch = ""
         }
         return (html, patch, params, result.stdout)
+    }
+
+    private func resolvedDiffViewerHTMLFileURL(_ fileURL: URL, from params: [String: Any]) throws -> URL {
+        var current = fileURL
+        for _ in 0..<4 {
+            let html = try String(contentsOf: current, encoding: .utf8)
+            guard let redirectURL = Self.diffViewerRedirectURL(from: html) else {
+                return current
+            }
+            current = try diffViewerHTMLFileURL(for: redirectURL, from: params)
+        }
+        return current
+    }
+
+    private static func diffViewerRedirectURL(from html: String) -> String? {
+        let marker = "data-cmux-diff-redirect=\""
+        guard let start = html.range(of: marker)?.upperBound else { return nil }
+        let tail = html[start...]
+        guard let end = tail.firstIndex(of: "\"") else { return nil }
+        return String(tail[..<end])
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
     }
 
     private func diffViewerHTMLFileURL(from params: [String: Any]) throws -> URL {

@@ -204,6 +204,7 @@ extension CMUXCLI {
     private struct DiffViewerDeferredSourcePage {
         var source: DiffSource
         var url: URL
+        var viewerURL: URL
         var titleOverride: String?
         var context: DiffSourceContext
         var sourceOptions: [DiffViewerSourceOption]
@@ -214,10 +215,19 @@ extension CMUXCLI {
     }
 
     private struct DiffViewerDeferredSourceFallback {
+        var url: URL
+        var viewerURL: URL
         var context: DiffSourceContext
         var sourceOptions: [DiffViewerSourceOption]
         var repoOptions: [DiffViewerSourceOption]
         var baseOptions: [DiffViewerSourceOption]
+    }
+
+    private struct DiffViewerDeferredCompletion {
+        var input: DiffInput
+        var fileURL: URL
+        var viewerURL: URL
+        var completedPageURLs: Set<URL>
     }
 
     private struct DiffViewerRepoOption {
@@ -2930,6 +2940,11 @@ extension CMUXCLI {
         let mapper = target.mapper
         let groupID = target.groupID
         let repoRoot = try gitRepoRootForDiff(context)
+        let openingFileURL = directory.appendingPathComponent(
+            "diff-\(groupID)-opening.html",
+            isDirectory: false
+        )
+        let openingURL = try mapper.viewerURL(for: openingFileURL)
         let fileURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             (
                 source,
@@ -2942,8 +2957,7 @@ extension CMUXCLI {
         let urls = Dictionary(uniqueKeysWithValues: try fileURLs.map { source, fileURL in
             (source, try mapper.viewerURL(for: fileURL))
         })
-        guard let selectedFileURL = fileURLs[selectedSource],
-              let selectedURL = urls[selectedSource] else {
+        guard let selectedFileURL = fileURLs[selectedSource] else {
             throw CLIError(message: "Failed to write diff viewer")
         }
 
@@ -2951,7 +2965,7 @@ extension CMUXCLI {
         let title = titleOverride ?? selectedSource.title
         let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
         try writeDiffViewerStatusHTML(
-            to: selectedFileURL,
+            to: openingFileURL,
             title: title,
             sourceLabel: sourceLabel,
             message: message,
@@ -2967,7 +2981,7 @@ extension CMUXCLI {
         )
         let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
         let allowedFiles = try diffViewerAllowedFiles(
-            pageURLs: [selectedFileURL],
+            pageURLs: [openingFileURL],
             assets: assets,
             mapper: mapper
         )
@@ -2985,8 +2999,8 @@ extension CMUXCLI {
             externalURL: nil
         )
         return DiffViewerWriteResult(
-            fileURL: selectedFileURL,
-            url: selectedURL,
+            fileURL: openingFileURL,
+            url: openingURL,
             title: title,
             input: responseInput,
             allowedFiles: allowedFiles,
@@ -3000,20 +3014,46 @@ extension CMUXCLI {
                         context: context,
                         target: target
                     )
-                    let selectedInput = try completeDeferredDiffViewerSources(
-                        completed.deferredSourceSet,
-                        selectedURL: completed.fileURL
-                    )
                     var finalized = completed
-                    if let selectedInput {
-                        finalized.input = selectedInput
-                        finalized.title = titleOverride ?? selectedInput.defaultTitle
+                    finalized.allowedFiles = try diffViewerAllowedFilesWithExtraPage(
+                        openingFileURL,
+                        files: completed.allowedFiles,
+                        mapper: mapper
+                    )
+                    try writeDiffViewerHTTPManifest(
+                        token: mapper.token,
+                        files: finalized.allowedFiles,
+                        rootDirectory: directory
+                    )
+
+                    do {
+                        if let selectedCompletion = try completeDeferredDiffViewerSources(
+                            completed.deferredSourceSet,
+                            selectedURL: completed.fileURL
+                        ) {
+                            finalized.fileURL = selectedCompletion.fileURL
+                            finalized.url = selectedCompletion.viewerURL
+                            finalized.input = selectedCompletion.input
+                            finalized.title = titleOverride ?? selectedCompletion.input.defaultTitle
+                        }
+                    } catch {
+                        try? writeDiffViewerRedirectHTML(
+                            to: openingFileURL,
+                            title: title,
+                            targetURL: completed.url
+                        )
+                        throw error
                     }
+                    try writeDiffViewerRedirectHTML(
+                        to: openingFileURL,
+                        title: finalized.title,
+                        targetURL: finalized.url
+                    )
                     return finalized
                 } catch {
                     let message = diffViewerErrorMessage(error)
                     try? writeDiffViewerStatusHTML(
-                        to: selectedFileURL,
+                        to: openingFileURL,
                         title: title,
                         sourceLabel: sourceLabel,
                         message: message,
@@ -3195,12 +3235,16 @@ extension CMUXCLI {
             )
             let sourceFallbacks = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { source -> (DiffSource, DiffViewerDeferredSourceFallback)? in
                 guard source != selectedSource,
-                      let fallbackContext = try? sourceContext(for: source, repoRoot: repoRoot) else {
+                      let fallbackContext = try? sourceContext(for: source, repoRoot: repoRoot),
+                      let fallbackFileURL = fileURLs[source],
+                      let fallbackViewerURL = urls[source] else {
                     return nil
                 }
                 return (
                     source,
                     DiffViewerDeferredSourceFallback(
+                        url: fallbackFileURL,
+                        viewerURL: fallbackViewerURL,
                         context: fallbackContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
@@ -3212,6 +3256,7 @@ extension CMUXCLI {
                 DiffViewerDeferredSourcePage(
                     source: selectedSource,
                     url: selectedFileURL,
+                    viewerURL: selectedURL,
                     titleOverride: titleOverride,
                     context: selectedContext,
                     sourceOptions: sourceOptions,
@@ -3249,6 +3294,7 @@ extension CMUXCLI {
                     DiffViewerDeferredSourcePage(
                         source: source,
                         url: url,
+                        viewerURL: urls[source] ?? try mapper.viewerURL(for: url),
                         titleOverride: nil,
                         context: pageContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
@@ -3287,6 +3333,7 @@ extension CMUXCLI {
                     DiffViewerDeferredSourcePage(
                         source: source,
                         url: url,
+                        viewerURL: repoURLsBySource[source]?[option.repoRoot] ?? try mapper.viewerURL(for: url),
                         titleOverride: source == selectedSource ? titleOverride : nil,
                         context: pageContext,
                         sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
@@ -3324,6 +3371,7 @@ extension CMUXCLI {
                 DiffViewerDeferredSourcePage(
                     source: .branch,
                     url: url,
+                    viewerURL: baseURLs[option.ref] ?? try mapper.viewerURL(for: url),
                     titleOverride: selectedSource == .branch ? titleOverride : nil,
                     context: pageContext,
                     sourceOptions: diffViewerSourceOptions(selected: .branch, urls: urls),
@@ -3393,28 +3441,33 @@ extension CMUXCLI {
         if let completeDeferred = viewer.completeDeferred {
             return try completeDeferred()
         }
-        let selectedInput = try completeDeferredDiffViewerSources(
+        let selectedCompletion = try completeDeferredDiffViewerSources(
             viewer.deferredSourceSet,
             selectedURL: viewer.fileURL
         )
-        guard let selectedInput else { return viewer }
+        guard let selectedCompletion else { return viewer }
         var finalized = viewer
-        finalized.input = selectedInput
-        finalized.title = selectedInput.defaultTitle
+        finalized.fileURL = selectedCompletion.fileURL
+        finalized.url = selectedCompletion.viewerURL
+        finalized.input = selectedCompletion.input
+        finalized.title = selectedCompletion.input.defaultTitle
         return finalized
     }
 
     private func completeDeferredDiffViewerSources(
         _ sourceSet: DiffViewerDeferredSourceSet?,
         selectedURL: URL? = nil
-    ) throws -> DiffInput? {
+    ) throws -> DiffViewerDeferredCompletion? {
         guard let sourceSet else { return nil }
-        var selectedInput: DiffInput?
+        var completedPageURLs = Set<URL>()
+        var selectedCompletion: DiffViewerDeferredCompletion?
         for page in sourceSet.pages {
+            guard !completedPageURLs.contains(page.url) else { continue }
             do {
-                let input = try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+                let completion = try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+                completedPageURLs.formUnion(completion.completedPageURLs)
                 if page.url == selectedURL {
-                    selectedInput = input
+                    selectedCompletion = completion
                 }
             } catch {
                 let message = diffViewerErrorMessage(error)
@@ -3438,13 +3491,13 @@ extension CMUXCLI {
                 }
             }
         }
-        return selectedInput
+        return selectedCompletion
     }
 
     private func completeDeferredDiffViewerSource(
         _ page: DiffViewerDeferredSourcePage,
         sourceSet: DiffViewerDeferredSourceSet
-    ) throws -> DiffInput {
+    ) throws -> DiffViewerDeferredCompletion {
         do {
             return try writeDeferredDiffViewerSource(
                 page: page,
@@ -3459,8 +3512,18 @@ extension CMUXCLI {
             for source in DiffSource.allCases where source != page.source {
                 guard let fallback = page.sourceFallbacks[source] else { continue }
                 do {
-                    return try writeDeferredDiffViewerSource(
-                        page: page,
+                    let fallbackPage = DiffViewerDeferredSourcePage(
+                        source: source,
+                        url: fallback.url,
+                        viewerURL: fallback.viewerURL,
+                        titleOverride: page.titleOverride,
+                        context: fallback.context,
+                        sourceOptions: fallback.sourceOptions,
+                        repoOptions: fallback.repoOptions,
+                        baseOptions: fallback.baseOptions
+                    )
+                    var completion = try writeDeferredDiffViewerSource(
+                        page: fallbackPage,
                         source: source,
                         context: fallback.context,
                         sourceOptions: fallback.sourceOptions,
@@ -3468,10 +3531,25 @@ extension CMUXCLI {
                         baseOptions: fallback.baseOptions,
                         sourceSet: sourceSet
                     )
-                } catch is EmptyDiffSourceError {
-                    continue
+                    try? writeDiffViewerStatusHTML(
+                        to: page.url,
+                        title: page.titleOverride ?? page.source.title,
+                        sourceLabel: "git \(page.source.slug)",
+                        message: error.message,
+                        isError: true,
+                        pollForReplacement: false,
+                        layout: sourceSet.layout,
+                        appearance: sourceSet.appearance,
+                        sourceOptions: page.sourceOptions,
+                        repoOptions: page.repoOptions,
+                        baseOptions: page.baseOptions,
+                        repoRoot: page.context.repoRoot,
+                        branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
+                    )
+                    completion.completedPageURLs.insert(page.url)
+                    return completion
                 } catch {
-                    throw error
+                    continue
                 }
             }
             throw error
@@ -3486,7 +3564,7 @@ extension CMUXCLI {
         repoOptions: [DiffViewerSourceOption],
         baseOptions: [DiffViewerSourceOption],
         sourceSet: DiffViewerDeferredSourceSet
-    ) throws -> DiffInput {
+    ) throws -> DiffViewerDeferredCompletion {
         var pageContext = context
         if source == .branch {
             let repoRoot = try gitRepoRootForDiff(pageContext)
@@ -3509,7 +3587,12 @@ extension CMUXCLI {
             repoRoot: pageContext.repoRoot,
             branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil
         )
-        return input
+        return DiffViewerDeferredCompletion(
+            input: input,
+            fileURL: page.url,
+            viewerURL: page.viewerURL,
+            completedPageURLs: [page.url]
+        )
     }
 
     private func nonEmptyGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
@@ -4751,6 +4834,20 @@ extension CMUXCLI {
         return files
     }
 
+    private func diffViewerAllowedFilesWithExtraPage(
+        _ pageURL: URL,
+        files: [DiffViewerAllowedFile],
+        mapper: DiffViewerURLMapper
+    ) throws -> [DiffViewerAllowedFile] {
+        let extra = try mapper.allowedFile(fileURL: pageURL, mimeType: "text/html")
+        var seen: Set<String> = []
+        var merged: [DiffViewerAllowedFile] = []
+        for file in [extra] + files where seen.insert(file.requestPath).inserted {
+            merged.append(file)
+        }
+        return merged
+    }
+
     private func remotePatchURLMap(pageURL: URL, remoteURL: URL?) -> [String: URL] {
         guard let remoteURL else { return [:] }
         return [pageURL.standardizedFileURL.path: remoteURL]
@@ -4837,6 +4934,31 @@ extension CMUXCLI {
             statusIsError: isError,
             pollForReplacement: pollForReplacement
         )
+    }
+
+    private func writeDiffViewerRedirectHTML(to viewerURL: URL, title: String, targetURL: URL) throws {
+        try writeDiffViewerPatchSidecar("", for: viewerURL)
+        let target = targetURL.absoluteString
+        let targetLiteral = try jsonStringLiteral(target)
+        let escapedTitle = htmlEscaped(title)
+        let escapedTarget = htmlEscaped(target)
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="0;url=\(escapedTarget)">
+          <title>\(escapedTitle)</title>
+        </head>
+        <body data-cmux-diff-redirect="\(escapedTarget)">
+          <script>
+            window.location.replace(\(targetLiteral));
+          </script>
+        </body>
+        </html>
+        """
+        try html.write(to: viewerURL, atomically: true, encoding: .utf8)
     }
 
     private func writeDiffViewerHTML(
