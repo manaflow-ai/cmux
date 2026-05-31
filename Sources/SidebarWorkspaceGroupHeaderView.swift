@@ -27,7 +27,7 @@ enum WorkspaceGroupIconSymbol {
     static let defaultSymbol = "folder.fill"
 
     static func normalized(_ raw: String?) -> String? {
-        RenderableSystemSymbol.trimmed(raw)
+        RenderableSystemSymbol.normalized(raw)
     }
 
     static func resolved(explicit: String?, configured: String?) -> String {

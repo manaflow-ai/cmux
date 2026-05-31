@@ -686,6 +686,20 @@ struct WorkspaceGroupTests {
         #expect(WorkspaceGroupIconSymbol.resolved(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
     }
 
+    @Test func setWorkspaceGroupIconDropsInvalidSymbols() {
+        let manager = makeTabManager()
+        let groupId = manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [manager.tabs[0].id]
+        )!
+
+        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "not.an.sf.symbol")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == nil)
+
+        manager.setWorkspaceGroupIcon(groupId: groupId, symbol: "  leaf.fill  ")
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.iconSymbol == "leaf.fill")
+    }
+
     @Test func surfaceTabIconSymbolResolutionFallsBackForInvalidInput() {
         #expect(SurfaceTabIconSymbol.resolved("doc.text") == "doc.text")
         #expect(SurfaceTabIconSymbol.resolved("   doc.text   ") == "doc.text")
