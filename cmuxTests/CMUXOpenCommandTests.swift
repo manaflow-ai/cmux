@@ -1491,6 +1491,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
         let diffStartedURL = rootURL.appendingPathComponent("diff-started", isDirectory: false)
         let releaseDiffURL = rootURL.appendingPathComponent("release-diff", isDirectory: false)
+        let alternateStartedURL = rootURL.appendingPathComponent("alternate-started", isDirectory: false)
+        let releaseAlternateURL = rootURL.appendingPathComponent("release-alternate", isDirectory: false)
         try FileManager.default.createDirectory(at: repoURL.appendingPathComponent(".git", isDirectory: true), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -1510,6 +1512,13 @@ final class CMUXOpenCommandTests: XCTestCase {
             sleep 0.05
           done
           exit 1
+        fi
+        if [ "${1:-}" = "diff" ] && [ "${2:-}" = "--cached" ]; then
+          : > "$CMUX_FAKE_GIT_ALTERNATE_STARTED"
+          while [ ! -f "$CMUX_FAKE_GIT_RELEASE_ALTERNATE" ]; do
+            sleep 0.05
+          done
+          exit 0
         fi
         if [ "${1:-}" = "diff" ]; then
           : > "$CMUX_FAKE_GIT_STARTED"
@@ -1581,6 +1590,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         environment["CMUX_FAKE_GIT_REPO_ROOT"] = repoURL.path
         environment["CMUX_FAKE_GIT_STARTED"] = diffStartedURL.path
         environment["CMUX_FAKE_GIT_RELEASE"] = releaseDiffURL.path
+        environment["CMUX_FAKE_GIT_ALTERNATE_STARTED"] = alternateStartedURL.path
+        environment["CMUX_FAKE_GIT_RELEASE_ALTERNATE"] = releaseAlternateURL.path
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = ["diff", "--unstaged", "--cwd", repoURL.path, "--title", "Slow diff", "--no-focus"]
         process.environment = environment
@@ -1598,9 +1609,17 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(pendingHTMLBox.get()?.contains("data-status-only=\"true\"") == true, pendingHTMLBox.get() ?? "")
         XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"toolbar\"") == true, pendingHTMLBox.get() ?? "")
         XCTAssertTrue(pendingHTMLBox.get()?.contains("id=\"viewer\"") == true, pendingHTMLBox.get() ?? "")
-        XCTAssertFalse(pendingHTMLBox.get()?.contains("<main") == true, pendingHTMLBox.get() ?? "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: releaseDiffURL.path))
         FileManager.default.createFile(atPath: releaseDiffURL.path, contents: Data())
+        let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
+        XCTAssertTrue(waitUntil(timeout: 5) {
+            let html = (try? String(contentsOf: openingHTMLURL, encoding: .utf8)) ?? ""
+            return html.contains("data-cmux-diff-redirect=")
+                && FileManager.default.fileExists(atPath: alternateStartedURL.path)
+        })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: releaseAlternateURL.path))
+        XCTAssertTrue(process.isRunning)
+        FileManager.default.createFile(atPath: releaseAlternateURL.path, contents: Data())
 
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1617,7 +1636,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: diffStartedURL.path))
 
         let openingURL = try XCTUnwrap(openedURLBox.get())
-        let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
         let htmlURL = try resolvedDiffViewerHTMLFileURL(openingHTMLURL, from: ["url": openingURL])
         let html = try String(contentsOf: htmlURL, encoding: .utf8)
         let patch = try String(contentsOf: htmlURL.deletingPathExtension().appendingPathExtension("patch"), encoding: .utf8)
@@ -2481,6 +2499,17 @@ final class CMUXOpenCommandTests: XCTestCase {
             kill(process.processIdentifier, SIGKILL)
             _ = finished.wait(timeout: .now() + 1)
         }
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        return condition()
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {

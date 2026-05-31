@@ -3010,11 +3010,13 @@ extension CMUXCLI {
                         rootDirectory: directory
                     )
 
+                    var completedPageURLs = Set<URL>()
                     do {
-                        if let selectedCompletion = try completeDeferredDiffViewerSources(
+                        if let selectedCompletion = try completeDeferredDiffViewerSelectedSource(
                             completed.deferredSourceSet,
                             selectedURL: completed.fileURL
                         ) {
+                            completedPageURLs.formUnion(selectedCompletion.completedPageURLs)
                             finalized.fileURL = selectedCompletion.fileURL
                             finalized.url = selectedCompletion.viewerURL
                             finalized.input = selectedCompletion.input
@@ -3032,6 +3034,11 @@ extension CMUXCLI {
                         to: openingFileURL,
                         title: finalized.title,
                         targetURL: finalized.url
+                    )
+                    _ = try completeDeferredDiffViewerSources(
+                        completed.deferredSourceSet,
+                        selectedURL: completed.fileURL,
+                        completedPageURLs: completedPageURLs
                     )
                     return finalized
                 } catch {
@@ -3456,12 +3463,29 @@ extension CMUXCLI {
         return finalized
     }
 
-    private func completeDeferredDiffViewerSources(
+    private func completeDeferredDiffViewerSelectedSource(
         _ sourceSet: DiffViewerDeferredSourceSet?,
-        selectedURL: URL? = nil
+        selectedURL: URL
     ) throws -> DiffViewerDeferredCompletion? {
         guard let sourceSet else { return nil }
-        var completedPageURLs = Set<URL>()
+        guard let page = sourceSet.pages.first(where: { $0.url == selectedURL }) else {
+            return nil
+        }
+        do {
+            return try completeDeferredDiffViewerSource(page, sourceSet: sourceSet)
+        } catch {
+            writeDeferredDiffViewerError(error, page: page, sourceSet: sourceSet)
+            throw error
+        }
+    }
+
+    private func completeDeferredDiffViewerSources(
+        _ sourceSet: DiffViewerDeferredSourceSet?,
+        selectedURL: URL? = nil,
+        completedPageURLs initialCompletedPageURLs: Set<URL> = []
+    ) throws -> DiffViewerDeferredCompletion? {
+        guard let sourceSet else { return nil }
+        var completedPageURLs = initialCompletedPageURLs
         var selectedCompletion: DiffViewerDeferredCompletion?
         for page in sourceSet.pages {
             guard !completedPageURLs.contains(page.url) else { continue }
@@ -3472,28 +3496,36 @@ extension CMUXCLI {
                     selectedCompletion = completion
                 }
             } catch {
-                let message = diffViewerErrorMessage(error)
-                try? writeDiffViewerStatusHTML(
-                    to: page.url,
-                    title: page.titleOverride ?? page.source.title,
-                    sourceLabel: "git \(page.source.slug)",
-                    message: message,
-                    isError: true,
-                    pollForReplacement: false,
-                    layout: sourceSet.layout,
-                    appearance: sourceSet.appearance,
-                    sourceOptions: page.sourceOptions,
-                    repoOptions: page.repoOptions,
-                    baseOptions: page.baseOptions,
-                    repoRoot: page.context.repoRoot,
-                    branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
-                )
+                writeDeferredDiffViewerError(error, page: page, sourceSet: sourceSet)
                 if page.url == selectedURL {
                     throw error
                 }
             }
         }
         return selectedCompletion
+    }
+
+    private func writeDeferredDiffViewerError(
+        _ error: Error,
+        page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) {
+        let message = diffViewerErrorMessage(error)
+        try? writeDiffViewerStatusHTML(
+            to: page.url,
+            title: page.titleOverride ?? page.source.title,
+            sourceLabel: "git \(page.source.slug)",
+            message: message,
+            isError: true,
+            pollForReplacement: false,
+            layout: sourceSet.layout,
+            appearance: sourceSet.appearance,
+            sourceOptions: page.sourceOptions,
+            repoOptions: page.repoOptions,
+            baseOptions: page.baseOptions,
+            repoRoot: page.context.repoRoot,
+            branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil
+        )
     }
 
     private func completeDeferredDiffViewerSource(
