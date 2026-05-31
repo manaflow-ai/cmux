@@ -2072,7 +2072,7 @@ const commands = [
   { id: "terminal.reopenClosed", label: "Reopen Closed Pane", shortcut: "Ctrl+Shift+T", run: () => reopenClosedPanel() },
   { id: "terminal.closeOthers", label: "Close Other Panes", shortcut: "", run: () => closeOtherPanes() },
   { id: "terminal.closeRight", label: "Close Panes to Right", shortcut: "", run: () => closePanesToRight() },
-  { id: "terminal.focusPane", label: "Toggle Pane Focus", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
+  { id: "terminal.focusPane", label: "Focus Active Pane", shortcut: "Ctrl+Shift+M", run: () => togglePaneZoom() },
   { id: "terminal.minimizePane", label: "Minimize Active Pane", shortcut: "", run: () => minimizeActivePane() },
   { id: "terminal.restoreMinimized", label: "Restore Minimized Panes", shortcut: "", run: () => restoreMinimizedPanes() },
   { id: "terminal.resetLayout", label: "Reset Split Layout", shortcut: "", run: () => resetActivePaneLayout() },
@@ -2084,9 +2084,9 @@ const commands = [
   { id: "layout.activeWide", label: "Make Active Pane Wide", shortcut: "", run: () => applyPaneLayoutPreset("activeWide") },
   { id: "layout.activeTall", label: "Make Active Pane Tall", shortcut: "", run: () => applyPaneLayoutPreset("activeTall") },
   { id: "layout.activePercent", label: "Set Active Pane Size", shortcut: "", run: () => promptActivePaneLayoutPercent() },
-  { id: "terminal.fontUp", label: "Terminal Font Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
-  { id: "terminal.fontDown", label: "Terminal Font Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
-  { id: "terminal.fontReset", label: "Reset Terminal Text Size", shortcut: "Ctrl+0", run: () => resetTerminalFontSize() },
+  { id: "terminal.fontUp", label: "Active Pane Text Larger", shortcut: "Ctrl+=", run: () => changeTerminalFontSize(1) },
+  { id: "terminal.fontDown", label: "Active Pane Text Smaller", shortcut: "Ctrl+-", run: () => changeTerminalFontSize(-1) },
+  { id: "terminal.fontReset", label: "Reset Active Pane Text Size", shortcut: "Ctrl+0", run: () => resetTerminalFontSize() },
   { id: "browser.new", label: "Open Browser", shortcut: "Ctrl+Shift+L", run: () => openBrowserHome() },
   { id: "browser.newPane", label: "Open Browser Pane", shortcut: "", run: () => openBrowserHome(activeWorkspace()?.id, { mode: "pane" }) },
   { id: "browser.homeExternal", label: "Open Browser Home Externally", shortcut: "", run: () => openExternalBrowser(state.settings.browserHomeUrl) },
@@ -2327,6 +2327,11 @@ function focusedPanel() {
 
 function actionPanelFromEvent(event) {
   return panelFromEvent(event) || hoveredPanel() || panelFromActiveElement() || focusedPanel();
+}
+
+function keyboardPanelFromEvent(event) {
+  // Keyboard shortcuts follow focus, not hover, so pane actions stay scoped.
+  return panelFromEvent(event) || panelFromActiveElement() || focusedPanel();
 }
 
 function api(path, options = {}) {
@@ -6036,13 +6041,14 @@ function browserHomePresetGrid() {
   return grid;
 }
 
-function applyBrowserHomePreset(preset) {
+function applyBrowserHomePreset(preset, options = {}) {
   const changed = updateSettings({ browserHomeUrl: preset.url });
   if (!changed) {
-    toast(`${preset.label} is already the browser home.`);
+    if (options.toast !== false) toast(`${preset.label} is already the browser home.`);
     return;
   }
-  toast(`${preset.label} browser home applied.`);
+  if (state.inspectorMode === "settings" && state.settingsCategory === "browser") renderSettingsInspector();
+  if (options.toast !== false) toast(`${preset.label} browser home applied.`);
 }
 
 function scheduleBrowserSettingsPreviewRefresh() {
@@ -9102,6 +9108,16 @@ function paletteEntries() {
       run: () => applyBackgroundPreset(preset, { toast: true })
     });
   }
+  for (const preset of browserHomePresets) {
+    entries.push({
+      id: `browserHomePreset.${preset.id}`,
+      label: `Browser home: ${preset.label}`,
+      meta: preset.url,
+      shortcut: "Browser",
+      search: normalizeSettingsQuery(`browser home preset start page homepage apply ${preset.label} ${preset.body} ${preset.url}`),
+      run: () => applyBrowserHomePreset(preset)
+    });
+  }
   for (const color of state.customColorPalette) {
     entries.push({
       id: `savedColor.accent.${color.slice(1)}`,
@@ -10663,7 +10679,7 @@ async function flushTerminalFontSizeSync() {
 }
 
 function changeTerminalFontSize(delta, options = {}) {
-  const panel = resolveTerminalPanel(options.panel || (options.event ? actionPanelFromEvent(options.event) : null) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || focusedPanel());
   if (!panel) return false;
   markInteractedPanel(panel.id);
   const currentSize = terminalFontSizeForPanel(panel);
@@ -10689,7 +10705,7 @@ function changePaneTerminalFontSize(panelId, delta) {
 }
 
 function resetTerminalFontSize(options = {}) {
-  const panel = resolveTerminalPanel(options.panel || (options.event ? actionPanelFromEvent(options.event) : null) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || focusedPanel());
   if (!panel) return false;
   markInteractedPanel(panel.id);
   if (!panelHasTerminalFontSize(panel)) {
@@ -11182,21 +11198,21 @@ window.addEventListener("keydown", (event) => {
     consumeGlobalShortcut(event);
     openBrowserHome();
   } else if (event.ctrlKey && key === "l") {
-    const panel = actionPanelFromEvent(event);
+    const panel = keyboardPanelFromEvent(event);
     if (resolveBrowserPanel(panel)) {
       consumeGlobalShortcut(event);
       focusBrowserAddress(panel);
     }
   } else if (event.ctrlKey && key === "r") {
-    const panel = actionPanelFromEvent(event);
+    const panel = keyboardPanelFromEvent(event);
     if (resolveBrowserPanel(panel)) {
       consumeGlobalShortcut(event);
       reloadBrowserPanel(panel);
     }
   } else if (event.altKey && event.key === "ArrowLeft") {
-    if (navigateBrowserHistory(-1, actionPanelFromEvent(event))) consumeGlobalShortcut(event);
+    if (navigateBrowserHistory(-1, keyboardPanelFromEvent(event))) consumeGlobalShortcut(event);
   } else if (event.altKey && event.key === "ArrowRight") {
-    if (navigateBrowserHistory(1, actionPanelFromEvent(event))) consumeGlobalShortcut(event);
+    if (navigateBrowserHistory(1, keyboardPanelFromEvent(event))) consumeGlobalShortcut(event);
   } else if (event.ctrlKey && key === "i") {
     consumeGlobalShortcut(event);
     openInspector("notifications");
@@ -11223,9 +11239,9 @@ window.addEventListener("keydown", (event) => {
     restartActiveTerminal();
   } else if (event.ctrlKey && event.shiftKey && key === "m") {
     consumeGlobalShortcut(event);
-    togglePaneZoom(actionPanelFromEvent(event)?.id);
+    togglePaneZoom(keyboardPanelFromEvent(event)?.id);
   } else if (event.ctrlKey && key === "w") {
-    const panel = actionPanelFromEvent(event);
+    const panel = keyboardPanelFromEvent(event);
     if (panel) {
       consumeGlobalShortcut(event);
       closePanel(panel.id);
