@@ -9594,22 +9594,40 @@ function queueFocusSync(sync) {
   state.focusSyncTimer = setTimeout(() => flushFocusSync(revision), 70);
 }
 
+function focusSyncMatchesLocalState(sync) {
+  if (!sync || !state.data) return false;
+  if (sync.type === "workspace") {
+    return state.data.activeWorkspaceId === sync.workspaceId
+      && state.data.workspaces.some((workspace) => workspace.id === sync.workspaceId);
+  }
+  if (sync.type === "panel") {
+    const found = findPanelState(sync.panelId);
+    return Boolean(found
+      && state.data.activeWorkspaceId === found.workspace.id
+      && found.workspace.activePanelId === sync.panelId);
+  }
+  return false;
+}
+
 async function flushFocusSync(revision = state.focusSyncRevision) {
   const sync = state.pendingFocusSync;
   if (!sync || sync.revision !== revision) return;
   state.focusSyncTimer = 0;
+  let confirmed = false;
   try {
     if (sync.type === "workspace") {
       await api(`/api/workspaces/${sync.workspaceId}/focus`, { method: "POST" });
+      confirmed = true;
     } else if (sync.type === "panel") {
       await api(`/api/panels/${sync.panelId}/focus`, { method: "POST" });
+      confirmed = true;
     }
   } catch {
     // Reconcile below; the target may have disappeared while the user kept working.
   } finally {
     if (state.pendingFocusSync?.revision === revision) {
       state.pendingFocusSync = null;
-      await loadState();
+      if (!confirmed || !focusSyncMatchesLocalState(sync)) await loadState();
     }
   }
 }
