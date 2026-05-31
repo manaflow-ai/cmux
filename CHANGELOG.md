@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- **Aurean appearance**: a golden-ratio (φ) based theme. cmux ships a cohesive dark palette across the terminal canvas and the window chrome, with a palette-temperature picker (Cool / Dune / Warm / Obsidian) in Settings → App that re-skins the app live. Light mode keeps the existing theme. ([#5050](https://github.com/manaflow-ai/cmux/pull/5050))
+
 ## [0.64.10] - 2026-05-23
 
 ### Added
