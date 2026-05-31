@@ -409,13 +409,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          CLI_BIN="$(
-            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
-          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
+          CLI_BIN="$DERIVED_DATA_PATH/Build/Products/Debug/cmux"
+          if [ ! -x "$CLI_BIN" ]; then
             echo "cmux CLI binary not found in DerivedData" >&2
             exit 1
           fi

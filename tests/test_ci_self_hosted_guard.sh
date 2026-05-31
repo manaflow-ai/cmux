@@ -154,12 +154,14 @@ check_tests_deriveddata_cache() {
   if ! awk '
     /^  tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /path: ~\/Library\/Developer\/Xcode\/DerivedData\/cmux-tests/ { saw_cache_path=1 }
+    in_job && /path: \.ci-derived-data\/tests/ { saw_cache_path=1 }
     in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
     in_job && in_restore && /deriveddata-tests-/ { saw_restore=1 }
     in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
+    in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/tests"/ { saw_derived_data_env += 1 }
     in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data += 1 }
-    END { exit(saw_cache_path && saw_restore && saw_derived_data >= 2 ? 0 : 1) }
+    in_job && /CLI_BIN="\$DERIVED_DATA_PATH\/Build\/Products\/Debug\/cmux"/ { saw_cli_path=1 }
+    END { exit(saw_cache_path && saw_restore && saw_derived_data_env >= 3 && saw_derived_data >= 2 && saw_cli_path ? 0 : 1) }
   ' "$CI_FILE"; then
     echo "FAIL: tests job must cache and reuse an explicit DerivedData path across split-theme and unit XCTest steps"
     exit 1
@@ -183,7 +185,7 @@ check_ui_regression_budget() {
     exit 1
   fi
 
-  if ! grep -Fq 'path: ~/Library/Developer/Xcode/DerivedData/cmux-ui-regressions' "$CI_FILE"; then
+  if ! grep -Fq 'path: .ci-derived-data/ui-regressions' "$CI_FILE"; then
     echo "FAIL: ui-regressions must cache its explicit DerivedData path"
     exit 1
   fi
@@ -229,12 +231,15 @@ check_build_and_lag_budget() {
   if ! awk '
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /path: \.ci-derived-data\/build/ { saw_cache_path=1 }
     in_job && /restore-keys:[[:space:]]*\|/ { in_restore=1; next }
     in_job && in_restore && /deriveddata-build-/ { saw_restore=1 }
     in_job && in_restore && /^[[:space:]]{10}[^[:space:]-]/ { in_restore=0 }
-    END { exit(saw_restore ? 0 : 1) }
+    in_job && /DERIVED_DATA_PATH="\$PWD\/\.ci-derived-data\/build"/ { saw_derived_data_env += 1 }
+    in_job && /-derivedDataPath "\$DERIVED_DATA_PATH"/ { saw_derived_data=1 }
+    END { exit(saw_cache_path && saw_restore && saw_derived_data_env >= 3 && saw_derived_data ? 0 : 1) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must restore prior DerivedData caches so retries are not always cold"
+    echo "FAIL: tests-build-and-lag must restore and use its workspace-local DerivedData path so retries are not always cold"
     exit 1
   fi
 
