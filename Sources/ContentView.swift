@@ -10066,6 +10066,7 @@ final class SidebarDragState {
     var draggedTabId: UUID?
     var dropIndicator: SidebarDropIndicator?
     var dropIndicatorUsesTopLevelRows = false
+    var groupDropPreview: SidebarWorkspaceGroupDropPreview?
     /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
     /// driving the drag state. The lifecycle observers honor this by not
     /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
@@ -10082,8 +10083,18 @@ final class SidebarDragState {
     }
 
     func setDropIndicator(_ indicator: SidebarDropIndicator?, usesTopLevelRows: Bool = false) {
+        groupDropPreview = nil
         dropIndicator = indicator
         dropIndicatorUsesTopLevelRows = indicator != nil && usesTopLevelRows
+    }
+
+    func setGroupDropPreview(_ preview: SidebarWorkspaceGroupDropPreview) {
+        guard groupDropPreview != preview || dropIndicator != nil || dropIndicatorUsesTopLevelRows else {
+            return
+        }
+        groupDropPreview = preview
+        dropIndicator = nil
+        dropIndicatorUsesTopLevelRows = false
     }
 
     func clearDropIndicator() {
@@ -11404,10 +11415,12 @@ struct VerticalTabsSidebar: View {
         .frame(maxWidth: .infinity)
         .safeHelp(row.title)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
+        .onDrag({
             dragState.beginDragging(tabId: row.workspaceId)
             return SidebarTabDragPayload.provider(for: row.workspaceId)
-        }
+        }, preview: {
+            SidebarWorkspaceInvisibleDragPreview()
+        })
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
@@ -11482,10 +11495,12 @@ struct VerticalTabsSidebar: View {
         }
         .buttonStyle(.plain)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
+        .onDrag({
             dragState.beginDragging(tabId: row.workspaceId)
             return SidebarTabDragPayload.provider(for: row.workspaceId)
-        }
+        }, preview: {
+            SidebarWorkspaceInvisibleDragPreview()
+        })
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
@@ -11825,7 +11840,8 @@ struct VerticalTabsSidebar: View {
             baseRenderItems,
             draggedWorkspaceId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            reorderWorkspaceIds: renderContext.sidebarReorderIds
+            reorderWorkspaceIds: renderContext.sidebarReorderIds,
+            groupDropPreview: dragState.groupDropPreview
         )
         // Drop hover updates set a new indicator only when the insertion
         // position changes, so the list animates between stable reorder
@@ -11840,8 +11856,8 @@ struct VerticalTabsSidebar: View {
                         memberWorkspaceIds: memberWorkspaceIds,
                         renderContext: renderContext
                     )
-                case .workspace(let tab):
-                    workspaceRow(tab, renderContext: renderContext)
+                case .workspace(let tab, let effectiveGroupId):
+                    workspaceRow(tab, renderContext: renderContext, effectiveGroupId: effectiveGroupId)
                 }
             }
         }
@@ -11906,7 +11922,8 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceRow(
         _ tab: Workspace,
-        renderContext: WorkspaceListRenderContext
+        renderContext: WorkspaceListRenderContext,
+        effectiveGroupId: UUID?
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -12043,7 +12060,7 @@ struct VerticalTabsSidebar: View {
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
             [tab.id: anchor]
         }
-        .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+        .padding(.leading, effectiveGroupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -15233,7 +15250,9 @@ struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag(onDragStart)
+        .onDrag(onDragStart, preview: {
+            SidebarWorkspaceInvisibleDragPreview()
+        })
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(

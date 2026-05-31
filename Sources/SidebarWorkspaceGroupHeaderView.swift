@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+struct SidebarWorkspaceInvisibleDragPreview: View {
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+    }
+}
+
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     // Closures and delegate factories are excluded because they are recreated
@@ -223,7 +230,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
-        .onDrag(onDragStart)
+        .onDrag(onDragStart, preview: {
+            SidebarWorkspaceInvisibleDragPreview()
+        })
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onHover { hovering in
@@ -389,6 +398,9 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+        if dragState.groupDropPreview?.targetGroupId == targetGroupId {
+            dragState.clearDropIndicator()
+        }
         reorderDelegate.dropExited(info: info)
     }
 
@@ -410,7 +422,11 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
         defer { clearDropState() }
         switch action {
         case .addWorkspaceToGroup(let draggedTabId):
-            tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
+            tabManager.addWorkspaceToGroup(
+                workspaceId: draggedTabId,
+                groupId: targetGroupId,
+                placement: .end
+            )
         case .noOp:
             break
         }
@@ -418,9 +434,19 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     private func updateGroupHeaderCenterDrop(_ info: DropInfo) -> Bool {
-        guard groupHeaderCenterDropAction(info) != nil else { return false }
+        guard let action = groupHeaderCenterDropAction(info) else { return false }
         dragAutoScrollController.updateFromDragLocation()
-        dragState.clearDropIndicator()
+        switch action {
+        case .addWorkspaceToGroup(let draggedTabId):
+            dragState.setGroupDropPreview(
+                SidebarWorkspaceGroupDropPreview(
+                    draggedWorkspaceId: draggedTabId,
+                    targetGroupId: targetGroupId
+                )
+            )
+        case .noOp:
+            dragState.clearDropIndicator()
+        }
         return true
     }
 

@@ -29,6 +29,19 @@ struct WorkspaceGroupTests {
         items.map(\.representedWorkspaceId)
     }
 
+    private func renderedEffectiveGroupId(
+        _ items: [SidebarWorkspaceRenderItem],
+        for workspaceId: UUID
+    ) -> UUID? {
+        for item in items {
+            if case .workspace(let workspace, let groupId) = item,
+               workspace.id == workspaceId {
+                return groupId
+            }
+        }
+        return nil
+    }
+
     @Test func createGroupInsertsFreshAnchorAndGroupsChildren() throws {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
@@ -194,7 +207,7 @@ struct WorkspaceGroupTests {
                 groupMemberIds = memberWorkspaceIds
             case .groupHeader:
                 break
-            case .workspace(let workspace):
+            case .workspace(let workspace, _):
                 visibleWorkspaceIds.append(workspace.id)
             }
         }
@@ -272,7 +285,8 @@ struct WorkspaceGroupTests {
             baseItems,
             draggedWorkspaceId: originalIds[0],
             dropIndicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .bottom),
-            reorderWorkspaceIds: reorderIds
+            reorderWorkspaceIds: reorderIds,
+            groupDropPreview: nil
         )
 
         #expect(renderedWorkspaceIds(previewItems) == [
@@ -282,6 +296,40 @@ struct WorkspaceGroupTests {
             originalIds[0],
             originalIds[3],
         ])
+    }
+
+    @Test func dragPreviewMovesUngroupedWorkspaceIntoGroupCenter() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Expanded", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let baseItems = renderItems(manager)
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: originalIds[0],
+            dropIndicator: nil,
+            reorderWorkspaceIds: [],
+            groupDropPreview: SidebarWorkspaceGroupDropPreview(
+                draggedWorkspaceId: originalIds[0],
+                targetGroupId: groupId
+            )
+        )
+
+        #expect(renderedWorkspaceIds(previewItems) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            originalIds[0],
+            originalIds[3],
+        ])
+        #expect(renderedEffectiveGroupId(previewItems, for: originalIds[0]) == groupId)
     }
 
     @Test func dragPreviewReordersWorkspaceInsideExpandedGroupFlatScope() throws {
@@ -305,7 +353,8 @@ struct WorkspaceGroupTests {
             baseItems,
             draggedWorkspaceId: originalIds[2],
             dropIndicator: SidebarDropIndicator(tabId: originalIds[1], edge: .top),
-            reorderWorkspaceIds: reorderIds
+            reorderWorkspaceIds: reorderIds,
+            groupDropPreview: nil
         )
 
         #expect(renderedWorkspaceIds(previewItems) == [
@@ -338,7 +387,8 @@ struct WorkspaceGroupTests {
             baseItems,
             draggedWorkspaceId: group.anchorWorkspaceId,
             dropIndicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
-            reorderWorkspaceIds: reorderIds
+            reorderWorkspaceIds: reorderIds,
+            groupDropPreview: nil
         )
 
         #expect(renderedWorkspaceIds(previewItems) == [
@@ -369,7 +419,8 @@ struct WorkspaceGroupTests {
             baseItems,
             draggedWorkspaceId: originalIds[1],
             dropIndicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .top),
-            reorderWorkspaceIds: reorderIds
+            reorderWorkspaceIds: reorderIds,
+            groupDropPreview: nil
         )
 
         #expect(renderedWorkspaceIds(previewItems) == [
@@ -379,6 +430,7 @@ struct WorkspaceGroupTests {
             originalIds[2],
             originalIds[3],
         ])
+        #expect(renderedEffectiveGroupId(previewItems, for: originalIds[1]) == nil)
     }
 
     @Test func dragPreviewIgnoresMissingDropIndicator() throws {
@@ -391,7 +443,8 @@ struct WorkspaceGroupTests {
             baseItems,
             draggedWorkspaceId: originalIds[0],
             dropIndicator: nil,
-            reorderWorkspaceIds: manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: originalIds[0])
+            reorderWorkspaceIds: manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: originalIds[0]),
+            groupDropPreview: nil
         )
 
         #expect(renderedWorkspaceIds(previewItems) == renderedWorkspaceIds(baseItems))

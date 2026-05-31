@@ -1,17 +1,31 @@
 import Foundation
 
+struct SidebarWorkspaceGroupDropPreview: Equatable {
+    let draggedWorkspaceId: UUID
+    let targetGroupId: UUID
+}
+
 /// One drawable item in the workspace sidebar.
 @MainActor
 enum SidebarWorkspaceRenderItem {
     case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
-    case workspace(Workspace)
+    case workspace(Workspace, effectiveGroupId: UUID?)
 
     var representedWorkspaceId: UUID {
         switch self {
         case .groupHeader(let group, _):
             return group.anchorWorkspaceId
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return workspace.id
+        }
+    }
+
+    var effectiveGroupId: UUID? {
+        switch self {
+        case .groupHeader:
+            return nil
+        case .workspace(_, let groupId):
+            return groupId
         }
     }
 
@@ -19,10 +33,20 @@ enum SidebarWorkspaceRenderItem {
         switch self {
         case .groupHeader(let group, _):
             return "group.\(group.id.uuidString)"
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return "workspace.\(workspace.id.uuidString)"
         }
     }
+
+    func withEffectiveGroupId(_ groupId: UUID?) -> SidebarWorkspaceRenderItem {
+        switch self {
+        case .groupHeader:
+            return self
+        case .workspace(let workspace, _):
+            return .workspace(workspace, effectiveGroupId: groupId)
+        }
+    }
+
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup]
@@ -62,7 +86,7 @@ enum SidebarWorkspaceRenderItem {
                 continue
             }
             if groupId == nil || !skipChildrenUntilNextGroup {
-                items.append(.workspace(tab))
+                items.append(.workspace(tab, effectiveGroupId: groupId))
             }
         }
         return items
@@ -72,8 +96,12 @@ enum SidebarWorkspaceRenderItem {
         _ items: [SidebarWorkspaceRenderItem],
         draggedWorkspaceId: UUID?,
         dropIndicator: SidebarDropIndicator?,
-        reorderWorkspaceIds: [UUID]
+        reorderWorkspaceIds: [UUID],
+        groupDropPreview: SidebarWorkspaceGroupDropPreview?
     ) -> [SidebarWorkspaceRenderItem] {
+        if let previewItems = groupDropPreviewItems(items, preview: groupDropPreview) {
+            return previewItems
+        }
         guard let draggedWorkspaceId,
               let dropIndicator,
               reorderWorkspaceIds.contains(draggedWorkspaceId),
@@ -110,6 +138,51 @@ enum SidebarWorkspaceRenderItem {
             blocksById[block.workspaceId] = block.items
         }
         return nextReorderIds.flatMap { blocksById[$0] ?? [] }
+    }
+
+    private static func groupDropPreviewItems(
+        _ items: [SidebarWorkspaceRenderItem],
+        preview: SidebarWorkspaceGroupDropPreview?
+    ) -> [SidebarWorkspaceRenderItem]? {
+        guard let preview else { return nil }
+        var draggedItem: SidebarWorkspaceRenderItem?
+        var targetHeaderIndex: Int?
+        var result: [SidebarWorkspaceRenderItem] = []
+        result.reserveCapacity(items.count)
+
+        for item in items {
+            switch item {
+            case .groupHeader(let group, let memberWorkspaceIds)
+                where group.id == preview.targetGroupId:
+                let nextMemberWorkspaceIds = memberWorkspaceIds.contains(preview.draggedWorkspaceId)
+                    ? memberWorkspaceIds
+                    : memberWorkspaceIds + [preview.draggedWorkspaceId]
+                targetHeaderIndex = result.count
+                result.append(.groupHeader(group, memberWorkspaceIds: nextMemberWorkspaceIds))
+
+            case .workspace(let workspace, _)
+                where workspace.id == preview.draggedWorkspaceId:
+                draggedItem = item.withEffectiveGroupId(preview.targetGroupId)
+
+            case .groupHeader(let group, _)
+                where group.anchorWorkspaceId == preview.draggedWorkspaceId:
+                return nil
+
+            default:
+                result.append(item)
+            }
+        }
+
+        guard let draggedItem, let targetHeaderIndex else { return nil }
+        var insertionIndex = targetHeaderIndex + 1
+        while insertionIndex < result.endIndex {
+            guard result[insertionIndex].effectiveGroupId == preview.targetGroupId else {
+                break
+            }
+            insertionIndex += 1
+        }
+        result.insert(draggedItem, at: insertionIndex)
+        return result
     }
 
     private static func dragPreviewWorkspaceIds(
@@ -159,12 +232,12 @@ enum SidebarWorkspaceRenderItem {
                 var promotedMemberItems: [SidebarWorkspaceRenderItem] = []
                 index = items.index(after: index)
                 while index < items.endIndex {
-                    guard case .workspace(let workspace) = items[index],
+                    guard case .workspace(let workspace, _) = items[index],
                           workspace.groupId == group.id else {
                         break
                     }
                     if workspace.id == draggedWorkspaceId, reorderIdSet.contains(workspace.id) {
-                        promotedMemberItems.append(items[index])
+                        promotedMemberItems.append(items[index].withEffectiveGroupId(nil))
                     } else {
                         groupItems.append(items[index])
                     }
@@ -175,7 +248,7 @@ enum SidebarWorkspaceRenderItem {
                     blocks.append((workspaceId: item.representedWorkspaceId, items: [item]))
                 }
 
-            case .workspace(let workspace):
+            case .workspace(let workspace, _):
                 blocks.append((workspaceId: workspace.id, items: [items[index]]))
                 index = items.index(after: index)
             }
