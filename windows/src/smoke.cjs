@@ -10,38 +10,84 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `cmux-windows-smoke-${proc
 const pipeName = process.platform === "win32"
   ? `\\\\.\\pipe\\cmux-windows-smoke-${process.pid}`
   : path.join(os.tmpdir(), `cmux-windows-smoke-${process.pid}.sock`);
+const smokeIoTimeoutMs = Math.max(1, Number.parseInt(process.env.CMUX_WINDOWS_SMOKE_IO_TIMEOUT_MS || "3000", 10) || 3000);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function pipeRoundTrip(command, launchToken) {
+function pipeRoundTrip(command, launchToken, timeoutMs = smokeIoTimeoutMs) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(pipeName);
     let output = "";
-    socket.on("connect", () => {
+    let settled = false;
+    let timer = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      socket.off("connect", onConnect);
+      socket.off("data", onData);
+      socket.off("error", onError);
+    };
+    const finish = (error, value = "") => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) {
+        socket.destroy();
+        reject(error);
+        return;
+      }
+      socket.end();
+      resolve(value);
+    };
+    const onConnect = () => {
       if (launchToken) socket.write(`auth ${launchToken}\n`);
       socket.write(command + "\n");
-    });
-    socket.on("data", (chunk) => {
+    };
+    const onData = (chunk) => {
       output += chunk.toString("utf8");
       if (output.includes("\n")) {
-        socket.end();
-        resolve(output.trim());
+        finish(null, output.trim());
       }
-    });
-    socket.on("error", reject);
+    };
+    const onError = (error) => finish(error);
+    timer = setTimeout(() => finish(new Error(`pipe round-trip timed out after ${timeoutMs}ms`)), timeoutMs);
+    socket.on("connect", onConnect);
+    socket.on("data", onData);
+    socket.on("error", onError);
   });
 }
 
-function waitForWebSocketOpen(socket) {
+function waitForWebSocketOpen(socket, timeoutMs = smokeIoTimeoutMs) {
   return new Promise((resolve, reject) => {
     if (socket.readyState === WebSocket.OPEN) {
       resolve();
       return;
     }
-    socket.once("open", resolve);
-    socket.once("error", reject);
+    let settled = false;
+    let timer = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      socket.off("open", onOpen);
+      socket.off("error", onError);
+    };
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) {
+        if (typeof socket.terminate === "function") socket.terminate();
+        else socket.close?.();
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+    const onOpen = () => finish(null);
+    const onError = (error) => finish(error);
+    timer = setTimeout(() => finish(new Error(`websocket open timed out after ${timeoutMs}ms`)), timeoutMs);
+    socket.once("open", onOpen);
+    socket.once("error", onError);
   });
 }
 
