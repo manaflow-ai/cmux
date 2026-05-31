@@ -1072,7 +1072,7 @@ async function openExternalBrowser(url, options = {}) {
       result = { ok: false, profileId: "system", error: "open_external_failed" };
     }
     if (result?.ok === false) {
-      toast(`${browserProfileLabel(requestedProfileId)} unavailable; opened in system browser.`);
+      toast(`${browserProfileLabel(requestedProfileId)} could not open this page.`);
     } else if (options.toast) {
       toast(result?.profileId && result.profileId !== "system"
         ? `Opened in ${browserProfileLabel(result.profileId)}.`
@@ -11334,7 +11334,7 @@ function handleWindowWheelZoom(event) {
   const panel = panelFromEvent(event);
   if (panel?.type === "terminal") {
     applyTerminalWheelZoom(event, panel);
-  } else if (event.target?.closest?.(".app-shell, .pane, .surface-tabs, .sidebar, .topbar, .command-strip")) {
+  } else if (event.target?.closest?.(".shell, .pane, .surface-tabs, .sidebar, .topbar, .command-strip")) {
     event.preventDefault();
     event.stopPropagation();
   }

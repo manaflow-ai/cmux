@@ -384,6 +384,9 @@ async function createWindow() {
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
     log(`did-fail-load code=${errorCode} description=${errorDescription} url=${validatedURL}`);
   });
+  mainWindow.webContents.on("did-attach-webview", (_event, webContents) => {
+    hardenWebContents(webContents);
+  });
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     log(`render-process-gone ${JSON.stringify(details)}`);
   });
