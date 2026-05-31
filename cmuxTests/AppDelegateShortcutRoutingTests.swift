@@ -7192,9 +7192,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(suggestions.first?.title, "@Sources/")
         XCTAssertEqual(suggestions.first?.systemImageName, "folder")
         XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/](") == true)
-        XCTAssertTrue(suggestions.contains { $0.title == "@Sources/Empty/" })
         XCTAssertTrue(suggestions.contains { $0.title == "@ZEmpty/" })
         XCTAssertTrue(suggestions.contains { $0.title == "@README.md" })
+
+        let nestedFileSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 7),
+                query: "Nested",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        XCTAssertEqual(nestedFileSuggestions.first?.title, "@Sources/Nested.swift")
+
+        let warmedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+        XCTAssertTrue(warmedSuggestions.contains { $0.title == "@Sources/Empty/" })
     }
 
     func testTextBoxMentionFileSuggestionsFindNestedDirectoriesAndFilesWithFuzzyIndex() async throws {

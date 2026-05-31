@@ -1740,6 +1740,7 @@ actor TextBoxMentionIndexStore {
     private static let maxIndexedDirectories = 2000
     private static let maxIndexedFiles = 6000
     private static let maxIndexedSkills = 800
+    private static let rootSuggestionLimit = 200
     private static let suggestionLimit = 500
     private static let skippedDirectoryNames: Set<String> = [
         ".build",
@@ -1807,6 +1808,26 @@ actor TextBoxMentionIndexStore {
         rootDirectory: String
     ) async -> [TextBoxMentionSuggestion] {
         let now = Date()
+        let trimmedQuery = query.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedQuery.isEmpty {
+            if let cachedIndex = cachedFileIndex(rootDirectory: rootDirectory, now: now) {
+                return cachedIndex.rankedCandidates(
+                    matching: query.query,
+                    limit: Self.suggestionLimit,
+                    shouldCancel: { Task.isCancelled }
+                )
+                .map { $0.suggestion(trigger: query.trigger) }
+            }
+
+            refreshFileIndexInBackground(rootDirectory: rootDirectory, now: now)
+            return Self.scanRootFileSystemCandidates(rootURL: URL(
+                fileURLWithPath: rootDirectory,
+                isDirectory: true
+            ))
+            .prefix(Self.suggestionLimit)
+            .map { $0.suggestion(trigger: query.trigger) }
+        }
+
         let index = await fileIndex(rootDirectory: rootDirectory, now: now)
         if Task.isCancelled { return [] }
 
@@ -1815,7 +1836,7 @@ actor TextBoxMentionIndexStore {
             limit: Self.suggestionLimit,
             shouldCancel: { Task.isCancelled }
         )
-        if matches.isEmpty, !query.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if matches.isEmpty {
             let refreshed = await refreshFileIndex(rootDirectory: rootDirectory, now: now)
             if Task.isCancelled { return [] }
             matches = refreshed.rankedCandidates(
@@ -1828,13 +1849,23 @@ actor TextBoxMentionIndexStore {
             .map { $0.suggestion(trigger: query.trigger) }
     }
 
+    private func cachedFileIndex(
+        rootDirectory: String,
+        now: Date
+    ) -> TextBoxMentionCandidateIndex? {
+        guard let cached = fileIndexesByRoot[rootDirectory],
+              now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL else {
+            return nil
+        }
+        return cached.index
+    }
+
     private func fileIndex(
         rootDirectory: String,
         now: Date
     ) async -> TextBoxMentionCandidateIndex {
-        if let cached = fileIndexesByRoot[rootDirectory],
-           now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL {
-            return cached.index
+        if let cachedIndex = cachedFileIndex(rootDirectory: rootDirectory, now: now) {
+            return cachedIndex
         }
         return await refreshFileIndex(rootDirectory: rootDirectory, now: now)
     }
@@ -1847,18 +1878,46 @@ actor TextBoxMentionIndexStore {
         // additional keystrokes await the same scan instead of each spawning a
         // fresh (and expensive) `rg`/filesystem walk. The detached scan is not
         // cancelled, so a join here is correct even if the caller's lookup task is.
-        if let inFlight = fileIndexRefreshTasks[rootDirectory] {
-            return await inFlight.value
+        let scanTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
+        let index = await scanTask.value
+        storeFileIndex(rootDirectory: rootDirectory, index: index, createdAt: now)
+        return index
+    }
+
+    private func refreshFileIndexInBackground(rootDirectory: String, now: Date) {
+        guard cachedFileIndex(rootDirectory: rootDirectory, now: now) == nil else { return }
+        let scanTask = fileIndexRefreshTask(rootDirectory: rootDirectory)
+        Task { [rootDirectory, now, scanTask] in
+            let index = await scanTask.value
+            await self.storeFileIndex(rootDirectory: rootDirectory, index: index, createdAt: now)
         }
+    }
+
+    private func fileIndexRefreshTask(
+        rootDirectory: String
+    ) -> Task<TextBoxMentionCandidateIndex, Never> {
+        if let inFlight = fileIndexRefreshTasks[rootDirectory] {
+            return inFlight
+        }
+
         let rootURL = URL(fileURLWithPath: rootDirectory, isDirectory: true)
         let scanTask = Task<TextBoxMentionCandidateIndex, Never>.detached(priority: .utility) {
             TextBoxMentionCandidateIndex(candidates: Self.scanFiles(rootURL: rootURL))
         }
         fileIndexRefreshTasks[rootDirectory] = scanTask
-        let index = await scanTask.value
+        return scanTask
+    }
+
+    private func storeFileIndex(
+        rootDirectory: String,
+        index: TextBoxMentionCandidateIndex,
+        createdAt: Date
+    ) {
+        if let cached = fileIndexesByRoot[rootDirectory], cached.createdAt > createdAt {
+            return
+        }
         fileIndexRefreshTasks[rootDirectory] = nil
-        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: now)
-        return index
+        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: createdAt)
     }
 
     private func skillIndex(rootDirectory: String?) -> TextBoxMentionCandidateIndex {
@@ -1962,6 +2021,60 @@ actor TextBoxMentionIndexStore {
             }
         }
         return sortedFileSystemCandidates(directoryCandidates + fileCandidates)
+    }
+
+    private static func scanRootFileSystemCandidates(rootURL: URL) -> [TextBoxMentionCandidate] {
+        let fileManager = FileManager.default
+        guard let children = try? fileManager.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        let rootPath = rootURL.standardizedFileURL.path
+        let candidateURLs = children
+            .map(\.standardizedFileURL)
+            .filter { url in
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+                if values?.isDirectory == true {
+                    return !shouldSkipIndexedDirectoryName(url.lastPathComponent)
+                }
+                return values?.isRegularFile == true
+            }
+        let relativePaths = candidateURLs.map {
+            Self.relativePath(for: $0.path, rootPath: rootPath)
+        }
+        let ignoredRelativePaths = isGitWorkTree(rootURL: rootURL)
+            ? gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+            : []
+
+        var candidates: [TextBoxMentionCandidate] = []
+        candidates.reserveCapacity(candidateURLs.count)
+        for url in candidateURLs {
+            let relativePath = Self.relativePath(for: url.path, rootPath: rootPath)
+            guard !relativePath.isEmpty,
+                  !ignoredRelativePaths.contains(relativePath),
+                  !ignoredRelativePaths.contains("\(relativePath)/") else {
+                continue
+            }
+
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isDirectory == true {
+                candidates.append(Self.directoryCandidate(
+                    relativePath: relativePath,
+                    directoryURL: url
+                ))
+            } else if values?.isRegularFile == true {
+                candidates.append(Self.fileCandidate(
+                    relativePath: relativePath,
+                    fileURL: url,
+                    fileName: url.lastPathComponent
+                ))
+            }
+        }
+        return Array(sortedFileSystemCandidates(candidates).prefix(rootSuggestionLimit))
     }
 
     private static func scanFilesWithRipgrep(rootURL: URL) -> [TextBoxMentionCandidate]? {
