@@ -679,4 +679,17 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.customColor == "#123456")
         #expect(restoredGroup.iconSymbol == "leaf.fill")
     }
+
+    @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {
+        #expect(WorkspaceGroupIconSymbol.resolved(explicit: nil, configured: nil) == "folder.fill")
+        #expect(WorkspaceGroupIconSymbol.resolved(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
+        #expect(WorkspaceGroupIconSymbol.resolved(explicit: "not.an.sf.symbol", configured: nil) == "folder.fill")
+    }
+
+    @Test func surfaceTabIconSymbolResolutionFallsBackForInvalidInput() {
+        #expect(SurfaceTabIconSymbol.resolved("doc.text") == "doc.text")
+        #expect(SurfaceTabIconSymbol.resolved("   doc.text   ") == "doc.text")
+        #expect(SurfaceTabIconSymbol.resolved("not.an.sf.symbol") == "doc.text")
+        #expect(SurfaceTabIconSymbol.resolved("   ") == "doc.text")
+    }
 }
