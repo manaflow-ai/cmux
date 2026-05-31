@@ -104,6 +104,8 @@ const SearchAddonConstructor = window.SearchAddon?.SearchAddon;
 const terminalOutputChunkSize = 32768;
 const terminalOutputPerformanceChunkSize = 16384;
 const terminalOutputBacklogThreshold = 262144;
+const terminalHiddenOutputQueueLimit = terminalOutputBacklogThreshold * 4;
+const terminalHiddenOutputPreserveBytes = terminalOutputBacklogThreshold * 2;
 const renderSlowFrameMs = 24;
 const renderVerySlowFrameMs = 72;
 const renderSlowFrameTriggerCount = 4;
@@ -361,7 +363,9 @@ const state = {
     writtenBytes: 0,
     chunks: 0,
     lastChunk: 0,
-    pausedFlushes: 0
+    pausedFlushes: 0,
+    trimmedBytes: 0,
+    trimmedEvents: 0
   },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
@@ -4097,13 +4101,27 @@ function findPreviousInTerminal(panel = activePanel()) {
   return runTerminalSearch(target.session, "previous");
 }
 
+function trimPausedTerminalOutput(session) {
+  if (!session?.queue || session.queue.length <= terminalHiddenOutputQueueLimit) return false;
+  const preserveBytes = Math.min(terminalHiddenOutputPreserveBytes, session.queue.length);
+  const trimmedBytes = session.queue.length - preserveBytes;
+  if (trimmedBytes <= 0) return false;
+  const marker = `\r\n[cmux] ${formatBytes(trimmedBytes)} of hidden output was trimmed to keep switching responsive.\r\n`;
+  session.queue = marker + session.queue.slice(-preserveBytes);
+  state.terminalOutputStats.trimmedBytes = (state.terminalOutputStats.trimmedBytes || 0) + trimmedBytes;
+  state.terminalOutputStats.trimmedEvents = (state.terminalOutputStats.trimmedEvents || 0) + 1;
+  return true;
+}
+
 function enqueueTerminalOutput(session, data) {
   session.queue += data;
+  const paused = terminalOutputShouldPause(session);
+  if (paused) trimPausedTerminalOutput(session);
   updateTerminalOutputBacklog();
   if (state.terminalOutputStats.currentQueued >= terminalOutputBacklogThreshold) {
     maybeTriggerPerformanceGuard("terminal output backlog");
   }
-  if (!terminalOutputShouldPause(session)) scheduleTerminalOutputFlush(session);
+  if (!paused) scheduleTerminalOutputFlush(session);
 }
 
 function scheduleTerminalOutputFlush(session) {
@@ -6277,9 +6295,11 @@ function performanceMetrics() {
     ["Browser URL skips", String(state.renderStats.browserUrlRenderSkips)],
     ["Output backlog", formatBytes(state.terminalOutputStats.currentQueued)],
     ["Output max", formatBytes(state.terminalOutputStats.maxQueued)],
+    ["Output trimmed", formatBytes(state.terminalOutputStats.trimmedBytes)],
     ["Output chunks", String(state.terminalOutputStats.chunks)],
     ["Paused output", String(pausedTerminals)],
     ["Pause hits", String(state.terminalOutputStats.pausedFlushes)],
+    ["Trim events", String(state.terminalOutputStats.trimmedEvents || 0)],
     ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
     ["Panes", String(panels.length)],
@@ -6786,7 +6806,9 @@ function resetRenderStats() {
     writtenBytes: 0,
     chunks: 0,
     lastChunk: 0,
-    pausedFlushes: 0
+    pausedFlushes: 0,
+    trimmedBytes: 0,
+    trimmedEvents: 0
   };
   state.performanceGuardTriggered = false;
   state.performanceGuardReason = "";
