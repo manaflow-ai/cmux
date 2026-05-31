@@ -321,6 +321,7 @@ const state = {
   paletteRenderTimer: 0,
   paletteListSignature: "",
   surfaceTabScrollFrame: 0,
+  surfaceTabScrollTargetId: "",
   surfaceTabOverflowFrame: 0,
   surfaceTabResizeObserver: null,
   commandStripOverflowFrame: 0,
@@ -382,6 +383,7 @@ const state = {
     avgMs: 0,
     maxMs: 0,
     slowCount: 0,
+    coalescedRenders: 0,
     skippedRenders: 0,
     browserUrlRenderSkips: 0,
     guardActivations: 0
@@ -2731,7 +2733,10 @@ function setAppState(nextData, { previousState = state.data, schedule = false } 
 
 function scheduleRender(previousState = null) {
   if (previousState && !state.scheduledRenderPrevious) state.scheduledRenderPrevious = previousState;
-  if (state.renderFrame) return;
+  if (state.renderFrame) {
+    state.renderStats.coalescedRenders += 1;
+    return;
+  }
   state.renderFrame = requestAnimationFrame(() => {
     state.renderFrame = 0;
     const previous = state.scheduledRenderPrevious;
@@ -3159,10 +3164,14 @@ function surfaceTabsSignature(workspace) {
 }
 
 function scheduleActiveSurfaceTabIntoView(panelId) {
-  if (!panelId || state.surfaceTabScrollFrame) return;
+  if (!panelId) return;
+  state.surfaceTabScrollTargetId = panelId;
+  if (state.surfaceTabScrollFrame) return;
   state.surfaceTabScrollFrame = requestAnimationFrame(() => {
     state.surfaceTabScrollFrame = 0;
-    const activeTab = state.surfaceTabButtons.get(panelId);
+    const targetPanelId = state.surfaceTabScrollTargetId;
+    state.surfaceTabScrollTargetId = "";
+    const activeTab = state.surfaceTabButtons.get(targetPanelId);
     scrollChildIntoView(elements.surfaceTabs, activeTab, {
       inset: 42,
       smooth: !document.body.classList.contains("reduce-motion") && !state.settings.reduceMotion && !state.settings.performanceMode
@@ -7380,6 +7389,7 @@ function performanceMetrics() {
     ["Last render", formatMs(state.renderStats.lastMs)],
     ["Max render", formatMs(state.renderStats.maxMs)],
     ["Slow renders", String(state.renderStats.slowCount)],
+    ["Coalesced renders", String(state.renderStats.coalescedRenders || 0)],
     ["Skipped renders", String(state.renderStats.skippedRenders)],
     ["Browser URL skips", String(state.renderStats.browserUrlRenderSkips)],
     ["Output backlog", formatBytes(state.terminalOutputStats.currentQueued)],
@@ -10945,9 +10955,9 @@ function optimisticFocusWorkspace(workspaceId) {
   state.lastInteractedPanelId = panel?.id || null;
   if (state.data.activeWorkspaceId !== workspaceId) {
     state.data.activeWorkspaceId = workspaceId;
-    render();
+    scheduleRender();
   } else if (workspace.activePanelId !== previousPanelId) {
-    render();
+    scheduleRender();
   }
   return true;
 }
@@ -10960,7 +10970,7 @@ function optimisticFocusPanel(panelId) {
   clearDifferentZoomedPanelOnFocus(found.workspace, panelId);
   found.workspace.activePanelId = panelId;
   state.data.activeWorkspaceId = found.workspace.id;
-  render();
+  scheduleRender();
   return true;
 }
 
