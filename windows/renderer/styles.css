@@ -1238,12 +1238,26 @@ body.reduce-motion *::after {
 }
 
 .pane-grid {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: row;
   overflow: hidden;
   background: var(--color-terminal-gutter);
+  contain: layout paint;
+}
+
+.pane-grid.is-drop-target::before {
+  content: "";
+  position: absolute;
+  inset: var(--space-2);
+  z-index: 18;
+  pointer-events: none;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-accent) 26%, transparent);
 }
 
 .pane-grid.direction-down {
@@ -1261,6 +1275,7 @@ body.reduce-motion *::after {
   display: flex;
   flex-direction: row;
   overflow: hidden;
+  contain: layout paint;
 }
 
 .pane-split.direction-down {
@@ -1273,6 +1288,7 @@ body.reduce-motion *::after {
   min-width: 0;
   min-height: 0;
   container-type: inline-size;
+  contain: layout paint;
   display: grid;
   grid-template-rows: 31px minmax(0, 1fr);
   overflow: hidden;
@@ -1769,6 +1785,7 @@ body.reduce-motion *::after {
 
 .terminal-host {
   container-type: inline-size;
+  contain: layout paint;
   position: relative;
   width: 100%;
   height: 100%;
@@ -2309,6 +2326,7 @@ body.reduce-motion *::after {
   position: relative;
   display: grid;
   overflow: hidden;
+  contain: layout paint;
 }
 
 .browser-loading {

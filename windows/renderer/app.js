@@ -12629,6 +12629,7 @@ if (window.cmuxNative?.onCommand) {
   });
 }
 
+installBackgroundDropTarget(elements.paneGrid);
 applySettings();
 loadState();
 loadBrowserProfiles();
