@@ -5133,7 +5133,7 @@ function ensureBrowser(panel, body) {
   deferredPane.innerHTML = `
     <span class="browser-deferred-title">Browser paused</span>
     <span class="browser-deferred-url"></span>
-    <span class="browser-deferred-action">Select pane to load</span>
+    <span class="browser-deferred-action">Click pane to load</span>
   `;
   content.append(view, errorPane, loadingPane, deferredPane);
   const isWebview = view.tagName.toLowerCase() === "webview";
@@ -5188,7 +5188,7 @@ function ensureBrowser(panel, body) {
     deferredPane.querySelector(".browser-deferred-url").title = targetUrl;
     deferredPane.hidden = false;
     shell.classList.add("is-browser-deferred");
-    setStatus("Paused");
+    setStatus("");
   };
 
   const updateNavState = () => {
