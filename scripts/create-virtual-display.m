@@ -239,6 +239,8 @@ int main(int argc, const char *argv[]) {
                     }
                 }
 
+                printf("Display churn starting\n");
+                fflush(stdout);
                 NSArray *resolvedModes = resolveRequestedModes(display.displayID, modeSpecs);
                 if (resolvedModes.count < 2) {
                     writeString(@"error:no_modes\n", donePath);
@@ -265,6 +267,8 @@ int main(int argc, const char *argv[]) {
                 }
 
                 writeString(@"done\n", donePath);
+                printf("Display churn done\n");
+                fflush(stdout);
             });
         }
 
