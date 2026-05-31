@@ -525,6 +525,49 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             return Data([0x1B, 0x5B, 0x36, 0x7E]) // ESC[6~
         }
     }
+
+    /// Whether the user can show/hide/reorder this action. The modifier keys
+    /// (⌃ ⌥ ⌘ ⇧) and zoom controls are structural and stay pinned, so only the
+    /// insertable shortcuts (those with an `output`) are configurable.
+    public var isUserConfigurable: Bool {
+        output != nil && !isModifier
+    }
+
+    /// Every user-configurable action in canonical (enum) order. This is both
+    /// the default arrangement and the full set the settings editor lists.
+    public static var configurableActions: [TerminalInputAccessoryAction] {
+        allCases.filter { $0.isUserConfigurable }
+    }
+
+    /// Human-readable name for the shortcuts settings editor (the bar itself
+    /// renders the short `title`/symbol).
+    public var settingsDisplayName: String {
+        switch self {
+        case .escape: return String(localized: "terminal.shortcut.name.escape", defaultValue: "Escape")
+        case .tab: return String(localized: "terminal.shortcut.name.tab", defaultValue: "Tab")
+        case .upArrow: return String(localized: "terminal.shortcut.name.upArrow", defaultValue: "Up Arrow")
+        case .downArrow: return String(localized: "terminal.shortcut.name.downArrow", defaultValue: "Down Arrow")
+        case .leftArrow: return String(localized: "terminal.shortcut.name.leftArrow", defaultValue: "Left Arrow")
+        case .rightArrow: return String(localized: "terminal.shortcut.name.rightArrow", defaultValue: "Right Arrow")
+        case .claude: return String(localized: "terminal.shortcut.name.claude", defaultValue: "Claude")
+        case .codex: return String(localized: "terminal.shortcut.name.codex", defaultValue: "Codex")
+        case .tilde: return String(localized: "terminal.shortcut.name.tilde", defaultValue: "Tilde ~")
+        case .pipe: return String(localized: "terminal.shortcut.name.pipe", defaultValue: "Pipe |")
+        case .dollar: return String(localized: "terminal.shortcut.name.dollar", defaultValue: "Dollar $")
+        case .slash: return String(localized: "terminal.shortcut.name.slash", defaultValue: "Slash /")
+        case .atSign: return String(localized: "terminal.shortcut.name.atSign", defaultValue: "At @")
+        case .ctrlC: return String(localized: "terminal.shortcut.name.ctrlC", defaultValue: "Control-C")
+        case .ctrlD: return String(localized: "terminal.shortcut.name.ctrlD", defaultValue: "Control-D")
+        case .ctrlZ: return String(localized: "terminal.shortcut.name.ctrlZ", defaultValue: "Control-Z")
+        case .ctrlL: return String(localized: "terminal.shortcut.name.ctrlL", defaultValue: "Control-L")
+        case .home: return String(localized: "terminal.shortcut.name.home", defaultValue: "Home")
+        case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
+        case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
+        case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
+        case .control, .alternate, .command, .shift, .zoomIn, .zoomOut:
+            return title
+        }
+    }
 }
 
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
@@ -633,6 +676,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// initial scrollback filled with the prompt duplicated at every width.
     private var pendingViewportReport: TerminalGridSize?
     private var viewportReportSettleFrames = 0
+    /// Bounded retries for the viewport report round-trip. The report goes to
+    /// the Mac, which echoes back the effective grid via `applyViewSize`. If the
+    /// round-trip yields no effective grid (RPC timeout / lost reply), the
+    /// render stays pinned to the prior `effectiveGrid` and looks frozen even
+    /// though the main thread is fine. On a no-effective result we re-arm the
+    /// report (display-link driven, no timers) up to `maxViewportReportRetries`
+    /// so a transient drop self-heals; a confirmed result resets the count.
+    private var viewportReportRetries = 0
+    private static let maxViewportReportRetries = 3
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Longer than the local geometry settle so a zoom
     /// gesture (with brief pauses between steps) renegotiates the shared grid
@@ -1571,8 +1623,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Re-arm the debounced viewport report after a round-trip returned no
+    /// effective grid, so a transient RPC drop does not leave the render pinned
+    /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
+    /// display-link driven (the existing settle machinery re-fires it); a
+    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
+    public func retryViewportReport() {
+        guard viewportReportRetries < Self.maxViewportReportRetries,
+              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+        viewportReportRetries += 1
+        liveAnchormuxLog(
+            "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
+            + "grid=\(pending.columns)x\(pending.rows)"
+        )
+        pendingViewportReport = pending
+        viewportReportSettleFrames = 0
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
+        // A value came back from the Mac, so the round-trip recovered.
+        viewportReportRetries = 0
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         liveAnchormuxLog("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)

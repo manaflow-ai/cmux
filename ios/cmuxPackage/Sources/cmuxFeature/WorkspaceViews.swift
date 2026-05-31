@@ -284,6 +284,7 @@ struct WorkspaceListView: View {
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
     @State private var searchText = ""
+    @State private var showingShortcutsSettings = false
 
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -319,10 +320,8 @@ struct WorkspaceListView: View {
         .searchable(text: $searchText)
         .toolbar {
             #if os(iOS)
-            if rescanQR != nil || signOut != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    settingsMenu
-                }
+            ToolbarItem(placement: .topBarLeading) {
+                settingsMenu
             }
             ToolbarItem(placement: .topBarTrailing) {
                 newWorkspaceButton
@@ -334,6 +333,11 @@ struct WorkspaceListView: View {
             #endif
         }
         .accessibilityIdentifier("MobileWorkspaceList")
+        #if os(iOS)
+        .sheet(isPresented: $showingShortcutsSettings) {
+            TerminalShortcutsSettingsView()
+        }
+        #endif
     }
 
     private var newWorkspaceButton: some View {
@@ -346,6 +350,15 @@ struct WorkspaceListView: View {
 
     private var settingsMenu: some View {
         Menu {
+            Button {
+                showingShortcutsSettings = true
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
+                    systemImage: "keyboard"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceTerminalShortcutsMenuItem")
             if let rescanQR {
                 Button {
                     rescanQR()

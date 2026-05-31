@@ -97,11 +97,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     rows: size.rows
                 ) else {
                     // No effective grid came back (RPC timed out or returned
-                    // nil). The render stays pinned to the prior effective grid,
-                    // which can look like a frozen / letterboxed terminal even
-                    // though the main thread is fine. Surfaced so the dogfood
-                    // log distinguishes this from a true wedge.
+                    // nil). Left unhandled, the render stays pinned to the prior
+                    // effective grid and looks like a frozen / letterboxed
+                    // terminal even though the main thread is fine. Re-arm the
+                    // report so a transient drop self-heals (bounded inside the
+                    // surface). Logged so the dogfood log still distinguishes
+                    // this from a true main-thread wedge.
                     liveAnchormuxLog("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
+                    surfaceView?.retryViewportReport()
                     return
                 }
                 surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)

@@ -77,20 +77,9 @@ final class TerminalInputTextView: UITextView {
         stack.spacing = 6
         stack.alignment = .center
 
-        for action in TerminalInputAccessoryAction.allCases {
-            // Shift is not useful as an on-screen terminal toolbar key.
-            if action == .shift { continue }
-            let button = makeAccessoryButton(for: action)
-            // Command is Mac-only; don't add it to the stack at all by default.
-            // updateModifierLabels(isMacRemote: true) will insert it dynamically.
-            if action == .command {
-                commandAccessoryButton = button
-            } else {
-                stack.addArrangedSubview(button)
-            }
-        }
-
         stack.translatesAutoresizingMaskIntoConstraints = false
+        accessoryStackView = stack
+        populateAccessoryActions()
         scrollView.addSubview(stack)
 
         // Arrow nub for directional pad
@@ -147,7 +136,6 @@ final class TerminalInputTextView: UITextView {
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
         accessoryDismissLeadingConstraint = dismissLeadingConstraint
         accessoryScrollTrailingConstraint = scrollTrailingConstraint
-        accessoryStackView = stack
         // The cmux iOS app always drives a macOS cmux surface, so default the
         // accessory to Mac modifiers: retitle Ctrl/Alt to ⌃/⌥ and insert the ⌘
         // button. `updateModifierLabels(isMacRemote:)` can still switch this if a
@@ -178,9 +166,58 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
+    /// The structural buttons pinned to the front of the bar, ahead of the
+    /// user-configurable shortcuts. Command is created but kept out of the
+    /// stack until ``applyModifierPresentation()`` inserts it for a Mac remote.
+    private static let pinnedLeadingActions: [TerminalInputAccessoryAction] = [
+        .control, .alternate, .command, .zoomOut, .zoomIn,
+    ]
+
+    /// Build (or rebuild) the bar's buttons: the pinned modifier/zoom controls
+    /// followed by the user-configurable shortcuts in their saved order. Safe to
+    /// call repeatedly; it clears the stack first.
+    private func populateAccessoryActions() {
+        guard let stack = accessoryStackView else { return }
+        for view in stack.arrangedSubviews {
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        commandAccessoryButton?.removeFromSuperview()
+        commandAccessoryButton = nil
+
+        let actions = Self.pinnedLeadingActions + TerminalAccessoryConfiguration.shared.enabledActions
+        for action in actions {
+            let button = makeAccessoryButton(for: action)
+            // Command is Mac-only; kept out of the stack and inserted by
+            // applyModifierPresentation() when driving a Mac remote.
+            if action == .command {
+                commandAccessoryButton = button
+            } else {
+                stack.addArrangedSubview(button)
+            }
+        }
+    }
+
+    @objc private func handleAccessoryConfigurationChanged() {
+        // Only rebuild once the bar exists; otherwise the lazy build picks up
+        // the new configuration on first use.
+        guard accessoryStackView != nil else { return }
+        populateAccessoryActions()
+        applyModifierPresentation()
+        terminalAccessoryToolbar.setNeedsLayout()
+        terminalAccessoryToolbar.layoutIfNeeded()
+    }
+
     func updateModifierLabels(isMacRemote: Bool) {
         guard self.isMacRemote != isMacRemote else { return }
         self.isMacRemote = isMacRemote
+        applyModifierPresentation()
+    }
+
+    /// Retitle the modifier buttons for the current remote and insert/remove the
+    /// command button. Split out of ``updateModifierLabels(isMacRemote:)`` so a
+    /// configuration-driven rebuild can re-apply it without toggling the flag.
+    private func applyModifierPresentation() {
         guard let stack = accessoryStackView else { return }
         for case let button as UIButton in stack.arrangedSubviews {
             guard let action = TerminalInputAccessoryAction(rawValue: button.tag) else { continue }
@@ -232,10 +269,20 @@ final class TerminalInputTextView: UITextView {
         inputAccessoryView = terminalAccessoryToolbar
         delegate = self
         text = ""
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAccessoryConfigurationChanged),
+            name: TerminalAccessoryConfiguration.didChangeNotification,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func insertText(_ text: String) {
