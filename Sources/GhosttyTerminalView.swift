@@ -1734,8 +1734,11 @@ class GhosttyApp {
     private var _tickScheduled = false
     private let _tickLock = NSLock()
     // Seed the canvas with the active Aurean surface so the first paint (before Ghostty
-    // reports its theme colors) already matches the chrome that mirrors this value.
-    private(set) var defaultBackgroundColor: NSColor = AureanAppearanceSettings.activePalette.surfacePrimary.nsColor
+    // reports its theme colors) already matches the chrome that mirrors this value. In light
+    // mode Aurean stands down (it is dark-first), so seed the system background there.
+    private(set) var defaultBackgroundColor: NSColor = AureanAppearanceSettings.isActiveForCurrentAppearance
+        ? AureanAppearanceSettings.activePalette.surfacePrimary.nsColor
+        : .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private(set) var defaultBackgroundBlur: GhosttyBackgroundBlur = .disabled
     private(set) var defaultForegroundColor: NSColor = GhosttyApp.fallbackAppearanceConfig.foregroundColor
@@ -4035,10 +4038,13 @@ class GhosttyApp {
         let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
         let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
         let previousColorScheme = effectiveTerminalColorSchemePreference
-        // Aurean owns the canvas: the active palette's surface drives the terminal
-        // background, and the window chrome (which mirrors this color) follows. The
-        // user's Ghostty theme still supplies foreground, cursor, and selection colors.
-        let aureanBackground = AureanAppearanceSettings.activePalette.surfacePrimary.nsColor
+        // Aurean owns the canvas in dark mode: the active palette's surface drives the
+        // terminal background, and the window chrome (which mirrors this color) follows. The
+        // user's Ghostty theme still supplies foreground, cursor, and selection colors. In
+        // light mode Aurean stands down and the reported color (incl. OSC 11) is honored.
+        let aureanBackground = AureanAppearanceSettings.isActiveForCurrentAppearance
+            ? AureanAppearanceSettings.activePalette.surfacePrimary.nsColor
+            : color
         defaultBackgroundColor = aureanBackground
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur

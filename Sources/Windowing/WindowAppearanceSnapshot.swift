@@ -107,21 +107,48 @@ struct SidebarBackdropSettingsSnapshot {
     let colorScheme: ColorScheme
 
     var materialPolicy: SidebarBackdropMaterialPolicy {
-        // Aurean "opaque chrome": the sidebar is a solid surfaceOff fill rather than a
-        // translucent vibrancy material, so it reads as part of the opaque Aurean chrome and
-        // never lets the desktop wallpaper bleed through. `material` is nil so no vibrancy is
-        // built; the opaque tint overlay (see ContentView.backdrop) paints the surface.
         let blendingMode = SidebarBlendModeOption(rawValue: blendModeRawValue)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: stateRawValue)?.state ?? .active
+        // Aurean "opaque chrome" (dark mode only): the sidebar is a solid surfaceOff fill
+        // rather than a translucent vibrancy material, so it reads as part of the opaque
+        // Aurean chrome and never lets the desktop wallpaper bleed through. `material` is nil
+        // so no vibrancy is built; the opaque tint overlay (see ContentView.backdrop) paints
+        // the surface.
+        if AureanAppearanceSettings.isActiveForCurrentAppearance {
+            return SidebarBackdropMaterialPolicy(
+                material: nil,
+                blendingMode: blendingMode,
+                state: state,
+                opacity: 1,
+                tintColor: AureanAppearanceSettings.activePalette.surfaceOff.nsColor,
+                cornerRadius: CGFloat(max(0, cornerRadius)),
+                preferLiquidGlass: false,
+                usesWindowLevelGlass: false
+            )
+        }
+        // Light mode: honor the user's configured sidebar material and tint.
+        let materialOption = SidebarMaterialOption(rawValue: materialRawValue)
+        let resolvedHex: String
+        if colorScheme == .dark, let tintHexDark {
+            resolvedHex = tintHexDark
+        } else if colorScheme == .light, let tintHexLight {
+            resolvedHex = tintHexLight
+        } else {
+            resolvedHex = tintHex
+        }
+        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: tintHex) ?? .black)
+            .withAlphaComponent(tintOpacity)
+        let preferLiquidGlass = materialOption?.usesLiquidGlass ?? false
+        let usesWindowLevelGlass = preferLiquidGlass && blendingMode == .behindWindow
         return SidebarBackdropMaterialPolicy(
-            material: nil,
+            material: materialOption?.material,
             blendingMode: blendingMode,
             state: state,
-            opacity: 1,
-            tintColor: AureanAppearanceSettings.activePalette.surfaceOff.nsColor,
+            opacity: blurOpacity,
+            tintColor: tintColor,
             cornerRadius: CGFloat(max(0, cornerRadius)),
-            preferLiquidGlass: false,
-            usesWindowLevelGlass: false
+            preferLiquidGlass: preferLiquidGlass,
+            usesWindowLevelGlass: usesWindowLevelGlass
         )
     }
 
@@ -137,6 +164,11 @@ struct SidebarBackdropSettingsSnapshot {
             Self.identityComponent(cornerRadius),
             Self.identityComponent(blurOpacity),
             String(describing: colorScheme),
+            // The resolved sidebar fill depends on the active Aurean variant (and whether
+            // Aurean is driving at all), so both must enter the mutation id or the AppKit
+            // backdrop would stay stale after a palette switch.
+            AureanAppearanceSettings.activeVariant.rawValue,
+            String(AureanAppearanceSettings.isActiveForCurrentAppearance),
         ].joined(separator: "|")
     }
 
@@ -316,14 +348,22 @@ struct WindowAppearanceSnapshot {
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return .clear
         }
-        // Aurean "opaque chrome": the window-root backdrop is the opaque palette surface,
-        // hosted on the window layer. A translucent terminal then composites over the Aurean
-        // canvas instead of the desktop wallpaper, so the chrome reads solid while the
-        // terminal keeps its own background opacity.
+        // Aurean "opaque chrome" (dark mode only): the window-root backdrop is the opaque
+        // palette surface, hosted on the window layer. A translucent terminal then composites
+        // over the Aurean canvas instead of the desktop wallpaper, so the chrome reads solid
+        // while the terminal keeps its own background opacity. In light mode Aurean stands
+        // down and the user's own opacity/rendering mode are honored.
+        if AureanAppearanceSettings.isActiveForCurrentAppearance {
+            return .ghosttyTerminalBackdrop(
+                color: terminalBackgroundColor,
+                opacity: 1,
+                renderingMode: .windowHostBackdrop
+            )
+        }
         return .ghosttyTerminalBackdrop(
             color: terminalBackgroundColor,
-            opacity: 1,
-            renderingMode: .windowHostBackdrop
+            opacity: terminalBackgroundOpacity,
+            renderingMode: terminalRenderingMode
         )
     }
 }

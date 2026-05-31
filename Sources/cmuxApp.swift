@@ -15,10 +15,14 @@ struct cmuxApp: App {
     /// through it via the `@Setting` property wrapper.
     private let settingsRuntime: SettingsRuntime
 
-    /// Owner of the active Aurean appearance. Created once at launch and injected
-    /// into the window's environment via `.aureanTheme(_:)`; descendant chrome reads
-    /// colors through `@Environment(\.aureanPalette)`. Defaults to the cool palette.
-    @State private var aureanTheme = AureanTheme()
+    /// Owner of the active Aurean appearance. Created once at launch (seeded from the
+    /// persisted variant) and injected into the window's environment via `.aureanTheme(_:)`;
+    /// descendant chrome reads colors through `@Environment(\.aureanPalette)`.
+    @State private var aureanTheme = AureanTheme(
+        variant: AureanPaletteVariant(
+            rawValue: UserDefaults.standard.string(forKey: AureanPaletteVariant.userDefaultsKey) ?? ""
+        ) ?? .cool
+    )
 
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
@@ -26,7 +30,7 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
-    @AppStorage("aureanPaletteVariant") private var aureanVariantRaw = AureanPaletteVariant.cool.rawValue
+    @AppStorage(AureanPaletteVariant.userDefaultsKey) private var aureanVariantRaw = AureanPaletteVariant.cool.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
@@ -267,7 +271,6 @@ struct cmuxApp: App {
                         UpdateLogStore.shared.append("ui test: cmuxApp onAppear")
                     }
 #endif
-                    aureanTheme.variant = AureanPaletteVariant(rawValue: aureanVariantRaw) ?? .cool
                     bootstrapMainWindowScene()
                 }
                 .onChange(of: appearanceMode) { _ in

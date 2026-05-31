@@ -12,7 +12,7 @@ enum SidebarMatchTerminalBackgroundSettings {
 // root `AureanTheme` write `userDefaultsKey`; ambient AppKit color helpers read it here so
 // chrome rendered outside the SwiftUI environment still tracks the chosen variant.
 enum AureanAppearanceSettings {
-    static let userDefaultsKey = "aureanPaletteVariant"
+    static let userDefaultsKey = AureanPaletteVariant.userDefaultsKey
 
     static var activeVariant: AureanPaletteVariant {
         guard let raw = UserDefaults.standard.string(forKey: userDefaultsKey),
@@ -20,7 +20,17 @@ enum AureanAppearanceSettings {
         return variant
     }
 
-    static var activePalette: AureanPalette { AureanPalette(variant: activeVariant) }
+    static var activePalette: AureanPalette { activeVariant.palette }
+
+    /// Whether the Aurean palette should drive surfaces for the current app appearance.
+    ///
+    /// Aurean is a dark-first design with no light variant, so in light mode the app keeps
+    /// the user's existing (Ghostty/system) colors instead of forcing a dark surface that
+    /// would render light-mode foreground text unreadable. Defaults to `false` when no app
+    /// is available yet (early init), so the seed prefers the system background.
+    static var isActiveForCurrentAppearance: Bool {
+        NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
 }
 
 extension Color {
