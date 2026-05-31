@@ -30,7 +30,7 @@ repo / self-hosted runner** that holds the credentials.
 
 | Item | Location |
 |---|---|
-| `panecho.release.entitlements`, `scripts/sign-cmux-bundle.sh`, `scripts/notarize-and-staple-panecho.sh` | **This public repo** (no secrets) |
+| `panecho.release.entitlements`, `scripts/sign-panecho-bundle.sh`, `scripts/notarize-and-staple-panecho.sh` | **This public repo** (no secrets) |
 | Developer ID Application `.p12` + password | **Private repo secret** / Keychain only |
 | App Store Connect API key `.p8` + Key ID + Issuer ID | **Private repo secret** only |
 | `CROSS_REPO_TOKEN` (write to this repo's releases) | **Private repo secret** only |
@@ -67,7 +67,7 @@ profile, after a Panecho release is published:
 ```bash
 gh release download <tag> -R xxshubhamxx/cmux-panecho -p '*macos.zip'
 ditto -x -k *macos.zip .                     # -> Panecho.app
-./scripts/sign-cmux-bundle.sh Panecho.app panecho.release.entitlements \
+./scripts/sign-panecho-bundle.sh Panecho.app panecho.release.entitlements \
   "Developer ID Application: Browserstack Inc (YQ5FZQ855D)"
 ASC_API_KEY_PATH=~/keys/AuthKey.p8 ASC_API_KEY_ID=XXXX ASC_API_ISSUER_ID=YYYY \
   ./scripts/notarize-and-staple-panecho.sh Panecho.app \
@@ -142,7 +142,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
-          ./scripts/sign-cmux-bundle.sh \
+          ./scripts/sign-panecho-bundle.sh \
             extracted/Panecho.app \
             panecho.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
@@ -189,12 +189,22 @@ xcrun stapler validate /Applications/Panecho.app    # -> validated
 Then: launch, Allow the TCC prompt once, quit, relaunch — it should **not**
 re-prompt (consent now persists against the stable Team ID).
 
-## Caveat
+## Caveat: dropped web-browser entitlement (verified)
 
-`com.apple.developer.web-browser.public-key-credential` is retained in
-`panecho.release.entitlements` only because `scripts/sign-cmux-bundle.sh`
-requires it post-sign. Under Developer ID (no provisioning profile) the
-capability is inert — in-app-browser passkeys won't function — but signing and
-notarization are unaffected. To make it functional, register `io.panecho.app`
-with that capability under team `YQ5FZQ855D` and embed a managed provisioning
-profile.
+`panecho.release.entitlements` deliberately OMITS
+`com.apple.developer.web-browser.public-key-credential`. That entitlement is a
+RESTRICTED capability requiring a managed provisioning profile. Under a
+Developer ID signature with no profile, including it makes the app **fail to
+launch** — verified locally: `RBSRequestErrorDomain Code=5 / Launchd job spawn
+failed` (errno 153, an amfi spawn rejection). Removing it lets the
+Developer-ID-signed app launch and run normally.
+
+Because the upstream `scripts/sign-cmux-bundle.sh` hard-requires that
+entitlement post-sign, Panecho uses `scripts/sign-panecho-bundle.sh` instead —
+same inside-out signing order, but it forbids the profile-bound entitlements
+(`web-browser.public-key-credential`, `application-identifier`,
+`team-identifier`) rather than requiring them.
+
+Consequence: in-app-browser passkeys (WebAuthn) are unavailable. To restore
+them, register `io.panecho.app` for that capability under team `YQ5FZQ855D`,
+embed a managed provisioning profile, and add the entitlement back.

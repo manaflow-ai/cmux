@@ -4,23 +4,30 @@
 <dict>
 	<!--
 	  Panecho Developer ID (non-App-Store) entitlements.
-	  Derived from cmux.release.entitlements but WITHOUT the team/app-id
-	  bindings: Developer ID distribution is not provisioning-profile based,
-	  so com.apple.application-identifier and com.apple.developer.team-identifier
-	  must be omitted (the signing certificate carries the identity).
-	  The web-browser.public-key-credential key is retained because
-	  scripts/sign-cmux-bundle.sh requires it post-sign; it is inert under
-	  Developer ID unless io.panecho.app is registered with that capability.
+
+	  Verified empirically (errno 153 / "Launchd job spawn failed"): a
+	  Developer-ID-signed app must NOT carry restricted entitlements that
+	  require a provisioning profile, or amfi kills it at spawn. Dropped vs
+	  cmux.release.entitlements:
+	    - com.apple.application-identifier        (profile-bound)
+	    - com.apple.developer.team-identifier     (profile-bound)
+	    - com.apple.developer.web-browser.public-key-credential
+	          (RESTRICTED capability; needs a managed provisioning profile.
+	           Under Developer ID with no profile the app fails to launch.
+	           In-app-browser passkeys are therefore unavailable until
+	           io.panecho.app is registered for this capability under team
+	           YQ5FZQ855D and a managed profile is embedded.)
+
+	  Sign with scripts/sign-panecho-bundle.sh (NOT sign-cmux-bundle.sh,
+	  which hard-requires the web-browser entitlement).
 	-->
-	<key>com.apple.developer.web-browser.public-key-credential</key>
-	<true/>
-	<key>com.apple.security.automation.apple-events</key>
-	<true/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
 	<true/>
 	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.automation.apple-events</key>
 	<true/>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
