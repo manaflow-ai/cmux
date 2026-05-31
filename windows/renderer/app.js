@@ -3634,14 +3634,14 @@ function createEmptyWorkspace(workspace) {
       <div class="empty-workspace-actions">
         <button class="tool-button primary new-terminal">+ Term</button>
         <button class="tool-button new-browser">Web</button>
+        <button class="tool-button reopen-pane">Reopen</button>
       </div>
       <div class="empty-workspace-starters"></div>
     </div>
   `;
   ensureEmptyWorkspaceLogo(node);
   node.querySelector(".empty-workspace-title").textContent = "cmux";
-  node.querySelector(".new-terminal").onclick = () => createEmptyWorkspacePanel("terminal", workspace);
-  node.querySelector(".new-browser").onclick = () => createEmptyWorkspacePanel("browser", workspace);
+  updateEmptyWorkspaceActions(node, workspace);
   renderEmptyWorkspaceStarters(node, workspace);
   return node;
 }
@@ -3653,12 +3653,24 @@ function renderEmptyWorkspace(workspace) {
   } else {
     ensureEmptyWorkspaceLogo(node);
     node.querySelector(".empty-workspace-title").textContent = "cmux";
-    setTextIfChanged(node.querySelector(".empty-workspace-body"), "Start with a pane or build a ready workspace layout.");
-    node.querySelector(".new-terminal").onclick = () => createEmptyWorkspacePanel("terminal", workspace);
-    node.querySelector(".new-browser").onclick = () => createEmptyWorkspacePanel("browser", workspace);
+    updateEmptyWorkspaceActions(node, workspace);
     renderEmptyWorkspaceStarters(node, workspace);
   }
   replaceChildrenIfChanged(elements.paneGrid, [node]);
+}
+
+function updateEmptyWorkspaceActions(node, workspace) {
+  const canReopen = state.closedPanels.length > 0;
+  setTextIfChanged(
+    node.querySelector(".empty-workspace-body"),
+    canReopen ? "Reopen your last pane or start a new workspace layout." : "Start with a pane or build a ready workspace layout."
+  );
+  node.querySelector(".new-terminal").onclick = () => createEmptyWorkspacePanel("terminal", workspace);
+  node.querySelector(".new-browser").onclick = () => createEmptyWorkspacePanel("browser", workspace);
+  const reopen = node.querySelector(".reopen-pane");
+  reopen.onclick = reopenClosedPanel;
+  reopen.disabled = !canReopen;
+  setHiddenIfChanged(reopen, !canReopen);
 }
 
 async function workspaceForEmptyAction(workspace) {
