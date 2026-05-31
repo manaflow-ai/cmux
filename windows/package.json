@@ -5,9 +5,10 @@
   "description": "Windows desktop milestone for cmux",
   "main": "src/main.cjs",
   "scripts": {
-    "build:renderer": "vite build --config vite.renderer.config.mjs",
+    "build:renderer": "vite build --mode production --config vite.renderer.config.mjs",
+    "build:renderer:dev": "vite build --mode development --config vite.renderer.config.mjs",
     "start": "npm run build:renderer && electron .",
-    "dev": "npm run build:renderer && electron .",
+    "dev": "npm run build:renderer:dev && electron .",
     "cli": "node src/cli.cjs",
     "smoke": "node src/smoke.cjs"
   },

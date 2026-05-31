@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export function createAppearancePreview({
   settings,
   themeLabel,
@@ -49,13 +51,17 @@ export function createAppearancePreview({
       </div>
     </div>
     <div class="appearance-preview-summary">
-      <span><b>Theme</b><em data-preview-theme></em></span>
-      <span><b>Accent</b><em data-preview-accent></em></span>
-      <span><b>Background</b><em data-preview-background></em></span>
-      <span><b>Terminal</b><em data-preview-terminal></em></span>
+      <span><b data-preview-label-theme></b><em data-preview-theme></em></span>
+      <span><b data-preview-label-accent></b><em data-preview-accent></em></span>
+      <span><b data-preview-label-background></b><em data-preview-background></em></span>
+      <span><b data-preview-label-terminal></b><em data-preview-terminal></em></span>
     </div>
   `;
 
+  panel.querySelector("[data-preview-label-theme]").textContent = t("appearance.theme");
+  panel.querySelector("[data-preview-label-accent]").textContent = t("appearance.accent");
+  panel.querySelector("[data-preview-label-background]").textContent = t("appearance.background");
+  panel.querySelector("[data-preview-label-terminal]").textContent = t("appearance.terminal");
   panel.querySelector("[data-preview-theme]").textContent = themeLabel;
   panel.querySelector("[data-preview-accent]").textContent = accentLabel;
   panel.querySelector("[data-preview-background]").textContent = backgroundLabel;

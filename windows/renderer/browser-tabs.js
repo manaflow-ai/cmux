@@ -3,6 +3,7 @@ import {
   hostnameOf,
   normalizeBrowserPageUrl
 } from "./browser-utils.js";
+import { t } from "./i18n.js";
 
 export const browserTabLimit = 12;
 export const browserTabsStorageKey = "cmux.browserTabs";
@@ -13,7 +14,7 @@ function createBrowserTabId() {
 
 export function browserTabTitle(url) {
   const host = hostnameOf(url);
-  return host && host !== "Browser" ? host : "New tab";
+  return host && host !== t("browser.fallbackTitle") ? host : t("browser.newTab");
 }
 
 export function normalizeBrowserTab(entry, fallbackUrl = defaultSettings.browserHomeUrl) {

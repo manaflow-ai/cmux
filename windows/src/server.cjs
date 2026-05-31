@@ -7,6 +7,7 @@ const path = require("node:path");
 const { fileURLToPath } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { WebSocket, WebSocketServer } = require("ws");
+const { t } = require("./i18n.cjs");
 
 let pty = null;
 try {
@@ -465,8 +466,9 @@ class CmuxWindowsRuntime {
     this.wss = new WebSocketServer({ noServer: true });
     this.eventSockets = new Set();
     this.terminals = new Map();
-    this.pendingTerminalPrewarms = new Map();
+    this.pendingTerminalPrewarms = new Set();
     this.terminalMetadataTimer = null;
+    this.launchToken = String(options.launchToken || crypto.randomBytes(32).toString("base64url"));
     this.closed = false;
     this.sessionRepaired = false;
     this.state = this.loadSession();
@@ -574,7 +576,7 @@ class CmuxWindowsRuntime {
   }
 
   newPanel(type, workspaceId, options = {}) {
-    const defaultTitle = type === "browser" ? "Browser" : "Terminal";
+    const defaultTitle = type === "browser" ? t("panel.browser") : t("panel.terminal");
     const explicitTitle = String(options.title || "").trim();
     const title = String(explicitTitle || defaultTitle).trim().slice(0, 80) || defaultTitle;
     const panel = {
@@ -680,13 +682,14 @@ class CmuxWindowsRuntime {
   scheduleTerminalPrewarm(panel) {
     if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
     if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
-    this.pendingTerminalPrewarms.set(panel.id, true);
+    this.pendingTerminalPrewarms.add(panel.id);
     try {
       const found = this.findPanel(panel.id);
       if (!found || found.panel.type !== "terminal" || this.terminals.has(panel.id)) return;
       this.ensureTerminalProcess(found.panel);
     } catch (error) {
-      console.error(`terminal prewarm failed: ${error.message}`);
+      console.error("terminal prewarm failed");
+      console.error(error);
     } finally {
       this.pendingTerminalPrewarms.delete(panel.id);
     }
@@ -938,7 +941,32 @@ class CmuxWindowsRuntime {
     }
   }
 
+  requestToken(request, url) {
+    const headerToken = request.headers["x-local-token"];
+    if (Array.isArray(headerToken)) return headerToken[0] || "";
+    return String(headerToken || url.searchParams.get("token") || "");
+  }
+
+  requestHasValidToken(request, url) {
+    return this.requestToken(request, url) === this.launchToken;
+  }
+
+  requestHasAllowedOrigin(request) {
+    const origin = request.headers.origin;
+    if (!origin) return true;
+    const host = request.headers.host;
+    return origin === `http://${host}`;
+  }
+
   async handleApi(request, response, url) {
+    if (!this.requestHasAllowedOrigin(request)) {
+      writeJSON(response, 403, { error: "forbidden_origin" });
+      return;
+    }
+    if (!this.requestHasValidToken(request, url)) {
+      writeJSON(response, 401, { error: "unauthorized" });
+      return;
+    }
     try {
       if (request.method === "GET" && url.pathname === "/api/state") {
         writeJSON(response, 200, this.serializedState());
@@ -1016,7 +1044,11 @@ class CmuxWindowsRuntime {
       }
       writeJSON(response, 404, { error: "not_found" });
     } catch (error) {
-      writeJSON(response, 500, { error: error.message });
+      const badRequest = error instanceof SyntaxError;
+      if (!badRequest) console.error(error);
+      writeJSON(response, badRequest ? 400 : 500, {
+        error: badRequest ? "invalid_request" : "internal_error"
+      });
     }
   }
 
@@ -1100,6 +1132,11 @@ class CmuxWindowsRuntime {
 
   handleUpgrade(request, socket, head) {
     const url = new URL(request.url, "http://127.0.0.1");
+    if (!this.requestHasAllowedOrigin(request) || !this.requestHasValidToken(request, url)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     this.wss.handleUpgrade(request, socket, head, (ws) => {
       if (url.pathname === "/events") {
         this.eventSockets.add(ws);
@@ -1136,13 +1173,20 @@ class CmuxWindowsRuntime {
       });
       this.server.on("upgrade", (request, socket, head) => this.handleUpgrade(request, socket, head));
       this.server.on("error", reject);
-      this.server.listen(port, "127.0.0.1", () => {
-        this.startPipeServer();
+      this.server.listen(port, "127.0.0.1", async () => {
+        try {
+          await this.startPipeServer();
+        } catch (error) {
+          this.server.close();
+          reject(error);
+          return;
+        }
         const address = this.server.address();
         resolve({
           port: address.port,
           url: `http://127.0.0.1:${address.port}/`,
           pipeName: this.pipeName,
+          launchToken: this.launchToken,
           ptyAvailable: this.ptyAvailable
         });
       });
@@ -1150,28 +1194,35 @@ class CmuxWindowsRuntime {
   }
 
   startPipeServer() {
-    if (process.platform !== "win32" && fs.existsSync(this.pipeName)) {
-      fs.unlinkSync(this.pipeName);
-    }
-    this.pipeServer = net.createServer((socket) => {
-      let buffer = "";
-      socket.on("data", (chunk) => {
-        buffer += chunk.toString("utf8");
-        let index = buffer.indexOf("\n");
-        while (index >= 0) {
-          const line = buffer.slice(0, index).trim();
-          buffer = buffer.slice(index + 1);
-          this.handlePipeLine(line).then((reply) => {
-            socket.write(reply + "\n");
-          }).catch((error) => {
-            socket.write(JSON.stringify({ ok: false, error: error.message }) + "\n");
-          });
-          index = buffer.indexOf("\n");
-        }
+    return new Promise((resolve, reject) => {
+      if (process.platform !== "win32" && fs.existsSync(this.pipeName)) {
+        fs.unlinkSync(this.pipeName);
+      }
+      this.pipeServer = net.createServer((socket) => {
+        let buffer = "";
+        socket.on("data", (chunk) => {
+          buffer += chunk.toString("utf8");
+          let index = buffer.indexOf("\n");
+          while (index >= 0) {
+            const line = buffer.slice(0, index).trim();
+            buffer = buffer.slice(index + 1);
+            this.handlePipeLine(line).then((reply) => {
+              socket.write(reply + "\n");
+            }).catch((error) => {
+              console.error(error);
+              socket.write(JSON.stringify({ ok: false, error: "internal_error" }) + "\n");
+            });
+            index = buffer.indexOf("\n");
+          }
+        });
       });
+      this.pipeServer.once("error", reject);
+      this.pipeServer.once("listening", () => {
+        this.pipeServer.removeListener("error", reject);
+        resolve();
+      });
+      this.pipeServer.listen(this.pipeName);
     });
-    this.pipeServer.on("error", () => {});
-    this.pipeServer.listen(this.pipeName);
   }
 
   async handlePipeLine(line) {
@@ -1245,7 +1296,6 @@ class CmuxWindowsRuntime {
       clearTimeout(this.terminalMetadataTimer);
       this.terminalMetadataTimer = null;
     }
-    for (const timer of this.pendingTerminalPrewarms.values()) clearTimeout(timer);
     this.pendingTerminalPrewarms.clear();
     for (const terminal of this.terminals.values()) terminal.close();
     this.terminals.clear();

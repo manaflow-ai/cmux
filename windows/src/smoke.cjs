@@ -86,6 +86,22 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
     pipeName
   });
   const info = await runtime.listen();
+  const rawFetch = global.fetch;
+  const unauthorizedState = await rawFetch(`${info.url}api/state`);
+  assert(unauthorizedState.status === 401, "state endpoint should require launch token");
+  global.fetch = (resource, options = {}) => {
+    const resourceUrl = typeof resource === "string" ? resource : resource?.url || "";
+    if (resourceUrl.startsWith(`${info.url}api/`)) {
+      return rawFetch(resource, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          "x-local-token": info.launchToken
+        }
+      });
+    }
+    return rawFetch(resource, options);
+  };
 
   const stateResponse = await fetch(`${info.url}api/state`);
   assert(stateResponse.ok, "state endpoint failed");
@@ -210,7 +226,7 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
   const defaultBrowser = await defaultBrowserResponse.json();
   assert(defaultBrowser.url === "https://www.google.com", "default browser should open Google");
 
-  const eventSocket = new WebSocket(`${info.url.replace(/^http/, "ws")}events`);
+  const eventSocket = new WebSocket(`${info.url.replace(/^http/, "ws")}events?token=${encodeURIComponent(info.launchToken)}`);
   await waitForWebSocketOpen(eventSocket);
   const originalEnsureTerminalProcess = runtime.ensureTerminalProcess.bind(runtime);
   const prewarmedPanelIds = new Set();

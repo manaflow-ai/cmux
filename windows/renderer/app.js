@@ -78,6 +78,7 @@ import {
   updatePaneTreeSplit
 } from "./pane-tree.js";
 import { canLoadImage } from "./image-utils.js";
+import { formatMessage, t } from "./i18n.js";
 import {
   safeReleasePointerCapture,
   safeSetPointerCapture
@@ -207,6 +208,9 @@ const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
+const launchToken = new URLSearchParams(location.search).get("token") || "";
+const eventReconnectMinDelayMs = 250;
+const eventReconnectMaxDelayMs = 5000;
 
 const workspaceStarters = [
   {
@@ -332,6 +336,8 @@ const state = {
   pendingFocusSync: null,
   focusSyncTimer: 0,
   focusSyncRevision: 0,
+  eventSocketReconnectDelay: eventReconnectMinDelayMs,
+  eventSocketReconnectTimer: 0,
   pendingBrowserUrlSync: new Map(),
   browserUrlSyncTimer: 0,
   pendingTerminalFontSizeSync: new Map(),
@@ -394,7 +400,7 @@ const state = {
   settingsInspectorSignature: "",
   settingsScrollResetPending: false,
   settingsSearchAutoScrollQuery: "",
-  browserProfiles: [{ id: "system", label: "System default browser", browser: "System", profileName: "Default" }],
+  browserProfiles: [{ id: "system", label: t("browser.systemDefault"), browser: t("browser.system"), profileName: t("browser.defaultProfile") }],
   browserProfilesLoaded: false,
   browserProfilesLoading: false,
   terminalFontSize: initialSettings.terminalFontSize
@@ -920,12 +926,12 @@ function normalizeBrowserProfiles(profiles = []) {
     seen.add(id);
     result.push({
       id,
-      label: String(profile?.label || "System default browser").trim() || "System default browser",
+      label: String(profile?.label || t("browser.systemDefault")).trim() || t("browser.systemDefault"),
       browser: String(profile?.browser || "").trim(),
       profileName: String(profile?.profileName || "").trim()
     });
   };
-  add({ id: "system", label: "System default browser", browser: "System", profileName: "Default" });
+  add({ id: "system", label: t("browser.systemDefault"), browser: t("browser.system"), profileName: t("browser.defaultProfile") });
   for (const profile of profiles) add(profile);
   return result;
 }
@@ -962,7 +968,7 @@ function browserProfileOptions() {
 }
 
 function browserProfileLabel(profileId = state.settings.externalBrowserProfileId) {
-  return normalizeBrowserProfiles(state.browserProfiles).find((profile) => profile.id === profileId)?.label || "System default browser";
+  return normalizeBrowserProfiles(state.browserProfiles).find((profile) => profile.id === profileId)?.label || t("browser.systemDefault");
 }
 
 async function refreshBrowserProfiles(options = {}) {
@@ -980,7 +986,12 @@ async function openExternalBrowser(url, options = {}) {
   const target = normalizeUrl(url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   if (window.cmuxNative?.openExternal) {
     const requestedProfileId = state.settings.externalBrowserProfileId;
-    const result = await window.cmuxNative.openExternal(target, requestedProfileId);
+    let result = null;
+    try {
+      result = await window.cmuxNative.openExternal(target, requestedProfileId);
+    } catch {
+      result = { ok: false, profileId: "system", error: "open_external_failed" };
+    }
     if (result?.ok === false) {
       toast(`${browserProfileLabel(requestedProfileId)} unavailable; opened in system browser.`);
     } else if (options.toast) {
@@ -990,7 +1001,11 @@ async function openExternalBrowser(url, options = {}) {
     }
     return result;
   }
-  window.open(target, "_blank", "noopener");
+  try {
+    window.open(target, "_blank", "noopener");
+  } catch {
+    return { ok: false, error: "open_external_failed" };
+  }
   if (options.toast) toast("Opened in browser.");
   return { ok: true };
 }
@@ -1988,6 +2003,22 @@ function applyActivePaneLayoutPercent(percent, options = {}) {
   return nextPercent;
 }
 
+function adjustActivePaneLayoutPercent(delta) {
+  const workspace = activeWorkspace();
+  if (!workspace || workspace.panels.length <= 1) {
+    toast(t("paneShape.resizeNeedsPane"));
+    return false;
+  }
+  const nextPercent = applyActivePaneLayoutPercent(
+    activePaneLayoutPercent(workspace) + Number(delta || 0),
+    { save: true, toast: true }
+  );
+  if (state.inspectorMode === "settings" && state.settingsCategory === "layout") {
+    renderSettingsInspector();
+  }
+  return nextPercent;
+}
+
 function scheduleVisiblePaneLayoutApply() {
   if (state.resizing || state.paneLayoutFrame) return;
   state.paneLayoutFrame = requestAnimationFrame(() => {
@@ -2411,12 +2442,14 @@ function keyboardPanelFromEvent(event) {
 }
 
 function api(path, options = {}) {
+  const headers = {
+    "content-type": "application/json",
+    ...(launchToken ? { "x-local-token": launchToken } : {}),
+    ...(options.headers || {})
+  };
   return fetch(path, {
     ...options,
-    headers: {
-      "content-type": "application/json",
-      ...(options.headers || {})
-    }
+    headers
   }).then(async (response) => {
     if (!response.ok) throw new Error(await response.text());
     return response.json();
@@ -2428,14 +2461,31 @@ async function loadState() {
 }
 
 function connectEvents() {
-  const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}/events`);
+  if (state.eventSocketReconnectTimer) {
+    clearTimeout(state.eventSocketReconnectTimer);
+    state.eventSocketReconnectTimer = 0;
+  }
+  const url = new URL("/events", location.origin.replace(/^http/, "ws"));
+  if (launchToken) url.searchParams.set("token", launchToken);
+  const socket = new WebSocket(url.href);
+  socket.addEventListener("open", () => {
+    state.eventSocketReconnectDelay = eventReconnectMinDelayMs;
+  });
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "state") {
       setAppState(message.state, { previousState: state.data, schedule: true });
     }
   });
-  socket.addEventListener("close", () => setTimeout(connectEvents, 800));
+  socket.addEventListener("close", () => {
+    if (state.eventSocketReconnectTimer) return;
+    const delay = state.eventSocketReconnectDelay;
+    state.eventSocketReconnectDelay = Math.min(eventReconnectMaxDelayMs, Math.round(delay * 1.7));
+    state.eventSocketReconnectTimer = setTimeout(() => {
+      state.eventSocketReconnectTimer = 0;
+      connectEvents();
+    }, delay);
+  });
 }
 
 function appStateSignature(data) {
@@ -4002,7 +4052,9 @@ function ensureTerminal(panel, body) {
   if (searchAddon) term.loadAddon(searchAddon);
   term.open(host);
 
-  const socket = new WebSocket(`${location.origin.replace(/^http/, "ws")}/terminal/${panel.id}`);
+  const terminalUrl = new URL(`/terminal/${panel.id}`, location.origin.replace(/^http/, "ws"));
+  if (launchToken) terminalUrl.searchParams.set("token", launchToken);
+  const socket = new WebSocket(terminalUrl.href);
   const session = {
     panelId: panel.id,
     term,
@@ -4075,11 +4127,17 @@ function ensureTerminal(panel, body) {
 
   session.resizeObserver = new ResizeObserver(() => scheduleFitTerminal(session));
   session.resizeObserver.observe(host);
-  setTimeout(() => {
-    scheduleFitTerminal(session, true);
-    if (panel.id === activeWorkspace()?.activePanelId) term.focus();
-  }, 60);
+  requestInitialTerminalLayout(session, panel.id);
   state.terminals.set(panel.id, session);
+}
+
+function requestInitialTerminalLayout(session, panelId, frame = 0) {
+  requestAnimationFrame(() => {
+    if (session.disposed) return;
+    scheduleFitTerminal(session, true);
+    if (panelId === activeWorkspace()?.activePanelId) session.term.focus();
+    if (!isTerminalHostVisible(session) && frame < 12) requestInitialTerminalLayout(session, panelId, frame + 1);
+  });
 }
 
 function createTerminalSearchOverlay(panel, session) {
@@ -5472,6 +5530,7 @@ function renderSettingsInspector(options = {}) {
       inspectorWidthRow.querySelector(".setting-label").textContent = `Settings panel ${state.settings.inspectorWidth}px`;
     };
     layoutSection.append(inspectorWidthRow);
+    layoutSection.append(paneShapePanel(workspace));
     const layoutActions = document.createElement("div");
     layoutActions.className = "settings-actions";
     layoutActions.dataset.settingsSearch = normalizeSettingsQuery("split layout pane splitter resize reset equal workspace chrome toolbar sidebar footer inspector tabs status header title focus mode simple clean");
@@ -5855,6 +5914,14 @@ function renderSettingsChrome(host) {
     categories: settingsCategories,
     query: state.settingsQuery,
     subtitle: elements.inspectorSubtitle.textContent,
+    labels: {
+      searchPlaceholder: t("settings.searchPlaceholder"),
+      clearSearch: t("settings.clearSearch"),
+      pageLabel: t("settings.pageLabel"),
+      pageAriaLabel: t("settings.pageAriaLabel"),
+      pagesAriaLabel: t("settings.pagesAriaLabel"),
+      tabTitle: formatMessage("settings.tabTitle", { label: "{label}" })
+    },
     onCategory: (category) => {
       state.settingsCategory = category;
       state.settingsQuery = "";
@@ -5887,7 +5954,7 @@ function settingsSearch() {
   const input = document.createElement("input");
   input.className = "setting-control settings-search-input";
   input.type = "search";
-  input.placeholder = "Search settings";
+  input.placeholder = t("settings.searchPlaceholder");
   input.value = state.settingsQuery;
   input.addEventListener("input", () => {
     const wasSearching = Boolean(normalizeSettingsQuery(state.settingsQuery));
@@ -5904,8 +5971,9 @@ function settingsSearch() {
   const clear = document.createElement("button");
   clear.className = "settings-search-clear";
   clear.type = "button";
-  clear.title = "Clear search";
-  clear.textContent = "x";
+  clear.title = t("settings.clearSearch");
+  clear.setAttribute("aria-label", t("settings.clearSearch"));
+  clear.textContent = "×";
   clear.disabled = !state.settingsQuery;
   clear.onclick = () => {
     state.settingsQuery = "";
@@ -7225,6 +7293,61 @@ function settingsMetricGrid(metrics, searchPrefix = "performance diagnostics met
   return grid;
 }
 
+function paneShapePanel(workspace = activeWorkspace()) {
+  const panel = activePanel();
+  const hasPendingPane = Boolean(workspace?.panels?.some(isPendingPanel));
+  const multiPane = Boolean(workspace && panel && workspace.panels.length > 1 && !hasPendingPane);
+  const percent = multiPane ? activePaneLayoutPercent(workspace) : 50;
+  const direction = paneLayoutDirection(workspace);
+  const directionLabel = direction === "down" ? t("paneShape.stackedRows") : t("paneShape.sideBySideColumns");
+  const panelTitle = panel ? panelDisplayTitle(panel, true) : t("paneShape.noPane");
+  const wrapper = document.createElement("div");
+  wrapper.className = "pane-shape-panel";
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("pane shape split layout resize active pane percent exact smaller bigger equal side by side stacked rows columns");
+  wrapper.innerHTML = `
+    <span class="pane-shape-meter" aria-hidden="true">
+      <span class="pane-shape-meter-fill"></span>
+    </span>
+    <span class="pane-shape-copy">
+      <span class="pane-shape-kicker"></span>
+      <span class="pane-shape-title"></span>
+      <span class="pane-shape-meta"></span>
+    </span>
+    <span class="pane-shape-actions"></span>
+  `;
+  wrapper.style.setProperty("--pane-shape-fill", `${percent}%`);
+  wrapper.querySelector(".pane-shape-kicker").textContent = t("paneShape.kicker");
+  wrapper.querySelector(".pane-shape-title").textContent = multiPane
+    ? formatMessage("paneShape.titlePercent", { title: panelTitle, percent })
+    : hasPendingPane
+      ? t("paneShape.pendingTitle")
+      : t("paneShape.emptyTitle");
+  wrapper.querySelector(".pane-shape-meta").textContent = multiPane
+    ? formatMessage("paneShape.metaReady", { direction: directionLabel })
+    : hasPendingPane
+      ? t("paneShape.metaPending")
+      : t("paneShape.metaEmpty");
+  const actions = wrapper.querySelector(".pane-shape-actions");
+  const smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
+  smaller.disabled = !multiPane || percent <= paneLayoutPercentMin;
+  const bigger = settingsActionButton(t("paneShape.bigger"), () => adjustActivePaneLayoutPercent(5), "", "pane shape bigger increase active pane size");
+  bigger.disabled = !multiPane || percent >= paneLayoutPercentMax;
+  const exact = settingsActionButton(t("paneShape.exact"), promptActivePaneLayoutPercent, "", "pane shape exact percent active pane size");
+  exact.disabled = !multiPane;
+  const equal = settingsActionButton(t("paneShape.equal"), resetActivePaneLayout, "", "pane shape equalize reset split layout");
+  equal.disabled = !multiPane;
+  const side = settingsActionButton(t("paneShape.columns"), async () => {
+    if (await applyPaneLayoutPreset("sideBySide")) renderSettingsInspector();
+  }, "", "pane shape side by side columns");
+  side.disabled = !multiPane;
+  const stack = settingsActionButton(t("paneShape.rows"), async () => {
+    if (await applyPaneLayoutPreset("stacked")) renderSettingsInspector();
+  }, "", "pane shape stacked rows");
+  stack.disabled = !multiPane;
+  actions.append(smaller, bigger, exact, equal, side, stack);
+  return wrapper;
+}
+
 function paneLayoutPresetGrid() {
   const workspace = activeWorkspace();
   const disabled = !workspace || workspace.panels.length <= 1;
@@ -7316,7 +7439,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
 function commandGroupLabel(command) {
   if (command.id.startsWith("workspace.")) return "Workspace";
   if (command.id.startsWith("terminal.")) return "Terminal";
-  if (command.id.startsWith("browser.")) return "Browser";
+  if (command.id.startsWith("browser.")) return t("browser.fallbackTitle");
   if (command.id.startsWith("settings.")) return "Settings";
   if (command.id.startsWith("notifications.")) return "Notifications";
   if (command.id.startsWith("session.")) return "Session";

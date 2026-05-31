@@ -1,57 +1,26 @@
+import {
+  localizedSearchTokenAliases,
+  localizedSettingsCategorySearchAliases
+} from "./settings-search-locales.js";
+
+function currentSearchLocale() {
+  const documentLocale = typeof document !== "undefined" ? document.documentElement.lang : "";
+  const navigatorLocale = typeof navigator !== "undefined" ? navigator.language : "";
+  return String(documentLocale || navigatorLocale || "en").split("-")[0] || "en";
+}
+
+function localizedEntries(source) {
+  const locale = currentSearchLocale();
+  return source[locale] || source.en || [];
+}
+
 export function normalizeSettingsQuery(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-export const searchTokenAliases = new Map([
-  ["bg", ["background", "wallpaper"]],
-  ["backgoudn", ["background", "wallpaper"]],
-  ["backgound", ["background", "wallpaper"]],
-  ["backround", ["background", "wallpaper"]],
-  ["wall", ["background", "wallpaper"]],
-  ["colour", ["color"]],
-  ["colur", ["color"]],
-  ["costime", ["custom", "customize", "settings"]],
-  ["costimze", ["custom", "customize", "settings"]],
-  ["costimize", ["custom", "customize", "settings"]],
-  ["costomize", ["custom", "customize", "settings"]],
-  ["customise", ["custom", "customize", "settings"]],
-  ["folder", ["directory", "cwd"]],
-  ["brower", ["browser", "web"]],
-  ["brwoser", ["browser", "web"]],
-  ["lag", ["performance", "speed", "smooth"]],
-  ["slow", ["performance", "speed", "smooth"]],
-  ["slowness", ["performance", "speed", "smooth"]],
-  ["glich", ["glitch", "performance", "smooth"]],
-  ["glichy", ["glitch", "performance", "smooth"]],
-  ["glitchy", ["performance", "smooth"]],
-  ["resiz", ["resize", "layout", "split", "pane"]],
-  ["recidizne", ["resize", "layout", "split", "pane"]],
-  ["shape", ["layout", "split", "pane", "resize"]],
-  ["spliting", ["split", "layout", "pane"]],
-  ["term", ["terminal"]],
-  ["terimnal", ["terminal"]],
-  ["terinmal", ["terminal"]],
-  ["terinla", ["terminal"]],
-  ["terinnal", ["terminal"]],
-  ["workshop", ["workspace"]],
-  ["workshape", ["workspace"]],
-  ["workhsop", ["workspace"]],
-  ["wokrshop", ["workspace"]],
-  ["workpace", ["workspace"]]
-]);
+export const searchTokenAliases = new Map(localizedEntries(localizedSearchTokenAliases));
 
-export const settingsCategorySearchAliases = new Map([
-  ["appearance", "look appearance background image wallpaper file local color colour theme accent customize costimize"],
-  ["workspace", "workspace workshop workshape folder directory cwd rename color colour"],
-  ["browser", "browser brower web url page home profile chrome edge brave external system"],
-  ["layout", "layout split pane tab sidebar footer reset header resize size shape actions controls"],
-  ["performance", "performance lag slow slowness smooth speed motion glitch"],
-  ["terminal", "terminal term terimnal shell font cursor color colour profile"],
-  ["commands", "commands snippets shell gh github cli"],
-  ["profiles", "profiles preset saved settings customize"],
-  ["blueprints", "blueprints workspace layout template"],
-  ["data", "data import export reset recent history clear activity"]
-]);
+export const settingsCategorySearchAliases = new Map(localizedEntries(localizedSettingsCategorySearchAliases));
 
 export function uniqueSearchTokens(tokens) {
   return [...new Set(tokens.filter(Boolean))];

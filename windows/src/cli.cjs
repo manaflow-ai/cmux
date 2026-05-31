@@ -41,6 +41,6 @@ socket.on("data", (chunk) => {
 });
 
 socket.on("error", (error) => {
-  process.stderr.write(`cmuxw: failed to connect to ${pipeName}: ${error.message}\n`);
+  process.stderr.write(`cmuxw: connection_failed ${pipeName}\n`);
   process.exitCode = 1;
 });

@@ -78,15 +78,27 @@ export function paneTreeLeafCount(node) {
 }
 
 export function appendPaneTreeLeaf(tree, panelId, direction) {
+  return appendPaneTreeLeafWithCount(tree, panelId, direction, paneTreeLeafCount(tree)).tree;
+}
+
+function appendPaneTreeLeafWithCount(tree, panelId, direction, existingCount = 0) {
   const leaf = paneTreeLeaf(panelId);
-  if (!tree) return leaf;
-  const existingCount = Math.max(1, paneTreeLeafCount(tree));
-  return paneTreeSplit(direction, tree, leaf, existingCount / (existingCount + 1));
+  if (!tree) return { tree: leaf, count: 1 };
+  const count = Math.max(1, Math.round(Number(existingCount) || 1));
+  return {
+    tree: paneTreeSplit(direction, tree, leaf, count / (count + 1)),
+    count: count + 1
+  };
 }
 
 export function buildPaneTreeFromPanelIds(panelIds, direction) {
   let tree = null;
-  for (const panelId of panelIds) tree = appendPaneTreeLeaf(tree, panelId, direction);
+  let leafCount = 0;
+  for (const panelId of panelIds) {
+    const next = appendPaneTreeLeafWithCount(tree, panelId, direction, leafCount);
+    tree = next.tree;
+    leafCount = next.count;
+  }
   return tree;
 }
 
@@ -215,14 +227,20 @@ function swapPaneTreePanelIdsUnchecked(node, firstId, secondId) {
 }
 
 export function paneTreeSplitForPanel(node, panelId) {
-  if (!node || node.type !== "split") return null;
-  const firstResult = paneTreeSplitForPanel(node.first, panelId);
-  if (firstResult) return firstResult;
-  const secondResult = paneTreeSplitForPanel(node.second, panelId);
-  if (secondResult) return secondResult;
-  if (paneTreeContainsPanel(node.first, panelId)) return { split: node, activeInFirst: true };
-  if (paneTreeContainsPanel(node.second, panelId)) return { split: node, activeInFirst: false };
-  return null;
+  return paneTreeSplitSearch(node, panelId).result;
+}
+
+function paneTreeSplitSearch(node, panelId) {
+  if (!node) return { contains: false, result: null };
+  if (node.type === "pane") return { contains: node.panelId === panelId, result: null };
+  if (node.type !== "split") return { contains: false, result: null };
+  const first = paneTreeSplitSearch(node.first, panelId);
+  if (first.result) return { contains: true, result: first.result };
+  const second = paneTreeSplitSearch(node.second, panelId);
+  if (second.result) return { contains: true, result: second.result };
+  if (first.contains) return { contains: true, result: { split: node, activeInFirst: true } };
+  if (second.contains) return { contains: true, result: { split: node, activeInFirst: false } };
+  return { contains: false, result: null };
 }
 
 export function updatePaneTreeSplit(node, splitId, updater) {
@@ -240,12 +258,20 @@ export function paneTreeSpanCount(node, direction) {
 }
 
 export function equalizePaneTree(node) {
-  if (!node || node.type === "pane") return node;
-  const first = equalizePaneTree(node.first);
-  const second = equalizePaneTree(node.second);
-  const firstSpan = paneTreeSpanCount(first, node.direction);
-  const secondSpan = paneTreeSpanCount(second, node.direction);
-  return paneTreeSplit(node.direction, first, second, firstSpan / Math.max(1, firstSpan + secondSpan), node.id);
+  return equalizePaneTreeWithSpan(node).node;
+}
+
+function equalizePaneTreeWithSpan(node) {
+  if (!node || node.type === "pane") return { node, span: 1 };
+  const first = equalizePaneTreeWithSpan(node.first);
+  const second = equalizePaneTreeWithSpan(node.second);
+  const firstSpan = node.direction === first.node?.direction ? first.span : 1;
+  const secondSpan = node.direction === second.node?.direction ? second.span : 1;
+  const totalSpan = Math.max(1, firstSpan + secondSpan);
+  return {
+    node: paneTreeSplit(node.direction, first.node, second.node, firstSpan / totalSpan, node.id),
+    span: node.direction === paneTreeDirection(node.direction) ? totalSpan : 1
+  };
 }
 
 export function buildActivePanePresetTree(panels, activePanelId, direction, percent) {

@@ -11,6 +11,7 @@ runtime.listen().then((info) => {
     url: info.url,
     port: info.port,
     pipeName: info.pipeName,
+    launchToken: info.launchToken,
     ptyAvailable: info.ptyAvailable
   }) + "\n");
 }).catch((error) => {

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: http: https:; img-src 'self' data: https: file:; frame-src http: https:; child-src http: https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:; img-src 'self' data: https: file:; frame-src http: https:; child-src http: https:;">
     <title>cmux Windows</title>
     <link rel="stylesheet" href="/vendor/xterm.css">
     <link rel="stylesheet" href="/styles.css">
@@ -19,23 +19,23 @@
           </div>
         </div>
         <div class="sidebar-tools">
-          <button class="rail-button is-active" id="workspacesRailButton" title="Workspaces" aria-label="Workspaces">▦</button>
-          <button class="rail-button" id="notificationsRailButton" title="Notifications" aria-label="Notifications">◦</button>
-          <button class="rail-button" id="sessionsRailButton" title="Session tools" aria-label="Session tools">›</button>
-          <button class="rail-button" id="settingsRailButton" title="Settings" aria-label="Settings">⚙</button>
+          <button type="button" class="rail-button is-active" id="workspacesRailButton" title="Workspaces" aria-label="Workspaces">▦</button>
+          <button type="button" class="rail-button" id="notificationsRailButton" title="Notifications" aria-label="Notifications">◦</button>
+          <button type="button" class="rail-button" id="sessionsRailButton" title="Session tools" aria-label="Session tools">›</button>
+          <button type="button" class="rail-button" id="settingsRailButton" title="Settings" aria-label="Settings">⚙</button>
         </div>
         <div class="workspace-list" id="workspaceList"></div>
         <div class="sidebar-footer">
-          <button class="sidebar-action" id="newWorkspaceButton" title="New workspace" aria-label="New workspace">+ Workspace</button>
-          <button class="sidebar-action danger" id="resetSessionButton" title="Reset session" aria-label="Reset session">Reset</button>
+          <button type="button" class="sidebar-action" id="newWorkspaceButton" title="New workspace" aria-label="New workspace">+ Workspace</button>
+          <button type="button" class="sidebar-action danger" id="resetSessionButton" title="Reset session" aria-label="Reset session">Reset</button>
         </div>
       </aside>
 
       <main class="main">
         <header class="topbar">
           <div class="window-actions">
-            <button class="icon-button" id="toggleSidebarButton" title="Toggle sidebar">▦</button>
-            <button class="icon-button" id="paletteButton" title="Command palette">⌕</button>
+            <button type="button" class="icon-button" id="toggleSidebarButton" title="Toggle sidebar">▦</button>
+            <button type="button" class="icon-button" id="paletteButton" title="Command palette">⌕</button>
           </div>
           <div class="workspace-title-block">
             <div class="workspace-heading" id="workspaceHeading">Workspace</div>
@@ -43,20 +43,20 @@
           </div>
           <div class="topbar-spacer"></div>
           <div class="command-strip">
-            <button class="tool-button primary" id="newTerminalButton" title="New terminal" aria-label="New terminal"><span class="tool-icon" aria-hidden="true">+</span><span class="tool-label">Term</span></button>
-            <button class="tool-button" id="splitRightButton" title="Split terminal" aria-label="Split terminal"><span class="tool-icon" aria-hidden="true">◫</span><span class="tool-label">Split</span></button>
-            <button class="tool-button" id="newBrowserButton" title="Open browser" aria-label="Open browser"><span class="tool-icon" aria-hidden="true">○</span><span class="tool-label">Web</span></button>
-            <button class="tool-button" id="toolsMenuButton" title="Workspace tools" aria-label="Workspace tools"><span class="tool-icon" aria-hidden="true">⋯</span><span class="tool-label">Tools</span></button>
-            <button class="tool-button" id="settingsButton" title="Settings" aria-label="Settings"><span class="tool-icon" aria-hidden="true">⚙</span><span class="tool-label">Settings</span></button>
-            <button class="tool-button advanced-tool" id="splitDownButton" title="Split down" aria-label="Split down"><span class="tool-icon" aria-hidden="true">⇣</span><span class="tool-label">Down</span></button>
-            <button class="tool-button advanced-tool" id="renameWorkspaceButton" title="Rename workspace" aria-label="Rename workspace"><span class="tool-icon" aria-hidden="true">T</span><span class="tool-label">Name</span></button>
-            <button class="tool-button advanced-tool" id="colorWorkspaceButton" title="Change workspace color" aria-label="Change workspace color"><span class="tool-icon" aria-hidden="true">◆</span><span class="tool-label">Color</span></button>
-            <button class="tool-button advanced-tool" id="notifyButton" title="Simulate notification" aria-label="Simulate notification"><span class="tool-icon" aria-hidden="true">◦</span><span class="tool-label">Notify</span></button>
+            <button type="button" class="tool-button primary" id="newTerminalButton" title="New terminal" aria-label="New terminal"><span class="tool-icon" aria-hidden="true">+</span><span class="tool-label">Term</span></button>
+            <button type="button" class="tool-button" id="splitRightButton" title="Split terminal" aria-label="Split terminal"><span class="tool-icon" aria-hidden="true">◫</span><span class="tool-label">Split</span></button>
+            <button type="button" class="tool-button" id="newBrowserButton" title="Open browser" aria-label="Open browser"><span class="tool-icon" aria-hidden="true">○</span><span class="tool-label">Web</span></button>
+            <button type="button" class="tool-button" id="toolsMenuButton" title="Workspace tools" aria-label="Workspace tools"><span class="tool-icon" aria-hidden="true">⋯</span><span class="tool-label">Tools</span></button>
+            <button type="button" class="tool-button" id="settingsButton" title="Settings" aria-label="Settings"><span class="tool-icon" aria-hidden="true">⚙</span><span class="tool-label">Settings</span></button>
+            <button type="button" class="tool-button advanced-tool" id="splitDownButton" title="Split down" aria-label="Split down"><span class="tool-icon" aria-hidden="true">⇣</span><span class="tool-label">Down</span></button>
+            <button type="button" class="tool-button advanced-tool" id="renameWorkspaceButton" title="Rename workspace" aria-label="Rename workspace"><span class="tool-icon" aria-hidden="true">T</span><span class="tool-label">Name</span></button>
+            <button type="button" class="tool-button advanced-tool" id="colorWorkspaceButton" title="Change workspace color" aria-label="Change workspace color"><span class="tool-icon" aria-hidden="true">◆</span><span class="tool-label">Color</span></button>
+            <button type="button" class="tool-button advanced-tool" id="notifyButton" title="Simulate notification" aria-label="Simulate notification"><span class="tool-icon" aria-hidden="true">◦</span><span class="tool-label">Notify</span></button>
           </div>
           <div class="native-window-controls" id="nativeWindowControls">
-            <button class="window-control" id="minimizeWindowButton" title="Minimize">─</button>
-            <button class="window-control" id="maximizeWindowButton" title="Maximize">□</button>
-            <button class="window-control close" id="closeWindowButton" title="Close">×</button>
+            <button type="button" class="window-control" id="minimizeWindowButton" title="Minimize">─</button>
+            <button type="button" class="window-control" id="maximizeWindowButton" title="Maximize">□</button>
+            <button type="button" class="window-control close" id="closeWindowButton" title="Close">×</button>
           </div>
         </header>
 
@@ -75,7 +75,7 @@
             <div class="inspector-title" id="inspectorTitle">Notifications</div>
             <div class="inspector-subtitle" id="inspectorSubtitle">Attention across workspaces</div>
           </div>
-          <button class="icon-button" id="closeInspectorButton" title="Close">×</button>
+          <button type="button" class="icon-button" id="closeInspectorButton" title="Close">×</button>
         </div>
         <div class="inspector-body" id="inspectorBody"></div>
       </aside>
@@ -83,7 +83,7 @@
 
     <div class="palette" id="palette" aria-hidden="true">
       <div class="palette-dialog">
-        <input id="paletteInput" class="palette-input" autocomplete="off" spellcheck="false" placeholder="Command">
+        <input id="paletteInput" class="palette-input" autocomplete="off" spellcheck="false" placeholder="Command" aria-label="Command palette search">
         <div class="palette-list" id="paletteList"></div>
       </div>
     </div>

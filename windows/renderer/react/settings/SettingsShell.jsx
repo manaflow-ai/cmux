@@ -7,7 +7,8 @@ export function SettingsShell({
   subtitle,
   onCategory,
   onQuery,
-  onClear
+  onClear,
+  labels = {}
 }) {
   const tabsRef = useRef(null);
 
@@ -22,6 +23,7 @@ export function SettingsShell({
     event.currentTarget.scrollLeft += event.deltaY;
     event.preventDefault();
   };
+  const tabTitleTemplate = labels.tabTitle || "{label}";
 
   return (
     <div className="settings-react-shell" data-react-settings="true">
@@ -29,26 +31,26 @@ export function SettingsShell({
         <input
           className="setting-control settings-search-input"
           type="search"
-          placeholder="Search settings"
+          placeholder={labels.searchPlaceholder}
           value={query}
           onChange={(event) => onQuery(event.target.value)}
         />
         <button
-          aria-label="Clear search"
+          aria-label={labels.clearSearch}
           className="settings-search-clear"
           type="button"
           disabled={!query}
-          title="Clear search"
+          title={labels.clearSearch}
           onClick={onClear}
         >
-          x
+          <span aria-hidden="true">×</span>
         </button>
       </div>
       <div className="settings-page-switcher">
         <div className="settings-page-head">
-          <span className="settings-page-label">Page</span>
+          <span className="settings-page-label">{labels.pageLabel}</span>
           <select
-            aria-label={subtitle || "Settings page"}
+            aria-label={subtitle || labels.pageAriaLabel}
             className="setting-select settings-page-select"
             value={activeCategory}
             onChange={(event) => onCategory(event.target.value)}
@@ -61,7 +63,7 @@ export function SettingsShell({
           </select>
         </div>
         <div
-          aria-label="Settings pages"
+          aria-label={labels.pagesAriaLabel}
           className="settings-page-tabs"
           onWheel={onTabsWheel}
           ref={tabsRef}
@@ -77,7 +79,7 @@ export function SettingsShell({
                 key={id}
                 onClick={() => onCategory(id)}
                 role="tab"
-                title={`${label} settings`}
+                title={tabTitleTemplate.replace("{label}", label)}
                 type="button"
               >
                 {label}
