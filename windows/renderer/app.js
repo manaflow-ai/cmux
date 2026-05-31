@@ -5487,6 +5487,9 @@ function ensureBrowser(panel, body) {
   const hideBrowserError = () => {
     errorPane.hidden = true;
   };
+  const markBrowserContentLoaded = () => {
+    content.classList.add("has-loaded");
+  };
   const showBrowserError = (message = "This page could not be shown inside cmux.", detail = address.value) => {
     const targetUrl = normalizeUrl(detail || address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
     setLoading(false);
@@ -5627,6 +5630,7 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
+    markBrowserContentLoaded();
     lockBrowserViewZoom(view);
     updateNavState();
   });
@@ -5651,12 +5655,14 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("did-finish-load", () => {
+    markBrowserContentLoaded();
     if (!browserLoadFailed) hideBrowserError();
     setLoading(false);
     setStatus("");
     updateNavState();
   });
   view.addEventListener("did-frame-finish-load", () => {
+    markBrowserContentLoaded();
     if (webviewReady) setStatus("");
   });
   view.addEventListener("did-fail-load", (event) => {
@@ -5674,6 +5680,7 @@ function ensureBrowser(panel, body) {
     updateNavState();
   });
   view.addEventListener("load", () => {
+    markBrowserContentLoaded();
     if (!browserLoadFailed) hideBrowserError();
     setLoading(false);
     setStatus("");
