@@ -1855,6 +1855,34 @@ body.reduce-motion *::after {
     transparent border-box;
 }
 
+.terminal-deferred {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-pane);
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.terminal-deferred-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.terminal-deferred-meta {
+  max-width: min(320px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-faint);
+  font: 11px/1.35 var(--font-mono);
+}
+
 .pending-pane {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

@@ -205,6 +205,7 @@ const terminalFontSizeMax = 22;
 const terminalWheelZoomThreshold = 120;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
+const deferredTerminalInitIdleTimeoutMs = 700;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
 const maxConcurrentPaneCreations = 4;
@@ -363,6 +364,8 @@ const state = {
   settingsSaveTimer: 0,
   settingsSavePending: false,
   terminalAppearanceFrame: 0,
+  deferredTerminalInitQueue: new Set(),
+  deferredTerminalInitTimer: 0,
   deferredTerminalFitFrame: 0,
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
@@ -3343,7 +3346,13 @@ function renderPaneNode(panel, workspace, visibleCount) {
     return pane;
   }
   if (panel.type === "terminal") {
-    ensureTerminal(panel, pane.querySelector(".pane-body"));
+    const body = pane.querySelector(".pane-body");
+    if (shouldDeferInitialTerminalLoad(panel, workspace, visibleCount)) {
+      renderDeferredTerminal(panel, body);
+      queueDeferredTerminalInit(panel.id);
+    } else {
+      ensureTerminal(panel, body);
+    }
     const terminal = state.terminals.get(panel.id);
     if (terminal) scheduleFitTerminal(terminal);
   }
@@ -4063,6 +4072,7 @@ function cleanupPanel(panelId) {
     if (zoomedPanelId === panelId) state.zoomedPanelIds.delete(workspaceId);
   }
   state.terminalWheelZoomState.delete(panelId);
+  state.deferredTerminalInitQueue.delete(panelId);
   const terminal = state.terminals.get(panelId);
   if (terminal) {
     terminal.disposed = true;
@@ -4122,6 +4132,64 @@ function markTerminalOutputReady(session) {
   if (!session || session.hasOutput) return;
   session.hasOutput = true;
   clearTerminalConnectionStatus(session);
+}
+
+function shouldDeferInitialTerminalLoad(panel, workspace, visibleCount = 1) {
+  return visibleCount > 1
+    && panel?.type === "terminal"
+    && !state.terminals.has(panel.id)
+    && panel.id !== workspace?.activePanelId
+    && !isPanelMinimized(panel)
+    && !isPendingPanel(panel);
+}
+
+function renderDeferredTerminal(panel, body) {
+  let deferred = body.querySelector(".terminal-deferred");
+  if (!deferred) {
+    deferred = document.createElement("div");
+    deferred.className = "terminal-deferred";
+    deferred.innerHTML = `
+      <span class="terminal-deferred-title">Preparing terminal</span>
+      <span class="terminal-deferred-meta"></span>
+    `;
+    body.replaceChildren(deferred);
+  }
+  setTextIfChanged(deferred.querySelector(".terminal-deferred-meta"), panel.cwdShort || panel.cwd || "~");
+}
+
+function queueDeferredTerminalInit(panelId) {
+  if (!panelId || state.terminals.has(panelId)) return;
+  state.deferredTerminalInitQueue.add(panelId);
+  scheduleDeferredTerminalInit();
+}
+
+function scheduleDeferredTerminalInit() {
+  if (state.deferredTerminalInitTimer) return;
+  const run = () => {
+    state.deferredTerminalInitTimer = 0;
+    flushDeferredTerminalInit();
+  };
+  state.deferredTerminalInitTimer = typeof requestIdleCallback === "function"
+    ? requestIdleCallback(run, { timeout: deferredTerminalInitIdleTimeoutMs })
+    : setTimeout(run, Math.min(160, deferredTerminalInitIdleTimeoutMs));
+}
+
+function flushDeferredTerminalInit() {
+  const activeWorkspaceId = state.data?.activeWorkspaceId || "";
+  const visiblePanelIds = visiblePanePanelIds();
+  for (const panelId of [...state.deferredTerminalInitQueue]) {
+    state.deferredTerminalInitQueue.delete(panelId);
+    if (state.terminals.has(panelId)) continue;
+    const found = findPanelState(panelId);
+    if (!found || found.workspace.id !== activeWorkspaceId || !visiblePanelIds.has(panelId)) continue;
+    const body = state.paneCache.get(panelId)?.querySelector(".pane-body");
+    if (!body?.querySelector(".terminal-deferred")) continue;
+    ensureTerminal(found.panel, body);
+    const terminal = state.terminals.get(panelId);
+    if (terminal) scheduleFitTerminal(terminal, true);
+    break;
+  }
+  if (state.deferredTerminalInitQueue.size > 0) scheduleDeferredTerminalInit();
 }
 
 function ensureTerminal(panel, body) {
