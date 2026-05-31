@@ -520,6 +520,17 @@ enum CommandPaletteFuzzyMatcher {
         if token.characters.count <= 3, subsequenceScore(token: token, candidate: candidate) != nil {
             return true
         }
+        // Keep parity with scoreToken: tokens of length >= 4 can match via the
+        // boundary-aware ranking layer, so they must not be treated as needing a
+        // single edit (which would skew the Nucleo single-edit fallback gating).
+        if token.characters.count >= 4, !token.containsTokenBoundaryCharacter,
+           CommandPaletteRankingContext(
+               tokenChars: token.characters,
+               candidateChars: candidate.characters,
+               segments: candidate.wordSegments
+           ).score() != nil {
+            return true
+        }
         return false
     }
 

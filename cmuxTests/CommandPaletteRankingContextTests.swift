@@ -18,9 +18,9 @@ import Testing
         )
     }
 
-    @Test func matchesMidWordAbbreviationAcrossWordBoundaries() {
+    @Test func matchesMidWordAbbreviationAcrossWordBoundaries() throws {
         let features = context(token: "tgsb", candidate: "toggle sidebar").scoredFeatures()
-        let unwrapped = try! #require(features)
+        let unwrapped = try #require(features)
         // t(0) g(2) s(7) b(11) — "t" and "s" start words.
         #expect(unwrapped.matchedIndices == [0, 2, 7, 11])
         #expect(unwrapped.boundaryHits == 2)
@@ -52,15 +52,11 @@ import Testing
         let boundaryRich = CommandPaletteRankingContext.Features(
             matchedIndices: [0, 7],
             boundaryHits: 2,
-            gapTotal: 6,
-            longestRun: 1,
             leadingBoundary: true
         )
         let boundaryPoor = CommandPaletteRankingContext.Features(
             matchedIndices: [1, 7],
             boundaryHits: 0,
-            gapTotal: 5,
-            longestRun: 1,
             leadingBoundary: false
         )
         let rich = CommandPaletteRankingContext.score(features: boundaryRich, tokenLength: 2, candidateLength: 14)

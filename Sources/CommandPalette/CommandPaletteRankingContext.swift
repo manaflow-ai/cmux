@@ -25,12 +25,6 @@ struct CommandPaletteRankingContext {
     let candidateChars: [Character]
     /// The candidate's word segments (maximal runs between separators).
     let segments: [CommandPaletteFuzzyMatcher.WordSegment]
-    /// An optional, already-capped frecency bonus for the candidate.
-    ///
-    /// Defaults to `0`. Frecency is normally folded into the score upstream via
-    /// the engine's history boost; this field lets future ranking signals reach
-    /// it inside the context without a new parameter.
-    let frecency: Int
 
     /// The set of candidate indices that begin a word segment.
     ///
@@ -43,17 +37,14 @@ struct CommandPaletteRankingContext {
     ///   - tokenChars: Normalized query token characters.
     ///   - candidateChars: Normalized candidate characters.
     ///   - segments: The candidate's precomputed word segments.
-    ///   - frecency: An optional capped frecency bonus (defaults to `0`).
     init(
         tokenChars: [Character],
         candidateChars: [Character],
-        segments: [CommandPaletteFuzzyMatcher.WordSegment],
-        frecency: Int = 0
+        segments: [CommandPaletteFuzzyMatcher.WordSegment]
     ) {
         self.tokenChars = tokenChars
         self.candidateChars = candidateChars
         self.segments = segments
-        self.frecency = frecency
         self.boundaryStarts = Set(segments.map(\.start))
     }
 
@@ -66,10 +57,6 @@ struct CommandPaletteRankingContext {
         let matchedIndices: [Int]
         /// How many matched characters land at the start of a word segment.
         let boundaryHits: Int
-        /// The total number of skipped characters between matched characters.
-        let gapTotal: Int
-        /// The longest run of consecutive matched characters.
-        let longestRun: Int
         /// Whether the first matched character is at a word boundary.
         let leadingBoundary: Bool
     }
@@ -85,10 +72,6 @@ struct CommandPaletteRankingContext {
         var matchedIndices: [Int] = []
         matchedIndices.reserveCapacity(tokenChars.count)
         var boundaryHits = 0
-        var gapTotal = 0
-        var longestRun = 0
-        var currentRun = 0
-        var previousMatch = -1
         var searchIndex = 0
 
         for tokenChar in tokenChars {
@@ -105,25 +88,13 @@ struct CommandPaletteRankingContext {
             if boundaryStarts.contains(matchedIndex) {
                 boundaryHits += 1
             }
-            if matchedIndex == previousMatch + 1 {
-                currentRun += 1
-            } else {
-                if previousMatch >= 0 {
-                    gapTotal += matchedIndex - previousMatch - 1
-                }
-                currentRun = 1
-            }
-            longestRun = max(longestRun, currentRun)
             matchedIndices.append(matchedIndex)
-            previousMatch = matchedIndex
             searchIndex = matchedIndex + 1
         }
 
         return Features(
             matchedIndices: matchedIndices,
             boundaryHits: boundaryHits,
-            gapTotal: gapTotal,
-            longestRun: longestRun,
             leadingBoundary: matchedIndices.first.map(boundaryStarts.contains) ?? false
         )
     }
