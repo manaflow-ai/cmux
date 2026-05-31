@@ -386,6 +386,17 @@ enum RightSidebarBetaFeatureSettings {
     }
 }
 
+enum WorkspaceDockSettings {
+    static let leftEnabledKey = "docks.leftEnabled"
+
+    static let defaultLeftEnabled = false
+
+    nonisolated static func isLeftEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: leftEnabledKey) != nil else { return defaultLeftEnabled }
+        return defaults.bool(forKey: leftEnabledKey)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 

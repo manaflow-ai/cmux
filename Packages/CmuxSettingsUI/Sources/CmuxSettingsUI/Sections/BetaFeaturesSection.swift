@@ -7,9 +7,11 @@ import SwiftUI
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var leftDock: DefaultsValueModel<Bool>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _leftDock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.leftDock))
     }
 
     public var body: some View {
@@ -21,6 +23,8 @@ public struct BetaFeaturesSection: View {
                 )
                 SettingsCardDivider()
                 dockRow
+                SettingsCardDivider()
+                leftDockRow
             }
         }
     }
@@ -39,6 +43,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var leftDockRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:leftDock",
+            String(localized: "settings.betaFeatures.leftDock", defaultValue: "Left Dock"),
+            subtitle: leftDock.current
+                ? String(localized: "settings.betaFeatures.leftDock.subtitleOn", defaultValue: "Shows the left dock toggle in the workspace titlebar.")
+                : String(localized: "settings.betaFeatures.leftDock.subtitleOff", defaultValue: "Hides the left dock toggle until you enable it here. Bottom and right docks stay available.")
+        ) {
+            Toggle("", isOn: Binding(get: { leftDock.current }, set: { leftDock.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaLeftDockToggle")
         }
     }
 }

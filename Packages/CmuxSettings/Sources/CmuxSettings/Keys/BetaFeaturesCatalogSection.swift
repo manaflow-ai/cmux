@@ -15,5 +15,14 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Left dock: the multi-dock workspace prototype shows the bottom and
+    /// right dock toggles by default. Enable this to also show the left
+    /// dock toggle in the workspace titlebar. Defaults off.
+    public let leftDock = DefaultsKey<Bool>(
+        id: "docks.leftEnabled",
+        defaultValue: false,
+        userDefaultsKey: "docks.leftEnabled"
+    )
+
     public init() {}
 }

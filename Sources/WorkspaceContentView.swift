@@ -1436,10 +1436,20 @@ private struct WorkspaceDockResizePlacement {
 
 struct WorkspaceDockToggleCluster: View {
     @ObservedObject var layout: WorkspaceDockLayout
+    @AppStorage(WorkspaceDockSettings.leftEnabledKey) private var leftEnabled = WorkspaceDockSettings.defaultLeftEnabled
+
+    // The left dock is off by default; only show its toggle when the user
+    // enabled it in settings, or when a left dock already exists (e.g. a
+    // restored session) so it never becomes unreachable.
+    private var visibleEdges: [WorkspaceDockEdge] {
+        WorkspaceDockEdge.controlOrder.filter { edge in
+            edge != .left || leftEnabled || !layout.docksSnapshot(for: .left).isEmpty
+        }
+    }
 
     var body: some View {
         HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
-            ForEach(WorkspaceDockEdge.controlOrder) { edge in
+            ForEach(visibleEdges) { edge in
                 Button {
                     layout.toggleEdge(edge)
                 } label: {
@@ -1486,8 +1496,9 @@ struct WorkspaceDockToggleCluster: View {
     }
 
     private var workspaceDockToggleClusterWidth: CGFloat {
-        CGFloat(WorkspaceDockEdge.controlOrder.count) * HeaderChromeControlMetrics.buttonSize +
-            CGFloat(max(0, WorkspaceDockEdge.controlOrder.count - 1)) * RightSidebarChromeMetrics.headerControlSpacing
+        let count = visibleEdges.count
+        return CGFloat(count) * HeaderChromeControlMetrics.buttonSize +
+            CGFloat(max(0, count - 1)) * RightSidebarChromeMetrics.headerControlSpacing
     }
 }
 
@@ -1631,26 +1642,29 @@ private struct WorkspaceDockToggleIcon: View {
     let isOpen: Bool
 
     var body: some View {
-        Image(systemName: symbolName)
-            .symbolRenderingMode(.monochrome)
-            .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
+        Image(assetName)
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
             .frame(
                 width: RightSidebarChromeMetrics.headerIconFrameSize,
                 height: RightSidebarChromeMetrics.headerIconFrameSize
             )
-            .opacity(isOpen ? 1.0 : 0.44)
+            .opacity(isOpen ? 1.0 : 0.6)
             .accessibilityHidden(true)
     }
 
-    private var symbolName: String {
+    private var assetName: String {
+        let edgeName: String
         switch edge {
         case .left:
-            return "rectangle.leftthird.inset.filled"
+            edgeName = "Left"
         case .right:
-            return "rectangle.rightthird.inset.filled"
+            edgeName = "Right"
         case .bottom:
-            return "rectangle.bottomthird.inset.filled"
+            edgeName = "Bottom"
         }
+        return "Docks/Dock\(edgeName)\(isOpen ? "Open" : "Closed")"
     }
 }
 
