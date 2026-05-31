@@ -4570,6 +4570,16 @@ function updateActiveBrowserTabUrl(session, value) {
   renderBrowserTabs(session);
 }
 
+function updateActiveBrowserTabTitle(session, value) {
+  const tab = activeBrowserTab(session);
+  if (!tab) return;
+  const title = String(value || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!title || title === tab.title) return;
+  tab.title = title;
+  saveBrowserSessionTabs(session);
+  renderBrowserTabs(session);
+}
+
 function activateBrowserTab(session, tabId) {
   if (!session) return false;
   const tab = session.tabs.find((candidate) => candidate.id === tabId);
@@ -4578,6 +4588,7 @@ function activateBrowserTab(session, tabId) {
   session.address.value = tab.url;
   if (session.view.src !== tab.url) {
     session.view.src = tab.url;
+    session.setLoading?.(true);
     session.setStatus?.("Loading");
   }
   queueBrowserUrlSync(session.panelId, tab.url);
@@ -4700,7 +4711,7 @@ function ensureBrowser(panel, body) {
     view.setAttribute("webpreferences", "contextIsolation=yes,nodeIntegration=no");
     view.setAttribute("useragent", embeddedBrowserUserAgent());
   }
-  view.src = normalizeUrl(address.value, state.settings.browserHomeUrl);
+  const initialBrowserUrl = normalizeUrl(address.value, state.settings.browserHomeUrl);
   const errorPane = document.createElement("div");
   errorPane.className = "browser-error";
   errorPane.hidden = true;
@@ -4716,12 +4727,30 @@ function ensureBrowser(panel, body) {
       </span>
     </div>
   `;
-  content.append(view, errorPane);
+  const loadingPane = document.createElement("div");
+  loadingPane.className = "browser-loading";
+  loadingPane.innerHTML = `
+    <span class="browser-loading-track"></span>
+    <span class="browser-loading-title"></span>
+    <span class="browser-loading-url"></span>
+  `;
+  content.append(view, errorPane, loadingPane);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
   let loadingStatusTimer = 0;
   let browserLoadFailed = false;
   let session = null;
+
+  const setLoading = (loading = false) => {
+    const visible = Boolean(loading);
+    const targetUrl = normalizeUrl(address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    loadingPane.hidden = !visible;
+    content.classList.toggle("is-loading", visible);
+    if (!visible) return;
+    loadingPane.querySelector(".browser-loading-title").textContent = `Loading ${hostnameOf(targetUrl)}`;
+    loadingPane.querySelector(".browser-loading-url").textContent = targetUrl;
+    loadingPane.querySelector(".browser-loading-url").title = targetUrl;
+  };
 
   const setStatus = (message = "") => {
     if (loadingStatusTimer) {
@@ -4742,6 +4771,7 @@ function ensureBrowser(panel, body) {
   };
   const showBrowserError = (message = "This page could not be shown inside cmux.", detail = address.value) => {
     const targetUrl = normalizeUrl(detail || address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    setLoading(false);
     errorPane.querySelector(".browser-error-title").textContent = "Page did not load";
     errorPane.querySelector(".browser-error-body").textContent = message;
     errorPane.querySelector(".browser-error-url").textContent = targetUrl;
@@ -4777,6 +4807,7 @@ function ensureBrowser(panel, body) {
     view.src = next;
     browserLoadFailed = false;
     hideBrowserError();
+    setLoading(true);
     setStatus("Loading");
     updateActiveBrowserTabUrl(session, next);
     queueBrowserUrlSync(panel.id, next);
@@ -4820,6 +4851,8 @@ function ensureBrowser(panel, body) {
   };
   reload.onclick = () => {
     if (reload.disabled) return;
+    setLoading(true);
+    setStatus("Loading");
     if (typeof view.reload === "function") {
       view.reload();
     } else {
@@ -4837,6 +4870,9 @@ function ensureBrowser(panel, body) {
       queueBrowserUrlSync(panel.id, event.url);
     }
     updateNavState();
+  });
+  view.addEventListener("page-title-updated", (event) => {
+    updateActiveBrowserTabTitle(session, event.title);
   });
   view.addEventListener("new-window", openPopupExternally);
   view.addEventListener("did-create-window", openPopupExternally);
@@ -4861,15 +4897,18 @@ function ensureBrowser(panel, body) {
   view.addEventListener("did-start-loading", () => {
     browserLoadFailed = false;
     hideBrowserError();
+    setLoading(true);
     setStatus("Loading");
     updateNavState();
   });
   view.addEventListener("did-stop-loading", () => {
+    setLoading(false);
     setStatus("");
     updateNavState();
   });
   view.addEventListener("did-finish-load", () => {
     if (!browserLoadFailed) hideBrowserError();
+    setLoading(false);
     setStatus("");
     updateNavState();
   });
@@ -4883,11 +4922,16 @@ function ensureBrowser(panel, body) {
     }
     if (event.isMainFrame === false) return;
     browserLoadFailed = true;
-    showBrowserError("Try again, open it externally, or return home.", event.validatedURL || address.value);
+    const failure = String(event.errorDescription || "").replace(/^ERR_/i, "").replace(/_/g, " ").toLowerCase();
+    const message = failure
+      ? `The page reported ${failure}. Try again, open it externally, or return home.`
+      : "Try again, open it externally, or return home.";
+    showBrowserError(message, event.validatedURL || address.value);
     updateNavState();
   });
   view.addEventListener("load", () => {
     if (!browserLoadFailed) hideBrowserError();
+    setLoading(false);
     setStatus("");
   });
   view.addEventListener("error", () => {
@@ -4906,6 +4950,7 @@ function ensureBrowser(panel, body) {
     tabs: tabSnapshot.tabs,
     activeTabId: tabSnapshot.activeTabId,
     setStatus,
+    setLoading,
     view,
     address,
     back,
@@ -4920,6 +4965,8 @@ function ensureBrowser(panel, body) {
   renderBrowserTabs(session);
   const activeUrl = activeBrowserTab(session)?.url;
   if (activeUrl && activeUrl !== panel.url) queueBrowserUrlSync(panel.id, activeUrl);
+  setLoading(true);
+  view.src = initialBrowserUrl;
   updateNavState();
 }
 
