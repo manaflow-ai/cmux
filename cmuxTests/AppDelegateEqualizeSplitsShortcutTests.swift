@@ -272,8 +272,6 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
     }
 
     private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
-        window.performClose(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        AppDelegate.shared?.closeMainWindowForXCTest(windowId: windowId)
     }
 }

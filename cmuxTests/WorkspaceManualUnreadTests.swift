@@ -607,8 +607,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -674,8 +673,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -720,8 +718,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -756,8 +753,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -796,8 +792,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -830,8 +825,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -873,8 +867,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -915,8 +908,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -948,8 +940,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -983,8 +974,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -1019,8 +1009,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
         }
@@ -1083,8 +1072,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
@@ -1142,8 +1130,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(shouldActivate: false)
 
         defer {
-            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            appDelegate.closeMainWindowForXCTest(windowId: windowId)
             store.replaceNotificationsForTesting([])
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride

@@ -95,6 +95,36 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
 }
 
 @MainActor
+extension AppDelegate {
+    func closeMainWindowForXCTest(windowId: UUID) {
+        let originalConfirmationHandler = debugCloseMainWindowConfirmationHandler
+        debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer {
+            debugCloseMainWindowConfirmationHandler = originalConfirmationHandler
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+        }
+
+        if let manager = tabManagerFor(windowId: windowId) {
+            for workspace in manager.tabs {
+                workspace.withClosedPanelHistorySuppressed {
+                    workspace.teardownAllPanels()
+                }
+                workspace.teardownRemoteConnection()
+            }
+        }
+
+        forgetRecoverableMainWindowRoute(windowId: windowId)
+        if let window = windowForMainWindowId(windowId) {
+            window.animationBehavior = .none
+            window.orderOut(nil)
+            window.close()
+        }
+        unregisterMainWindowContextForTesting(windowId: windowId)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+}
+
+@MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private static var retainedTextBoxUndoWindows: [NSWindow] = []
     private static var retainedTextBoxRenderScrollViews: [NSScrollView] = []
@@ -181,6 +211,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
+        for windowId in mainWindowIds() {
+            closeWindow(withId: windowId)
+        }
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
@@ -9963,15 +9996,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
-        let appDelegate = AppDelegate.shared
-        let originalConfirmationHandler = appDelegate?.debugCloseMainWindowConfirmationHandler
-        appDelegate?.debugCloseMainWindowConfirmationHandler = { _ in true }
-        defer { appDelegate?.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
-        window.animationBehavior = .none
-        window.orderOut(nil)
-        window.close()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        AppDelegate.shared?.closeMainWindowForXCTest(windowId: windowId)
     }
 
     private func closeTestWindow(_ window: NSWindow) {
