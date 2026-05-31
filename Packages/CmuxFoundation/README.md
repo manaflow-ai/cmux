@@ -2,22 +2,25 @@
 
 Shared low-level primitives for cmux with no internal package dependencies. This is the
 bottom of the package dependency graph: encoding/text helpers, value types, and other
-cross-cutting utilities that several domains need and nothing in here depends on AppKit,
+cross-cutting utilities that several domains need, with nothing in here depending on AppKit,
 SwiftUI, or another cmux package.
 
 It exists as the leaf every other package and the app target can depend on without creating
 a cycle. Keep it dependency-free.
 
+Foundation helpers are exposed as extensions on existing types rather than free functions,
+so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
+
 ## Contents
 
-- `cmuxJavaScriptStringLiteral(_:)` — encode a string as a quoted JavaScript string literal.
+- `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 
 ## Usage
 
 ```swift
 import CmuxFoundation
 
-let literal = cmuxJavaScriptStringLiteral(userText) ?? "null"
+let literal = userText?.javaScriptStringLiteral ?? "null"
 webView.evaluateJavaScript("setValue(\(literal))")
 ```
 
@@ -30,6 +33,6 @@ import Testing
 import CmuxFoundation
 
 @Test func plainStringIsQuoted() {
-    #expect(cmuxJavaScriptStringLiteral("hello") == "\"hello\"")
+    #expect("hello".javaScriptStringLiteral == "\"hello\"")
 }
 ```
