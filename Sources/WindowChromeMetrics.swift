@@ -56,8 +56,15 @@ enum TitlebarFolderTitleLayout {
         if isFullScreen && !sidebarVisible {
             return fullscreenCollapsedInset
         }
+        let openInset = sidebarWidth + openSidebarGap
         if sidebarVisible {
-            return sidebarWidth + openSidebarGap
+            return openInset
+        }
+        // Collapsed. At the minimum width, keep the folder icon/title where it sits
+        // when the sidebar is open so toggling the sidebar does not move it. Above the
+        // minimum, slide back to the traffic-light inset.
+        if sidebarWidth <= minimumSidebarWidth + minimumWidthTolerance {
+            return openInset
         }
         return collapsedInset
     }
