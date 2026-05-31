@@ -724,6 +724,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0)
         XCTAssertFalse(result.stdout.contains("OK surface="), result.stdout)
         XCTAssertTrue(result.stderr.contains("No unstaged changes to diff."), result.stderr)
+        XCTAssertFalse(result.stderr.contains("EmptyDiffSourceError"), result.stderr)
         XCTAssertFalse(result.stderr.contains("workspace and surface"), result.stderr)
 
         let commandPayload = try XCTUnwrap(

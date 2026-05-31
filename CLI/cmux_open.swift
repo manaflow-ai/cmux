@@ -3518,20 +3518,24 @@ extension CMUXCLI {
     }
 
     private func completeDeferredDiffViewer(_ viewer: DiffViewerWriteResult) throws -> DiffViewerWriteResult {
-        if let completeDeferred = viewer.completeDeferred {
-            return try completeDeferred()
+        do {
+            if let completeDeferred = viewer.completeDeferred {
+                return try completeDeferred()
+            }
+            let selectedCompletion = try completeDeferredDiffViewerSources(
+                viewer.deferredSourceSet,
+                selectedURL: viewer.fileURL
+            )
+            guard let selectedCompletion else { return viewer }
+            var finalized = viewer
+            finalized.fileURL = selectedCompletion.fileURL
+            finalized.url = selectedCompletion.viewerURL
+            finalized.input = selectedCompletion.input
+            finalized.title = selectedCompletion.input.defaultTitle
+            return finalized
+        } catch {
+            throw diffViewerCommandError(error)
         }
-        let selectedCompletion = try completeDeferredDiffViewerSources(
-            viewer.deferredSourceSet,
-            selectedURL: viewer.fileURL
-        )
-        guard let selectedCompletion else { return viewer }
-        var finalized = viewer
-        finalized.fileURL = selectedCompletion.fileURL
-        finalized.url = selectedCompletion.viewerURL
-        finalized.input = selectedCompletion.input
-        finalized.title = selectedCompletion.input.defaultTitle
-        return finalized
     }
 
     private func completeDeferredDiffViewerSelectedSource(
@@ -3558,6 +3562,7 @@ extension CMUXCLI {
         guard let sourceSet else { return nil }
         var completedPageURLs = initialCompletedPageURLs
         var selectedCompletion: DiffViewerDeferredCompletion?
+        var selectedError: Error?
         for page in sourceSet.pages {
             guard !completedPageURLs.contains(page.url) else { continue }
             do {
@@ -3569,9 +3574,12 @@ extension CMUXCLI {
             } catch {
                 writeDeferredDiffViewerError(error, page: page, sourceSet: sourceSet)
                 if page.url == selectedURL {
-                    throw error
+                    selectedError = error
                 }
             }
+        }
+        if let selectedError {
+            throw selectedError
         }
         return selectedCompletion
     }
@@ -3653,8 +3661,10 @@ extension CMUXCLI {
                     )
                     completion.completedPageURLs.insert(page.url)
                     return completion
-                } catch {
+                } catch is EmptyDiffSourceError {
                     continue
+                } catch let fallbackError {
+                    throw fallbackError
                 }
             }
             throw error
@@ -3716,6 +3726,13 @@ extension CMUXCLI {
             return error.message
         }
         return error.localizedDescription
+    }
+
+    private func diffViewerCommandError(_ error: Error) -> Error {
+        if let error = error as? EmptyDiffSourceError {
+            return CLIError(message: error.message)
+        }
+        return error
     }
 
     private func diffViewerSourceOptions(
