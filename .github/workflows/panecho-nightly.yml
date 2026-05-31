@@ -77,6 +77,7 @@ jobs:
 
       - name: Build Panecho.app
         run: |
+          set +e
           set -uo pipefail
           XCODEBUILD_LOG="$PWD/xcodebuild-panecho.log"
           xcodebuild -quiet \
@@ -95,7 +96,28 @@ jobs:
           XCODEBUILD_STATUS=${PIPESTATUS[0]}
           if [ "$XCODEBUILD_STATUS" -ne 0 ]; then
             echo "::group::Xcode build diagnostics"
-            grep -E -B 8 -A 12 '(^|[[:space:]])(error:|fatal error:)|Command SwiftCompile failed|Command CompileSwiftSources failed|cannot find|no such module|undefined symbol|Build failed' "$XCODEBUILD_LOG" || true
+            python3 - "$XCODEBUILD_LOG" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          lines = Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          patterns = re.compile(r"\b(error:|fatal error:)|Command (SwiftCompile|CompileSwiftSources) failed|cannot find|no such module|undefined symbol|BUILD FAILED", re.IGNORECASE)
+          indexes = [index for index, line in enumerate(lines) if patterns.search(line)]
+          if not indexes:
+              print("No compiler-style diagnostics matched; showing the last 80 log lines.")
+              for line in lines[-80:]:
+                  print(line)
+          else:
+              seen = set()
+              for index in indexes[:25]:
+                  for line_index in range(max(0, index - 8), min(len(lines), index + 13)):
+                      if line_index in seen:
+                          continue
+                      seen.add(line_index)
+                      print(lines[line_index])
+                  print("---")
+          PY
             echo "::endgroup::"
           fi
           exit "$XCODEBUILD_STATUS"
