@@ -4986,6 +4986,11 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
     session.suspended = suspended;
     session.suspendInactive = state.settings.browserSuspendInactive;
     session.shell?.classList.toggle("is-browser-suspended", suspended);
+    if (suspended) {
+      session.setStatus?.("Paused while inactive");
+    } else if (session.statusText === "Paused while inactive") {
+      session.setStatus?.("");
+    }
     setBrowserAudioMuted(session.view, suspended);
     if (suspended) stopBrowserLoading(session.view);
   }
@@ -5449,6 +5454,7 @@ function ensureBrowser(panel, body) {
       clearTimeout(loadingStatusTimer);
       loadingStatusTimer = 0;
     }
+    if (session) session.statusText = message;
     status.textContent = message;
     status.classList.toggle("is-visible", Boolean(message));
     if (message === "Loading") {

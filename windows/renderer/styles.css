@@ -2592,6 +2592,12 @@ body.reduce-motion *::after {
   display: flex;
 }
 
+.browser-shell.is-browser-suspended .browser-status {
+  border-bottom: 1px solid color-mix(in oklch, var(--color-line) 72%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 78%, var(--color-canvas) 22%);
+  color: var(--color-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .browser-loading-track::before {
     animation-duration: 1ms;
