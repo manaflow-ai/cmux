@@ -311,6 +311,8 @@ const state = {
   closedPanels: [],
   workspaceRows: new Map(),
   surfaceTabButtons: new Map(),
+  workspaceListSignature: "",
+  surfaceTabsSignature: "",
   newTabButton: null,
   paletteOpen: false,
   paletteIndex: 0,
@@ -2918,6 +2920,14 @@ async function withUiOperation(key, kind, label, task) {
 }
 
 function renderWorkspaces() {
+  const signature = workspaceListSignature();
+  if (
+    signature === state.workspaceListSignature
+    && state.workspaceRows.size === state.data.workspaces.length
+    && elements.workspaceList.childNodes.length === state.data.workspaces.length
+  ) {
+    return;
+  }
   const activeId = state.data.activeWorkspaceId;
   const validIds = new Set(state.data.workspaces.map((workspace) => workspace.id));
   for (const [workspaceId, row] of [...state.workspaceRows]) {
@@ -2936,6 +2946,29 @@ function renderWorkspaces() {
     return button;
   });
   replaceChildrenIfChanged(elements.workspaceList, nodes);
+  state.workspaceListSignature = signature;
+}
+
+function workspaceListSignature() {
+  const activeId = state.data?.activeWorkspaceId || "";
+  const paletteColor = state.data?.palette?.[0] || "";
+  return stableJson([
+    activeId,
+    paletteColor,
+    ...(state.data?.workspaces || []).map((workspace, index) => {
+      const attentionTotal = workspace.panels.filter((panel) => panel.needsAttention).length;
+      return [
+        workspace.id,
+        workspace.title || `Workspace ${index + 1}`,
+        workspace.cwdShort || "~",
+        workspace.color || paletteColor,
+        workspace.terminalCount || 0,
+        workspace.browserCount || 0,
+        workspace.latestNotification || "",
+        attentionTotal
+      ];
+    })
+  ]);
 }
 
 function createWorkspaceRow() {
@@ -3038,6 +3071,17 @@ function renderSurfaceTabs(workspace) {
     clearSurfaceTabs();
     return;
   }
+  const signature = surfaceTabsSignature(workspace);
+  if (
+    signature === state.surfaceTabsSignature
+    && state.newTabButton
+    && state.newTabButton.dataset.workspaceId === workspace.id
+    && state.surfaceTabButtons.size === workspace.panels.length
+    && elements.surfaceTabs.childNodes.length === workspace.panels.length + 1
+  ) {
+    scheduleSurfaceTabsOverflowRefresh();
+    return;
+  }
   const validIds = new Set(workspace.panels.map((panel) => panel.id));
   for (const [panelId, tab] of [...state.surfaceTabButtons]) {
     if (!validIds.has(panelId)) {
@@ -3056,6 +3100,7 @@ function renderSurfaceTabs(workspace) {
   });
   nodes.push(getNewSurfaceTab(workspace));
   replaceChildrenIfChanged(elements.surfaceTabs, nodes);
+  state.surfaceTabsSignature = signature;
   scheduleActiveSurfaceTabIntoView(workspace.activePanelId);
   scheduleSurfaceTabsOverflowRefresh();
 }
@@ -3063,8 +3108,35 @@ function renderSurfaceTabs(workspace) {
 function clearSurfaceTabs() {
   for (const tab of state.surfaceTabButtons.values()) tab.remove();
   state.surfaceTabButtons.clear();
+  state.surfaceTabsSignature = "";
   replaceChildrenIfChanged(elements.surfaceTabs, []);
   toggleClassIfChanged(elements.surfaceTabs, "has-overflow", false);
+}
+
+function surfaceTabsSignature(workspace) {
+  const zoomedPanelId = zoomedPanelIdForWorkspace(workspace) || "";
+  return stableJson([
+    workspace.id,
+    workspace.activePanelId || "",
+    workspace.color || "",
+    state.settings.titleDetailMode,
+    paneCreationButtonsDisabled(),
+    workspace.panels.map((panel) => {
+      const pending = isPendingPanel(panel);
+      const minimized = isPanelMinimized(panel);
+      return [
+        panel.id,
+        panelDisplayTitle(panel, true),
+        panelDisplayTitle(panel, false),
+        panel.color || workspace.color || "var(--color-accent)",
+        panel.id === workspace.activePanelId,
+        panel.id === zoomedPanelId,
+        minimized,
+        pending,
+        Boolean(panel.needsAttention)
+      ];
+    })
+  ]);
 }
 
 function scheduleActiveSurfaceTabIntoView(panelId) {
