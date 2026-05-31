@@ -1588,19 +1588,37 @@ async function applySavedBackgroundImage(backgroundId) {
 }
 
 async function openBackgroundImageFile(value = state.settings.backgroundImage) {
+  return openBackgroundImageSource(value);
+}
+
+function canOpenBackgroundImageSource(value) {
+  const url = normalizedImageUrl(value);
+  return Boolean(backgroundFilePath(url) || /^https?:\/\//i.test(url));
+}
+
+async function openBackgroundImageSource(value = state.settings.backgroundImage) {
+  const url = normalizedImageUrl(value);
+  if (!url) {
+    toast("Choose a custom background image first.");
+    return false;
+  }
   const filePath = backgroundFilePath(value);
-  if (!filePath) {
-    toast("Current background is not a local file.");
-    return false;
+  if (filePath) {
+    if (!window.cmuxNative?.openPath) {
+      toast("Open file is available in the desktop app.");
+      return false;
+    }
+    const result = await window.cmuxNative.openPath(filePath);
+    const ok = result === true || result?.ok;
+    toast(ok ? "Background file opened." : "Background file could not be opened.");
+    return ok;
   }
-  if (!window.cmuxNative?.openPath) {
-    toast("Open file is available in the desktop app.");
-    return false;
+  if (/^https?:\/\//i.test(url)) {
+    const result = await openExternalBrowser(url, { toast: true });
+    return Boolean(result?.ok);
   }
-  const result = await window.cmuxNative.openPath(filePath);
-  const ok = result === true || result?.ok;
-  toast(ok ? "Background file opened." : "Background file could not be opened.");
-  return ok;
+  toast("This background source cannot be opened directly.");
+  return false;
 }
 
 async function renameSavedBackgroundImage(backgroundId) {
@@ -6735,8 +6753,8 @@ function activeBackgroundPanel() {
   const actions = panel.querySelector(".active-background-actions");
   const save = settingsActionButton("Save", () => saveCustomBackgroundImage({ url: state.settings.backgroundImage }), "", "active background save current");
   save.disabled = !isCustomBackgroundImage(state.settings.backgroundImage);
-  const open = settingsActionButton("Open", () => openBackgroundImageFile(), "", "active background open local file reveal");
-  open.disabled = !filePath;
+  const open = settingsActionButton("Open", () => openBackgroundImageSource(), "", "active background open local file url source reveal");
+  open.disabled = !canOpenBackgroundImageSource(state.settings.backgroundImage);
   const clear = settingsActionButton("Clear", () => {
     const changed = updateSettings({ backgroundImage: "" });
     if (changed) renderSettingsInspector();
@@ -8597,8 +8615,11 @@ function savedBackgroundImagesPanel() {
     text.append(label, url);
     const cardActions = document.createElement("div");
     cardActions.className = "saved-background-card-actions";
+    const open = settingsActionButton("Open", () => openBackgroundImageSource(background.url), "", `open saved background source ${background.label}`);
+    open.disabled = !canOpenBackgroundImageSource(background.url);
     cardActions.append(
       settingsActionButton("Apply", () => applySavedBackgroundImage(background.id), "", `apply saved background ${background.label}`),
+      open,
       settingsActionButton("Rename", () => renameSavedBackgroundImage(background.id), "", `rename saved background ${background.label}`),
       settingsActionButton("Delete", () => deleteSavedBackgroundImage(background.id), "danger", `delete saved background ${background.label}`)
     );
