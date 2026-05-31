@@ -81,6 +81,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "workspaceGroups": [
+                    "newWorkspacePlacement": WorkspaceGroupNewWorkspacePlacementSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,

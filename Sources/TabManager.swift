@@ -6,10 +6,13 @@ import CoreVideo
 import Combine
 import CoreServices
 import Darwin
+import OSLog
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
+
+private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
 private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
     let handleEvent: @Sendable () -> Void
@@ -948,30 +951,74 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 /// Where a newly-created workspace lands inside its group when the user
 /// clicks the group header's + button (or invokes
 /// `workspace.group.new_workspace`).
+///   - `.afterCurrent` — immediately after the current in-group workspace,
+///     falling back to `.top` when no in-group reference is supplied.
 ///   - `.top` — second slot, immediately after the anchor.
 ///   - `.end` — last slot, after the existing trailing member.
-enum WorkspaceGroupNewPlacement: String, Sendable, CaseIterable {
+enum WorkspaceGroupNewPlacement: String, Sendable, CaseIterable, Identifiable {
+    case afterCurrent
     case top
     case end
 
+    var id: String { rawValue }
+
     init?(rawString: String?) {
-        guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !raw.isEmpty,
-              let value = WorkspaceGroupNewPlacement(rawValue: raw) else { return nil }
-        self = value
+        guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        switch raw.lowercased() {
+        case "aftercurrent", "after-current", "after_current":
+            self = .afterCurrent
+        case "top":
+            self = .top
+        case "end":
+            self = .end
+        default:
+            return nil
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .afterCurrent:
+            return String(localized: "workspaceGroup.placement.afterCurrent", defaultValue: "After current")
+        case .top:
+            return String(localized: "workspaceGroup.placement.top", defaultValue: "Top of group")
+        case .end:
+            return String(localized: "workspaceGroup.placement.end", defaultValue: "End of group")
+        }
+    }
+
+    var settingsDescription: String {
+        switch self {
+        case .afterCurrent:
+            return String(
+                localized: "workspaceGroup.placement.afterCurrent.description",
+                defaultValue: "Insert new group workspaces after the active workspace in that group."
+            )
+        case .top:
+            return String(
+                localized: "workspaceGroup.placement.top.description",
+                defaultValue: "Insert new group workspaces right after the group header."
+            )
+        case .end:
+            return String(
+                localized: "workspaceGroup.placement.end.description",
+                defaultValue: "Append new group workspaces after the last group member."
+            )
+        }
     }
 }
 
 /// UserDefaults-backed global default for the per-group `+` placement.
 /// Used when neither the per-cwd `cmux.json` entry nor an explicit call-site
-/// override pins a placement. Default ships as `.top`.
+/// override pins a placement.
 enum WorkspaceGroupNewWorkspacePlacementSettings {
     static let key = "workspaceGroup.newWorkspacePlacement"
-    static let defaultValue: WorkspaceGroupNewPlacement = .top
+    static let defaultValue: WorkspaceGroupNewPlacement = .afterCurrent
 
     static func resolved(defaults: UserDefaults = .standard) -> WorkspaceGroupNewPlacement {
         guard let raw = defaults.string(forKey: key),
-              let value = WorkspaceGroupNewPlacement(rawValue: raw) else {
+              let value = WorkspaceGroupNewPlacement(rawString: raw) else {
             return defaultValue
         }
         return value
@@ -1381,6 +1428,7 @@ class TabManager: ObservableObject {
     private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    private var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
@@ -1488,7 +1536,7 @@ class TabManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { [weak self] in
-                self?.sidebarGitMetadataWatchSettingsDidChange()
+                self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
             }
         })
@@ -1528,7 +1576,7 @@ class TabManager: ObservableObject {
     }
 
     private func updateWorkspacePullRequestPollTimer() {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarPullRequestPollingEnabled else {
             workspacePullRequestPollTimer?.cancel()
             workspacePullRequestPollTimer = nil
             return
@@ -1614,6 +1662,15 @@ class TabManager: ObservableObject {
         SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     }
 
+    private var sidebarPullRequestPollingEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    }
+
+    private func sidebarMetadataSettingsDidChange() {
+        sidebarGitMetadataWatchSettingsDidChange()
+        sidebarPullRequestPollingSettingsDidChange()
+    }
+
     private func sidebarGitMetadataWatchSettingsDidChange() {
         let isEnabled = sidebarGitMetadataWatchEnabled
         guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
@@ -1644,6 +1701,22 @@ class TabManager: ObservableObject {
 
         restartWorkspaceGitMetadataWatching(reason: "gitWatchSettingEnabled")
         updateWorkspaceGitMetadataFallbackTimer()
+    }
+
+    private func sidebarPullRequestPollingSettingsDidChange() {
+        let isEnabled = sidebarPullRequestPollingEnabled
+        guard isEnabled != lastSidebarPullRequestPollingEnabled else {
+            return
+        }
+        lastSidebarPullRequestPollingEnabled = isEnabled
+
+        guard isEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarPullRequestMetadata()
+            return
+        }
+
+        refreshTrackedWorkspacePullRequestsIfNeeded(reason: "pullRequestVisibilityEnabled")
     }
 
     private func restartWorkspaceGitMetadataWatching(reason: String) {
@@ -1773,9 +1846,9 @@ class TabManager: ObservableObject {
         reason: String,
         allowCachedResultsOverride: Bool? = nil
     ) {
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarPullRequestPollingEnabled else {
             resetWorkspacePullRequestRefreshState()
-            clearAllWorkspaceSidebarGitMetadata()
+            clearAllWorkspaceSidebarPullRequestMetadata()
             return
         }
 
@@ -1961,8 +2034,8 @@ class TabManager: ObservableObject {
         reason: String
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        guard sidebarGitMetadataWatchEnabled else {
-            clearWorkspaceGitMetadata(for: key)
+        guard sidebarPullRequestPollingEnabled else {
+            clearWorkspacePullRequestMetadata(for: key)
             return
         }
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
@@ -1993,6 +2066,12 @@ class TabManager: ObservableObject {
         now: Date,
         reason: String
     ) {
+        guard sidebarPullRequestPollingEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarPullRequestMetadata()
+            return
+        }
+
         for (repoSlug, repoResult) in repoResults {
             guard case .success(let cacheEntry, let usedCache, _) = repoResult,
                   !usedCache else {
@@ -2195,6 +2274,14 @@ class TabManager: ObservableObject {
         updateWorkspacePullRequestPollTimer()
     }
 
+    private func clearWorkspacePullRequestMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspacePullRequestTracking(for: key)
+        guard let workspace = tabs.first(where: { $0.id == key.workspaceId }) else {
+            return
+        }
+        workspace.clearPanelPullRequest(panelId: key.panelId)
+    }
+
     private func resetWorkspacePullRequestRefreshState() {
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
@@ -2298,7 +2385,7 @@ class TabManager: ObservableObject {
     }
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
-        sidebarGitMetadataWatchSettingsDidChange()
+        sidebarMetadataSettingsDidChange()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
@@ -2315,6 +2402,14 @@ class TabManager: ObservableObject {
     func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
         let probeKeys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
+    func workspacePullRequestTrackedPanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspacePullRequestProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestNextPollAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestLastTerminalStateRefreshAtByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspacePullRequestTransientFailureCountByKey.keys.filter { $0.workspaceId == workspaceId })
         return Set(probeKeys.map(\.panelId))
     }
 
@@ -2980,6 +3075,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func clearAllWorkspaceSidebarPullRequestMetadata() {
+        for workspace in tabs {
+            workspace.clearSidebarPullRequestMetadata()
+        }
+    }
+
     private func clearWorkspaceGitProbes(workspaceId: UUID) {
         let keys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
@@ -3013,7 +3114,9 @@ class TabManager: ObservableObject {
             if case .inFlight = workspaceGitProbeStateByKey[probeKey] { return true }
             return false
         }()
+        let shouldTrackPullRequests = sidebarPullRequestPollingEnabled
         let resolvedPullRequest: SidebarPullRequestState? = {
+            guard shouldTrackPullRequests else { return nil }
             guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
             return pullRequest
         }()
@@ -3136,24 +3239,31 @@ class TabManager: ObservableObject {
 
         switch snapshot.pullRequest {
         case .resolved(let pullRequest):
-            workspace.updatePanelPullRequest(
-                panelId: probeKey.panelId,
-                number: pullRequest.number,
-                label: pullRequest.label,
-                url: pullRequest.url,
-                status: pullRequest.status,
-                branch: pullRequest.branch,
-                isStale: false
-            )
+            if shouldTrackPullRequests {
+                workspace.updatePanelPullRequest(
+                    panelId: probeKey.panelId,
+                    number: pullRequest.number,
+                    label: pullRequest.label,
+                    url: pullRequest.url,
+                    status: pullRequest.status,
+                    branch: pullRequest.branch,
+                    isStale: false
+                )
+            } else if workspace.panelPullRequests[probeKey.panelId] != nil {
+                workspace.clearPanelPullRequest(panelId: probeKey.panelId)
+            }
         case .notFound:
             if workspace.panelPullRequests[probeKey.panelId] != nil {
                 workspace.clearPanelPullRequest(panelId: probeKey.panelId)
             }
         case .deferred, .unsupportedRepository, .transientFailure:
+            if !shouldTrackPullRequests, workspace.panelPullRequests[probeKey.panelId] != nil {
+                workspace.clearPanelPullRequest(panelId: probeKey.panelId)
+            }
             break
         }
 
-        if snapshot.branch != nil {
+        if snapshot.branch != nil, shouldTrackPullRequests {
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
@@ -6178,6 +6288,7 @@ class TabManager: ObservableObject {
     func createWorkspaceInGroup(
         groupId: UUID,
         placement: WorkspaceGroupNewPlacement = WorkspaceGroupNewWorkspacePlacementSettings.resolved(),
+        referenceWorkspaceId: UUID? = nil,
         select: Bool = true
     ) -> Workspace? {
         guard let group = workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
@@ -6189,7 +6300,12 @@ class TabManager: ObservableObject {
             autoWelcomeIfNeeded: false
         )
         assignGroup(workspaceId: newWorkspace.id, groupId: groupId)
-        placeWithinGroup(workspaceId: newWorkspace.id, groupId: groupId, placement: placement)
+        placeWithinGroup(
+            workspaceId: newWorkspace.id,
+            groupId: groupId,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceId
+        )
         // Expand the group when the new workspace is being focused. The
         // selectedTabId auto-expand hook fires inside `addWorkspace` BEFORE
         // assignGroup, so it can't see the new workspace's membership. Without
@@ -6207,17 +6323,36 @@ class TabManager: ObservableObject {
 
     /// Move an existing group member to the requested in-group slot. Called
     /// after `createWorkspaceInGroup` and any other path that needs to
-    /// pin the new member to top/end relative to the group's members.
+    /// pin the new member relative to the group's members.
     private func placeWithinGroup(
         workspaceId: UUID,
         groupId: UUID,
-        placement: WorkspaceGroupNewPlacement
+        placement: WorkspaceGroupNewPlacement,
+        referenceWorkspaceId: UUID? = nil
     ) {
         guard let group = workspaceGroups.first(where: { $0.id == groupId }),
               let currentIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId && tabs[$0].id != workspaceId }
+        func logMissingPlacementAnchor(_ placementName: String) {
+            tabManagerLogger.info(
+                "workspaceGroup.placeWithinGroup missing placement anchor group=\(groupId.uuidString, privacy: .public) workspace=\(workspaceId.uuidString, privacy: .public) placement=\(placementName, privacy: .public)"
+            )
+        }
         let targetIndex: Int
         switch placement {
+        case .afterCurrent:
+            if let referenceWorkspaceId,
+               referenceWorkspaceId != workspaceId,
+               let referenceIndex = tabs.firstIndex(where: { $0.id == referenceWorkspaceId && $0.groupId == groupId }) {
+                targetIndex = referenceIndex + 1
+            } else if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
+                targetIndex = anchorIndex + 1
+            } else if let firstMember = memberIndices.first {
+                targetIndex = firstMember
+            } else {
+                logMissingPlacementAnchor("afterCurrent")
+                return
+            }
         case .top:
             if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
                 // Right after the anchor; the anchor stays first via
@@ -6226,6 +6361,7 @@ class TabManager: ObservableObject {
             } else if let firstMember = memberIndices.first {
                 targetIndex = firstMember
             } else {
+                logMissingPlacementAnchor("top")
                 return
             }
         case .end:
@@ -6236,6 +6372,7 @@ class TabManager: ObservableObject {
                 if let anchorIndex = tabs.firstIndex(where: { $0.id == group.anchorWorkspaceId }) {
                     targetIndex = anchorIndex + 1
                 } else {
+                    logMissingPlacementAnchor("end")
                     return
                 }
             }
@@ -6252,7 +6389,12 @@ class TabManager: ObservableObject {
     /// source group). If the workspace is the currently selected one and the
     /// target group is collapsed, the group auto-expands so the focused
     /// workspace stays visible.
-    func addWorkspaceToGroup(workspaceId: UUID, groupId: UUID) {
+    func addWorkspaceToGroup(
+        workspaceId: UUID,
+        groupId: UUID,
+        placement: WorkspaceGroupNewPlacement? = nil,
+        referenceWorkspaceId: UUID? = nil
+    ) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }), !tab.isPinned else { return }
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return }
         guard tab.groupId != groupId else { return }
@@ -6274,6 +6416,14 @@ class TabManager: ObservableObject {
         normalizeWorkspaceGroupContiguity(
             preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
         )
+        if let placement {
+            placeWithinGroup(
+                workspaceId: workspaceId,
+                groupId: groupId,
+                placement: placement,
+                referenceWorkspaceId: referenceWorkspaceId
+            )
+        }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [workspaceId])
     }
 
@@ -7002,6 +7152,10 @@ class TabManager: ObservableObject {
         target: String?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard sidebarPullRequestPollingEnabled else {
+            clearWorkspacePullRequestMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+            return
+        }
         reconcileLocalPullRequestActionIfPossible(
             workspace: tab,
             panelId: surfaceId,

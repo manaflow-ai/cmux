@@ -67,7 +67,7 @@ public struct BrowserSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"))
+            SettingsSectionHeader(String(localized: "settings.section.browser", defaultValue: "Browser"), section: .browser)
                 .accessibilityIdentifier("SettingsBrowserSection")
             mainCard
         }
@@ -91,6 +91,7 @@ public struct BrowserSection: View {
             // Enable cmux Browser
             SettingsCardRow(
                 configurationReview: .settingsOnly,
+                searchAnchorID: "setting:browser:enable-browser",
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
                 subtitle: !disabled.current
                     ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
@@ -256,6 +257,7 @@ public struct BrowserSection: View {
 
             // HTTP Hosts Allowed in Embedded Browser
             httpAllowlistRow(model: httpAllowlist)
+                .settingsSearchAnchors(["setting:browser:http-allowlist"])
 
             SettingsCardDivider()
 
@@ -267,6 +269,7 @@ public struct BrowserSection: View {
                 onImport: { hostActions.openBrowserImportFlow() }
             )
             .id(importAnchorID ?? "section:browserImport.inline")
+            .settingsSearchHighlight([importAnchorID, "setting:browserImport:import-data"].compactMap { $0 })
             SettingsCardDivider()
 
             // React Grab Version
@@ -290,6 +293,7 @@ public struct BrowserSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .action,
+                searchAnchorID: "setting:browser:history",
                 String(localized: "settings.browser.history", defaultValue: "Browsing History"),
                 subtitle: historySubtitle(count: historyCount)
             ) {
@@ -456,6 +460,7 @@ public struct BrowserSection: View {
             )
             .controlSize(.small)
             .accessibilityIdentifier("SettingsBrowserImportHintToggle")
+            .settingsSearchAnchors(["setting:browserImport:import-hint"])
             Text(String(localized: "settings.browser.import.hint.settingsNote", defaultValue: "Shown until you import or dismiss it on a blank tab."))
                 .font(.caption)
                 .foregroundStyle(.secondary)

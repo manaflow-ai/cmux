@@ -431,30 +431,13 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
         }
     }
 
-    var titlebarButtonIndex: Int {
-        switch self {
-        case .toggleSidebar:
-            return 0
-        case .showNotifications:
-            return 1
-        case .newTab:
-            return 2
-        case .focusHistoryBack:
-            return 3
-        case .focusHistoryForward:
-            return 4
-        }
-    }
 }
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
-    static let sidebarTrailingPadding: CGFloat = 2
-    static let hintRightSafetyShift: CGFloat = 6
-    static let hintTrailingBaseInset: CGFloat = 4
-    static let extraButtonCount = 0
+    static let hintRightSafetyShift: CGFloat = 10
+    static let hintTrailingBaseInset: CGFloat = 8
     static let trafficLightGap: CGFloat = 2
-    static let trafficLightClusterWidth: CGFloat = 48
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
@@ -463,7 +446,7 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count + extraButtonCount)
+        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
         let gapCount = max(0, buttonCount - 1)
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
@@ -490,32 +473,16 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func leadingOffset(
-        contentWidth: CGFloat,
         trafficLightFrame: NSRect?,
-        debugSnapshot: MinimalModeTitlebarDebugSnapshot,
-        sidebarTrailingEdge: CGFloat = 0
+        debugSnapshot: MinimalModeTitlebarDebugSnapshot
     ) -> CGFloat {
         let debugOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
             leadingInset: debugSnapshot.leftControlsLeadingInset
         )
-        let minimumOffset: CGFloat
-        if let trafficLightFrame, !trafficLightFrame.isEmpty {
-            minimumOffset = max(debugOffset, trafficLightFrame.maxX + trafficLightGap)
-        } else {
-            minimumOffset = debugOffset
+        guard let trafficLightFrame, !trafficLightFrame.isEmpty else {
+            return debugOffset
         }
-
-        guard sidebarTrailingEdge > 0, contentWidth > 0 else {
-            return minimumOffset
-        }
-        return max(minimumOffset, sidebarTrailingEdge - contentWidth - sidebarTrailingPadding)
-    }
-
-    static func minimumSidebarWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        trafficLightClusterWidth
-            + trafficLightGap
-            + contentSize(config: config).width
-            + sidebarTrailingPadding
+        return max(debugOffset, trafficLightFrame.maxX + trafficLightGap)
     }
 
     static func yOffset(
@@ -1085,7 +1052,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let index = CGFloat(slot.titlebarButtonIndex)
+        let index = CGFloat(slot.rawValue)
         return (index + 1) * config.buttonSize + index * config.spacing
     }
 
@@ -1866,7 +1833,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
-    private var sidebarTrailingEdge: CGFloat = 0
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
@@ -2035,13 +2001,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             titlebarHeight: titlebarHeight
         )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let accessoryOriginXInWindow = view.convert(view.bounds, to: nil).minX
-        let sidebarTrailingEdgeInAccessory = max(0, sidebarTrailingEdge - accessoryOriginXInWindow)
         let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
-            contentWidth: contentSize.width,
             trafficLightFrame: trafficLightFrame,
-            debugSnapshot: debugSnapshot,
-            sidebarTrailingEdge: sidebarTrailingEdgeInAccessory
+            debugSnapshot: debugSnapshot
         )
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: contentSize.height,
@@ -2066,14 +2028,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
         containerView.setFrameSize(NSSize(width: containerWidth, height: containerHeight))
         hostingView.frame = NSRect(x: xOffset, y: yOffset, width: contentSize.width, height: contentSize.height)
-    }
-
-    func setSidebarTrailingEdge(_ edge: CGFloat) {
-        let sanitizedEdge = max(0, edge)
-        guard abs(sidebarTrailingEdge - sanitizedEdge) > 0.5 else { return }
-        sidebarTrailingEdge = sanitizedEdge
-        lastAppliedLayoutSnapshot = nil
-        updateSize()
     }
 
     private func applyWorkspaceTitlebarVisibility() {
@@ -2801,7 +2755,6 @@ final class UpdateTitlebarAccessoryController {
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
-    private var sidebarTrailingEdgesByWindow: [ObjectIdentifier: CGFloat] = [:]
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
@@ -2954,7 +2907,6 @@ final class UpdateTitlebarAccessoryController {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared
             )
-            controls.setSidebarTrailingEdge(sidebarTrailingEdgesByWindow[ObjectIdentifier(window)] ?? 0)
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
@@ -2986,16 +2938,6 @@ final class UpdateTitlebarAccessoryController {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
-        }
-    }
-
-    func updateSidebarTrailingEdge(_ edge: CGFloat, for window: NSWindow) {
-        guard isMainTerminalWindow(window) else { return }
-        let windowID = ObjectIdentifier(window)
-        let sanitizedEdge = max(0, edge)
-        sidebarTrailingEdgesByWindow[windowID] = sanitizedEdge
-        for controller in controlsControllers.allObjects where controller.view.window === window {
-            controller.setSidebarTrailingEdge(sanitizedEdge)
         }
     }
 

@@ -507,6 +507,12 @@
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",
+          "byCwd": {
+            "newWorkspacePlacement": "Cwd-spesifikk overstyring for hvor Cmd-N i gruppen, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem). Hvis utelatt brukes global standard."
+          }
         }
       }
     },

@@ -165,6 +165,13 @@
       "description": "Per-cwd customization for sidebar workspace groups. The anchor workspace's cwd is matched against the keys in `byCwd`; longest-match wins. Keys containing `*` or `?` are matched as fnmatch globs (with `~` expanded); other keys are path prefixes.",
       "additionalProperties": false,
       "properties": {
+        "newWorkspacePlacement": {
+          "type": "string",
+          "enum": ["afterCurrent", "top", "end"],
+          "default": "afterCurrent",
+          "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
+          "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
+        },
         "byCwd": {
           "type": "object",
           "description": "Map of cwd patterns to group customization. Empty when omitted.",
@@ -192,8 +199,9 @@
               },
               "newWorkspacePlacement": {
                 "type": "string",
-                "enum": ["top", "end"],
-                "description": "Where the group's + button places its new workspace within the group: `top` (second slot, just after the anchor) or `end` (after the last member). Falls back to the global default when omitted."
+                "enum": ["afterCurrent", "top", "end"],
+                "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted.",
+                "descriptionKey": "schemaDescriptions.workspaceGroups.byCwd.newWorkspacePlacement"
               }
             }
           }

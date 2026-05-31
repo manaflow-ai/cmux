@@ -13,7 +13,7 @@ public enum CMUXSidebarAction: Codable, Equatable, Sendable {
     case closeWorkspace(UUID)
     case selectNextWorkspace
     case selectPreviousWorkspace
-    case createTerminalSurface(workspaceID: UUID?, initialInput: String?)
+    case createTerminalSurface(workspaceID: UUID?)
     case createBrowserSurface(workspaceID: UUID?, url: String?)
     case selectSurface(workspaceID: UUID, surfaceID: UUID)
     case selectNextSurface
@@ -48,6 +48,37 @@ public enum CMUXSidebarAction: Codable, Equatable, Sendable {
             return .zoomSurface
         case .openURL:
             return .openURL
+        }
+    }
+
+    public var requiredScopes: Set<CMUXExtensionActionScope> {
+        switch self {
+        case .createWorkspace:
+            return [.createWorkspace]
+        case .selectWorkspace:
+            return [.selectWorkspace]
+        case .closeWorkspace:
+            return [.closeWorkspace]
+        case .selectNextWorkspace, .selectPreviousWorkspace:
+            return [.navigateWorkspace]
+        case .createTerminalSurface:
+            return [.createSurface]
+        case .createBrowserSurface(_, let url):
+            return url == nil ? [.createSurface] : [.createSurface, .openURL]
+        case .selectSurface:
+            return [.selectSurface]
+        case .selectNextSurface, .selectPreviousSurface:
+            return [.navigateSurface]
+        case .closeSurface:
+            return [.closeSurface]
+        case .splitTerminal:
+            return [.splitSurface]
+        case .splitBrowser(_, _, _, let url):
+            return url == nil ? [.splitSurface] : [.splitSurface, .openURL]
+        case .toggleSurfaceZoom:
+            return [.zoomSurface]
+        case .openURL:
+            return [.openURL]
         }
     }
 }

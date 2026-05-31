@@ -13281,12 +13281,13 @@ struct CMUXCLI {
               add --group <group> --workspace <ws>
               remove --workspace <ws>
               set-anchor --group <group> --workspace <ws>
-              new-workspace <group> [--placement top|end]
+              new-workspace <group> [--placement afterCurrent|top|end]
                                         Create a new workspace in the group.
-                                        Default placement is top (second slot,
-                                        right after the anchor); per-cwd
-                                        cmux.json `newWorkspacePlacement` and
-                                        the global default can override.
+                                        Placement resolves first from per-cwd
+                                        cmux.json `newWorkspacePlacement`, then
+                                        from the global default. The default is
+                                        afterCurrent; without an active
+                                        in-group reference it behaves like top.
               set-color <group> [--hex #RRGGBB]
               set-icon <group> [--symbol <sf-symbol>]
               move <group> --to-index <n> | --before <group> | --after <group>
@@ -27014,6 +27015,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        // Destructive session teardown shared by a genuine (non-turn-boundary)
+        // `session-end` and the dedicated `session-finalize` action: consume the
+        // restore record, clear the surface resume binding, and clear PID routing.
+        func performAgentSessionTeardown() {
+            guard let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) else { return }
+            sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+            if suppressVisibleMutations {
+                telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
+            } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                clearAgentSurfaceResumeBinding(
+                    client: client,
+                    workspaceId: consumed.workspaceId,
+                    surfaceId: consumed.surfaceId,
+                    sessionId: consumed.sessionId
+                )
+                _ = try? sendV1Command(
+                    "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                    client: client
+                )
+            }
+        }
         func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
             switch notificationStatus {
             case .idle?:
@@ -28048,7 +28071,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
-            if def.name == "grok" || def.name == "antigravity" {
+            if def.sessionEndIsTurnBoundary {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                     _ = try? store.recordPromptStop(
@@ -28072,24 +28095,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 break
             }
-            if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
-                sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
-                if suppressVisibleMutations {
-                    telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
-                } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
-                    clearAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: consumed.workspaceId,
-                        surfaceId: consumed.surfaceId,
-                        sessionId: consumed.sessionId
-                    )
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
-                        client: client
-                    )
-                }
-            }
+            // A non-turn-boundary session-end is a genuine teardown.
+            performAgentSessionTeardown()
+
+        case .sessionFinalize:
+            performAgentSessionTeardown()
 
         case .noop:
             break
@@ -30050,7 +30060,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = Self.classifyFeedEvent(
+        let (hookEventName, isActionable) = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
@@ -30166,139 +30176,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         print("{}")
     }
-
-    /// Classifies a raw agent hook event into our wire `hook_event_name`
-    /// plus an `isActionable` flag that drives whether the Feed bridge
-    /// blocks waiting for a user decision. Claude Code owns decisions
-    /// through its native PermissionRequest hook. Its PreToolUse hook is
-    /// telemetry/status only.
-    private static func classifyFeedEvent(
-        source: String,
-        event: String,
-        toolName: String
-    ) -> (String, Bool) {
-        if source == "claude" {
-            switch event {
-            case "PermissionRequest":
-                switch toolName {
-                case "ExitPlanMode":
-                    return ("ExitPlanMode", true)
-                case "AskUserQuestion":
-                    return ("AskUserQuestion", true)
-                default:
-                    return ("PermissionRequest", true)
-                }
-            case "PostToolUse":
-                return ("PostToolUse", false)
-            case "UserPromptSubmit":
-                return ("UserPromptSubmit", false)
-            case "SessionStart":
-                return ("SessionStart", false)
-            case "SessionEnd":
-                return ("SessionEnd", false)
-            case "Stop":
-                return ("Stop", false)
-            case "SubagentStop":
-                return ("SubagentStop", false)
-            case "Notification":
-                return ("Notification", false)
-            default:
-                return ("PreToolUse", false)
-            }
-        }
-
-        if source == "hermes-agent" {
-            switch event {
-            case "pre_tool_call":
-                if Self.sideEffectingTools.contains(toolName) {
-                    return ("PermissionRequest", true)
-                }
-                return ("PreToolUse", false)
-            case "post_tool_call":
-                return ("PostToolUse", false)
-            case "pre_approval_request":
-                return ("Notification", false)
-            case "post_approval_response":
-                return ("Notification", false)
-            case "pre_llm_call":
-                return ("UserPromptSubmit", false)
-            case "post_llm_call":
-                return ("Stop", false)
-            case "on_session_start", "on_session_reset":
-                return ("SessionStart", false)
-            case "on_session_end", "on_session_finalize":
-                return ("SessionEnd", false)
-            default:
-                return ("PreToolUse", false)
-            }
-        }
-
-        switch event {
-        case "PreToolUse", "beforeShellExecution":
-            if source == "codex" { return ("PreToolUse", false) }
-            switch toolName {
-            case "ExitPlanMode":
-                return ("ExitPlanMode", true)
-            case "AskUserQuestion":
-                return ("AskUserQuestion", true)
-            default:
-                // Any tool that can mutate the environment surfaces as
-                // a permission request so the user can approve/deny
-                // from the Feed sidebar. Read-only tools stay as
-                // non-actionable telemetry so we don't flood the
-                // Actionable view with every file read.
-                if Self.sideEffectingTools.contains(toolName) {
-                    return ("PermissionRequest", true)
-                }
-                return ("PreToolUse", false)
-            }
-        case "PermissionRequest":
-            return ("PermissionRequest", true)
-        case "PostToolUse":
-            return ("PostToolUse", false)
-        case "UserPromptSubmit":
-            return ("UserPromptSubmit", false)
-        case "SessionStart":
-            return ("SessionStart", false)
-        case "SessionEnd":
-            return ("SessionEnd", false)
-        case "Stop":
-            return ("Stop", false)
-        case "SubagentStop":
-            return ("SubagentStop", false)
-        case "Notification":
-            return ("Notification", false)
-        default:
-            return ("PreToolUse", false)
-        }
-    }
-
-    /// Tools that mutate state and deserve a user-visible approve/
-    /// deny prompt in Feed. Keyed on the canonical tool names Claude,
-    /// Codex, and similar agents emit. Read-only tools (Read, Grep,
-    /// Glob, Task, WebFetch, WebSearch, LS, TodoWrite, …) are
-    /// intentionally excluded.
-    private static let sideEffectingTools: Set<String> = [
-        "Bash",
-        "Write",
-        "Edit",
-        "MultiEdit",
-        "NotebookEdit",
-        "apply_patch",   // Codex
-        "shell",         // Codex / other agents
-        "terminal",      // Hermes Agent
-        "run_command",   // Antigravity
-        "write_to_file",
-        "replace_file_content",
-        "multi_replace_file_content",
-        "manage_task",
-        "schedule",
-        "ask_permission",
-        "invoke_subagent",
-        "define_subagent",
-        "manage_subagents",
-        "generate_image",
-    ]
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
 

@@ -1582,10 +1582,7 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        max(
-            CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting)),
-            TitlebarControlsLayoutMetrics.minimumSidebarWidth(config: titlebarControlsConfig)
-        )
+        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
     }
 
     private enum SidebarResizerHandle: Hashable {
@@ -1700,14 +1697,6 @@ struct ContentView: View {
             candidate,
             maximumWidth: maxSidebarWidth(),
             minimumWidth: minimumSidebarWidth
-        )
-    }
-
-    private func syncTitlebarControlsSidebarTrailingEdge() {
-        guard let observedWindow else { return }
-        AppDelegate.shared?.updateTitlebarAccessorySidebarTrailingEdge(
-            sidebarState.isVisible ? normalizedSidebarWidth(sidebarWidth) : 0,
-            for: observedWindow
         )
     }
 
@@ -2118,12 +2107,6 @@ struct ContentView: View {
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, effectiveTitlebarPadding)
-        .overlay(alignment: .top) {
-            if !isMinimalMode {
-                // Titlebar overlay is only over terminal content, not the sidebar.
-                customTitlebar(appearance: appearance)
-            }
-        }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2327,10 +2310,6 @@ struct ContentView: View {
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
     }
 
-    private var titlebarControlsConfig: TitlebarControlsStyleConfig {
-        (TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic).config
-    }
-
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
@@ -2367,27 +2346,25 @@ struct ContentView: View {
                     fullscreenControls
                 }
 
-                if !sidebarState.isVisible {
-                    // Draggable folder icon + focused command name
-                    if let directory = focusedDirectory {
-                        DetachedFolderDragIcon(directory: directory)
-                            .frame(width: 16, height: 16)
-                            .padding(.leading, -6)
-                    }
-
-                    Text(titlebarText)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                        .lineLimit(1)
-                        .allowsHitTesting(false)
+                // Draggable folder icon + focused command name
+                if let directory = focusedDirectory {
+                    DetachedFolderDragIcon(directory: directory)
+                        .frame(width: 16, height: 16)
+                        .padding(.leading, -6)
                 }
+
+                Text(titlebarText)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                    .lineLimit(1)
+                    .allowsHitTesting(false)
 
                 Spacer()
 
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset))
+            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? sidebarWidth + 12 : titlebarLeadingInset))
             .padding(.trailing, 8)
         }
         .frame(height: WindowChromeMetrics.appTitlebarHeight)
@@ -2397,6 +2374,23 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal)
         }
+    }
+
+    private func workspaceTitlebarBand(appearance: WindowAppearanceSnapshot) -> some View {
+        Color.clear
+            .frame(height: WindowChromeMetrics.appTitlebarHeight)
+            .frame(maxWidth: .infinity)
+            .overlay(alignment: .topLeading) {
+                customTitlebar(appearance: appearance)
+            }
+            .overlay(alignment: .topLeading) {
+                if isFullScreen && sidebarState.isVisible {
+                    fullscreenControls
+                        .environment(\.colorScheme, appearance.sidebarContentColorScheme)
+                        .padding(.leading, 10)
+                        .padding(.top, 4)
+                }
+            }
     }
 
     private func syncTrafficLightInset() {
@@ -2672,16 +2666,13 @@ struct ContentView: View {
                     .allowsHitTesting(false)
 
                 contentAndSidebarLayout(appearance: appearance)
+
+                if !isMinimalMode {
+                    workspaceTitlebarBand(appearance: appearance)
+                        .zIndex(100)
+                }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .overlay(alignment: .topLeading) {
-                    if isFullScreen && sidebarState.isVisible && !isMinimalMode {
-                        fullscreenControls
-                            .environment(\.colorScheme, appearance.sidebarContentColorScheme)
-                            .padding(.leading, 10)
-                            .padding(.top, 4)
-                    }
-                }
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
                 .background(
@@ -2699,7 +2690,6 @@ struct ContentView: View {
             if abs(sidebarWidth - restoredWidth) > 0.5 {
                 sidebarWidth = restoredWidth
             }
-            syncTitlebarControlsSidebarTrailingEdge()
             if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
                 sidebarState.persistedWidth = restoredWidth
             }
@@ -3182,7 +3172,6 @@ struct ContentView: View {
                 sidebarWidth = sanitized
                 return
             }
-            syncTitlebarControlsSidebarTrailingEdge()
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
@@ -3197,7 +3186,12 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { isVisible in
+        view = AnyView(view.onChange(of: titlebarControlsStyleRawValue) { _ in
+            clampSidebarWidthIfNeeded()
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: sidebarState.isVisible) { _, isVisible in
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
@@ -3205,7 +3199,6 @@ struct ContentView: View {
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
-            syncTitlebarControlsSidebarTrailingEdge()
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
@@ -3296,7 +3289,6 @@ struct ContentView: View {
                     syncCommandPaletteDebugStateForObservedWindow()
                     installSidebarResizerPointerMonitorIfNeeded()
                     updateSidebarResizerBandState()
-                    syncTitlebarControlsSidebarTrailingEdge()
                 }
             }
 
@@ -11032,10 +11024,10 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-	    private func handleCMUXSidebarExtensionAction(
-	        _ action: CMUXSidebarAction
-	    ) -> CMUXExtensionActionResult {
-	        switch action {
+    private func handleCMUXSidebarExtensionAction(
+        _ action: CMUXSidebarAction
+    ) -> CMUXExtensionActionResult {
+        switch action {
         case .createWorkspace(let title, let workingDirectory, let select):
             let workspace = tabManager.addWorkspace(
                 title: title,
@@ -11045,9 +11037,9 @@ struct VerticalTabsSidebar: View {
             )
             return CMUXExtensionActionResult(accepted: true, message: workspace.id.uuidString)
 
-	        case .selectWorkspace(let workspaceId):
-	            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-	                return CMUXExtensionActionResult(
+        case .selectWorkspace(let workspaceId):
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                return CMUXExtensionActionResult(
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found")
                 )
@@ -11061,8 +11053,8 @@ struct VerticalTabsSidebar: View {
                     accepted: false,
                     message: String(localized: "sidebar.extensions.action.closeRejected", defaultValue: "Workspace could not be closed")
                 )
-	            }
-	            return .accepted
+            }
+            return .accepted
 
         case .selectNextWorkspace:
             tabManager.selectNextTab()
@@ -11072,26 +11064,29 @@ struct VerticalTabsSidebar: View {
             tabManager.selectPreviousTab()
             return .accepted
 
-        case .createTerminalSurface(let workspaceId, let initialInput):
+        case .createTerminalSurface(let workspaceId):
             guard let workspace = workspaceId.flatMap({ id in tabManager.tabs.first(where: { $0.id == id }) }) ?? tabManager.selectedWorkspace else {
                 return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
             }
             if tabManager.selectedTabId != workspace.id {
                 tabManager.selectWorkspace(workspace)
             }
-            let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+            let panel = workspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: nil)
             return panel.map { CMUXExtensionActionResult(accepted: true, message: $0.id.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
         case .createBrowserSurface(let workspaceId, let urlString):
+            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            guard validatedURL.accepted else {
+                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
+            }
             guard let workspace = workspaceId.flatMap({ id in tabManager.tabs.first(where: { $0.id == id }) }) ?? tabManager.selectedWorkspace else {
                 return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
             }
             if tabManager.selectedTabId != workspace.id {
                 tabManager.selectWorkspace(workspace)
             }
-            let url = urlString.flatMap(URL.init(string:))
-            let panelId = tabManager.createBrowserSplit(direction: .right, url: url)
+            let panelId = tabManager.createBrowserSplit(direction: .right, url: validatedURL.url)
             return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
@@ -11113,8 +11108,11 @@ struct VerticalTabsSidebar: View {
             return .accepted
 
         case .closeSurface(let workspaceId, let surfaceId):
-            guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            guard workspace.panels[surfaceId] != nil else {
+                return .rejected(String(localized: "sidebar.extensions.action.surfaceNotFound", defaultValue: "Surface not found"))
             }
             tabManager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: surfaceId)
             return .accepted
@@ -11127,6 +11125,10 @@ struct VerticalTabsSidebar: View {
             return CMUXExtensionActionResult(accepted: true, message: panelId.uuidString)
 
         case .splitBrowser(let workspaceId, let surfaceId, let direction, let urlString):
+            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            guard validatedURL.accepted else {
+                return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
+            }
             guard let splitDirection = splitDirection(from: direction),
                   let tab = tabManager.tabs.first(where: { $0.id == workspaceId }),
                   tab.panels[surfaceId] != nil else {
@@ -11134,7 +11136,7 @@ struct VerticalTabsSidebar: View {
             }
             tabManager.selectWorkspace(tab)
             tab.focusPanel(surfaceId)
-            let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: urlString.flatMap(URL.init(string:)))
+            let panelId = tabManager.createBrowserSplit(direction: splitDirection, url: validatedURL.url)
             return panelId.map { CMUXExtensionActionResult(accepted: true, message: $0.uuidString) }
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
@@ -11145,9 +11147,7 @@ struct VerticalTabsSidebar: View {
             return .accepted
 
         case .openURL(let urlString):
-            guard let url = URL(string: urlString),
-                  let scheme = url.scheme?.lowercased(),
-                  ["https", "http"].contains(scheme),
+            guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString),
                   NSWorkspace.shared.open(url) else {
                 return CMUXExtensionActionResult(
                     accepted: false,
@@ -11155,8 +11155,29 @@ struct VerticalTabsSidebar: View {
                 )
             }
             return .accepted
-	        }
-	    }
+        }
+    }
+
+    private func cmuxSidebarExtensionOptionalHTTPURL(from urlString: String?) -> (url: URL?, accepted: Bool) {
+        guard let urlString, !urlString.isEmpty else {
+            return (nil, true)
+        }
+        guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString) else {
+            return (nil, false)
+        }
+        return (url, true)
+    }
+
+    private func cmuxSidebarExtensionRequiredHTTPURL(from urlString: String) -> URL? {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host,
+              !host.isEmpty else {
+            return nil
+        }
+        return url
+    }
 
     private func splitDirection(from direction: CMUXSplitDirection) -> SplitDirection? {
         switch direction {

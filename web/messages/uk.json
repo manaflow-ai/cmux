@@ -507,6 +507,12 @@
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
           "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
           "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "Глобальне значення за замовчуванням для того, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника).",
+          "byCwd": {
+            "newWorkspacePlacement": "Перевизначення для cwd, яке задає, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника). Якщо пропущено, використовується глобальне значення за замовчуванням."
+          }
         }
       }
     },

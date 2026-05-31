@@ -49,11 +49,24 @@ public struct CmuxSidebarHost {
         await perform(.openURL(url.absoluteString))
     }
 
+    /// Requests that CMUX create a terminal surface.
+    ///
+    /// Extensions can ask CMUX to create the surface, but cannot seed shell
+    /// input. This keeps `.createSurface` separate from command execution.
+    public func createTerminalSurface(in workspaceID: UUID? = nil) async -> CMUXExtensionActionResult {
+        await perform(.createTerminalSurface(workspaceID: workspaceID))
+    }
+
+    /// Requests that CMUX create a terminal surface.
+    ///
+    /// The `initialInput` parameter is ignored. It remains only so early
+    /// sidebar extensions can compile while moving to the safer overload.
+    @available(*, deprecated, message: "CMUX sidebar extensions cannot seed terminal input. Use createTerminalSurface(in:) instead.")
     public func createTerminalSurface(
         in workspaceID: UUID? = nil,
-        initialInput: String? = nil
+        initialInput _: String?
     ) async -> CMUXExtensionActionResult {
-        await perform(.createTerminalSurface(workspaceID: workspaceID, initialInput: initialInput))
+        await createTerminalSurface(in: workspaceID)
     }
 
     public func createBrowserSurface(
