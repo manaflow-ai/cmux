@@ -99,6 +99,25 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["CMUX_NO_GIT_WATCH"], "")
     }
 
+    func testApplyManagedGitWatchEnvironmentDisablesShellPullRequestWatchWhenHidden() {
+        var environment = [
+            "CMUX_NO_PR_WATCH": ""
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedGitWatchEnvironment(
+            watchGitStatusEnabled: true,
+            showPullRequestsEnabled: false,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["CMUX_NO_GIT_WATCH"], "")
+        XCTAssertEqual(environment["CMUX_NO_PR_WATCH"], "1")
+        XCTAssertTrue(protectedKeys.contains("CMUX_NO_GIT_WATCH"))
+        XCTAssertTrue(protectedKeys.contains("CMUX_NO_PR_WATCH"))
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(

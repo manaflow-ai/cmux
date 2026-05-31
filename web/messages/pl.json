@@ -635,7 +635,8 @@
         "notifications": "Powiadomienia",
         "find": "Znajdź",
         "terminal": "Terminal",
-        "window": "Okno"
+        "window": "Okno",
+        "diffViewer": "Podgląd diff"
       },
       "sc": {
         "ws-new": "Nowy workspace",

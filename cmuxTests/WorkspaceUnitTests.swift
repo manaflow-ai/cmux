@@ -5840,6 +5840,65 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
     }
 
+    func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: 2222,
+                identityFile: "/Users/example/.ssh/cmux",
+                sshOptions: ["ControlMaster=auto", "ControlPersist=600"],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: "relay-fork-persistent",
+                relayToken: String(repeating: "c", count: 64),
+                localSocketPath: "/tmp/cmux-fork-persistent.sock",
+                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-parent-slot"
+            ),
+            autoConnect: false
+        )
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: ["/Users/example/.bun/bin/codex"],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let launch = try XCTUnwrap(
+            workspace.forkAgentWorkspaceLaunch(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot
+            )
+        )
+
+        XCTAssertTrue(launch.autoConnectRemoteConfiguration)
+        XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
+        XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
+        XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
+        XCTAssertNil(launch.remoteConfiguration?.relayPort)
+        XCTAssertNil(launch.remoteConfiguration?.relayID)
+        XCTAssertNil(launch.remoteConfiguration?.relayToken)
+        XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+        XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
+        let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
+        XCTAssertEqual(
+            startupCommand,
+            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
+        )
+    }
+
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(

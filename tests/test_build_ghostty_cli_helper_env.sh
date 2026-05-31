@@ -18,6 +18,11 @@ cat > "$FAKE_ZIG" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${1:-}" == "version" ]]; then
+  echo "0.15.2"
+  exit 0
+fi
+
 case "${PATH:-}" in
   *Metal.xctoolchain*|*SWBUniversalPlatformPlugin.bundle*)
     echo "FAIL: Xcode script-phase toolchain paths leaked into zig PATH" >&2

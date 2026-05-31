@@ -37,7 +37,7 @@ public struct TerminalSection: View {
 
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+            SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
             resumeCommandsCard
         }

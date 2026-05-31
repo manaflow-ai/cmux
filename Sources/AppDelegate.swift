@@ -11530,10 +11530,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.apply(to: window)
     }
 
-    func updateTitlebarAccessorySidebarTrailingEdge(_ edge: CGFloat, for window: NSWindow) {
-        titlebarAccessoryController.updateSidebarTrailingEdge(edge, for: window)
-    }
-
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
@@ -11953,6 +11949,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
             guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
@@ -14610,6 +14607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
         return KeyboardShortcutSettings.Action.allCases.contains {
             $0.shortcutContext == .browserPanel &&
+                !$0.isBrowserContentShortcut &&
                 matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
         }
     }
