@@ -3256,6 +3256,17 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
     }
 
+    func testCmdClickSupportedFileRoutingDoesNotPreviewHTMLByDefault() throws {
+        let suiteName = "cmux.html-file-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "<!doctype html>", encoding: .utf8, pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
     func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {
         let suiteName = "cmux.markdown-preview-routing.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
