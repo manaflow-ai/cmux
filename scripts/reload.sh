@@ -280,6 +280,43 @@ set_plist_env() {
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:${key} string \"${value}\"" "$plist"
 }
 
+# Scope the sidebar extension point to a build tag so concurrent dev builds (and
+# their tagged sample extensions) don't share one extension point. The point id is
+# declared by a resource file `Contents/Extensions/<id>.appextensionpoint` whose
+# filename AND top-level dict key are both the id. We rewrite the built bundle (not
+# tracked source) to use the tagged id, and stamp the matching id into the host
+# Info.plist key the runtime resolver reads (CMUXSidebarExtensionPoint.identifier).
+# Args: <app_bundle_path> <info_plist_path> <tagged_point_id>
+inject_tagged_extension_point() {
+  local app_path="$1"
+  local info_plist="$2"
+  local tagged_id="$3"
+  local base_id="com.manaflow.cmux.sidebar"
+  local ext_dir="$app_path/Contents/Extensions"
+  local src_point="$ext_dir/${base_id}.appextensionpoint"
+  local dst_point="$ext_dir/${tagged_id}.appextensionpoint"
+
+  if [[ ! -f "$src_point" ]]; then
+    echo "warning: extension point declaration not found at $src_point; skipping per-tag isolation" >&2
+    return 0
+  fi
+
+  # Rewrite the top-level dict key base_id -> tagged_id, then rename the file so its
+  # name matches (ExtensionKit keys the point off both).
+  /usr/libexec/PlistBuddy -c "Copy :${base_id} :${tagged_id}" "$src_point" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Delete :${base_id}" "$src_point" 2>/dev/null || true
+  if ! /usr/libexec/PlistBuddy -c "Print :${tagged_id}" "$src_point" >/dev/null 2>&1; then
+    echo "warning: failed to rewrite extension point key to ${tagged_id}; leaving base id" >&2
+    return 0
+  fi
+  mv -f "$src_point" "$dst_point"
+
+  # Tell the host (runtime resolver) which point id to observe.
+  /usr/libexec/PlistBuddy -c "Set :CMUXSidebarExtensionPointIdentifier ${tagged_id}" "$info_plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CMUXSidebarExtensionPointIdentifier string ${tagged_id}" "$info_plist"
+  echo "==> sidebar extension point scoped to ${tagged_id}" >&2
+}
+
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
@@ -874,6 +911,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      inject_tagged_extension_point "$TAG_APP_STAGING_PATH" "$INFO_PLIST" "com.manaflow.cmux.sidebar.${TAG_ID}"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
