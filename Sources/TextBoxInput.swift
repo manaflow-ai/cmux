@@ -4163,6 +4163,9 @@ final class TextBoxInputTextView: NSTextView {
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
     private var warmedMentionCompletionRootDirectory: String?
     private var mentionCompletionWarmupTask: Task<Void, Never>?
+    private var mentionCompletionWindowObserverTokens: [NSObjectProtocol] = []
+    private weak var mentionCompletionObservedWindow: NSWindow?
+    private var mentionCompletionRepositionIsScheduled = false
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
@@ -4184,6 +4187,7 @@ final class TextBoxInputTextView: NSTextView {
 
     deinit {
         mentionCompletionWarmupTask?.cancel()
+        removeMentionCompletionWindowObservers()
         dismissMentionCompletions()
         removeAttachmentKeyDownMonitor()
         discardUndoHistoryAndCleanupPendingAttachmentFiles()
@@ -4198,6 +4202,9 @@ final class TextBoxInputTextView: NSTextView {
             dismissMentionCompletions()
         } else {
             notifyMovedToWindowIfAttached()
+            if mentionCompletionPanel?.isVisible == true {
+                scheduleMentionCompletionPanelReposition()
+            }
         }
         layer?.borderColor = textColor?.withAlphaComponent(0.24).cgColor
     }
@@ -5195,6 +5202,7 @@ final class TextBoxInputTextView: NSTextView {
             dismissMentionCompletionPopoverOnly()
             return
         }
+        updateMentionCompletionWindowObservers(for: parentWindow)
 
         let rowCount = mentionCompletionController.suggestions.count
         let maxVisibleRows = 12
@@ -5221,10 +5229,13 @@ final class TextBoxInputTextView: NSTextView {
             panel.contentView = host
         }
         panel.setContentSize(contentSize)
-        panel.setFrameOrigin(mentionCompletionPanelOrigin(
+        let targetOrigin = mentionCompletionPanelOrigin(
             anchorRect: anchorRect,
             contentSize: contentSize
-        ))
+        )
+        if mentionCompletionPanelOriginNeedsUpdate(from: panel.frame.origin, to: targetOrigin) {
+            panel.setFrameOrigin(targetOrigin)
+        }
 
         if panel.parent !== parentWindow {
             panel.parent?.removeChildWindow(panel)
@@ -5256,6 +5267,104 @@ final class TextBoxInputTextView: NSTextView {
         panel.contentView = host
         mentionCompletionPanel = panel
         return panel
+    }
+
+    private func updateMentionCompletionWindowObservers(for parentWindow: NSWindow) {
+        if mentionCompletionObservedWindow === parentWindow,
+           !mentionCompletionWindowObserverTokens.isEmpty {
+            return
+        }
+
+        removeMentionCompletionWindowObservers()
+        mentionCompletionObservedWindow = parentWindow
+
+        let notificationNames: [Notification.Name] = [
+            NSWindow.didMoveNotification,
+            NSWindow.didResizeNotification,
+            NSWindow.didChangeScreenNotification
+        ]
+        let notificationCenter = NotificationCenter.default
+        mentionCompletionWindowObserverTokens = notificationNames.map { notificationName in
+            notificationCenter.addObserver(
+                forName: notificationName,
+                object: parentWindow,
+                queue: .main
+            ) { [weak self] _ in
+                self?.scheduleMentionCompletionPanelReposition()
+            }
+        }
+    }
+
+    private func removeMentionCompletionWindowObservers() {
+        let notificationCenter = NotificationCenter.default
+        for observerToken in mentionCompletionWindowObserverTokens {
+            notificationCenter.removeObserver(observerToken)
+        }
+        mentionCompletionWindowObserverTokens = []
+        mentionCompletionObservedWindow = nil
+        mentionCompletionRepositionIsScheduled = false
+    }
+
+    private func scheduleMentionCompletionPanelReposition() {
+        guard mentionCompletionPanel?.isVisible == true,
+              !mentionCompletionRepositionIsScheduled else {
+            return
+        }
+        mentionCompletionRepositionIsScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.mentionCompletionRepositionIsScheduled else {
+                return
+            }
+            self.mentionCompletionRepositionIsScheduled = false
+            self.repositionMentionCompletionPanelIfNeeded()
+        }
+    }
+
+    private func repositionMentionCompletionPanelIfNeeded() {
+        guard mentionCompletionController.hasSuggestions,
+              let panel = mentionCompletionPanel,
+              panel.isVisible,
+              NSApp.isActive,
+              window?.firstResponder === self,
+              let parentWindow = window,
+              parentWindow.isKeyWindow,
+              let anchorRect = mentionCompletionAnchorRect(),
+              let contentSize = mentionCompletionPanelContentSize(panel),
+              contentSize.width > 0,
+              contentSize.height > 0 else {
+            dismissMentionCompletionPopoverOnly()
+            return
+        }
+
+        updateMentionCompletionWindowObservers(for: parentWindow)
+        if panel.parent !== parentWindow {
+            panel.parent?.removeChildWindow(panel)
+            parentWindow.addChildWindow(panel, ordered: .above)
+        }
+
+        let targetOrigin = mentionCompletionPanelOrigin(
+            anchorRect: anchorRect,
+            contentSize: contentSize
+        )
+        if mentionCompletionPanelOriginNeedsUpdate(from: panel.frame.origin, to: targetOrigin) {
+            panel.setFrameOrigin(targetOrigin)
+        }
+    }
+
+    private func mentionCompletionPanelContentSize(_ panel: TextBoxMentionCompletionPanel) -> NSSize? {
+        if let contentView = panel.contentView {
+            return contentView.bounds.size
+        }
+        return panel.contentRect(forFrameRect: panel.frame).size
+    }
+
+    private func mentionCompletionPanelOriginNeedsUpdate(
+        from currentOrigin: NSPoint,
+        to targetOrigin: NSPoint
+    ) -> Bool {
+        abs(currentOrigin.x - targetOrigin.x) > 0.5 ||
+            abs(currentOrigin.y - targetOrigin.y) > 0.5
     }
 
     private func mentionCompletionPanelOrigin(
@@ -5333,6 +5442,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func dismissMentionCompletionPopoverOnly() {
+        removeMentionCompletionWindowObservers()
         if let panel = mentionCompletionPanel {
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
