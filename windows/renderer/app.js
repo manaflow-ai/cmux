@@ -955,14 +955,37 @@ function browserProfileOptions() {
   return normalizeBrowserProfiles(state.browserProfiles);
 }
 
-async function openExternalBrowser(url) {
+function browserProfileLabel(profileId = state.settings.externalBrowserProfileId) {
+  return normalizeBrowserProfiles(state.browserProfiles).find((profile) => profile.id === profileId)?.label || "System default browser";
+}
+
+async function refreshBrowserProfiles(options = {}) {
+  const profiles = await loadBrowserProfiles({ force: true, render: options.render !== false });
+  const profileCount = profiles.filter((profile) => profile.id !== "system").length;
+  if (options.toast !== false) {
+    toast(profileCount
+      ? `${profileCount} browser profile${profileCount === 1 ? "" : "s"} found.`
+      : "No browser profiles found; system browser will be used.");
+  }
+  return profiles;
+}
+
+async function openExternalBrowser(url, options = {}) {
   const target = normalizeUrl(url || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
   if (window.cmuxNative?.openExternal) {
-    const result = await window.cmuxNative.openExternal(target, state.settings.externalBrowserProfileId);
-    if (result?.ok === false) toast("Opened in the system browser.");
+    const requestedProfileId = state.settings.externalBrowserProfileId;
+    const result = await window.cmuxNative.openExternal(target, requestedProfileId);
+    if (result?.ok === false) {
+      toast(`${browserProfileLabel(requestedProfileId)} unavailable; opened in system browser.`);
+    } else if (options.toast) {
+      toast(result?.profileId && result.profileId !== "system"
+        ? `Opened in ${browserProfileLabel(result.profileId)}.`
+        : "Opened in system browser.");
+    }
     return result;
   }
   window.open(target, "_blank", "noopener");
+  if (options.toast) toast("Opened in browser.");
   return { ok: true };
 }
 
@@ -5274,7 +5297,8 @@ function renderSettingsInspector(options = {}) {
     homeActions.dataset.settingsSearch = normalizeSettingsQuery("browser home open reset default url page web system external profile chrome edge brave");
     homeActions.append(
       settingsActionButton("Open pane", () => createPanel("browser", "right", { url: state.settings.browserHomeUrl })),
-      settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl), "", "browser system chrome edge brave profile external"),
+      settingsActionButton("Open external", () => openExternalBrowser(state.settings.browserHomeUrl, { toast: true }), "", "browser system chrome edge brave profile external"),
+      settingsActionButton("Refresh profiles", () => refreshBrowserProfiles({ render: true }), "", "browser chrome edge brave profile detect refresh reload"),
       settingsActionButton("Reset", () => {
         const changed = updateSettings({ browserHomeUrl: defaultSettings.browserHomeUrl });
         if (!changed) toast("Browser home already uses the default.");
