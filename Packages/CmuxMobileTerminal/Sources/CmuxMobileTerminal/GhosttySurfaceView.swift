@@ -330,6 +330,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
     case codex
     case tilde
     case pipe
+    case dollar
+    case slash
+    case atSign
     case ctrlC
     case ctrlD
     case ctrlZ
@@ -390,6 +393,12 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             return "~"
         case .pipe:
             return "|"
+        case .dollar:
+            return "$"
+        case .slash:
+            return "/"
+        case .atSign:
+            return "@"
         case .pageDown:
             return "PgDn"
         }
@@ -413,6 +422,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
         case .codex: return "terminal.inputAccessory.codex"
         case .tilde: return "terminal.inputAccessory.tilde"
         case .pipe: return "terminal.inputAccessory.pipe"
+        case .dollar: return "terminal.inputAccessory.dollar"
+        case .slash: return "terminal.inputAccessory.slash"
+        case .atSign: return "terminal.inputAccessory.atSign"
         case .ctrlC: return "terminal.inputAccessory.ctrlC"
         case .ctrlD: return "terminal.inputAccessory.ctrlD"
         case .ctrlZ: return "terminal.inputAccessory.ctrlZ"
@@ -477,6 +489,12 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable {
             return Data([0x7E]) // ~
         case .pipe:
             return Data([0x7C]) // |
+        case .dollar:
+            return Data([0x24]) // $
+        case .slash:
+            return Data([0x2F]) // /
+        case .atSign:
+            return Data([0x40]) // @
         case .ctrlC:
             return Data([0x03])
         case .ctrlD:

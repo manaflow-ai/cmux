@@ -78,6 +78,8 @@ final class TerminalInputTextView: UITextView {
         stack.alignment = .center
 
         for action in TerminalInputAccessoryAction.allCases {
+            // Shift is not useful as an on-screen terminal toolbar key.
+            if action == .shift { continue }
             let button = makeAccessoryButton(for: action)
             // Command is Mac-only; don't add it to the stack at all by default.
             // updateModifierLabels(isMacRemote: true) will insert it dynamically.
