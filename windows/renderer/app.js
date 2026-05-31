@@ -5053,8 +5053,17 @@ function renderSettingsInspector(options = {}) {
     opacityInput.min = "0";
     opacityInput.max = "42";
     opacityInput.value = String(state.settings.backgroundOpacity);
-    opacityInput.oninput = () => updateSettings({ backgroundOpacity: Number(opacityInput.value) });
-    appearanceSection.append(settingRow("Image strength", opacityInput));
+    const opacityRow = settingRow(
+      `Image strength ${state.settings.backgroundOpacity}%`,
+      opacityInput,
+      false,
+      "background image opacity strength wallpaper transparency"
+    );
+    opacityInput.oninput = () => {
+      updateSettings({ backgroundOpacity: Number(opacityInput.value) });
+      opacityRow.querySelector(".setting-label").textContent = `Image strength ${state.settings.backgroundOpacity}%`;
+    };
+    appearanceSection.append(opacityRow);
     nodes.push(appearanceSection);
   }
 
