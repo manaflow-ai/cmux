@@ -27,7 +27,7 @@ struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
 }
 
 enum TitlebarControlsHitRegions {
-    static let outerLeadingPadding: CGFloat = 4
+    static let outerLeadingPadding: CGFloat = 0
     static let buttonCount = MinimalModeSidebarControlActionSlot.allCases.count
 
     static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {

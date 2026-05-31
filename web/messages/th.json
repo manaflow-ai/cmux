@@ -499,12 +499,20 @@
           "forkConversationDefaultDestination": "ปลายทางเริ่มต้นสำหรับคำสั่งหลัก Fork Conversation ในเมนูบริบทของแท็บ เมนูย่อยยังคงแสดงปลายทางทั้งหมด"
         },
         "terminal": {
-          "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก"
+          "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก",
+          "showTextBoxOnNewTerminals": "แสดงอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
+          "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
         },
         "browser": {
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
           "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "ค่าเริ่มต้นส่วนกลางสำหรับตำแหน่งที่ Cmd-N ภายในกลุ่ม ปุ่ม + ในหัวกลุ่ม และการกระทำของกลุ่มที่ตั้งค่าไว้จะวาง workspace ใหม่: `afterCurrent` (หลัง workspace ที่ใช้งานอยู่ในกลุ่ม และ fallback เป็น top), `top` (ตำแหน่งที่สอง ถัดจาก anchor ทันที) หรือ `end` (หลังสมาชิกสุดท้าย).",
+          "byCwd": {
+            "newWorkspacePlacement": "การ override ตาม cwd สำหรับตำแหน่งที่ Cmd-N ภายในกลุ่ม ปุ่ม + ในหัวกลุ่ม และการกระทำของกลุ่มที่ตั้งค่าไว้จะวาง workspace ใหม่: `afterCurrent` (หลัง workspace ที่ใช้งานอยู่ในกลุ่ม และ fallback เป็น top), `top` (ตำแหน่งที่สอง ถัดจาก anchor ทันที) หรือ `end` (หลังสมาชิกสุดท้าย). หากไม่ระบุ จะใช้ค่าเริ่มต้นส่วนกลาง."
+          }
         }
       }
     },
@@ -920,7 +928,8 @@
       "changelog": "Changelog",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox (เบต้า)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1063,21 @@
       "daemonSession": "การจัดการเซสชัน",
       "daemonSessionHow": "คงเซสชันไว้ในการเชื่อมต่อใหม่ ประสานการปรับขนาด PTY ในไฟล์แนบหลายไฟล์",
       "daemonPath": "ไบนารี daemon ถูกเก็บไว้ที่ ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote บนโฮสต์ระยะไกลและตรวจสอบกับไฟล์ Manifest SHA-256 ที่ฝังอยู่ในแอป"
+    },
+    "textBox": {
+      "title": "TextBox (เบต้า)",
+      "metaTitle": "TextBox (เบต้า)",
+      "metaDescription": "กำหนดค่าอินพุต TextBox รุ่นเบต้าของ cmux สำหรับแท็บเทอร์มินัล การแบ่งหน้าต่าง และเวิร์กสเปซใหม่",
+      "intro": "TextBox คือพื้นผิวอินพุตเทอร์มินัลแบบ rich ของ cmux สำหรับเขียนพรอมป์ก่อนส่งไปยังเทอร์มินัล",
+      "betaCallout": "TextBox เป็นฟีเจอร์เบต้า ค่าเริ่มต้นและพฤติกรรมอาจเปลี่ยนแปลงระหว่างการทดสอบ",
+      "defaultsTitle": "ค่าเริ่มต้น",
+      "defaultsDesc": "การตั้งค่า TextBox อยู่ใน Settings > TextBox:",
+      "showSetting": "Show TextBox on New Terminals จะเปิดเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลใหม่พร้อมแสดง TextBox โดยยังคงโฟกัสไว้ที่เทอร์มินัล",
+      "focusSetting": "Focus TextBox on New Terminals จะวางโฟกัสแป้นพิมพ์ไว้ใน TextBox การโฟกัสจะแสดง TextBox ด้วย",
+      "maxLinesSetting": "TextBox Max Lines จำกัดความสูงของ TextBox ก่อนที่เนื้อหาจะเริ่มเลื่อน",
+      "configTitle": "cmux.json",
+      "configDesc": "ตั้งค่าเริ่มต้นเดียวกันได้ใน ~/.config/cmux/cmux.json ภายใต้ terminal:",
+      "focusNote": "เซสชันที่กู้คืนจะเก็บสถานะการแสดงและโฟกัสของ TextBox ที่บันทึกไว้ ค่าเริ่มต้นเหล่านี้ใช้กับพื้นผิวเทอร์มินัลที่สร้างใหม่เท่านั้น"
     }
   },
   "legal": {

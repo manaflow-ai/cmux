@@ -5,22 +5,21 @@ extension VerticalTabsSidebar {
     @ViewBuilder
     func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
-        memberCount: Int,
+        memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+        let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = group.iconSymbol ?? resolvedConfig?.iconSymbol ?? "folder.fill"
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
+        let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
-                return tabManager.tabs.reduce(0) { partial, tab in
-                    tab.groupId == group.id
-                        ? partial + notificationStore.unreadCount(forTabId: tab.id)
-                        : partial
+                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                    partial + notificationStore.unreadCount(forTabId: workspaceId)
                 }
             }
             return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
@@ -32,6 +31,44 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
+        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
+            forTabId: group.anchorWorkspaceId,
+            draggedTabId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            tabIds: renderContext.sidebarReorderIds
+        )
+        let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
+            #if DEBUG
+            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
+            #endif
+            dragState.beginDragging(tabId: anchorId)
+            return SidebarTabDragPayload.provider(for: anchorId)
+        }
+        let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
+            groupId = group.id,
+            anchorId = group.anchorWorkspaceId,
+            selectedTabIds = $selectedTabIds,
+            lastSidebarSelectionIndex = $lastSidebarSelectionIndex
+        ] rowHeight in
+            let reorderDelegate = SidebarTabDropDelegate(
+                targetTabId: anchorId,
+                tabManager: tabManager,
+                dragState: dragState,
+                selectedTabIds: selectedTabIds,
+                lastSidebarSelectionIndex: lastSidebarSelectionIndex,
+                targetRowHeight: rowHeight,
+                dragAutoScrollController: dragAutoScrollController
+            )
+            return SidebarWorkspaceGroupHeaderDropDelegate(
+                targetGroupId: groupId,
+                targetAnchorWorkspaceId: anchorId,
+                tabManager: tabManager,
+                dragState: dragState,
+                targetRowHeight: rowHeight,
+                dragAutoScrollController: dragAutoScrollController,
+                reorderDelegate: reorderDelegate
+            )
+        }
 
         SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
@@ -42,7 +79,7 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            memberCount: memberCount,
+            memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
@@ -50,6 +87,13 @@ extension VerticalTabsSidebar {
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             cwdContextMenuItems: cwdContextMenuItems,
+            newWorkspacePlacement: newWorkspacePlacement,
+            rowSpacing: tabRowSpacing,
+            isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
+            isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            onDragStart: onDragStart,
+            tabDropDelegateFactory: tabDropDelegateFactory,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -64,7 +108,7 @@ extension VerticalTabsSidebar {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex
                 }
             },
-            onTapPlus: { [weak tabManager, groupId = group.id, placement = resolvedConfig?.newWorkspacePlacement] in
+            onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }
                 let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
                 _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
@@ -91,9 +135,9 @@ extension VerticalTabsSidebar {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name] in
+            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount = memberWorkspaceIds.count] in
                 guard let tabManager else { return }
-                let otherMemberCount = max(tabManager.tabs.filter { $0.groupId == groupId }.count - 1, 0)
+                let otherMemberCount = max(memberCount - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
                 tabManager.deleteWorkspaceGroup(groupId: groupId)
             },
@@ -104,33 +148,12 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
+        .equatable()
         .id(group.anchorWorkspaceId)
         .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
         .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
         .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { [anchorId = group.anchorWorkspaceId] anchor in
             [anchorId: anchor]
-        }
-        .onDrag { [groupId = group.id] in
-            SidebarWorkspaceGroupDragPayload.provider(for: groupId)
-        }
-        .onDrop(
-            of: SidebarWorkspaceGroupDragPayload.dropContentTypes
-                + SidebarTabDragPayload.dropContentTypes,
-            isTargeted: nil
-        ) { [dragState, dragAutoScrollController] providers in
-            SidebarWorkspaceGroupDragPayload.loadGroupId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedId in
-                guard let draggedId, draggedId != targetGroupId, let tabManager else { return }
-                guard let targetIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == targetGroupId }) else { return }
-                tabManager.moveWorkspaceGroup(groupId: draggedId, toIndex: targetIndex)
-            }
-            SidebarTabDragPayload.loadTabId(from: providers) { [weak tabManager, targetGroupId = group.id] draggedTabId in
-                guard let draggedTabId, let tabManager else { return }
-                tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
-            }
-            dragState.draggedTabId = nil
-            dragState.dropIndicator = nil
-            dragAutoScrollController.stop()
-            return true
         }
     }
 }

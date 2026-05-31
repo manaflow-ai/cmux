@@ -499,12 +499,20 @@
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다."
         },
         "terminal": {
-          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다."
+          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
+          "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
+          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
           "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
+        },
+        "workspaceGroups": {
+          "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 전역 기본값입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤).",
+          "byCwd": {
+            "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 cwd별 재정의입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤). 생략하면 전역 기본값을 사용합니다."
+          }
         }
       }
     },
@@ -920,7 +928,8 @@
       "changelog": "변경 로그",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
-      "dock": "Dock"
+      "dock": "Dock",
+      "textBox": "TextBox(베타)"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1054,6 +1063,21 @@
       "daemonSession": "세션 관리",
       "daemonSessionHow": "재연결 시 세션을 유지하고 여러 첨부 파일에 걸쳐 PTY 크기 조정을 조정합니다.",
       "daemonPath": "데몬 바이너리는 원격 호스트의 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote에 저장되며 앱에 포함된 SHA-256 매니페스트에 대해 확인됩니다."
+    },
+    "textBox": {
+      "title": "TextBox(베타)",
+      "metaTitle": "TextBox(베타)",
+      "metaDescription": "새 터미널 탭, 분할, 작업공간에 사용할 cmux 베타 TextBox 입력을 설정합니다.",
+      "intro": "TextBox는 터미널로 보내기 전에 프롬프트를 작성하는 cmux의 리치 터미널 입력 화면입니다.",
+      "betaCallout": "TextBox는 베타 기능입니다. 테스트 중에는 기본값과 동작이 변경될 수 있습니다.",
+      "defaultsTitle": "기본값",
+      "defaultsDesc": "TextBox 설정은 Settings > TextBox에 있습니다.",
+      "showSetting": "Show TextBox on New Terminals는 새 작업공간, 터미널 탭, 터미널 분할을 TextBox가 보이는 상태로 열고 포커스는 터미널에 유지합니다.",
+      "focusSetting": "Focus TextBox on New Terminals는 키보드 포커스를 TextBox에 둡니다. 포커스하면 TextBox도 표시됩니다.",
+      "maxLinesSetting": "TextBox Max Lines는 내용이 스크롤되기 전 TextBox의 최대 높이를 제한합니다.",
+      "configTitle": "cmux.json",
+      "configDesc": "동일한 기본값을 ~/.config/cmux/cmux.json의 terminal 아래에 설정할 수 있습니다.",
+      "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다."
     }
   },
   "legal": {

@@ -276,7 +276,6 @@ if [[ "$UNIVERSAL" == "true" ]]; then
   X86_PREFIX="$TMP_DIR/x86_64"
   NATIVE_ZIG="$(select_zig_for_target "")"
   ZIG_ARCH="$(zig_binary_arch "$NATIVE_ZIG")"
-  # Use native compilation for the matching arch to avoid cross-linker issues
   if [[ "$ZIG_ARCH" == "arm64" ]]; then
     build_helper "$ARM64_PREFIX" ""
     build_helper "$X86_PREFIX" "x86_64-macos"
