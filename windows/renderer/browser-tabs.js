@@ -14,7 +14,7 @@ function createBrowserTabId() {
 
 export function browserTabTitle(url) {
   const host = hostnameOf(url);
-  return host && host !== t("browser.fallbackTitle") ? host : t("browser.newTab");
+  return host || t("browser.newTab");
 }
 
 export function normalizeBrowserTab(entry, fallbackUrl = defaultSettings.browserHomeUrl) {

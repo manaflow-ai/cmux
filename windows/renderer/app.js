@@ -337,6 +337,8 @@ const state = {
   pendingFocusSync: null,
   focusSyncTimer: 0,
   focusSyncRevision: 0,
+  eventSocket: null,
+  eventSocketGeneration: 0,
   eventSocketReconnectDelay: eventReconnectMinDelayMs,
   eventSocketReconnectTimer: 0,
   pendingBrowserUrlSync: new Map(),
@@ -2466,27 +2468,40 @@ function connectEvents() {
     clearTimeout(state.eventSocketReconnectTimer);
     state.eventSocketReconnectTimer = 0;
   }
+  const socketGeneration = state.eventSocketGeneration + 1;
+  state.eventSocketGeneration = socketGeneration;
   const url = new URL("/events", location.origin.replace(/^http/, "ws"));
   if (launchToken) url.searchParams.set("token", launchToken);
   const socket = new WebSocket(url.href);
+  state.eventSocket = socket;
   socket.addEventListener("open", () => {
+    if (socketGeneration !== state.eventSocketGeneration) return;
     state.eventSocketReconnectDelay = eventReconnectMinDelayMs;
   });
   socket.addEventListener("message", (event) => {
+    if (socketGeneration !== state.eventSocketGeneration) return;
     const message = JSON.parse(event.data);
     if (message.type === "state") {
       setAppState(message.state, { previousState: state.data, schedule: true });
     }
   });
   socket.addEventListener("close", () => {
-    if (state.eventSocketReconnectTimer) return;
-    const delay = state.eventSocketReconnectDelay;
-    state.eventSocketReconnectDelay = Math.min(eventReconnectMaxDelayMs, Math.round(delay * 1.7));
-    state.eventSocketReconnectTimer = setTimeout(() => {
-      state.eventSocketReconnectTimer = 0;
-      connectEvents();
-    }, delay);
+    if (socketGeneration !== state.eventSocketGeneration) return;
+    if (state.eventSocket === socket) state.eventSocket = null;
+    scheduleEventReconnect(socketGeneration);
   });
+}
+
+function scheduleEventReconnect(socketGeneration) {
+  if (state.eventSocketReconnectTimer || socketGeneration !== state.eventSocketGeneration) return;
+  const baseDelay = state.eventSocketReconnectDelay;
+  const jitter = Math.round(baseDelay * 0.2 * Math.random());
+  state.eventSocketReconnectDelay = Math.min(eventReconnectMaxDelayMs, Math.round(baseDelay * 1.7));
+  state.eventSocketReconnectTimer = setTimeout(() => {
+    state.eventSocketReconnectTimer = 0;
+    if (socketGeneration !== state.eventSocketGeneration) return;
+    connectEvents();
+  }, baseDelay + jitter);
 }
 
 function appStateSignature(data) {
@@ -4255,11 +4270,12 @@ function openTerminalSearch(panel = activePanel()) {
   target.session.searchOverlay.hidden = false;
   target.session.host.classList.add("has-terminal-search");
   focusPanel(target.panel.id);
-  setTimeout(() => {
+  requestAnimationFrame(() => {
+    if (target.session.disposed || target.session.searchOverlay.hidden) return;
     const input = terminalSearchInput(target.session);
     input?.focus();
     input?.select();
-  }, 35);
+  });
   if (target.session.searchTerm) runTerminalSearch(target.session, "next", true);
   return true;
 }
@@ -10939,7 +10955,10 @@ function focusWorkspaceByOrdinal(ordinal) {
 
 function focusTerminalSession(panelId) {
   const terminal = state.terminals.get(panelId);
-  if (terminal) setTimeout(() => terminal.term.focus(), 20);
+  if (!terminal) return;
+  requestAnimationFrame(() => {
+    if (!terminal.disposed) terminal.term.focus();
+  });
 }
 
 function normalizedWheelZoomDelta(event) {
@@ -11093,7 +11112,7 @@ function togglePaneZoom(panelId = activePaneActionTarget()?.id) {
   render();
   focusTerminalSession(panelId);
   const session = state.terminals.get(panelId);
-  if (session) setTimeout(() => scheduleFitTerminal(session, true), 30);
+  if (session) requestAnimationFrame(() => scheduleFitTerminal(session, true));
 }
 
 function toggleSidebar() {

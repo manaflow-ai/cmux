@@ -1,5 +1,4 @@
 import { defaultSettings } from "./config.js";
-import { t } from "./i18n.js";
 
 export function normalizeUrl(value, fallback = "https://www.google.com") {
   let next = String(value || "").trim();
@@ -17,7 +16,7 @@ export function hostnameOf(value) {
   try {
     return new URL(normalizeUrl(value)).hostname;
   } catch {
-    return t("browser.fallbackTitle");
+    return "";
   }
 }
 
