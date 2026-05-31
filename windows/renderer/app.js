@@ -1750,9 +1750,8 @@ function updateSettings(updates, options = {}) {
     resumeTerminalOutputAfterActivityChange();
   }
   if (changedKeys.includes("browserSuspendInactive")) {
-    updateBrowserPaneActivity(visiblePanePanelIds());
-  }
-  if (previous.titleDetailMode !== state.settings.titleDetailMode) {
+    render();
+  } else if (previous.titleDetailMode !== state.settings.titleDetailMode) {
     render();
   }
   return true;
