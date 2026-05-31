@@ -20,6 +20,19 @@ enum SidebarWorkspaceDetailDefaults {
     static let showCustomMetadata = true
 }
 
+enum SidebarWorkspaceTitleWrapSettings {
+    static let key = "sidebarWrapWorkspaceTitles"
+    static let defaultWrap = false
+
+    static func wraps(defaults: UserDefaults = .standard) -> Bool {
+        SidebarWorkspaceDetailDefaults.boolValue(
+            defaults: defaults,
+            key: key,
+            defaultValue: defaultWrap
+        )
+    }
+}
+
 extension SidebarWorkspaceDetailDefaults {
     static func boolValue(defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
         if defaults.object(forKey: key) == nil {
@@ -70,9 +83,15 @@ extension CmuxSettingsFileStore {
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.showTextBoxOnNewTerminals",
+        "terminal.focusTextBoxOnNewTerminals",
+        "terminal.agentHibernation.enabled",
+        "terminal.agentHibernation.idleSeconds",
+        "terminal.agentHibernation.maxLiveTerminals",
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
         "notifications.dockBadge",
@@ -85,8 +104,11 @@ extension CmuxSettingsFileStore {
         "notifications.hooks",
         "notifications.hooksMode",
         "sidebar.hideAllDetails",
+        "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
+        "sidebar.stackBranchDirectory",
+        "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
@@ -121,6 +143,8 @@ extension CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "browser.defaultSearchEngine",
+        "browser.customSearchEngineName",
+        "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",
         "browser.theme",
         "browser.discardHiddenWebViews",

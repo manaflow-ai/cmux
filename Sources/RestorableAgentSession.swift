@@ -1,8 +1,276 @@
 import Foundation
 import CMUXAgentLaunch
 
+nonisolated enum TerminalStartupShellQuoting {
+    static func singleQuoted(_ value: String) -> String {
+        if value.utf8.contains(where: { $0 >= 0x80 }) {
+            return asciiPrintfCommandSubstitution(for: value)
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    static func shellToken(_ value: String, allowingBareASCII: Bool) -> String {
+        if value.utf8.contains(where: { $0 >= 0x80 }) {
+            return asciiPrintfCommandSubstitution(for: value)
+        }
+        if allowingBareASCII,
+           value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
+            return value
+        }
+        return singleQuoted(value)
+    }
+
+    private static func asciiPrintfCommandSubstitution(for value: String) -> String {
+        let octalBytes = value.utf8
+            .map { String(format: #"\%03o"#, Int($0)) }
+            .joined()
+        return #""$(printf '"# + octalBytes + #"')""#
+    }
+}
+
 fileprivate func shellSingleQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    TerminalStartupShellQuoting.singleQuoted(value)
+}
+
+nonisolated enum TerminalStartupWorkingDirectoryPrefix {
+    static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
+        guard let workingDirectory = normalized(workingDirectory) else { return nil }
+        let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
+    }
+
+    static func prefix(_ command: String, workingDirectory: String?) -> String {
+        guard let prefix = optionalChangeDirectoryPrefix(for: workingDirectory) else {
+            return command
+        }
+        return prefix + command
+    }
+
+    static func replacingRequiredChangeDirectoryPrefix(
+        in command: String,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
+        let stripped = strippedRequiredChangeDirectoryPrefix(
+            from: trimmed,
+            workingDirectory: workingDirectory
+        )
+        let command = strippedSavedWorkingDirectoryOptions(
+            from: stripped,
+            workingDirectory: workingDirectory
+        )
+        return prefix(command, workingDirectory: workingDirectory)
+    }
+
+    private static func strippedRequiredChangeDirectoryPrefix(
+        from command: String,
+        workingDirectory: String
+    ) -> String {
+        let quotedCandidates = [
+            TerminalStartupShellQuoting.singleQuoted(workingDirectory),
+            legacySingleQuoted(workingDirectory)
+        ]
+        var seen = Set<String>()
+        for quoted in quotedCandidates where seen.insert(quoted).inserted {
+            let prefixes = [
+                "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
+                "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
+                "cd -- \(quoted) && ",
+                "cd \(quoted) && "
+            ]
+            for prefix in prefixes where command.hasPrefix(prefix) {
+                return String(command.dropFirst(prefix.count))
+            }
+        }
+        return command
+    }
+
+    private static func strippedSavedWorkingDirectoryOptions(
+        from command: String,
+        workingDirectory: String
+    ) -> String {
+        let words = shellWordRanges(command)
+        let ranges = savedWorkingDirectoryOptionRanges(
+            in: words,
+            workingDirectory: workingDirectory
+        )
+        guard !ranges.isEmpty else { return command }
+        return removingRanges(removing: ranges, from: command)
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func legacySingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private struct ShellWordRange {
+        var value: String
+        var range: Range<String.Index>
+    }
+
+    private static func shellWordRanges(_ command: String) -> [ShellWordRange] {
+        enum Quote {
+            case single
+            case double
+        }
+
+        var words: [ShellWordRange] = []
+        var current = ""
+        var wordStart: String.Index?
+        var quote: Quote?
+        var hasCurrentWord = false
+        let doubleQuoteEscapable: Set<Character> = ["$", "`", "\"", "\\", "\n"]
+
+        func markWordStart(_ index: String.Index) {
+            if wordStart == nil {
+                wordStart = index
+            }
+            hasCurrentWord = true
+        }
+
+        func finishWord(at end: String.Index) {
+            guard hasCurrentWord else { return }
+            words.append(ShellWordRange(value: current, range: (wordStart ?? end)..<end))
+            current = ""
+            wordStart = nil
+            hasCurrentWord = false
+        }
+
+        var index = command.startIndex
+        while index < command.endIndex {
+            let character = command[index]
+            switch (quote, character) {
+            case (.single, "'"), (.double, "\""):
+                quote = nil
+            case (nil, "'"):
+                markWordStart(index)
+                quote = .single
+            case (nil, "\""):
+                markWordStart(index)
+                quote = .double
+            case (.double, "\\"):
+                markWordStart(index)
+                let next = command.index(after: index)
+                if next < command.endIndex,
+                   doubleQuoteEscapable.contains(command[next]) {
+                    current.append(command[next])
+                    index = command.index(after: next)
+                    continue
+                }
+                current.append(character)
+            case (nil, "\\"):
+                markWordStart(index)
+                let next = command.index(after: index)
+                if next < command.endIndex {
+                    current.append(command[next])
+                    index = command.index(after: next)
+                    continue
+                }
+                current.append(character)
+            case (nil, " "), (nil, "\t"), (nil, "\n"):
+                finishWord(at: index)
+            default:
+                markWordStart(index)
+                current.append(character)
+            }
+            index = command.index(after: index)
+        }
+        finishWord(at: command.endIndex)
+        return words
+    }
+
+    private static func savedWorkingDirectoryOptionRanges(
+        in words: [ShellWordRange],
+        workingDirectory: String
+    ) -> [Range<String.Index>] {
+        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let optionPrefixes = valueOptions.map { "\($0)=" }
+        var ranges: [Range<String.Index>] = []
+        var index = 0
+        while index < words.count {
+            let arg = words[index].value
+            if arg == "--" {
+                break
+            }
+            if valueOptions.contains(arg),
+               index + 1 < words.count,
+               workingDirectoryValue(words[index + 1].value, matches: workingDirectory) {
+                ranges.append(words[index].range.lowerBound..<words[index + 1].range.upperBound)
+                index += 2
+                continue
+            }
+            if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
+                let value = String(arg.dropFirst(prefix.count))
+                if workingDirectoryValue(value, matches: workingDirectory) {
+                    ranges.append(words[index].range)
+                    index += 1
+                    continue
+                }
+            }
+            index += 1
+        }
+        return ranges
+    }
+
+    private static func removingRanges(
+        removing ranges: [Range<String.Index>],
+        from command: String
+    ) -> String {
+        let expanded = ranges.map { range -> Range<String.Index> in
+            var lower = range.lowerBound
+            var upper = range.upperBound
+            if lower == command.startIndex {
+                while upper < command.endIndex, command[upper].isWhitespace {
+                    upper = command.index(after: upper)
+                }
+            } else {
+                while lower > command.startIndex {
+                    let before = command.index(before: lower)
+                    guard command[before].isWhitespace else { break }
+                    lower = before
+                }
+            }
+            return lower..<upper
+        }.sorted { $0.lowerBound < $1.lowerBound }
+
+        var merged: [Range<String.Index>] = []
+        for range in expanded {
+            guard let last = merged.last else {
+                merged.append(range)
+                continue
+            }
+            if range.lowerBound <= last.upperBound {
+                let upper = last.upperBound < range.upperBound ? range.upperBound : last.upperBound
+                merged[merged.count - 1] = last.lowerBound..<upper
+            } else {
+                merged.append(range)
+            }
+        }
+
+        var result = ""
+        var cursor = command.startIndex
+        for range in merged {
+            result.append(contentsOf: command[cursor..<range.lowerBound])
+            cursor = range.upperBound
+        }
+        result.append(contentsOf: command[cursor..<command.endIndex])
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func workingDirectoryValue(_ value: String, matches workingDirectory: String) -> Bool {
+        guard value == workingDirectory else {
+            return (value as NSString).expandingTildeInPath == (workingDirectory as NSString).expandingTildeInPath
+        }
+        return true
+    }
 }
 
 enum AgentResumeCommandBuilder {
@@ -92,14 +360,17 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        var shellCommand = commandParts.map(shellSingleQuoted).joined(separator: " ")
         let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
-        if let cwd {
-            shellCommand = "cd \(shellSingleQuoted(cwd)) && \(shellCommand)"
-        }
-        return shellCommand
+        let sanitizedCommandParts = customRegistration == nil
+            ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: commandParts,
+                workingDirectory: cwd
+            )
+            : commandParts
+        let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
     static func openCodeVersionProbe(
@@ -126,7 +397,7 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")
@@ -552,13 +823,35 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupInput(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
     ) -> String? {
         startupInput(
             command: resumeCommand,
             fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput
         )
+    }
+
+    func resumeStartupCommand(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        guard let command = resumeCommand,
+              let scriptURL = AgentResumeScriptStore.writeLauncherScript(
+                  command: command,
+                  kind: kind,
+                  sessionId: sessionId,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
     }
 
     func forkStartupInput(
@@ -578,11 +871,15 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         command: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+            return inlineInput
+        }
+        guard !allowOversizedInlineInput else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
@@ -601,6 +898,16 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     }
 }
 
+extension SessionRestorableAgentSnapshot {
+    var agentDisplayName: String {
+        if let name = registration?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
+        }
+        return kind.displayName
+    }
+}
+
 private enum AgentResumeScriptStore {
     private static let directoryName = "cmux-agent-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
@@ -610,7 +917,8 @@ private enum AgentResumeScriptStore {
         kind: RestorableAgentKind,
         sessionId: String,
         fileManager: FileManager,
-        temporaryDirectory: URL
+        temporaryDirectory: URL,
+        returnToLoginShell: Bool = false
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -627,11 +935,16 @@ private enum AgentResumeScriptStore {
                 "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
                 isDirectory: false
             )
-            let contents = """
-            #!/bin/zsh
-            rm -f -- "$0" 2>/dev/null || true
-            \(command)
-            """
+            var lines = [
+                "#!/bin/zsh",
+                "rm -f -- \"$0\" 2>/dev/null || true"
+            ]
+            if returnToLoginShell {
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: command))
+            } else {
+                lines.append(command)
+            }
+            let contents = lines.joined(separator: "\n") + "\n"
             try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
             return scriptURL
@@ -668,6 +981,7 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
+    var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }
 
@@ -677,18 +991,50 @@ private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
 }
 
 struct RestorableAgentSessionIndex: Sendable {
-    static let empty = RestorableAgentSessionIndex(snapshotsByPanel: [:])
+    static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
         let panelId: UUID
     }
 
-    private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
-    private let snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
+    struct Entry: Sendable {
+        let snapshot: SessionRestorableAgentSnapshot
+        let lifecycle: AgentHibernationLifecycleState?
+        let updatedAt: TimeInterval
+        let processIDs: Set<Int>
+    }
+
+    private struct SessionKey: Hashable {
+        let kind: RestorableAgentKind
+        let sessionId: String
+    }
+
+    private let entriesByPanel: [PanelKey: Entry]
+    private let entriesByPanelId: [UUID: Entry]
+
+    private func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+    }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? snapshotsByPanelId[panelId]
+        entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
+    }
+
+    func lifecycle(workspaceId: UUID, panelId: UUID) -> AgentHibernationLifecycleState? {
+        entry(workspaceId: workspaceId, panelId: panelId)?.lifecycle
+    }
+
+    func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
+        entry(workspaceId: workspaceId, panelId: panelId)?.updatedAt
+    }
+
+    func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
+    }
+
+    func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
+        !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
     static func load(
@@ -737,10 +1083,13 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
-        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]
+        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
-        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var resolved: [PanelKey: Entry] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -753,6 +1102,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     ? nil
                     : (kind: .custom(registration.id), registration: registration)
             }
+        var hookCandidatesBySession: [SessionKey: Entry] = [:]
+        var hookCandidatesByPanel: [PanelKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -767,12 +1118,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: record.workspaceId),
                       let panelId = UUID(uuidString: record.surfaceId),
-                      hookRecordStillBelongsToLiveAgent(
-                          record,
-                          kind: kind,
-                          workspaceId: workspaceId,
-                          panelId: panelId
-                      ),
                       hookRecordIsRestorable(
                           record,
                           kind: kind,
@@ -790,22 +1135,76 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+                let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
+                let liveProcessID = liveScopedProcessID(
+                    for: record,
+                    kind: kind,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    processArgumentsProvider: processArgumentsProvider
+                )
+                let entry = Entry(
+                    snapshot: snapshot,
+                    lifecycle: record.agentLifecycle,
+                    updatedAt: record.updatedAt,
+                    processIDs: liveProcessID.map { [$0] } ?? []
+                )
+                if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= record.updatedAt {
+                    hookCandidatesByPanel[key] = entry
+                }
+                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= record.updatedAt {
+                    hookCandidatesBySession[sessionKey] = entry
+                }
+                guard record.pid == nil || liveProcessID != nil else {
+                    continue
+                }
                 if let existing = resolved[key], existing.updatedAt > record.updatedAt {
                     continue
                 }
-                resolved[key] = (snapshot: snapshot, updatedAt: record.updatedAt)
+                resolved[key] = entry
             }
         }
 
         for (key, detected) in detectedSnapshots {
-            if let existing = resolved[key],
-               existing.updatedAt > detected.updatedAt {
-                continue
+            if let existing = Self.matchingHookEntry(
+                for: detected.snapshot,
+                resolved: resolved[key],
+                panelCandidate: hookCandidatesByPanel[key],
+                sessionCandidate: hookCandidatesBySession[
+                    SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
+                ]
+            ) {
+                resolved[key] = Entry(
+                    snapshot: detected.snapshot,
+                    lifecycle: existing.lifecycle,
+                    updatedAt: existing.updatedAt,
+                    processIDs: detected.processIDs
+                )
+            } else {
+                resolved[key] = Entry(
+                    snapshot: detected.snapshot,
+                    lifecycle: nil,
+                    updatedAt: 0,
+                    processIDs: detected.processIDs
+                )
             }
-            resolved[key] = detected
         }
 
-        return RestorableAgentSessionIndex(snapshotsByPanel: resolved)
+        return RestorableAgentSessionIndex(entriesByPanel: resolved)
+    }
+
+    private static func matchingHookEntry(
+        for snapshot: SessionRestorableAgentSnapshot,
+        resolved: Entry?,
+        panelCandidate: Entry?,
+        sessionCandidate: Entry?
+    ) -> Entry? {
+        [resolved, panelCandidate, sessionCandidate].compactMap { $0 }
+            .filter {
+                $0.snapshot.kind == snapshot.kind &&
+                    $0.snapshot.sessionId == snapshot.sessionId
+            }
+            .max { $0.updatedAt < $1.updatedAt }
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -998,32 +1397,35 @@ struct RestorableAgentSessionIndex: Sendable {
         return size.intValue > 0
     }
 
-    private static func hookRecordStillBelongsToLiveAgent(
-        _ record: RestorableAgentHookSessionRecord,
+    private static func liveScopedProcessID(
+        for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         workspaceId: UUID,
-        panelId: UUID
-    ) -> Bool {
+        panelId: UUID,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> Int? {
         guard let pid = record.pid else {
-            return true
+            return nil
         }
         guard pid > 0,
-              let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid),
-              process.environmentUUID(forKey: "CMUX_WORKSPACE_ID") == workspaceId,
-              process.environmentUUID(forKey: "CMUX_SURFACE_ID") == panelId else {
-            return false
+              let process = processArgumentsProvider(pid),
+              process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
+            return nil
         }
 
         if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
            liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
-            return false
+            return nil
         }
 
         guard let recordedExecutable = recordedExecutableBasename(record),
               let liveExecutable = process.arguments.first.map(executableBasename) else {
-            return true
+            return pid
         }
-        return liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame
+        guard liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame else {
+            return nil
+        }
+        return pid
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
@@ -1048,16 +1450,16 @@ struct RestorableAgentSessionIndex: Sendable {
         return rawValue
     }
 
-    private init(snapshotsByPanel: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)]) {
-        self.snapshotsByPanel = snapshotsByPanel.mapValues(\.snapshot)
-        var snapshotsByPanelId: [UUID: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
-        for (key, value) in snapshotsByPanel {
-            let existing = snapshotsByPanelId[key.panelId]
-            if existing == nil || value.updatedAt >= (existing?.updatedAt ?? 0) {
-                snapshotsByPanelId[key.panelId] = value
+    private init(entriesByPanel: [PanelKey: Entry]) {
+        self.entriesByPanel = entriesByPanel
+        var entriesByPanelId: [UUID: Entry] = [:]
+        for (key, entry) in entriesByPanel {
+            let existing = entriesByPanelId[key.panelId]
+            if existing == nil || entry.updatedAt >= (existing?.updatedAt ?? 0) {
+                entriesByPanelId[key.panelId] = entry
             }
         }
-        self.snapshotsByPanelId = snapshotsByPanelId.mapValues(\.snapshot)
+        self.entriesByPanelId = entriesByPanelId
     }
 }
 

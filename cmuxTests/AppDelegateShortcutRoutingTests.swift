@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -251,6 +252,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutRecorderActivity.stopAllRecording()
 
         XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
+    }
+
+    func testFocusHistoryShortcutsConsumeEventWhenNoHistoryIsAvailable() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = originalTabManager
+        }
+
+        XCTAssertFalse(manager.canNavigateBack)
+        XCTAssertFalse(manager.canNavigateForward)
+        let backEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "[",
+            charactersIgnoringModifiers: "[",
+            keyCode: 33
+        )
+        let forwardEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "]",
+            charactersIgnoringModifiers: "]",
+            keyCode: 30
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: backEvent))
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: forwardEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -1167,6 +1203,199 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         createdWindowId = newWindowIds.first
     }
 
+    func testRestorePreviousSessionSnapshotCreatesNewWindowWithoutClosingCurrentWindows() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let baselineWindowIds = mainWindowIds()
+        let liveWindowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer {
+            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
+                closeWindow(withId: windowId)
+            }
+        }
+
+        guard let liveManager = appDelegate.tabManagerFor(windowId: liveWindowId),
+              let liveWorkspace = liveManager.selectedWorkspace else {
+            XCTFail("Expected live window manager and workspace")
+            return
+        }
+        liveWorkspace.setCustomTitle("Current Work")
+        let windowIdsAfterLiveWindow = mainWindowIds()
+
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
+        restoredWorkspace.setCustomTitle("Previous Work")
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 1_700_000_000,
+            windows: [sessionWindowSnapshot(tabManager: restoredManager)]
+        )
+
+        XCTAssertTrue(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let finalWindowIds = mainWindowIds()
+        XCTAssertTrue(finalWindowIds.contains(liveWindowId))
+        XCTAssertEqual(liveManager.selectedWorkspace?.customTitle, "Current Work")
+
+        let createdWindowIds = finalWindowIds.subtracting(windowIdsAfterLiveWindow)
+        XCTAssertEqual(createdWindowIds.count, 1)
+        let restoredWindowId = try XCTUnwrap(createdWindowIds.first)
+        let restoredWindowManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: restoredWindowId))
+        XCTAssertEqual(restoredWindowManager.selectedWorkspace?.customTitle, "Previous Work")
+    }
+
+    func testRestorePreviousSessionSnapshotRemapsClosedWorkspaceWindowIds() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let baselineWindowIds = mainWindowIds()
+        let liveWindowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer {
+            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
+                closeWindow(withId: windowId)
+            }
+        }
+
+        let liveManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: liveWindowId))
+        let oldRestoredWindowId = UUID()
+
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredWorkspace = try XCTUnwrap(restoredManager.selectedWorkspace)
+        restoredWorkspace.setCustomTitle("Previous Work")
+
+        let closedWorkspaceManager = TabManager(autoWelcomeIfNeeded: false)
+        let closedWorkspace = try XCTUnwrap(closedWorkspaceManager.selectedWorkspace)
+        closedWorkspace.setCustomTitle("Closed Previous Workspace")
+        let closedRecordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: closedRecordId,
+            closedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: closedWorkspace.id,
+                windowId: oldRestoredWindowId,
+                workspaceIndex: 1,
+                snapshot: closedWorkspace.sessionSnapshot(includeScrollback: false)
+            ))
+        ))
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 1_700_000_001,
+            windows: [sessionWindowSnapshot(tabManager: restoredManager, windowId: oldRestoredWindowId)]
+        )
+
+        XCTAssertTrue(appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let restoredWindowIds = mainWindowIds().subtracting(baselineWindowIds).subtracting([liveWindowId])
+        XCTAssertEqual(restoredWindowIds.count, 1)
+        let restoredWindowId = try XCTUnwrap(restoredWindowIds.first)
+        let restoredWindowManager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: restoredWindowId))
+
+        XCTAssertTrue(
+            appDelegate.reopenClosedHistoryItem(
+                id: closedRecordId,
+                preferredTabManager: liveManager,
+                shouldActivate: false
+            )
+        )
+        XCTAssertTrue(restoredWindowManager.tabs.contains { $0.customTitle == "Closed Previous Workspace" })
+        XCTAssertFalse(liveManager.tabs.contains { $0.customTitle == "Closed Previous Workspace" })
+    }
+
+    func testFailedClosedWindowRestoreDoesNotRemapClosedPanelHistoryToDiscardedWindow() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let baselineWindowIds = mainWindowIds()
+        defer {
+            for windowId in mainWindowIds().subtracting(baselineWindowIds) {
+                closeWindow(withId: windowId)
+            }
+        }
+
+        let sourceManager = TabManager(autoWelcomeIfNeeded: false)
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        let originalWorkspaceId = sourceWorkspace.id
+        var closedPanelSnapshot = try XCTUnwrap(sourceWorkspace.sessionSnapshot(includeScrollback: false).panels.first)
+        closedPanelSnapshot.customTitle = "Panel From Failed Window"
+        let closedPanelRecordId = UUID()
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: closedPanelRecordId,
+            closedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: originalWorkspaceId,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: closedPanelSnapshot
+            ))
+        ))
+
+        var invalidWorkspaceSnapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        var invalidPanelSnapshot = try XCTUnwrap(invalidWorkspaceSnapshot.panels.first)
+        invalidPanelSnapshot.type = .markdown
+        invalidPanelSnapshot.title = "Broken Markdown"
+        invalidPanelSnapshot.customTitle = "Broken Markdown"
+        invalidPanelSnapshot.terminal = nil
+        invalidPanelSnapshot.browser = nil
+        invalidPanelSnapshot.markdown = nil
+        invalidPanelSnapshot.filePreview = nil
+        invalidPanelSnapshot.rightSidebarTool = nil
+        invalidWorkspaceSnapshot.panels = [invalidPanelSnapshot]
+        invalidWorkspaceSnapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [invalidPanelSnapshot.id],
+            selectedPanelId: invalidPanelSnapshot.id
+        ))
+
+        let originalWindowId = UUID()
+        let failedWindowRecordId = UUID()
+        let failedWindowSnapshot = SessionWindowSnapshot(
+            windowId: originalWindowId,
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [invalidWorkspaceSnapshot]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+        ClosedItemHistoryStore.shared.push(ClosedItemHistoryRecord(
+            id: failedWindowRecordId,
+            closedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            entry: .window(ClosedWindowHistoryEntry(
+                windowId: originalWindowId,
+                snapshot: failedWindowSnapshot,
+                workspaceIds: [originalWorkspaceId]
+            ))
+        ))
+
+        XCTAssertFalse(appDelegate.reopenClosedHistoryItem(
+            id: failedWindowRecordId,
+            shouldActivate: false
+        ))
+
+        let record = try XCTUnwrap(ClosedItemHistoryStore.shared.removeRecord(id: closedPanelRecordId)?.record)
+        guard case .panel(let panelEntry) = record.entry else {
+            return XCTFail("Expected closed panel history")
+        }
+        XCTAssertEqual(panelEntry.workspaceId, originalWorkspaceId)
+        XCTAssertTrue(panelEntry.restoreInOriginalPane)
+    }
+
     func testCmdShiftNCreatesWindowFromEventWindowWithoutAddingWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1828,10 +2057,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
-    // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
-    // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
-    // so XCTSkip can't detect CI from inside the test.
     func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1840,18 +2065,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop.
         appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(true, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defer {
+            restoreDefaultsValue(originalSetting, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey, defaults: defaults)
+        }
 
-        guard let targetWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let targetWindow = makeRegisteredShortcutRoutingWindow(id: windowId)
+        appDelegate.registerMainWindow(
+            targetWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        defer { closeRegisteredShortcutRoutingWindow(targetWindow, id: windowId) }
+
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test workspace")
             return
         }
 
         XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(manager.tabs[0].panels.count, 1)
+        XCTAssertEqual(workspace.panels.count, 1)
+
+        targetWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -1869,10 +2113,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            self.window(withId: windowId)?.isVisible != true
+        }
 
-        XCTAssertNil(
-            self.window(withId: windowId),
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible == true,
             "Cmd+W on the last surface in the last workspace should close the window"
         )
     }
@@ -2470,6 +2716,58 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(12), 28)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(32), 32)
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
+    }
+
+    func testRightSidebarHeaderChromeUsesSharedButtonsWithCompactIcons() {
+        let titlebarConfig = TitlebarControlsStyle.classic.config
+
+        XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlSize, titlebarConfig.buttonSize, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, 10, accuracy: 0.001)
+        XCTAssertEqual(
+            RightSidebarChromeMetrics.headerIconFrameSize,
+            RightSidebarChromeMetrics.headerIconSize,
+            accuracy: 0.001
+        )
+        XCTAssertLessThan(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize)
+        XCTAssertLessThan(
+            RightSidebarChromeMetrics.headerIconFrameSize,
+            HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize)
+        )
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.controlHeight, RightSidebarChromeMetrics.headerControlSize, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 4, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, 0, accuracy: 0.001)
+    }
+
+    func testRightSidebarPillChromeUsesHeaderIconColorAndWeight() {
+        XCTAssertEqual(RightSidebarChromeControlStyle.iconWeight, HeaderChromeIconStyle.weight)
+        XCTAssertEqual(RightSidebarChromeControlStyle.labelWeight, HeaderChromeIconStyle.weight)
+        XCTAssertEqual(RightSidebarChromeControlStyle.modeIconSize, 11, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeControlStyle.secondaryIconSize, 10, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeControlStyle.labelSize, 11, accuracy: 0.001)
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: false),
+            HeaderChromeIconStyle.foregroundOpacity(isHovering: false, isPressed: false),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: true),
+            HeaderChromeIconStyle.foregroundOpacity(isHovering: true, isPressed: false),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: true, isHovered: false),
+            HeaderChromeIconStyle.pressedOpacity,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: true, isEnabled: false),
+            HeaderChromeIconStyle.disabledOpacity,
+            accuracy: 0.001
+        )
     }
 
     func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
@@ -9619,6 +9917,85 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(remountedTextView.submissionText(), "hello world")
     }
 
+    func testTextBoxRepresentableDismantleDoesNotWriteSwiftUIBindings() {
+        var text = "old"
+        var attachments: [TextBoxAttachment] = []
+        var height: CGFloat = 24
+        var hasPendingAttachmentUpload = true
+        var textWriteCount = 0
+        var attachmentWriteCount = 0
+        var heightWriteCount = 0
+        var pendingWriteCount = 0
+        var dismantledText: String?
+
+        let inputView = TextBoxInputView(
+            text: Binding(
+                get: { text },
+                set: { newValue in
+                    textWriteCount += 1
+                    text = newValue
+                }
+            ),
+            attachments: Binding(
+                get: { attachments },
+                set: { newValue in
+                    attachmentWriteCount += 1
+                    attachments = newValue
+                }
+            ),
+            textViewHeight: Binding(
+                get: { height },
+                set: { newValue in
+                    heightWriteCount += 1
+                    height = newValue
+                }
+            ),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { newValue in
+                    pendingWriteCount += 1
+                    hasPendingAttachmentUpload = newValue
+                }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { textView in
+                dismantledText = textView.plainText()
+            }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "preserve this"
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+
+        TextBoxInputView.dismantleNSView(
+            scrollView,
+            coordinator: TextBoxInputView.Coordinator(parent: inputView)
+        )
+
+        XCTAssertEqual(dismantledText, "preserve this")
+        XCTAssertEqual(textWriteCount, 0)
+        XCTAssertEqual(attachmentWriteCount, 0)
+        XCTAssertEqual(heightWriteCount, 0)
+        XCTAssertEqual(pendingWriteCount, 0)
+    }
+
     func testTextBoxPendingAttachmentUploadPreservesOriginalInsertionPoint() throws {
         let originalURL = try makeTemporaryPNGFile(named: "moon.png")
         let originalAttachment = TextBoxAttachment(
@@ -10405,8 +10782,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    private func sessionWindowSnapshot(tabManager: TabManager) -> SessionWindowSnapshot {
+    private func sessionWindowSnapshot(tabManager: TabManager, windowId: UUID? = nil) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
+            windowId: windowId,
             frame: nil,
             display: nil,
             tabManager: tabManager.sessionSnapshot(includeScrollback: false),
