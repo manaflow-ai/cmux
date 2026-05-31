@@ -30247,18 +30247,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func emitKiroDecisionIfHandled(decision: [String: Any]) -> Bool {
         guard (decision["kind"] as? String) == "permission" else { return false }
         let mode = (decision["mode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Feed permission decisions carry a WorkstreamPermissionMode raw value:
+        // `once` / `always` / `all` / `bypass` all allow the tool; `deny`
+        // blocks. Fail closed on anything else — missing, empty, or an
+        // unrecognized/typo mode — so a malformed decision blocks the tool
+        // (exit 2 is Kiro's preToolUse deny signal) rather than silently
+        // allowing work the user never approved.
+        let allowModes: Set<String> = ["once", "always", "all", "bypass"]
+        if let mode, allowModes.contains(mode) {
+            print("{}")
+            return true
+        }
         if mode == "deny" {
             fputs("User denied permission via cmux Feed.\n", stderr)
-            fflush(stderr)
-            exit(2)
+        } else {
+            fputs("cmux Feed returned an unrecognized Kiro permission decision; denying for safety.\n", stderr)
         }
-        if mode == nil || mode?.isEmpty == true {
-            fputs("cmux Feed returned an invalid Kiro permission decision; denying for safety.\n", stderr)
-            fflush(stderr)
-            exit(2)
-        }
-        print("{}")
-        return true
+        fflush(stderr)
+        exit(2)
     }
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
