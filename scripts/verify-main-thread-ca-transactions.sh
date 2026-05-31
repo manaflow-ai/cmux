@@ -56,11 +56,11 @@ is_truthy() {
 
 kill_stale_ci_apps() {
   local should_kill="${CMUX_CA_ASSERT_KILL_STALE_APPS:-${GITHUB_ACTIONS:-0}}"
-  is_truthy "$should_kill" || return
+  is_truthy "$should_kill" || return 0
 
   local pids
   pids="$(pgrep -x "cmux DEV" 2>/dev/null || true)"
-  [ -n "$pids" ] || return
+  [ -n "$pids" ] || return 0
 
   local pid args
   for pid in $pids; do
