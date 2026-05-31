@@ -6805,6 +6805,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func scheduleInitialMainWindowBootstrap(debugSource: String) {
+        guard CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(ProcessInfo.processInfo.environment) else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.bootstrap.schedule.skip",
+                fields: [
+                    "reason": "unitTest",
+                    "source": debugSource,
+                ]
+            )
+            return
+        }
+
         guard !didScheduleInitialMainWindowBootstrap else { return }
         didScheduleInitialMainWindowBootstrap = true
         DispatchQueue.main.async { [weak self] in
