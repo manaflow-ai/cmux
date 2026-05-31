@@ -15,10 +15,14 @@ let package = Package(
         ),
     ],
     targets: [
-        .target(name: "CMUXMobileCore"),
+        .target(
+            name: "CMUXMobileCore",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .testTarget(
             name: "CMUXMobileCoreTests",
-            dependencies: ["CMUXMobileCore"]
+            dependencies: ["CMUXMobileCore"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
 )

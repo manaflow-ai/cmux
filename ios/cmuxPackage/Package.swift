@@ -17,28 +17,23 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/CMUXAuthCore"),
         .package(path: "../../Packages/CMUXMobileCore"),
+        .package(path: "../../Packages/CmuxMobileAuth"),
+        .package(path: "../../Packages/CmuxMobileTerminal"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
-        // The same libghostty the Mac links. iOS feeds raw PTY bytes
-        // (received over the network) directly into ghostty_surface_*
-        // so the iPhone runs the exact same terminal core + Metal
-        // renderer as the Mac. Module name is `GhosttyKit` per the
-        // umbrella modulemap inside the xcframework.
-        .binaryTarget(
-            name: "GhosttyKit",
-            path: "../../GhosttyKit.xcframework"
-        ),
         .target(
             name: "cmuxFeature",
             dependencies: [
                 "CMUXAuthCore",
                 "CMUXMobileCore",
-                "GhosttyKit",
+                "CmuxMobileAuth",
+                "CmuxMobileTerminal",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
+                .swiftLanguageMode(.v6),
             ]
         ),
         .testTarget(
@@ -47,6 +42,8 @@ let package = Package(
                 "cmuxFeature",
                 "CMUXAuthCore",
                 "CMUXMobileCore",
+                "CmuxMobileAuth",
+                "CmuxMobileTerminal",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [

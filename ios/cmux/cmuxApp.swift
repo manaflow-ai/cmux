@@ -32,15 +32,7 @@ struct cmuxApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-                MobileZoomStressView()
-            } else {
-                CMUXMobileAppView(store: CMUXMobileShellStore(runtime: Self.runtime))
-            }
-            #else
-            CMUXMobileAppView(store: CMUXMobileShellStore(runtime: Self.runtime))
-            #endif
+            CMUXMobileRootScene(runtime: Self.runtime)
         }
     }
 }

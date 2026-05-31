@@ -1,6 +1,8 @@
 import Foundation
 @preconcurrency import AVFoundation
 import CMUXMobileCore
+import CmuxMobileAuth
+import CmuxMobileTerminal
 import Observation
 import OSLog
 import StackAuth
@@ -429,10 +431,16 @@ struct SignInView: View {
                         await signInWithApple()
                     }
                 } label: {
-                    Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
+                    Group {
+                        if isAppleSigningIn {
+                            ProgressView()
+                        } else {
+                            Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(.capsule)
                 }
                 .disabled(isAuthInProgress)
                 .mobileGlassButton()
@@ -443,14 +451,20 @@ struct SignInView: View {
                         await signInWithGoogle()
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Image("GoogleLogo")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 16, height: 16)
-                            .accessibilityHidden(true)
-                        Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
-                            .fontWeight(.semibold)
+                    Group {
+                        if isGoogleSigningIn {
+                            ProgressView()
+                        } else {
+                            HStack(spacing: 6) {
+                                Image("GoogleLogo")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 16, height: 16)
+                                    .accessibilityHidden(true)
+                                Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
+                                    .fontWeight(.semibold)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(.capsule)
@@ -2522,26 +2536,6 @@ private enum MobileTerminalDeviceSafeArea {
 }
 
 #endif
-enum L10n {
-    static func string(_ key: StaticString, defaultValue: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: defaultValue, bundle: .main)
-    }
-
-    static func terminalCount(_ count: Int) -> String {
-        if count == 1 {
-            return string("mobile.workspace.terminalCountFormat.one", defaultValue: "1 terminal")
-        }
-        return String(format: string("mobile.workspace.terminalCountFormat.other", defaultValue: "%d terminals"), count)
-    }
-
-    static func workspaceName(index: Int) -> String {
-        String(format: string("mobile.preview.workspaceNameFormat", defaultValue: "Workspace %d"), index)
-    }
-
-    static func terminalName(index: Int) -> String {
-        String(format: string("mobile.preview.terminalNameFormat", defaultValue: "Terminal %d"), index)
-    }
-}
 
 private extension View {
     @ViewBuilder

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileAuth
 import Foundation
 import StackAuth
 import SwiftUI
@@ -260,7 +261,7 @@ import UIKit
     #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
 }
 
-@Test func pairedMacStorePersistsActiveMacsScopedByStackUser() throws {
+@Test func pairedMacStorePersistsActiveMacsScopedByStackUser() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
@@ -269,7 +270,7 @@ import UIKit
     let userBRoute = try hostPortRoute(kind: .tailscale, host: "work-b.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
     let now = Date(timeIntervalSince1970: 1_000)
 
-    try store.upsert(
+    try await store.upsert(
         macDeviceID: "mac-a",
         displayName: "Work A",
         routes: [userARoute],
@@ -277,7 +278,7 @@ import UIKit
         stackUserID: "user-a",
         now: now
     )
-    try store.upsert(
+    try await store.upsert(
         macDeviceID: "mac-b",
         displayName: "Work B",
         routes: [userBRoute],
@@ -286,10 +287,10 @@ import UIKit
         now: now.addingTimeInterval(10)
     )
 
-    #expect(try store.activeMac(stackUserID: "user-a")?.macDeviceID == "mac-a")
-    #expect(try store.activeMac(stackUserID: "user-b")?.macDeviceID == "mac-b")
-    #expect(try store.activeMac(stackUserID: "missing") == nil)
-    #expect(try store.loadAll(stackUserID: "user-a").map(\.routes).first == [userARoute])
+    #expect(try await store.activeMac(stackUserID: "user-a")?.macDeviceID == "mac-a")
+    #expect(try await store.activeMac(stackUserID: "user-b")?.macDeviceID == "mac-b")
+    #expect(try await store.activeMac(stackUserID: "missing") == nil)
+    #expect(try await store.loadAll(stackUserID: "user-a").map(\.routes).first == [userARoute])
 }
 
 @MainActor
@@ -1399,8 +1400,8 @@ import UIKit
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     #expect(store.connectionState == .disconnected)
-    #expect(try pairedMacStore.activeMac() == nil)
-    #expect(try pairedMacStore.loadAll().isEmpty)
+    #expect(try await pairedMacStore.activeMac() == nil)
+    #expect(try await pairedMacStore.loadAll().isEmpty)
 }
 
 @MainActor

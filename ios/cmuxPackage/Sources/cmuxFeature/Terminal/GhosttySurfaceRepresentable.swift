@@ -1,5 +1,5 @@
 #if canImport(UIKit)
-import GhosttyKit
+import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 

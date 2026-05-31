@@ -1,27 +1,29 @@
 import Foundation
 
-enum UITestConfig {
-    static var mockDataEnabled: Bool {
+/// UI-test configuration read from the process environment. Shared across the
+/// mobile packages (auth mocking, pairing autofill, attach-URL injection).
+public enum UITestConfig {
+    public static var mockDataEnabled: Bool {
         mockDataEnabled(from: ProcessInfo.processInfo.environment)
     }
 
-    static var addDeviceName: String? {
+    public static var addDeviceName: String? {
         value(for: "CMUX_UITEST_ADD_DEVICE_NAME")
     }
 
-    static var addDeviceHost: String? {
+    public static var addDeviceHost: String? {
         value(for: "CMUX_UITEST_ADD_DEVICE_HOST")
     }
 
-    static var addDevicePort: String? {
+    public static var addDevicePort: String? {
         value(for: "CMUX_UITEST_ADD_DEVICE_PORT")
     }
 
-    static var attachURL: String? {
+    public static var attachURL: String? {
         value(for: "CMUX_UITEST_ATTACH_URL")
     }
 
-    static func mockDataEnabled(from env: [String: String]) -> Bool {
+    public static func mockDataEnabled(from env: [String: String]) -> Bool {
         #if DEBUG
         if env["CMUX_UITEST_MOCK_DATA"] == "0" {
             return false

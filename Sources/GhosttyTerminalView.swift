@@ -7010,12 +7010,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func mobileRenderGridFrame(
         stateSeq: UInt64,
         full: Bool = true,
-        changedRows: Set<Int>? = nil
+        changedRows: Set<Int>? = nil,
+        scrollbackLines: Int = 0
     ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json(surface, ptr, UInt(surfaceID.utf8.count), stateSeq)
+            ghostty_surface_render_grid_json(
+                surface,
+                ptr,
+                UInt(surfaceID.utf8.count),
+                stateSeq,
+                UInt(max(0, scrollbackLines))
+            )
         }
         defer { ghostty_string_free(exported) }
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }

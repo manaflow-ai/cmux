@@ -11,13 +11,13 @@ import Foundation
 /// owned by the surface (`GhosttySurfaceView.liveFontSize`) and is intentionally
 /// NOT persisted across launches: a persisted zoom is what made a fresh launch
 /// open with an oversized font. ``minimumSize``/``maximumSize`` bound the zoom.
-enum MobileTerminalFontPreference {
+public enum MobileTerminalFontPreference {
     /// Point size every terminal opens at. Matches the macOS terminal's default
     /// (`font-size = 12`) so a glyph is the same physical size on both — iOS
     /// renders at the same 72 points-per-inch logical scale as macOS (see the
     /// iOS DPI handling in `ghostty/src/font/face.zig`); the Retina pixel
     /// multiplier is applied separately via content scale.
-    static let defaultSize: Float32 = 12
+    public static let defaultSize: Float32 = 12
     /// Smallest size the zoom controls will reach.
     static let minimumSize: Float32 = 8
     /// Largest size the zoom controls will reach.

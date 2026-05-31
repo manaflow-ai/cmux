@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import Foundation
 import GhosttyKit
 import OSLog
@@ -15,7 +16,7 @@ private func cmuxIOSRuntimeReadClipboardCallback(
 }
 
 @MainActor
-final class GhosttyRuntime {
+public final class GhosttyRuntime {
     enum RuntimeError: LocalizedError {
         case backendInitFailed(code: Int32)
         case appCreationFailed
@@ -53,7 +54,7 @@ final class GhosttyRuntime {
     nonisolated(unsafe) private(set) var app: ghostty_app_t?
     nonisolated(unsafe) private(set) var config: ghostty_config_t?
 
-    static func shared() throws -> GhosttyRuntime {
+    public static func shared() throws -> GhosttyRuntime {
         if let sharedResult {
             return try sharedResult.get()
         }

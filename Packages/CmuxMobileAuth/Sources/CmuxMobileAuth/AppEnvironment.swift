@@ -13,12 +13,24 @@ enum AppEnvironment {
         #endif
     }
 
-    nonisolated(unsafe) private static let localConfig: [String: Any]? = {
+    /// String overrides loaded once from an optional bundled `LocalConfig.plist`.
+    /// Stored as `[String: String]` (Sendable) rather than `[String: Any]` so it
+    /// needs no `nonisolated(unsafe)` opt-out under strict concurrency.
+    private static let localConfigStringOverrides: [String: String] = {
         guard let path = Bundle.main.path(forResource: "LocalConfig", ofType: "plist"),
               let dict = NSDictionary(contentsOfFile: path) as? [String: Any] else {
-            return nil
+            return [:]
         }
-        return dict
+        var overrides: [String: String] = [:]
+        for (key, value) in dict {
+            if let stringValue = value as? String {
+                let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    overrides[key] = trimmed
+                }
+            }
+        }
+        return overrides
     }()
 
     var stackAuthProjectId: String {
@@ -41,7 +53,7 @@ enum AppEnvironment {
     private var stackAuthConfig: CMUXAuthConfig {
         CMUXAuthConfig.resolve(
             environment: authEnvironment,
-            overrides: localConfigStringOverrides,
+            overrides: Self.localConfigStringOverrides,
             developmentProjectId: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
             productionProjectId: "9790718f-14cd-4f7e-824d-eaf527a82b82",
             developmentPublishableClientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
@@ -56,22 +68,5 @@ enum AppEnvironment {
         case .production:
             return .production
         }
-    }
-
-    private var localConfigStringOverrides: [String: String] {
-        guard let localConfig = Self.localConfig else {
-            return [:]
-        }
-
-        var overrides: [String: String] = [:]
-        for (key, value) in localConfig {
-            if let stringValue = value as? String {
-                let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    overrides[key] = trimmed
-                }
-            }
-        }
-        return overrides
     }
 }

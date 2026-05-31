@@ -267,6 +267,7 @@ public actor StackClientApp {
 
         var request = URLRequest(url: jsonAuthorizeUrl)
         request.httpMethod = "GET"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -338,6 +339,7 @@ public actor StackClientApp {
         let url = URL(string: "\(baseUrl)/api/v1/auth/oauth/callback/apple/native")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
@@ -411,6 +413,7 @@ public actor StackClientApp {
         let tokenUrl = URL(string: "\(baseUrl)/api/v1/auth/oauth/token")!
         var request = URLRequest(url: tokenUrl)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         

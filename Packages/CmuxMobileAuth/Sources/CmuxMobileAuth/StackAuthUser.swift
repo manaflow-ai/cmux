@@ -2,7 +2,7 @@ import CMUXAuthCore
 import Foundation
 import StackAuth
 
-typealias StackAuthUser = CMUXAuthUser
+public typealias StackAuthUser = CMUXAuthUser
 
 extension CMUXAuthUser {
     init(currentUser: CurrentUser) async {

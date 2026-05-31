@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import Foundation
 import SQLite3
+import Synchronization
 import os
 
 private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
@@ -47,13 +48,17 @@ public enum MobilePairedMacStoreError: Error {
 }
 
 /// SQLite-backed store of paired Macs. Schema migrations gated on
-/// `PRAGMA user_version`. All access must go through the actor's queue.
-public final class MobilePairedMacStore: @unchecked Sendable {
+/// `PRAGMA user_version`. An `actor` serializes all access to the (non-Sendable,
+/// not-thread-safe) SQLite connection, so it is genuinely `Sendable` without
+/// opting out of concurrency checking.
+public actor MobilePairedMacStore {
     public static let currentSchemaVersion: Int32 = 1
 
     private let dbPath: String
-    private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "dev.cmux.mobile.pairedMacStore")
+    // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
+    // the handle. Every other access goes through actor-isolated methods, and
+    // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
+    nonisolated(unsafe) private var db: OpaquePointer?
 
     public static func defaultDatabaseURL(fileManager: FileManager = .default) throws -> URL {
         let appSupport = try fileManager.url(
@@ -71,11 +76,11 @@ public final class MobilePairedMacStore: @unchecked Sendable {
 
     public init(databaseURL: URL) throws {
         self.dbPath = databaseURL.path
-        try openAndMigrate()
+        self.db = try Self.openConnection(path: databaseURL.path)
     }
 
-    public convenience init() throws {
-        try self.init(databaseURL: try Self.defaultDatabaseURL())
+    public init() throws {
+        try self.init(databaseURL: Self.defaultDatabaseURL())
     }
 
     deinit {
@@ -86,18 +91,36 @@ public final class MobilePairedMacStore: @unchecked Sendable {
 
     // MARK: - Open + migrate
 
-    private func openAndMigrate() throws {
+    /// Open the SQLite connection and set connection pragmas. `nonisolated`
+    /// `static` so the actor's synchronous initializer can build the handle
+    /// without hopping isolation. Opened with `SQLITE_OPEN_FULLMUTEX` so SQLite
+    /// serializes access internally; the actor adds an outer serialization layer.
+    /// Schema migration runs lazily on first store access via `ensureReady()`.
+    private nonisolated static func openConnection(path: String) throws -> OpaquePointer {
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
-        let rc = sqlite3_open_v2(dbPath, &handle, flags, nil)
+        let rc = sqlite3_open_v2(path, &handle, flags, nil)
         guard rc == SQLITE_OK, let handle else {
             if let handle { sqlite3_close_v2(handle) }
             throw MobilePairedMacStoreError.openFailed(rc)
         }
-        self.db = handle
-        try exec("PRAGMA foreign_keys = ON;")
-        try exec("PRAGMA journal_mode = WAL;")
+        for pragma in ["PRAGMA foreign_keys = ON;", "PRAGMA journal_mode = WAL;"] {
+            let prc = sqlite3_exec(handle, pragma, nil, nil, nil)
+            guard prc == SQLITE_OK else {
+                sqlite3_close_v2(handle)
+                throw MobilePairedMacStoreError.stepFailed(prc, "")
+            }
+        }
+        return handle
+    }
+
+    private var didMigrate = false
+
+    /// Run schema migrations exactly once, on first store access (actor-isolated).
+    private func ensureReady() throws {
+        guard !didMigrate else { return }
         try runMigrations()
+        didMigrate = true
     }
 
     private func runMigrations() throws {
@@ -151,78 +174,72 @@ public final class MobilePairedMacStore: @unchecked Sendable {
         stackUserID: String?,
         now: Date = Date()
     ) throws {
-        try queue.sync {
-            try transaction {
-                if markActive {
-                    let scope = stackUserID.map(BindValue.text) ?? .null
-                    if stackUserID != nil {
-                        try exec("UPDATE paired_macs SET is_active = 0 WHERE stack_user_id IS ?;",
-                                 binding: [scope])
-                    } else {
-                        try exec("UPDATE paired_macs SET is_active = 0;")
-                    }
+        try ensureReady()
+        try transaction {
+            if markActive {
+                let scope = stackUserID.map(BindValue.text) ?? .null
+                if stackUserID != nil {
+                    try exec("UPDATE paired_macs SET is_active = 0 WHERE stack_user_id IS ?;",
+                             binding: [scope])
+                } else {
+                    try exec("UPDATE paired_macs SET is_active = 0;")
                 }
-                let existing = try fetchMacRow(macDeviceID: macDeviceID)
-                let createdAt = existing?.createdAt ?? now
-                try upsertMacRow(
-                    macDeviceID: macDeviceID,
-                    displayName: displayName,
-                    stackUserID: stackUserID,
-                    createdAt: createdAt,
-                    lastSeenAt: now,
-                    isActive: markActive
-                )
-                try exec("DELETE FROM mac_routes WHERE mac_device_id = ?;", binding: [.text(macDeviceID)])
-                for route in routes {
-                    let encoded = try Self.encodeRoute(route)
-                    try exec("""
-                        INSERT INTO mac_routes (mac_device_id, route_id, kind, endpoint_json, priority)
-                        VALUES (?, ?, ?, ?, ?);
-                    """, binding: [
-                        .text(macDeviceID),
-                        .text(route.id),
-                        .text(route.kind.rawValue),
-                        .text(encoded),
-                        .int(Int64(route.priority)),
-                    ])
-                }
+            }
+            let existing = try fetchMacRow(macDeviceID: macDeviceID)
+            let createdAt = existing?.createdAt ?? now
+            try upsertMacRow(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                stackUserID: stackUserID,
+                createdAt: createdAt,
+                lastSeenAt: now,
+                isActive: markActive
+            )
+            try exec("DELETE FROM mac_routes WHERE mac_device_id = ?;", binding: [.text(macDeviceID)])
+            for route in routes {
+                let encoded = try Self.encodeRoute(route)
+                try exec("""
+                    INSERT INTO mac_routes (mac_device_id, route_id, kind, endpoint_json, priority)
+                    VALUES (?, ?, ?, ?, ?);
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(route.id),
+                    .text(route.kind.rawValue),
+                    .text(encoded),
+                    .int(Int64(route.priority)),
+                ])
             }
         }
     }
 
     public func loadAll(stackUserID: String? = nil) throws -> [MobilePairedMac] {
-        try queue.sync {
-            try fetchAllMacs(stackUserID: stackUserID)
-        }
+        try ensureReady()
+        return try fetchAllMacs(stackUserID: stackUserID)
     }
 
     public func activeMac(stackUserID: String? = nil) throws -> MobilePairedMac? {
-        try queue.sync {
-            try fetchAllMacs(activeOnly: true, stackUserID: stackUserID).first
-        }
+        try ensureReady()
+        return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID).first
     }
 
     public func setActive(macDeviceID: String) throws {
-        try queue.sync {
-            try transaction {
-                try exec("UPDATE paired_macs SET is_active = 0;")
-                try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ?;",
-                         binding: [.text(macDeviceID)])
-            }
-        }
-    }
-
-    public func remove(macDeviceID: String) throws {
-        try queue.sync {
-            try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
+        try ensureReady()
+        try transaction {
+            try exec("UPDATE paired_macs SET is_active = 0;")
+            try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ?;",
                      binding: [.text(macDeviceID)])
         }
     }
 
+    public func remove(macDeviceID: String) throws {
+        try ensureReady()
+        try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
+                 binding: [.text(macDeviceID)])
+    }
+
     public func removeAll() throws {
-        try queue.sync {
-            try exec("DELETE FROM paired_macs;")
-        }
+        try ensureReady()
+        try exec("DELETE FROM paired_macs;")
     }
 
     // MARK: - Internals
@@ -487,28 +504,31 @@ public final class MobilePairedMacStore: @unchecked Sendable {
 /// Returns `nil` if the store can't be initialized (e.g. read-only sandbox)
 /// so MobileShellStore can degrade to in-memory operation in tests/previews.
 public enum MobileShellStorePairedMacStoreFactory {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var sharedInstance: MobilePairedMacStore?
-    nonisolated(unsafe) private static var attempted = false
+    private struct State {
+        var attempted = false
+        var instance: MobilePairedMacStore?
+    }
+
+    /// Lazy singleton with failure caching, guarded by a `Mutex` so it is
+    /// concurrency-safe without `nonisolated(unsafe)`. The stored value is an
+    /// actor (Sendable), so it crosses the lock boundary safely.
+    private static let state = Mutex(State())
 
     public static func shared() -> MobilePairedMacStore? {
-        lock.lock()
-        defer { lock.unlock() }
-        if attempted { return sharedInstance }
-        attempted = true
-        do {
-            sharedInstance = try MobilePairedMacStore()
-        } catch {
-            pairedMacStoreLog.error("failed to open paired mac store: \(String(describing: error), privacy: .public)")
-            sharedInstance = nil
+        state.withLock { state in
+            if state.attempted { return state.instance }
+            state.attempted = true
+            do {
+                state.instance = try MobilePairedMacStore()
+            } catch {
+                pairedMacStoreLog.error("failed to open paired mac store: \(String(describing: error), privacy: .public)")
+                state.instance = nil
+            }
+            return state.instance
         }
-        return sharedInstance
     }
 
     public static func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        sharedInstance = nil
-        attempted = false
+        state.withLock { $0 = State() }
     }
 }

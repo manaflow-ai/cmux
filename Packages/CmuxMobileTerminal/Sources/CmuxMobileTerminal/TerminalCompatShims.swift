@@ -7,11 +7,11 @@ import Foundation
 /// the verbatim port compiling.
 
 /// Grid size in cells + pixel dimensions, as the prior daemon reported.
-struct TerminalGridSize: Equatable, Hashable, Sendable {
-    var columns: Int
-    var rows: Int
-    var pixelWidth: Int
-    var pixelHeight: Int
+public struct TerminalGridSize: Equatable, Hashable, Sendable {
+    public var columns: Int
+    public var rows: Int
+    public var pixelWidth: Int
+    public var pixelHeight: Int
 }
 
 /// Remote-platform tag the prior daemon used to switch keyboard/IME
@@ -31,23 +31,6 @@ enum RemotePlatform: String, Sendable, Equatable {
         case .unknown: return "unknown"
         }
     }
-}
-
-/// Debug-only no-op shim for the prior worktree's anchormux logging.
-/// Keeps the verbatim port compiling without dragging in the
-/// anchormux SDK.
-@inline(__always)
-func liveAnchormuxLog(_ message: @autoclosure () -> String) {
-    #if DEBUG
-    let msg = message()
-    // NSLog avoids pulling in cmuxDebugLog from the macOS target.
-    NSLog("cmux.terminal.anchormux %@", msg)
-    #if canImport(UIKit)
-    // Also keep it in the in-app ring buffer so a dogfooder can copy the log
-    // off the device via the DEV "Copy Debug Logs" terminal-menu action.
-    MobileDebugLog.shared.append(msg)
-    #endif
-    #endif
 }
 
 /// Logging stub. The prior worktree had a singleton sidebar store that

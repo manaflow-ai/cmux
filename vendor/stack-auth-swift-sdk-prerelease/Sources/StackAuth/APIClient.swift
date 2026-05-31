@@ -169,6 +169,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         
         // Required headers
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
@@ -303,6 +304,7 @@ actor APIClient {
         let url = URL(string: "\(baseUrl)/api/v1/auth/oauth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")

@@ -12,7 +12,10 @@ final class MobileTerminalRenderObserver {
         var columns: Int
         var rows: Int
         var stateSeq: UInt64
-        var rowTexts: [String]
+        /// Per-row signatures of text *and* resolved styling, so a style-only
+        /// change (e.g. typing over a dimmed shell autosuggestion) still marks
+        /// the row dirty. See `MobileTerminalRenderGridFrame.rowSignatures()`.
+        var rowSignatures: [String]
     }
 
     private var releaseFrameDemand: (() -> Void)?
@@ -187,14 +190,14 @@ final class MobileTerminalRenderObserver {
         }
 
         let previous = renderGridStatesBySurfaceID[surfaceID]
-        let nextRows = snapshot.frame.plainRows()
+        let nextSignatures = snapshot.frame.rowSignatures()
         let frame: MobileTerminalRenderGridFrame
         if let previous,
            previous.columns == snapshot.frame.columns,
            previous.rows == snapshot.frame.rows {
             var changedRows = Set<Int>()
-            let count = min(previous.rowTexts.count, nextRows.count)
-            for index in 0..<count where previous.rowTexts[index] != nextRows[index] {
+            let count = min(previous.rowSignatures.count, nextSignatures.count)
+            for index in 0..<count where previous.rowSignatures[index] != nextSignatures[index] {
                 changedRows.insert(index)
             }
 
@@ -227,7 +230,7 @@ final class MobileTerminalRenderObserver {
             columns: frame.columns,
             rows: frame.rows,
             stateSeq: frame.stateSeq,
-            rowTexts: nextRows
+            rowSignatures: nextSignatures
         )
         guard let payload = try? frame.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)

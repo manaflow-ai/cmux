@@ -23,6 +23,26 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var clearedRows: [Int]
     public var styles: [Style]
     public var rowSpans: [RowSpan]
+    /// Which screen the snapshot represents. The alternate screen is restored
+    /// with `?1049h` so a TUI keeps real alt-screen semantics (exiting it
+    /// returns to the primary screen) instead of being painted onto primary.
+    public var activeScreen: Screen
+    /// Non-default DEC/ANSI modes to restore on a full snapshot (mouse
+    /// tracking, bracketed paste, application cursor keys, origin, autowrap,
+    /// etc.). Empty for delta frames.
+    public var modes: [ModeSetting]
+    /// Dynamic default foreground/background/cursor colors (OSC 10/11/12),
+    /// `nil` when the terminal still uses its configured defaults.
+    public var terminalForeground: String?
+    public var terminalBackground: String?
+    public var terminalCursorColor: String?
+    /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
+    /// visible viewport, oldest first). Only meaningful on a full primary-screen
+    /// snapshot; the alternate screen has no scrollback.
+    public var scrollbackRows: Int
+    /// Styled spans for the scrollback lines, row index `0..<scrollbackRows`
+    /// (oldest first). Reuses ``styles`` by `styleID`.
+    public var scrollbackSpans: [RowSpan]
 
     public init(
         format: String = Self.currentFormat,
@@ -34,7 +54,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         full: Bool = true,
         clearedRows: [Int] = [],
         styles: [Style] = [.default],
-        rowSpans: [RowSpan]
+        rowSpans: [RowSpan],
+        activeScreen: Screen = .primary,
+        modes: [ModeSetting] = [],
+        terminalForeground: String? = nil,
+        terminalBackground: String? = nil,
+        terminalCursorColor: String? = nil,
+        scrollbackRows: Int = 0,
+        scrollbackSpans: [RowSpan] = []
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -73,6 +100,27 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 )
             }
         }
+        let resolvedScrollbackRows = max(0, scrollbackRows)
+        for span in scrollbackSpans {
+            guard (0..<resolvedScrollbackRows).contains(span.row) else {
+                throw MobileTerminalRenderGridError.invalidRow(span.row)
+            }
+            guard (0..<columns).contains(span.column) else {
+                throw MobileTerminalRenderGridError.invalidColumn(span.column)
+            }
+            guard styleIDs.contains(span.styleID) else {
+                throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
+            }
+            let width = span.gridCellWidth
+            guard width > 0, span.column + width <= columns else {
+                throw MobileTerminalRenderGridError.invalidSpanWidth(
+                    row: span.row,
+                    column: span.column,
+                    width: width,
+                    columns: columns
+                )
+            }
+        }
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
@@ -83,6 +131,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.clearedRows = full ? [] : Array(Set(clearedRows).sorted())
         self.styles = resolvedStyles
         self.rowSpans = rowSpans
+        self.activeScreen = activeScreen
+        self.modes = modes
+        self.terminalForeground = terminalForeground
+        self.terminalBackground = terminalBackground
+        self.terminalCursorColor = terminalCursorColor
+        self.scrollbackRows = full ? resolvedScrollbackRows : 0
+        self.scrollbackSpans = full ? scrollbackSpans : []
     }
 
     public init(from decoder: Decoder) throws {
@@ -97,6 +152,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let clearedRows = try container.decodeIfPresent([Int].self, forKey: .clearedRows) ?? []
         let styles = try container.decodeIfPresent([Style].self, forKey: .styles) ?? [.default]
         let rowSpans = try container.decode([RowSpan].self, forKey: .rowSpans)
+        let activeScreen = try container.decodeIfPresent(Screen.self, forKey: .activeScreen) ?? .primary
+        let modes = try container.decodeIfPresent([ModeSetting].self, forKey: .modes) ?? []
+        let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
+        let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
+        let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
+        let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
+        let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
         try self.init(
             format: format,
             surfaceID: surfaceID,
@@ -107,7 +169,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             full: full,
             clearedRows: clearedRows,
             styles: styles,
-            rowSpans: rowSpans
+            rowSpans: rowSpans,
+            activeScreen: activeScreen,
+            modes: modes,
+            terminalForeground: terminalForeground,
+            terminalBackground: terminalBackground,
+            terminalCursorColor: terminalCursorColor,
+            scrollbackRows: scrollbackRows,
+            scrollbackSpans: scrollbackSpans
         )
     }
 
@@ -166,6 +235,46 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return rows
     }
 
+    /// A per-row signature capturing both text **and resolved styling**, used
+    /// to detect which rows changed between two full snapshots.
+    ///
+    /// Unlike ``plainRows()`` this changes when only a cell's style changes
+    /// (for example a character typed over a dimmed shell autosuggestion, where
+    /// the text is identical but the cell flips from faint to normal), so a
+    /// style-only update is not dropped from the delta. The style is resolved
+    /// to its visual attributes rather than keyed by ``Style/id``, because the
+    /// producer reassigns style ids on every export.
+    public func rowSignatures() -> [String] {
+        var stylesByID: [Int: Style] = [:]
+        for style in styles {
+            stylesByID[style.id] = style
+        }
+        var spansByRow: [Int: [RowSpan]] = [:]
+        for span in rowSpans {
+            spansByRow[span.row, default: []].append(span)
+        }
+        var signatures = Array(repeating: "", count: rows)
+        for row in 0..<rows {
+            guard let spans = spansByRow[row] else { continue }
+            signatures[row] = spans
+                .sorted { $0.column < $1.column }
+                .map { span in
+                    let style = stylesByID[span.styleID] ?? .default
+                    return "\(span.column):\(span.gridCellWidth):\(Self.styleSignature(style)):\(span.text)"
+                }
+                .joined(separator: "\u{1F}")
+        }
+        return signatures
+    }
+
+    private static func styleSignature(_ style: Style) -> String {
+        let flags = [
+            style.bold, style.faint, style.italic, style.underline, style.blink,
+            style.inverse, style.invisible, style.strikethrough, style.overline,
+        ].map { $0 ? "1" : "0" }.joined()
+        return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
+    }
+
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
@@ -176,7 +285,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             full: full,
             clearedRows: full ? [] : Array(includedRows.sorted()),
             styles: styles,
-            rowSpans: rowSpans.filter { includedRows.contains($0.row) }
+            rowSpans: rowSpans.filter { includedRows.contains($0.row) },
+            // Full-state restore data only applies to a full snapshot; a delta
+            // frame just clears and repaints the changed viewport rows.
+            activeScreen: activeScreen,
+            modes: full ? modes : [],
+            terminalForeground: full ? terminalForeground : nil,
+            terminalBackground: full ? terminalBackground : nil,
+            terminalCursorColor: full ? terminalCursorColor : nil,
+            scrollbackRows: full ? scrollbackRows : 0,
+            scrollbackSpans: full ? scrollbackSpans : []
         )
     }
 
@@ -197,27 +315,38 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data)
     }
 
+    /// Alias for ``vtPatchBytes()``; the byte stream both replaces a full
+    /// screen and patches a delta depending on ``full``.
     public func vtReplacementBytes() -> Data {
         vtPatchBytes()
     }
 
+    /// Synthesize a VT byte stream that reproduces this frame when fed to a
+    /// terminal emulator.
+    ///
+    /// A **full** frame is a faithful cold-attach snapshot: it resets the
+    /// terminal, restores dynamic default colors, repaints scrollback and the
+    /// visible viewport as a natural scrolling flow, restores the active screen
+    /// (`?1049h` for the alternate screen), reapplies non-default DEC/ANSI
+    /// modes, and finally restores the cursor. A **delta** frame clears and
+    /// repaints only the changed viewport rows.
     public func vtPatchBytes() -> Data {
+        full ? fullSnapshotBytes() : deltaPatchBytes()
+    }
+
+    /// DEC private mode codes that switch screens or save the cursor. The
+    /// active screen is restored explicitly via ``activeScreen``, so these are
+    /// never replayed from ``modes`` (replaying them would double-switch).
+    private static let screenSwitchModeCodes: Set<Int> = [47, 1047, 1048, 1049]
+
+    private func deltaPatchBytes() -> Data {
         var bytes = Data()
-        var stylesByID: [Int: Style] = [:]
-        for style in styles {
-            stylesByID[style.id] = style
-        }
+        let stylesByID = Self.stylesByID(styles)
         let defaultStyle = stylesByID[0] ?? .default
-        if full {
-            bytes.append(Data("\u{1B}c".utf8))
+        let rowsToClear = Set(clearedRows).union(rowSpans.map(\.row)).sorted()
+        for row in rowsToClear {
             bytes.append(Self.sgrBytes(for: defaultStyle))
-            bytes.append(Data("\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8))
-        } else {
-            let rowsToClear = Set(clearedRows).union(rowSpans.map(\.row)).sorted()
-            for row in rowsToClear {
-                bytes.append(Self.sgrBytes(for: defaultStyle))
-                bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
-            }
+            bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
         }
         var activeStyleID: Int?
         for span in rowSpans {
@@ -230,6 +359,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             bytes.append(Self.vtPrintableBytes(span.text))
         }
         bytes.append(Self.sgrBytes(for: defaultStyle))
+        // A delta never hides the cursor while painting, so (unlike a full
+        // snapshot) it leaves a nil cursor untouched instead of forcing it
+        // visible.
         if let cursor {
             bytes.append(Self.cursorStyleBytes(for: cursor))
             if cursor.visible {
@@ -239,6 +371,159 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             }
         }
         return bytes
+    }
+
+    private func fullSnapshotBytes() -> Data {
+        var bytes = Data()
+        let stylesByID = Self.stylesByID(styles)
+        let defaultStyle = stylesByID[0] ?? .default
+
+        // Reset to a known state, then apply everything inside a synchronized
+        // update so the client never shows a partially-restored screen.
+        bytes.append(Data("\u{1B}c".utf8))
+        bytes.append(Data("\u{1B}[?2026h".utf8))
+
+        // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
+        // RGB, so these mainly fix the cursor color and color queries.
+        if let osc = Self.oscColorBytes(10, terminalForeground) { bytes.append(osc) }
+        if let osc = Self.oscColorBytes(11, terminalBackground) { bytes.append(osc) }
+        if let osc = Self.oscColorBytes(12, terminalCursorColor) { bytes.append(osc) }
+
+        // Paint with autowrap and the cursor off so a full-width row plus an
+        // explicit newline cannot wrap into a phantom blank line, and so the
+        // restore does not flicker the cursor across the grid.
+        bytes.append(Data("\u{1B}[?7l\u{1B}[?25l".utf8))
+        bytes.append(Self.sgrBytes(for: defaultStyle))
+
+        if activeScreen == .alternate {
+            // Scrollback belongs to the primary screen; flow it there first so
+            // it is preserved behind the alternate screen, then enter the
+            // alternate screen and paint the TUI viewport.
+            appendFlowLines(
+                &bytes,
+                spans: scrollbackSpans,
+                lineCount: scrollbackRows,
+                stylesByID: stylesByID,
+                defaultStyle: defaultStyle,
+                terminateLast: true
+            )
+            bytes.append(Data("\u{1B}[?1049h".utf8))
+            bytes.append(Self.sgrBytes(for: defaultStyle))
+            appendFlowLines(
+                &bytes,
+                spans: rowSpans,
+                lineCount: rows,
+                stylesByID: stylesByID,
+                defaultStyle: defaultStyle,
+                terminateLast: false
+            )
+        } else {
+            // Primary: scrollback then the viewport as one continuous flow so
+            // the scrollback naturally lands in the client's history.
+            let offsetViewportSpans = rowSpans.map { span in
+                RowSpan(
+                    row: span.row + scrollbackRows,
+                    column: span.column,
+                    styleID: span.styleID,
+                    text: span.text,
+                    cellWidth: span.cellWidth
+                )
+            }
+            appendFlowLines(
+                &bytes,
+                spans: scrollbackSpans + offsetViewportSpans,
+                lineCount: scrollbackRows + rows,
+                stylesByID: stylesByID,
+                defaultStyle: defaultStyle,
+                terminateLast: false
+            )
+        }
+
+        // Reapply modes last so autowrap returns to its captured value
+        // (undoing the temporary `?7l`) and mouse/paste/app-key modes are live.
+        for mode in modes where !Self.screenSwitchModeCodes.contains(mode.code) {
+            bytes.append(Self.modeBytes(mode))
+        }
+
+        appendCursorRestore(&bytes)
+        bytes.append(Data("\u{1B}[?2026l".utf8))
+        return bytes
+    }
+
+    /// Append `lineCount` lines (rows `0..<lineCount` of `spans`) as a natural
+    /// scrolling flow: each line resets to the default style, positions its
+    /// spans with `CHA`, and is separated from the next by CRLF.
+    private func appendFlowLines(
+        _ bytes: inout Data,
+        spans: [RowSpan],
+        lineCount: Int,
+        stylesByID: [Int: Style],
+        defaultStyle: Style,
+        terminateLast: Bool
+    ) {
+        guard lineCount > 0 else { return }
+        var spansByRow: [Int: [RowSpan]] = [:]
+        for span in spans {
+            spansByRow[span.row, default: []].append(span)
+        }
+        for line in 0..<lineCount {
+            if line > 0 {
+                bytes.append(Data("\r\n".utf8))
+            }
+            bytes.append(Self.sgrBytes(for: defaultStyle))
+            var activeStyleID = 0
+            for span in (spansByRow[line] ?? []).sorted(by: { $0.column < $1.column }) {
+                bytes.append(Data("\u{1B}[\(span.column + 1)G".utf8))
+                if activeStyleID != span.styleID,
+                   let style = stylesByID[span.styleID] {
+                    bytes.append(Self.sgrBytes(for: style))
+                    activeStyleID = span.styleID
+                }
+                bytes.append(Self.vtPrintableBytes(span.text))
+            }
+        }
+        if terminateLast {
+            bytes.append(Data("\r\n".utf8))
+        }
+    }
+
+    private func appendCursorRestore(_ bytes: inout Data) {
+        let defaultStyle = Self.stylesByID(styles)[0] ?? .default
+        bytes.append(Self.sgrBytes(for: defaultStyle))
+        guard let cursor else {
+            bytes.append(Data("\u{1B}[?25h".utf8))
+            return
+        }
+        bytes.append(Self.cursorStyleBytes(for: cursor))
+        if cursor.visible {
+            bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
+        } else {
+            bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
+        }
+    }
+
+    private static func stylesByID(_ styles: [Style]) -> [Int: Style] {
+        var map: [Int: Style] = [:]
+        for style in styles {
+            map[style.id] = style
+        }
+        return map
+    }
+
+    private static func modeBytes(_ mode: ModeSetting) -> Data {
+        let prefix = mode.ansi ? "\u{1B}[" : "\u{1B}[?"
+        return Data("\(prefix)\(mode.code)\(mode.on ? "h" : "l")".utf8)
+    }
+
+    private static func oscColorBytes(_ ps: Int, _ hex: String?) -> Data? {
+        guard let rgb = rgbComponents(hex) else { return nil }
+        let spec = String(
+            format: "rgb:%02x/%02x/%02x",
+            rgb.red,
+            rgb.green,
+            rgb.blue
+        )
+        return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
     }
 
     private static func normalizedRows(from text: String, maxRows: Int) -> [String] {
@@ -343,6 +628,45 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case clearedRows = "cleared_rows"
         case styles
         case rowSpans = "row_spans"
+        case activeScreen = "active_screen"
+        case modes
+        case terminalForeground = "terminal_foreground"
+        case terminalBackground = "terminal_background"
+        case terminalCursorColor = "terminal_cursor_color"
+        case scrollbackRows = "scrollback_rows"
+        case scrollbackSpans = "scrollback_spans"
+    }
+
+    /// Which terminal screen a full snapshot represents.
+    public enum Screen: String, Codable, Equatable, Sendable {
+        /// The normal screen, which owns the scrollback history.
+        case primary
+        /// The alternate screen used by full-screen TUIs (entered with `?1049h`).
+        case alternate
+    }
+
+    /// One DEC private or ANSI mode to restore on a full snapshot.
+    public struct ModeSetting: Codable, Equatable, Sendable {
+        /// The numeric mode code (e.g. `2004` for bracketed paste, `1` for
+        /// application cursor keys).
+        public var code: Int
+        /// `true` for an ANSI mode (`CSI {code} h/l`), `false` for a DEC private
+        /// mode (`CSI ? {code} h/l`).
+        public var ansi: Bool
+        /// Whether the mode is currently set.
+        public var on: Bool
+
+        public init(code: Int, ansi: Bool = false, on: Bool) {
+            self.code = code
+            self.ansi = ansi
+            self.on = on
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case code
+            case ansi
+            case on
+        }
     }
 
     public struct Cursor: Codable, Equatable, Sendable {

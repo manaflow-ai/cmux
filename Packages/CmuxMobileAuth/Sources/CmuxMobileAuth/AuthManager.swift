@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CMUXMobileCore
 import Foundation
 import Observation
 import OSLog
@@ -6,8 +7,8 @@ import StackAuth
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux.ios", category: "auth")
 
-enum MobileAuthBuildPolicy {
-    static var includesFortyTwoShortcut: Bool {
+public enum MobileAuthBuildPolicy {
+    public static var includesFortyTwoShortcut: Bool {
         #if CMUX_DEV_AUTH
         true
         #else
@@ -27,13 +28,13 @@ enum MobileAuthAutoLoginPolicy {
 
 @MainActor
 @Observable
-final class AuthManager {
-    static let shared = AuthManager()
+public final class AuthManager {
+    public static let shared = AuthManager()
 
-    var isAuthenticated = false
-    var currentUser: StackAuthUser?
-    var isLoading = false
-    var isRestoringSession = false
+    public var isAuthenticated = false
+    public var currentUser: StackAuthUser?
+    public var isLoading = false
+    public var isRestoringSession = false
 
     private let stack = StackAuthApp.shared
     private let authUserCache = AuthUserCache.shared
@@ -285,7 +286,8 @@ final class AuthManager {
     }
     #endif
 
-    func sendCode(to email: String) async throws {
+    public func sendCode(to email: String) async throws {
+        try requireOnline()
         isLoading = true
         defer { isLoading = false }
 
@@ -306,10 +308,11 @@ final class AuthManager {
         }
     }
 
-    func verifyCode(_ code: String) async throws {
+    public func verifyCode(_ code: String) async throws {
         guard let nonce = pendingNonce else {
             throw AuthError.invalidCode
         }
+        try requireOnline()
 
         isLoading = true
         defer { isLoading = false }
@@ -325,7 +328,8 @@ final class AuthManager {
         pendingNonce = nil
     }
 
-    func signInWithPassword(email: String, password: String, setLoading: Bool = true) async throws {
+    public func signInWithPassword(email: String, password: String, setLoading: Bool = true) async throws {
+        try requireOnline()
         if setLoading {
             isLoading = true
         }
@@ -343,7 +347,8 @@ final class AuthManager {
         }
     }
 
-    func signInWithApple() async throws {
+    public func signInWithApple() async throws {
+        try requireOnline()
         isLoading = true
         defer { isLoading = false }
 
@@ -358,7 +363,8 @@ final class AuthManager {
         }
     }
 
-    func signInWithGoogle() async throws {
+    public func signInWithGoogle() async throws {
+        try requireOnline()
         isLoading = true
         defer { isLoading = false }
 
@@ -373,6 +379,15 @@ final class AuthManager {
         }
     }
 
+    /// Fail fast with a clear offline error before starting a network sign-in,
+    /// so the user gets immediate feedback instead of waiting for a request to
+    /// time out (e.g. tapping a provider button with Wi-Fi off).
+    private func requireOnline() throws {
+        guard NetworkReachability.shared.isOnline else {
+            throw AuthError.offline
+        }
+    }
+
     private func completeSignIn() async throws {
         guard let user = try await stack.getUser(or: .throw) else {
             throw AuthError.unauthorized
@@ -380,7 +395,7 @@ final class AuthManager {
         await applySignedInUser(user)
     }
 
-    func signOut() async {
+    public func signOut() async {
         do {
             try await stack.signOut()
         } catch {
@@ -394,7 +409,7 @@ final class AuthManager {
         await NotificationManager.shared.unregisterFromServer()
     }
 
-    func getAccessToken() async throws -> String {
+    public func getAccessToken() async throws -> String {
         if let accessToken = await stack.getAccessToken() {
             return accessToken
         }
@@ -425,7 +440,7 @@ final class AuthManager {
         Self.displaySafeAuthError(error)
     }
 
-    nonisolated static func displaySafeAuthError(_ error: Error) -> Error {
+    public nonisolated static func displaySafeAuthError(_ error: Error) -> Error {
         if let authError = error as? AuthError {
             return authError
         }
@@ -463,7 +478,7 @@ final class AuthManager {
         return AuthError.serverError(0, "auth_failed")
     }
 
-    nonisolated static func cachedSessionValidationFailureAction(
+    public nonisolated static func cachedSessionValidationFailureAction(
         for error: Error
     ) -> CachedSessionValidationFailureAction {
         let safeError = displaySafeAuthError(error)
@@ -474,7 +489,7 @@ final class AuthManager {
     }
 }
 
-enum CachedSessionValidationFailureAction: String, Equatable, Sendable {
+public enum CachedSessionValidationFailureAction: String, Equatable, Sendable {
     case clearSession
     case preserveCachedSession
 }
