@@ -226,8 +226,7 @@ button {
 .shell.background-effects-glass.has-background .surface-tabs,
 .shell.background-effects-glass.has-background .statusbar,
 .shell.background-effects-glass.has-background .inspector {
-  background: color-mix(in oklch, var(--color-chrome) 88%, transparent);
-  backdrop-filter: blur(10px);
+  background: color-mix(in oklch, var(--color-chrome) 94%, transparent);
 }
 
 .shell.background-effects-glass.has-background .main,
@@ -243,24 +242,12 @@ button {
 .shell.background-effects-glass.has-background .pane-header,
 .shell.background-effects-glass.has-background .browser-tabs,
 .shell.background-effects-glass.has-background .browser-bar {
-  background: color-mix(in oklch, var(--color-pane-warm) 84%, transparent);
-  backdrop-filter: blur(8px);
+  background: color-mix(in oklch, var(--color-pane-warm) 92%, transparent);
 }
 
 .shell.background-effects-glass.has-background .browser-tab.is-active,
 .shell.background-effects-glass.has-background .surface-tab.is-active {
-  background: color-mix(in oklch, var(--color-pane-warm) 90%, transparent);
-}
-
-.shell.performance-mode.background-effects-glass.has-background .sidebar,
-.shell.performance-mode.background-effects-glass.has-background .topbar,
-.shell.performance-mode.background-effects-glass.has-background .surface-tabs,
-.shell.performance-mode.background-effects-glass.has-background .statusbar,
-.shell.performance-mode.background-effects-glass.has-background .inspector,
-.shell.performance-mode.background-effects-glass.has-background .pane-header,
-.shell.performance-mode.background-effects-glass.has-background .browser-tabs,
-.shell.performance-mode.background-effects-glass.has-background .browser-bar {
-  backdrop-filter: none;
+  background: color-mix(in oklch, var(--color-pane-warm) 94%, transparent);
 }
 
 .shell.performance-mode *,
@@ -1107,17 +1094,17 @@ body.reduce-motion *::after {
   position: relative;
   appearance: none;
   height: 30px;
-  flex: 1 1 var(--surface-tab-basis, 160px);
+  flex: 0 1 var(--surface-tab-basis, 160px);
   min-width: var(--surface-tab-min, 104px);
   max-width: var(--surface-tab-max, 220px);
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 10px minmax(0, 1fr) 22px;
   align-items: center;
   gap: 6px;
   border: 1px solid color-mix(in oklch, var(--color-line) 42%, transparent);
   border-bottom-color: transparent;
   border-radius: var(--radius-2) var(--radius-2) 0 0;
-  padding: 0 calc(var(--space-2) + 2px) 0 var(--space-2);
+  padding: 0 4px 0 var(--space-2);
   background: color-mix(in oklch, var(--color-pane) 34%, transparent);
   color: var(--color-muted);
   font: inherit;
@@ -1178,10 +1165,8 @@ body.reduce-motion *::after {
 }
 
 .surface-close {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   display: grid;
   place-items: center;
   width: 22px;
@@ -1202,12 +1187,6 @@ body.reduce-motion *::after {
 .surface-close:focus-visible {
   opacity: 1;
   pointer-events: auto;
-}
-
-.surface-tab:hover .surface-label,
-.surface-tab.is-active .surface-label,
-.surface-tab:focus-within .surface-label {
-  padding-right: 18px;
 }
 
 .surface-close:hover {
@@ -2121,13 +2100,13 @@ body.reduce-motion *::after {
   position: relative;
   min-width: 72px;
   max-width: 176px;
-  flex: 1 1 128px;
+  flex: 0 1 132px;
   height: 26px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: 2px;
-  padding: 0 calc(var(--space-2) + 2px) 0 var(--space-2);
+  padding: 0 4px 0 var(--space-2);
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: var(--radius-1) var(--radius-1) 0 0;
@@ -2178,10 +2157,8 @@ body.reduce-motion *::after {
 }
 
 .browser-tab-close {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
   width: 18px;
   height: 18px;
   display: grid;
@@ -2201,12 +2178,6 @@ body.reduce-motion *::after {
 .browser-tab:focus-within .browser-tab-close {
   opacity: 1;
   pointer-events: auto;
-}
-
-.browser-tab:hover .browser-tab-label,
-.browser-tab.is-active .browser-tab-label,
-.browser-tab:focus-within .browser-tab-label {
-  padding-right: 18px;
 }
 
 .browser-tab-close:hover {
