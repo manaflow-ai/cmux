@@ -1219,8 +1219,10 @@ public final class CMUXMobileShellStore {
                 topics: topics
             ) ?? false
             guard subscribed else {
+                liveAnchormuxLog("sync.subscribe_failed reason=start")
                 return
             }
+            liveAnchormuxLog("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
@@ -1250,6 +1252,7 @@ public final class CMUXMobileShellStore {
             return
         }
         mobileShellLog.info("terminal event stream ended, restarting")
+        liveAnchormuxLog("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
         startTerminalRefreshPolling()
