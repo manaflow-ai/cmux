@@ -9138,6 +9138,7 @@ function settingsProfileCard(profile) {
   actions.className = "recent-folder-actions settings-profile-actions";
   actions.append(
     settingsActionButton("Apply", () => applySavedSettingsProfile(profile.id), "", `apply settings profile ${profile.label}`),
+    settingsActionButton("Update", () => updateSavedSettingsProfile(profile.id), "", `update settings profile ${profile.label} overwrite current settings`),
     settingsActionButton("Rename", () => renameSavedSettingsProfile(profile.id), "", `rename settings profile ${profile.label}`),
     settingsActionButton("Delete", () => deleteSavedSettingsProfile(profile.id), "danger", `delete settings profile ${profile.label}`)
   );
@@ -9189,6 +9190,24 @@ function applySavedSettingsProfile(profileId) {
   }
   renderSettingsInspector();
   toast(`${profile.label} profile applied.`);
+}
+
+async function updateSavedSettingsProfile(profileId) {
+  const profile = state.savedSettingsProfiles.find((candidate) => candidate.id === profileId);
+  if (!profile) return;
+  if (!await showConfirmDialog({
+    title: "Update profile",
+    message: `Replace "${profile.label}" with the current settings?`,
+    confirmLabel: "Update"
+  })) return;
+  const updated = upsertSavedSettingsProfile({
+    ...profile,
+    settings: state.settings,
+    createdAt: profile.createdAt
+  });
+  if (!updated) return;
+  renderSettingsInspector();
+  toast(`${profile.label} profile updated.`);
 }
 
 async function renameSavedSettingsProfile(profileId) {
