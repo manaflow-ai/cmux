@@ -1754,6 +1754,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             snapshot: terminalSnapshot,
             isRunningUnderAutomatedTests: false
         ))
+
+        let localTerminalPanelId = UUID()
+        var localTerminal = Self.terminalPanelSnapshot(id: localTerminalPanelId)
+        localTerminal.terminal?.isRemoteTerminal = false
+        var browserAndLocalTerminalSnapshot = browserOnlySnapshot
+        browserAndLocalTerminalSnapshot.panels.append(localTerminal)
+        if case .pane(var pane) = browserAndLocalTerminalSnapshot.layout {
+            pane.panelIds.append(localTerminalPanelId)
+            browserAndLocalTerminalSnapshot.layout = .pane(pane)
+        }
+        XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: "token-a",
+            snapshot: browserAndLocalTerminalSnapshot,
+            isRunningUnderAutomatedTests: false
+        ))
+
         XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
             foregroundAuthToken: nil,
             snapshot: terminalSnapshot,

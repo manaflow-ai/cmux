@@ -886,7 +886,11 @@ extension Workspace {
         let normalizedForegroundAuthToken = foregroundAuthToken?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedForegroundAuthToken?.isEmpty == false else { return true }
-        return !snapshot.panels.contains { $0.terminal != nil }
+        let hasTerminalThatWillAuthenticateReconnect = snapshot.panels.contains {
+            guard let terminal = $0.terminal else { return false }
+            return terminal.isRemoteTerminal != false
+        }
+        return !hasTerminalThatWillAuthenticateReconnect
     }
 
     nonisolated enum SurfaceResumeStartupLaunch {
