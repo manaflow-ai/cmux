@@ -17091,17 +17091,30 @@ struct SidebarTabDropDelegate: DropDelegate {
 #endif
             return false
         }
-        let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
-        )
+        if let groupDropPreview = dragState.groupDropPreview,
+           groupDropPreview.draggedWorkspaceId == draggedTabId {
+            tabManager.addWorkspaceToGroup(
+                workspaceId: draggedTabId,
+                groupId: groupDropPreview.targetGroupId,
+                placement: .end
+            )
+            syncSidebarSelection()
+            return true
+        }
+        let usesTopLevelRows = dragState.dropIndicatorUsesTopLevelRows ||
+            tabManager.sidebarReorderUsesTopLevelRows(
+                forDraggedWorkspaceId: draggedTabId,
+                targetWorkspaceId: targetTabId
+            )
         let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
+            targetWorkspaceId: targetTabId,
+            usesTopLevelRows: usesTopLevelRows
         )
         let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
+            targetWorkspaceId: targetTabId,
+            usesTopLevelRows: usesTopLevelRows
         )
         guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId) else {
 #if DEBUG
@@ -17148,6 +17161,12 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     private func updateDropIndicator(for info: DropInfo) {
+        // During animated previews the dragged row can move under the cursor.
+        // Keep the existing insertion state instead of treating the row as a
+        // no-op target and snapping the preview back to its source position.
+        if targetTabId == dragState.draggedTabId {
+            return
+        }
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: dragState.draggedTabId,
             targetWorkspaceId: targetTabId
