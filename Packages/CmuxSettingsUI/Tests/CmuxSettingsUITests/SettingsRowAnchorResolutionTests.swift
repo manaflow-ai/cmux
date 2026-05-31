@@ -121,7 +121,7 @@ struct SettingsRowAnchorResolutionTests {
     static let explicitlyAnchoredEntryIDs: Set<String> = [
         "setting:app:appearance",
         "setting:app:app-icon",
-        "setting:app:file-drops",
+        "setting:fileOpening:file-drops",
         "setting:app:terminal-config",
         "setting:app:desktop-notifications",
         "setting:account:account",

@@ -12,6 +12,7 @@ import Foundation
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
     case app
+    case fileOpening
     case terminal
     case textBox
     case sidebarAppearance
@@ -32,6 +33,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         switch self {
         case .account: return "Account"
         case .app: return "App"
+        case .fileOpening: return String(localized: "settings.section.fileOpening", defaultValue: "File Opening")
         case .terminal: return "Terminal"
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sidebarAppearance: return "Sidebar"
@@ -52,6 +54,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         switch self {
         case .account: return "person.crop.circle"
         case .app: return "gearshape"
+        case .fileOpening: return "doc.badge.gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
         case .sidebarAppearance: return "sidebar.left"
@@ -73,7 +76,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
-        case .app: return "appearance language workspace notifications menu bar telemetry file extensions"
+        case .app: return "appearance language workspace notifications menu bar telemetry"
+        case .fileOpening: return "files paths cmd click html markdown preview editor drag drop extensions"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sidebarAppearance: return "sidebar details branches material terminal background"

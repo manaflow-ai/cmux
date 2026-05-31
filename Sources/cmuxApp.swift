@@ -6555,56 +6555,6 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsPickerRow(
-                            configurationReview: .settingsOnly,
-                            String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
-                            subtitle: selectedFileDropDefaultBehavior.settingsSubtitle,
-                            controlWidth: pickerColumnWidth,
-                            selection: fileDropDefaultBehaviorSelection
-                        ) {
-                            ForEach(FileDropDefaultBehavior.allCases) { behavior in
-                                Text(behavior.displayName).tag(behavior.rawValue)
-                            }
-                        }
-                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .app, idSuffix: "file-drops"))
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("app.preferredEditor"),
-                            String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
-                            subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default.")
-                        ) {
-                            TextField(
-                                String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
-                                text: $preferredEditorCommand
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                        }
-
-                        SettingsCardDivider()
-
-                        FileExtensionOpenersSettingsCard()
-                            .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .app, idSuffix: "file-extension-openers"))
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("app.openSupportedFilesInCmux"),
-                            String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"),
-                            subtitle: String(localized: "settings.app.openSupportedFilesInCmux.subtitle", defaultValue: "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux.")
-                        ) {
-                            Toggle("", isOn: supportedFileRoutingBinding)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityLabel(
-                                    String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
                         SettingsCardRow(
                             configurationReview: .action,
                             String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"),
@@ -6623,21 +6573,6 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            configurationReview: .json("app.openMarkdownInCmuxViewer"),
-                            String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
-                        ) {
-                            Toggle("", isOn: markdownRoutingBinding)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityLabel(
-                                    String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
-                                )
                         }
 
                         SettingsCardDivider()
@@ -6960,6 +6895,73 @@ struct SettingsView: View {
                                 )
                         }
 
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.fileOpening", defaultValue: "File Opening"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .fileOpening))
+                    SettingsCard {
+                        SettingsPickerRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
+                            subtitle: selectedFileDropDefaultBehavior.settingsSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: fileDropDefaultBehaviorSelection
+                        ) {
+                            ForEach(FileDropDefaultBehavior.allCases) { behavior in
+                                Text(behavior.displayName).tag(behavior.rawValue)
+                            }
+                        }
+                        .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .fileOpening, idSuffix: "file-drops"))
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.preferredEditor"),
+                            String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
+                            subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty for system default.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
+                                text: $preferredEditorCommand
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        FileExtensionOpenersSettingsCard()
+                            .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .fileOpening, idSuffix: "file-extension-openers"))
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.openSupportedFilesInCmux"),
+                            String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"),
+                            subtitle: String(localized: "settings.app.openSupportedFilesInCmux.subtitle", defaultValue: "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux.")
+                        ) {
+                            Toggle("", isOn: supportedFileRoutingBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.openMarkdownInCmuxViewer"),
+                            String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
+                        ) {
+                            Toggle("", isOn: markdownRoutingBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
+                                )
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))

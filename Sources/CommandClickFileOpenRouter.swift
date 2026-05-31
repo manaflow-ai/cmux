@@ -2,54 +2,6 @@ import AppKit
 import CmuxSettings
 import Foundation
 
-enum FileExtensionOpenBehaviorSettings {
-    static let key = "fileExtensionOpeners"
-    static let didChangeNotification = Notification.Name("cmux.fileExtensionOpenersDidChange")
-    static let defaultValue = FileExtensionOpenBehavior.defaultOpeners
-
-    static func openers(defaults: UserDefaults = .standard) -> [String: FileExtensionOpenBehavior] {
-        guard defaults.object(forKey: key) != nil else { return defaultValue }
-        guard let stored = defaults.dictionary(forKey: key) else { return defaultValue }
-
-        var result: [String: FileExtensionOpenBehavior] = [:]
-        for (rawExtension, rawBehavior) in stored {
-            guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(rawExtension),
-                  let rawBehavior = rawBehavior as? String,
-                  let behavior = FileExtensionOpenBehavior(rawValue: rawBehavior) else {
-                continue
-            }
-            result[normalizedExtension] = behavior
-        }
-        return result
-    }
-
-    static func behavior(forPath path: String, defaults: UserDefaults = .standard) -> FileExtensionOpenBehavior? {
-        let ext = (path as NSString).pathExtension
-        guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(ext) else {
-            return nil
-        }
-        return openers(defaults: defaults)[normalizedExtension]
-    }
-
-    static func setOpeners(
-        _ openers: [String: FileExtensionOpenBehavior],
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        var normalized: [String: String] = [:]
-        for (rawExtension, behavior) in openers {
-            guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(rawExtension) else { continue }
-            normalized[normalizedExtension] = behavior.rawValue
-        }
-        defaults.set(normalized, forKey: key)
-        notifyDidChange(notificationCenter: notificationCenter)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
-}
-
 enum CommandClickFileOpenRouter {
     enum Fallback {
         case preferredEditor
