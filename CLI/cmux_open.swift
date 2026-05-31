@@ -2945,22 +2945,6 @@ extension CMUXCLI {
             isDirectory: false
         )
         let openingURL = try mapper.viewerURL(for: openingFileURL)
-        let fileURLs = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
-            (
-                source,
-                directory.appendingPathComponent(
-                    "diff-\(groupID)-\(source.slug).html",
-                    isDirectory: false
-                )
-            )
-        })
-        let urls = Dictionary(uniqueKeysWithValues: try fileURLs.map { source, fileURL in
-            (source, try mapper.viewerURL(for: fileURL))
-        })
-        guard let selectedFileURL = fileURLs[selectedSource] else {
-            throw CLIError(message: "Failed to write diff viewer")
-        }
-
         let sourceLabel = "git \(selectedSource.slug)"
         let title = titleOverride ?? selectedSource.title
         let message = diffViewerLoadingDiffMessage(selectedSource.menuLabel)
@@ -2979,7 +2963,7 @@ extension CMUXCLI {
             repoRoot: repoRoot,
             branchBaseRef: selectedSource == .branch ? context.branchBaseRef : nil
         )
-        let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL)
+        let assets = try ensureDiffViewerAssets(nextTo: openingFileURL)
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [openingFileURL],
             assets: assets,
@@ -3275,7 +3259,12 @@ extension CMUXCLI {
                 } else {
                     pageContext.branchBaseRef = nil
                 }
-                let viewerURL = urls[source] ?? try mapper.viewerURL(for: url)
+                let viewerURL: URL
+                if let sourceURL = urls[source] {
+                    viewerURL = sourceURL
+                } else {
+                    viewerURL = try mapper.viewerURL(for: url)
+                }
                 try writeDiffViewerStatusHTML(
                     to: url,
                     title: source.title,
@@ -3309,7 +3298,12 @@ extension CMUXCLI {
         for source in DiffSource.allCases {
             for option in repoCandidates where option.repoRoot != repoRoot {
                 guard let url = repoFileURLsBySource[source]?[option.repoRoot] else { continue }
-                let viewerURL = repoURLsBySource[source]?[option.repoRoot] ?? try mapper.viewerURL(for: url)
+                let viewerURL: URL
+                if let repoURL = repoURLsBySource[source]?[option.repoRoot] {
+                    viewerURL = repoURL
+                } else {
+                    viewerURL = try mapper.viewerURL(for: url)
+                }
                 let pageContext = DiffSourceContext(
                     workspaceId: selectedContext.workspaceId,
                     surfaceId: selectedContext.surfaceId,
@@ -3348,7 +3342,12 @@ extension CMUXCLI {
 
         for option in baseCandidates where !(branchBaseForOptions.map { $0 == option.ref } ?? false) {
             guard let url = baseFileURLs[option.ref] else { continue }
-            let viewerURL = baseURLs[option.ref] ?? try mapper.viewerURL(for: url)
+            let viewerURL: URL
+            if let baseURL = baseURLs[option.ref] {
+                viewerURL = baseURL
+            } else {
+                viewerURL = try mapper.viewerURL(for: url)
+            }
             var pageContext = selectedContext
             pageContext.branchBaseRef = option.ref
             try writeDiffViewerStatusHTML(
