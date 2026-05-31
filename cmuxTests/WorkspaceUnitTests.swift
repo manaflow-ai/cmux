@@ -4682,6 +4682,40 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
 
 @MainActor
+final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
+    func testCreatesExtensionBrowserTabInFocusedPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected split workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, leftPaneId)
+
+        guard let extensionBrowserPanel = workspace.newSidebarExtensionBrowserSurface(
+            inPane: leftPaneId,
+            title: "Sidebar Extensions",
+            focus: true
+        ) else {
+            XCTFail("Expected extension browser tab creation to succeed")
+            return
+        }
+
+        XCTAssertEqual(extensionBrowserPanel.panelType, .extensionBrowser)
+        XCTAssertEqual(workspace.focusedPanelId, extensionBrowserPanel.id)
+        XCTAssertEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), leftPaneId)
+        XCTAssertNotEqual(workspace.paneId(forPanelId: extensionBrowserPanel.id), workspace.paneId(forPanelId: rightPanel.id))
+    }
+}
+
+
+@MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
         let manager = TabManager()

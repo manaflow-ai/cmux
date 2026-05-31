@@ -661,6 +661,8 @@ extension Workspace {
                 selectedSchemeName: projectPanel.selectedSchemeName,
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
+        case .extensionBrowser:
+            return nil
         }
 
         return SessionPanelSnapshot(
@@ -1787,6 +1789,8 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
+        case .extensionBrowser:
+            return nil
         }
     }
 
@@ -10174,6 +10178,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
         static let project = "project"
+        static let extensionBrowser = "extensionBrowser"
     }
 
     enum PanelShellActivityState: String {
@@ -11118,6 +11123,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.rightSidebarTool
         case .project:
             return SurfaceKind.project
+        case .extensionBrowser:
+            return SurfaceKind.extensionBrowser
         }
     }
 
@@ -13853,6 +13860,57 @@ final class Workspace: Identifiable, ObservableObject {
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
+    }
+
+    /// Creates a sidebar extension browser tab in the requested pane and returns its panel.
+    ///
+    /// - Parameters:
+    ///   - paneId: The pane that should receive the extension browser tab.
+    ///   - title: The display title used for the tab and panel.
+    ///   - focus: When true, selects the new tab and moves focus to its pane. The tab is not restored from saved workspace sessions.
+    /// - Returns: The created extension browser panel, or `nil` if the pane cannot accept a new tab.
+    @discardableResult
+    func newSidebarExtensionBrowserSurface(
+        inPane paneId: PaneID,
+        title: String,
+        focus: Bool = true
+    ) -> CMUXSidebarExtensionBrowserPanel? {
+        let shouldFocusNewTab = focus || bonsplitController.focusedPaneId == paneId
+        let extensionBrowserPanel = CMUXSidebarExtensionBrowserPanel(title: title)
+        panels[extensionBrowserPanel.id] = extensionBrowserPanel
+        panelTitles[extensionBrowserPanel.id] = extensionBrowserPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: extensionBrowserPanel.displayTitle,
+            icon: extensionBrowserPanel.displayIcon,
+            kind: SurfaceKind.extensionBrowser,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: extensionBrowserPanel.id)
+            panelTitles.removeValue(forKey: extensionBrowserPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = extensionBrowserPanel.id
+        publishCmuxSurfaceCreated(
+            extensionBrowserPanel.id,
+            paneId: paneId,
+            kind: SurfaceKind.extensionBrowser,
+            origin: "extension_browser_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            extensionBrowserPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        }
+
+        return extensionBrowserPanel
     }
 
     /// Open the markdown viewer for `filePath`, reusing an existing
