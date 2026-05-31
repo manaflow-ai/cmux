@@ -766,6 +766,7 @@ _cmux_record_pr_command_hint() {
 }
 
 _cmux_emit_pr_command_hint() {
+    [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -1103,6 +1104,11 @@ _cmux_pr_request_probe() {
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     local force_probe="${2:-0}"
+    if [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]]; then
+        _cmux_pr_cache_clear
+        _cmux_clear_pr_for_panel
+        return 0
+    fi
     [[ -n "$repo_path" ]] || {
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
@@ -1306,6 +1312,10 @@ _cmux_stop_pr_poll_loop() {
 }
 
 _cmux_start_pr_poll_loop() {
+    if [[ "${CMUX_NO_PR_WATCH:-}" == "1" ]]; then
+        _cmux_stop_pr_poll_loop
+        return 0
+    fi
     [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
