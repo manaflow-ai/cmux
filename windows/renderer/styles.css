@@ -1084,14 +1084,14 @@ body.reduce-motion *::after {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-line);
-  background: var(--color-canvas);
-  padding: 3px 5px 0;
+  background: color-mix(in oklch, var(--color-terminal-gutter) 82%, var(--color-canvas) 18%);
+  padding: 4px 6px 0;
 }
 
 .surface-tabs.has-overflow {
@@ -1106,7 +1106,7 @@ body.reduce-motion *::after {
 .surface-tab {
   position: relative;
   appearance: none;
-  height: 31px;
+  height: 30px;
   flex: 1 1 var(--surface-tab-basis, 160px);
   min-width: var(--surface-tab-min, 104px);
   max-width: var(--surface-tab-max, 220px);
@@ -1114,25 +1114,27 @@ body.reduce-motion *::after {
   grid-template-columns: 10px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in oklch, var(--color-line) 42%, transparent);
   border-bottom-color: transparent;
-  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
   padding: 0 calc(var(--space-2) + 2px) 0 var(--space-2);
-  background: transparent;
+  background: color-mix(in oklch, var(--color-pane) 34%, transparent);
   color: var(--color-muted);
   font: inherit;
   user-select: none;
 }
 
 .surface-tab:hover {
-  background: color-mix(in oklch, var(--color-pane) 72%, transparent);
+  border-color: color-mix(in oklch, var(--color-line-strong) 62%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 74%, transparent);
 }
 
 .surface-tab.is-active {
   border-color: var(--color-line);
-  border-bottom-color: var(--color-pane-warm);
-  background: var(--color-pane-warm);
+  border-bottom-color: var(--color-pane);
+  background: var(--color-pane);
   color: var(--color-text);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--color-text) 7%, transparent);
 }
 
 .surface-dot {
@@ -1230,14 +1232,15 @@ body.reduce-motion *::after {
 
 .surface-new-tab {
   align-self: center;
-  height: 28px;
+  height: 26px;
   flex: 0 0 34px;
   min-width: 34px;
   max-width: 34px;
   grid-template-columns: 1fr;
   justify-items: center;
-  border-color: var(--color-line);
+  border-color: color-mix(in oklch, var(--color-line) 64%, transparent);
   border-radius: var(--radius-1);
+  background: color-mix(in oklch, var(--color-pane) 28%, transparent);
   color: var(--color-muted);
   font: 18px/1 var(--font-mono);
 }
@@ -1659,7 +1662,7 @@ body.reduce-motion *::after {
 }
 
 .shell.pane-header-compact {
-  --pane-drop-top: 20px;
+  --pane-drop-top: 16px;
 }
 
 .shell.pane-header-hidden {
@@ -1667,17 +1670,27 @@ body.reduce-motion *::after {
 }
 
 .shell.pane-header-compact .pane {
-  grid-template-rows: 20px minmax(0, 1fr);
+  grid-template-rows: 16px minmax(0, 1fr);
 }
 
 .shell.pane-header-compact .pane-header {
   gap: 4px;
-  padding: 0 5px;
+  padding: 0 4px;
+  border-bottom-color: color-mix(in oklch, var(--color-line) 64%, transparent);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-canvas) 14%);
 }
 
 .shell.pane-header-compact .pane-grip {
-  width: 12px;
+  width: 10px;
+  opacity: .2;
   font-size: 9px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.shell.pane-header-compact .pane:hover .pane-grip,
+.shell.pane-header-compact .pane.is-active .pane-grip,
+.shell.pane-header-compact .pane-header:focus-within .pane-grip {
+  opacity: .72;
 }
 
 .shell.pane-header-compact .pane-type {
@@ -1695,9 +1708,9 @@ body.reduce-motion *::after {
 }
 
 .shell.pane-header-compact .pane-tool {
-  width: 20px;
-  flex-basis: 20px;
-  height: 18px;
+  width: 18px;
+  flex-basis: 18px;
+  height: 16px;
   font-size: 10px;
 }
 
@@ -2363,7 +2376,7 @@ body.reduce-motion *::after {
   border: 0;
   border-radius: 0;
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 94%, transparent), var(--color-canvas));
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane) 92%, transparent), color-mix(in oklch, var(--color-terminal-gutter) 86%, var(--color-canvas) 14%));
   color: var(--color-muted);
   text-align: center;
 }
@@ -2380,7 +2393,7 @@ body.reduce-motion *::after {
 .browser-deferred:hover {
   color: var(--color-text);
   background:
-    linear-gradient(180deg, color-mix(in oklch, var(--color-pane-warm) 94%, transparent), var(--color-canvas));
+    linear-gradient(180deg, color-mix(in oklch, var(--color-pane-warm) 92%, transparent), color-mix(in oklch, var(--color-terminal-gutter) 82%, var(--color-canvas) 18%));
 }
 
 .browser-deferred-title {
@@ -2399,12 +2412,18 @@ body.reduce-motion *::after {
 }
 
 .browser-deferred-action {
-  padding: 4px 8px;
+  padding: 5px 9px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-1);
-  background: var(--color-pane);
+  background: color-mix(in oklch, var(--color-pane) 74%, transparent);
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.browser-deferred:hover .browser-deferred-action {
+  border-color: var(--color-line-strong);
+  background: var(--color-pane-active);
+  color: var(--color-text);
 }
 
 .browser-loading-track {
