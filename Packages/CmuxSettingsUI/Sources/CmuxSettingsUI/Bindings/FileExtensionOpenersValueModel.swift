@@ -32,7 +32,7 @@ final class FileExtensionOpenersValueModel {
     }
 
     private func observe(_ name: Notification.Name) {
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: name) {
                 guard let self else { return }
                 await refresh()
