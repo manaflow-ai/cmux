@@ -9263,8 +9263,16 @@ async function applyWorkspaceStarter(starterId, workspaceId = activeWorkspace()?
   });
 }
 
-function schedulePanelCreateReconcile(workspaceId, shouldFocusWorkspace = false) {
+function panelCreateReconcileNeeded(workspaceId, panelId, shouldFocusWorkspace) {
+  if (!state.data || !panelId) return true;
+  const found = findPanelState(panelId);
+  if (!found || found.workspace.id !== workspaceId) return true;
+  return Boolean(shouldFocusWorkspace && workspaceId !== state.data.activeWorkspaceId);
+}
+
+function schedulePanelCreateReconcile(workspaceId, panelId = "", shouldFocusWorkspace = false) {
   setTimeout(async () => {
+    if (!panelCreateReconcileNeeded(workspaceId, panelId, shouldFocusWorkspace)) return;
     try {
       await loadState();
       if (shouldFocusWorkspace && workspaceId !== state.data?.activeWorkspaceId) {
@@ -9508,7 +9516,11 @@ async function createPanel(type, direction = "right", options = {}) {
     }
     if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
     if (options.reconcile !== false) {
-      schedulePanelCreateReconcile(workspace.id, options.focus !== false && workspace.id !== state.data?.activeWorkspaceId);
+      schedulePanelCreateReconcile(
+        workspace.id,
+        createdPanel?.id || "",
+        options.focus !== false && workspace.id !== state.data?.activeWorkspaceId
+      );
     }
     return createdPanel;
   };
