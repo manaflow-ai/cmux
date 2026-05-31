@@ -126,6 +126,12 @@ struct PanelContentView: View {
     }
 }
 
+private enum PanelFilePathHeaderMetrics {
+    static let iconSlotSize: CGFloat = 14
+    static let horizontalPadding: CGFloat = 6
+    static let contentSpacing: CGFloat = 6
+}
+
 struct PanelFilePathHeader<TrailingContent: View>: View {
     let iconSystemName: String
     let filePath: String
@@ -133,10 +139,14 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: PanelFilePathHeaderMetrics.contentSpacing) {
             Image(systemName: iconSystemName)
+                .font(.system(size: PanelFilePathHeaderMetrics.iconSlotSize))
                 .foregroundStyle(.secondary)
-                .frame(width: 16)
+                .frame(
+                    width: PanelFilePathHeaderMetrics.iconSlotSize,
+                    height: PanelFilePathHeaderMetrics.iconSlotSize
+                )
             Text(filePath)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
@@ -146,7 +156,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
             Spacer(minLength: 8)
             trailingContent()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, PanelFilePathHeaderMetrics.horizontalPadding)
         .frame(height: 30)
         .background(Color.clear)
     }
