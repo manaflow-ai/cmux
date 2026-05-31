@@ -4383,6 +4383,17 @@ function saveBrowserSessionTabs(session) {
   saveBrowserTabSnapshots(state.browserTabSnapshots);
 }
 
+function browserTabSnapshotForPanelId(panelId, fallbackUrl = state.settings.browserHomeUrl) {
+  const session = state.browserViews.get(panelId);
+  if (session) {
+    return normalizeBrowserTabSnapshot({
+      activeTabId: session.activeTabId,
+      tabs: session.tabs
+    }, fallbackUrl);
+  }
+  return normalizeBrowserTabSnapshot(state.browserTabSnapshots.get(panelId), fallbackUrl);
+}
+
 function renderBrowserTabs(session) {
   if (!session?.tabList) return;
   const nodes = session.tabs.map((tab) => {
@@ -8589,7 +8600,10 @@ function splitPanelFromPaneId(panelId, direction, type = "terminal", options = {
 
 function duplicatePanel(panel) {
   if (panel.type === "browser") {
-    splitPanel(panel, "right", "browser", { url: panel.url || state.settings.browserHomeUrl });
+    splitPanel(panel, "right", "browser", {
+      url: panel.url || state.settings.browserHomeUrl,
+      browserTabs: browserTabSnapshotForPanelId(panel.id, panel.url || state.settings.browserHomeUrl)
+    });
     return;
   }
   splitPanel(panel, "right", "terminal", {
@@ -9330,6 +9344,10 @@ async function createPanel(type, direction = "right", options = {}) {
       }
       throw error;
     }
+    if (type === "browser" && createdPanel?.id && options.browserTabs) {
+      state.browserTabSnapshots.set(createdPanel.id, normalizeBrowserTabSnapshot(options.browserTabs, createdPanel.url || url));
+      saveBrowserTabSnapshots(state.browserTabSnapshots);
+    }
     if (pendingPanel) await replacePendingPanel(pendingPanel.id, createdPanel, workspace.id, options);
     else {
       insertPanelInPaneTree(workspace.id, anchorPanelId, createdPanel?.id, direction);
@@ -9569,17 +9587,20 @@ function optimisticUpdatePanel(panelId, updates = {}) {
 function closedPanelSnapshot(panelId) {
   const found = findPanelState(panelId);
   if (!found) return null;
+  const isBrowser = found.panel.type === "browser";
+  const url = found.panel.url || state.settings.browserHomeUrl;
   return {
     workspaceId: found.workspace.id,
     workspaceTitle: found.workspace.title || "Workspace",
     type: found.panel.type,
-    title: found.panel.title || (found.panel.type === "browser" ? "Browser" : "Terminal"),
+    title: found.panel.title || (isBrowser ? "Browser" : "Terminal"),
     color: found.panel.color || "",
     cwd: found.panel.cwd || found.workspace.cwd || "",
     shellProfile: found.panel.shellProfile || state.settings.terminalProfile,
     shellPath: found.panel.shellPath || "",
     terminalFontSize: found.panel.terminalFontSize || 0,
-    url: found.panel.url || state.settings.browserHomeUrl
+    url,
+    browserTabs: isBrowser ? browserTabSnapshotForPanelId(found.panel.id, url) : null
   };
 }
 
@@ -9611,7 +9632,8 @@ async function reopenClosedPanel() {
       shellProfile: snapshot.shellProfile,
       shellPath: snapshot.shellPath,
       terminalFontSize: snapshot.terminalFontSize,
-      url: snapshot.url
+      url: snapshot.url,
+      browserTabs: snapshot.browserTabs
     });
     toast(`Reopened ${created?.type === "browser" ? "browser" : "terminal"} pane.`);
   } catch {
