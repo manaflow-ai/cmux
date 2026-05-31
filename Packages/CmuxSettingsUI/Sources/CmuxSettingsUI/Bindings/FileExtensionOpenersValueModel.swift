@@ -2,12 +2,27 @@ import CmuxSettings
 import Foundation
 import Observation
 
+private final class NotificationObserverBag {
+    private var observers: [NSObjectProtocol] = []
+
+    func append(_ observer: NSObjectProtocol) {
+        observers.append(observer)
+    }
+
+    deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class FileExtensionOpenersValueModel {
     private(set) var current: [String: FileExtensionOpenBehavior]
 
     private let store: UserDefaultsSettingsStore
+    @ObservationIgnored private let observerBag = NotificationObserverBag()
 
     init(store: UserDefaultsSettingsStore) {
         self.store = store
@@ -32,12 +47,17 @@ final class FileExtensionOpenersValueModel {
     }
 
     private func observe(_ name: Notification.Name) {
-        Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: name) {
-                guard let self else { return }
-                await refresh()
+        observerBag.append(
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.refresh()
+                }
             }
-        }
+        )
     }
 
     func refresh() async {
