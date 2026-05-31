@@ -14661,6 +14661,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .more:
+                return false
+            case .rightSidebarFiles:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarFind:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .find,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarVault:
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .sessions,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarFeed:
+                guard RightSidebarMode.feed.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .feed,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .rightSidebarDock:
+                guard RightSidebarMode.dock.isAvailable() else { return false }
+                let didFocus = focusRightSidebarInActiveMainWindow(
+                    mode: .dock,
+                    focusFirstItem: true,
+                    preferredWindow: preferredWindow
+                )
+                if didFocus { onExecuted?() }
+                return didFocus
+            case .filesPane:
+                let didOpen = openRightSidebarToolPane(mode: .files, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .findPane:
+                let didOpen = openRightSidebarToolPane(mode: .find, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .vaultPane:
+                let didOpen = openRightSidebarToolPane(mode: .sessions, context: context)
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .diffViewer:
+                guard let workspace = context.tabManager.selectedWorkspace else { return false }
+                let rawCwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cwd = rawCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : rawCwd
+                let didOpen = CmuxDiffViewerLauncher.shared.start(
+                    cwd: cwd,
+                    workspaceId: workspace.id,
+                    surfaceId: workspace.focusedPanelId
+                )
+                if didOpen { onExecuted?() }
+                return didOpen
+            case .revealCurrentDirectoryInFinder:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let path = WorkspaceFinderDirectoryResolver.path(for: workspace) else {
+                    return false
+                }
+                Task {
+                    await WorkspaceFinderDirectoryOpener.openInFinder(URL(fileURLWithPath: path, isDirectory: true))
+                }
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
@@ -14682,6 +14759,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .actionReference:
             return false
         }
+    }
+
+    private func openRightSidebarToolPane(mode: RightSidebarMode, context: MainWindowContext) -> Bool {
+        guard mode.canOpenAsPane,
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+        workspace.clearSplitZoom()
+        return workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true) != nil
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.

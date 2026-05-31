@@ -9839,9 +9839,34 @@ final class Workspace: Identifiable, ObservableObject {
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
         let workspaceCommand: CmuxResolvedCommand?
         let terminalCommandSourcePath: String?
+        let menuItems: [SurfaceTabBarExecutableButton]
+    }
+
+    private final class SurfaceTabBarMenuItemPayload: NSObject {
+        let item: SurfaceTabBarExecutableButton
+
+        init(item: SurfaceTabBarExecutableButton) {
+            self.item = item
+        }
+    }
+
+    private final class SurfaceTabBarMenuTarget: NSObject {
+        weak var workspace: Workspace?
+        let pane: PaneID
+
+        init(workspace: Workspace, pane: PaneID) {
+            self.workspace = workspace
+            self.pane = pane
+        }
+
+        @MainActor @objc func performMenuItem(_ sender: NSMenuItem) {
+            guard let payload = sender.representedObject as? SurfaceTabBarMenuItemPayload else { return }
+            workspace?.executeSurfaceTabBarExecutableButton(payload.item, inPane: pane)
+        }
     }
 
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
+    private var surfaceTabBarMenuTarget: SurfaceTabBarMenuTarget?
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
@@ -10690,41 +10715,12 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
-                if button.terminalCommand != nil {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: nil,
-                            workspaceCommand: nil,
-                            terminalCommandSourcePath: button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
-                        )
-                    )
-                }
-                if let workspaceCommand = workspaceCommands[button.id] {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: nil,
-                            workspaceCommand: workspaceCommand,
-                            terminalCommandSourcePath: nil
-                        )
-                    )
-                }
-                if case .builtIn(let builtInAction) = button.action,
-                   builtInAction.bonsplitAction == nil {
-                    return (
-                        button.id,
-                        SurfaceTabBarExecutableButton(
-                            button: button,
-                            builtInAction: builtInAction,
-                            workspaceCommand: nil,
-                            terminalCommandSourcePath: nil
-                        )
-                    )
-                }
-                return nil
+                makeSurfaceTabBarExecutableButton(
+                    button,
+                    terminalCommandSourcePaths: terminalCommandSourcePaths,
+                    workspaceCommands: workspaceCommands,
+                    includeBonsplitHandledBuiltIns: false
+                ).map { (button.id, $0) }
             }
         )
         surfaceTabBarCommandButtons = executableButtons
@@ -10752,6 +10748,61 @@ final class Workspace: Identifiable, ObservableObject {
         guard configuration.appearance.splitButtons != bonsplitButtons else { return }
         configuration.appearance.splitButtons = bonsplitButtons
         bonsplitController.configuration = configuration
+    }
+
+    private func makeSurfaceTabBarExecutableButton(
+        _ button: CmuxSurfaceTabBarButton,
+        terminalCommandSourcePaths: [String: String],
+        workspaceCommands: [String: CmuxResolvedCommand],
+        includeBonsplitHandledBuiltIns: Bool
+    ) -> SurfaceTabBarExecutableButton? {
+        let menuItems = (button.menu ?? []).compactMap {
+            makeSurfaceTabBarExecutableButton(
+                $0.button,
+                terminalCommandSourcePaths: terminalCommandSourcePaths,
+                workspaceCommands: workspaceCommands,
+                includeBonsplitHandledBuiltIns: true
+            )
+        }
+        let terminalCommandSourcePath = button.actionSourcePath ?? terminalCommandSourcePaths[button.id]
+        if button.terminalCommand != nil {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: nil,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: terminalCommandSourcePath,
+                menuItems: menuItems
+            )
+        }
+        if let workspaceCommand = workspaceCommands[button.id] {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: nil,
+                workspaceCommand: workspaceCommand,
+                terminalCommandSourcePath: nil,
+                menuItems: menuItems
+            )
+        }
+        if case .builtIn(let builtInAction) = button.action,
+           includeBonsplitHandledBuiltIns || builtInAction.bonsplitAction == nil || !menuItems.isEmpty {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: builtInAction,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: nil,
+                menuItems: menuItems
+            )
+        }
+        if !menuItems.isEmpty {
+            return SurfaceTabBarExecutableButton(
+                button: button,
+                builtInAction: nil,
+                workspaceCommand: nil,
+                terminalCommandSourcePath: nil,
+                menuItems: menuItems
+            )
+        }
+        return nil
     }
 
     // MARK: - Surface ID to Panel ID Mapping
@@ -18041,23 +18092,21 @@ extension Workspace: BonsplitDelegate {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
+        executeSurfaceTabBarExecutableButton(executable, inPane: pane)
+    }
+
+    private func executeSurfaceTabBarExecutableButton(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) {
         let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
 
+        if !executable.menuItems.isEmpty {
+            presentSurfaceTabBarMenu(executable, inPane: pane, presentingWindow: presentingWindow)
+            return
+        }
+
         if let builtInAction = executable.builtInAction {
-            switch builtInAction {
-            case .newWorkspace:
-                owningTabManager?.addWorkspace()
-            case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
-                    tabManager: owningTabManager,
-                    preferredWindow: presentingWindow,
-                    debugSource: "surfaceTabBar.cloudVM"
-                )
-            case .newTerminal, .newBrowser, .splitRight, .splitDown:
-                break
-            }
+            executeSurfaceTabBarBuiltInAction(builtInAction, inPane: pane, presentingWindow: presentingWindow)
             return
         }
 
@@ -18071,23 +18120,11 @@ extension Workspace: BonsplitDelegate {
                 applyTabSelection(tabId: selectedTab.id, inPane: pane)
             }
 
-            let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
-                for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
-                    let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let trimmed, !trimmed.isEmpty {
-                        return trimmed
-                    }
-                }
-                return nil
-            }
-            let rawCwd = paneDirectory ?? currentDirectory
-            let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
-            let baseCwd = trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
             guard let tabManager = owningTabManager else { return }
             _ = CmuxConfigExecutor.execute(
                 command: workspaceCommand.command,
                 tabManager: tabManager,
-                baseCwd: baseCwd,
+                baseCwd: surfaceTabBarBaseCwd(inPane: pane),
                 configSourcePath: workspaceCommand.sourcePath,
                 globalConfigPath: globalConfigPath,
                 displayTitle: executable.button.title ?? executable.button.tooltip ?? workspaceCommand.command.name,
@@ -18125,6 +18162,233 @@ extension Workspace: BonsplitDelegate {
         guard didExecute else {
             return
         }
+    }
+
+    private func presentSurfaceTabBarMenu(
+        _ executable: SurfaceTabBarExecutableButton,
+        inPane pane: PaneID,
+        presentingWindow: NSWindow?
+    ) {
+        let menu = NSMenu(title: surfaceTabBarMenuTitle(for: executable))
+        let target = SurfaceTabBarMenuTarget(workspace: self, pane: pane)
+        surfaceTabBarMenuTarget = target
+        for item in executable.menuItems {
+            appendSurfaceTabBarMenuItem(item, to: menu, target: target)
+        }
+        guard menu.items.isEmpty == false else {
+            NSSound.beep()
+            surfaceTabBarMenuTarget = nil
+            return
+        }
+
+        if let event = NSApp.currentEvent,
+           let view = event.window?.contentView {
+            menu.popUp(positioning: nil, at: view.convert(event.locationInWindow, from: nil), in: view)
+        } else if let view = presentingWindow?.contentView {
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: view.bounds.maxX - 32, y: view.bounds.maxY - 24),
+                in: view
+            )
+        } else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        }
+        surfaceTabBarMenuTarget = nil
+    }
+
+    private func appendSurfaceTabBarMenuItem(
+        _ executable: SurfaceTabBarExecutableButton,
+        to menu: NSMenu,
+        target: SurfaceTabBarMenuTarget
+    ) {
+        let item = NSMenuItem(
+            title: surfaceTabBarMenuTitle(for: executable),
+            action: executable.menuItems.isEmpty ? #selector(SurfaceTabBarMenuTarget.performMenuItem(_:)) : nil,
+            keyEquivalent: ""
+        )
+        item.target = target
+        item.representedObject = SurfaceTabBarMenuItemPayload(item: executable)
+        item.image = surfaceTabBarMenuImage(for: executable)
+        item.isEnabled = surfaceTabBarMenuItemIsEnabled(executable)
+        if !executable.menuItems.isEmpty {
+            let submenu = NSMenu(title: item.title)
+            for child in executable.menuItems {
+                appendSurfaceTabBarMenuItem(child, to: submenu, target: target)
+            }
+            item.submenu = submenu
+            item.isEnabled = !submenu.items.isEmpty
+        }
+        menu.addItem(item)
+    }
+
+    private func surfaceTabBarMenuTitle(for executable: SurfaceTabBarExecutableButton) -> String {
+        let button = executable.button
+        for candidate in [button.title, button.tooltip] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        if let builtInAction = executable.builtInAction {
+            return CmuxResolvedConfigAction.builtIn(builtInAction).title
+        }
+        if let workspaceCommand = executable.workspaceCommand {
+            return workspaceCommand.command.name
+        }
+        if let command = button.terminalCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !command.isEmpty {
+            return command
+        }
+        return button.id
+    }
+
+    private func surfaceTabBarMenuImage(for executable: SurfaceTabBarExecutableButton) -> NSImage? {
+        let icon = executable.button.icon ?? executable.button.action.defaultButtonIcon
+        guard case .symbol(let name) = icon else { return nil }
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
+    private func surfaceTabBarMenuItemIsEnabled(_ executable: SurfaceTabBarExecutableButton) -> Bool {
+        guard let builtInAction = executable.builtInAction else { return true }
+        switch builtInAction {
+        case .rightSidebarFeed:
+            return RightSidebarMode.feed.isAvailable()
+        case .rightSidebarDock:
+            return RightSidebarMode.dock.isAvailable()
+        case .more:
+            return !executable.menuItems.isEmpty
+        case .filesPane, .findPane, .vaultPane:
+            return !bonsplitController.allPaneIds.isEmpty
+        case .diffViewer:
+            return owningTabManager != nil
+        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .splitRight, .splitDown,
+             .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
+             .revealCurrentDirectoryInFinder:
+            return true
+        }
+    }
+
+    private func executeSurfaceTabBarBuiltInAction(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        inPane pane: PaneID,
+        presentingWindow: NSWindow?
+    ) {
+        switch action {
+        case .newWorkspace:
+            owningTabManager?.addWorkspace()
+        case .cloudVM:
+            _ = AppDelegate.shared?.performCloudVMAction(
+                tabManager: owningTabManager,
+                preferredWindow: presentingWindow,
+                debugSource: "surfaceTabBar.cloudVM"
+            )
+        case .newTerminal:
+            bonsplitController.focusPane(pane)
+            _ = newTerminalSurface(inPane: pane, focus: true)
+        case .newBrowser:
+            bonsplitController.focusPane(pane)
+            _ = newBrowserSurface(inPane: pane, focus: true)
+        case .splitRight:
+            clearSplitZoom()
+            _ = bonsplitController.splitPane(pane, orientation: .horizontal)
+        case .splitDown:
+            clearSplitZoom()
+            _ = bonsplitController.splitPane(pane, orientation: .vertical)
+        case .more:
+            break
+        case .rightSidebarFiles:
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .files,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarFind:
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .find,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarVault:
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .sessions,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarFeed:
+            guard RightSidebarMode.feed.isAvailable() else {
+                NSSound.beep()
+                return
+            }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .feed,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .rightSidebarDock:
+            guard RightSidebarMode.dock.isAvailable() else {
+                NSSound.beep()
+                return
+            }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .dock,
+                focusFirstItem: true,
+                preferredWindow: presentingWindow
+            )
+        case .filesPane:
+            openRightSidebarToolPane(.files, inPane: pane)
+        case .findPane:
+            openRightSidebarToolPane(.find, inPane: pane)
+        case .vaultPane:
+            openRightSidebarToolPane(.sessions, inPane: pane)
+        case .diffViewer:
+            openDiffViewerFromSurfaceTabBar(inPane: pane)
+        case .revealCurrentDirectoryInFinder:
+            let url = URL(fileURLWithPath: surfaceTabBarBaseCwd(inPane: pane), isDirectory: true)
+            Task {
+                await WorkspaceFinderDirectoryOpener.openInFinder(url)
+            }
+        }
+    }
+
+    private func openRightSidebarToolPane(_ mode: RightSidebarMode, inPane pane: PaneID) {
+        guard mode.canOpenAsPane else {
+            NSSound.beep()
+            return
+        }
+        clearSplitZoom()
+        if openOrFocusRightSidebarToolSurface(inPane: pane, mode: mode, focus: true) == nil {
+            NSSound.beep()
+        }
+    }
+
+    private func openDiffViewerFromSurfaceTabBar(inPane pane: PaneID) {
+        guard let selected = bonsplitController.selectedTab(inPane: pane) else {
+            NSSound.beep()
+            return
+        }
+        let didOpen = CmuxDiffViewerLauncher.shared.start(
+            cwd: surfaceTabBarBaseCwd(inPane: pane),
+            workspaceId: id,
+            surfaceId: panelIdFromSurfaceId(selected.id)
+        )
+        if !didOpen {
+            NSSound.beep()
+        }
+    }
+
+    private func surfaceTabBarBaseCwd(inPane pane: PaneID) -> String {
+        let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
+            for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let trimmed, !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+            return nil
+        }
+        let rawCwd = paneDirectory ?? currentDirectory
+        let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
@@ -18184,6 +18448,14 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let browser = browserPanel(for: panelId) else { return }
             browser.reload()
+        case .toggleAudioMute:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let browser = browserPanel(for: panelId) else { return }
+            guard browser.toggleMute() else {
+                NSSound.beep()
+                return
+            }
+            bonsplitController.updateTab(tab.id, isAudioMuted: browser.isMuted)
         case .duplicate:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = duplicateBrowserToRight(panelId: panelId)
