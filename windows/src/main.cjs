@@ -9,6 +9,7 @@ const readline = require("node:readline");
 let mainWindow = null;
 let runtimeChild = null;
 let inProcessRuntime = null;
+const zoomLockedContents = new WeakSet();
 
 const appRoot = path.resolve(__dirname, "..");
 const serverProcessPath = path.join(__dirname, "server-process.cjs");
@@ -20,6 +21,29 @@ function log(message) {
   } catch {
     // Best-effort debug logging.
   }
+}
+
+function resetWebContentsZoom(contents) {
+  if (!contents || contents.isDestroyed?.()) return;
+  try {
+    contents.setZoomFactor(1);
+    const limits = contents.setVisualZoomLevelLimits?.(1, 1);
+    limits?.catch?.((error) => log(`setVisualZoomLevelLimits failed: ${error?.message || error}`));
+  } catch (error) {
+    log(`reset zoom failed: ${error?.message || error}`);
+  }
+}
+
+function lockWebContentsZoom(contents) {
+  if (!contents || contents.isDestroyed?.()) return;
+  resetWebContentsZoom(contents);
+  if (zoomLockedContents.has(contents)) return;
+  zoomLockedContents.add(contents);
+  contents.on("zoom-changed", (event) => {
+    event.preventDefault();
+    resetWebContentsZoom(contents);
+  });
+  contents.on("did-finish-load", () => resetWebContentsZoom(contents));
 }
 
 function firstExistingPath(paths) {
@@ -310,14 +334,7 @@ async function createWindow() {
   mainWindow.webContents.on("render-process-gone", (_event, details) => {
     log(`render-process-gone ${JSON.stringify(details)}`);
   });
-  mainWindow.webContents.setZoomFactor(1);
-  mainWindow.webContents.setVisualZoomLevelLimits(1, 1).catch((error) => {
-    log(`setVisualZoomLevelLimits failed: ${error?.message || error}`);
-  });
-  mainWindow.webContents.on("zoom-changed", (event) => {
-    event.preventDefault();
-    mainWindow?.webContents.setZoomFactor(1);
-  });
+  lockWebContentsZoom(mainWindow.webContents);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -394,6 +411,8 @@ if (!hasLock) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   });
+
+  app.on("web-contents-created", (_event, contents) => lockWebContentsZoom(contents));
 
   app.whenReady().then(createWindow);
   app.on("window-all-closed", () => {

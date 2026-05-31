@@ -4253,6 +4253,20 @@ function stopBrowserLoading(view) {
   }
 }
 
+function lockBrowserViewZoom(view) {
+  if (!view || typeof view.setZoomFactor !== "function") return;
+  try {
+    view.setZoomFactor(1);
+    if (typeof view.setZoomLevel === "function") view.setZoomLevel(0);
+    const limits = typeof view.setVisualZoomLevelLimits === "function"
+      ? view.setVisualZoomLevelLimits(1, 1)
+      : null;
+    limits?.catch?.(() => {});
+  } catch {
+    // The iframe fallback and detached webviews do not expose every Electron method.
+  }
+}
+
 function resolveBrowserPanel(panel = focusedPanel()) {
   const found = panel?.id ? findPanelState(panel.id) : null;
   const candidate = found?.panel || panel;
@@ -4618,9 +4632,19 @@ function ensureBrowser(panel, body) {
     updateActiveBrowserTabUrl(session, next);
     queueBrowserUrlSync(panel.id, next);
   };
+  const handleBrowserWheel = (event) => {
+    if (!event.ctrlKey) return;
+    markInteractedPanel(panel.id);
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    lockBrowserViewZoom(view);
+  };
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
+  shell.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
+  view.addEventListener("wheel", handleBrowserWheel, { passive: false, capture: true });
   address.addEventListener("focus", () => markInteractedPanel(panel.id));
   address.addEventListener("keydown", (event) => {
     if (event.ctrlKey && event.key === "Enter") {
@@ -4658,9 +4682,14 @@ function ensureBrowser(panel, body) {
   });
   view.addEventListener("new-window", openPopupExternally);
   view.addEventListener("did-create-window", openPopupExternally);
+  view.addEventListener("did-attach", () => lockBrowserViewZoom(view));
+  view.addEventListener("zoom-changed", (event) => {
+    event.preventDefault?.();
+    lockBrowserViewZoom(view);
+  });
   view.addEventListener("dom-ready", () => {
     webviewReady = true;
-    if (typeof view.setZoomFactor === "function") view.setZoomFactor(1);
+    lockBrowserViewZoom(view);
     updateNavState();
   });
   view.addEventListener("did-navigate-in-page", (event) => {
