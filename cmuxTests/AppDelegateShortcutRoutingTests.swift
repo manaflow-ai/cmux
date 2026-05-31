@@ -7189,9 +7189,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             rootDirectory: root.path
         )
 
-        XCTAssertEqual(suggestions.first?.title, "@Sources/")
-        XCTAssertEqual(suggestions.first?.systemImageName, "folder")
-        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/](") == true)
+        let sourcesDirectory = suggestions.first { $0.title == "@Sources/" }
+        XCTAssertNotNil(sourcesDirectory)
+        XCTAssertEqual(sourcesDirectory?.systemImageName, "folder")
+        XCTAssertTrue(sourcesDirectory?.insertionText.hasPrefix("[@Sources/](") == true)
         XCTAssertTrue(suggestions.contains { $0.title == "@ZEmpty/" })
         XCTAssertTrue(suggestions.contains { $0.title == "@README.md" })
 
@@ -7647,6 +7648,53 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
             XCTAssertEqual(submitCount, 1)
             XCTAssertEqual(textView.string, scenario.text)
+            XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+        }
+    }
+
+    func testTextBoxMentionBareSkillTriggerTabAcceptsFirstSuggestion() {
+        let scenarios: [(text: String, range: NSRange, trigger: Character, insertionText: String, expected: String)] = [
+            (
+                "cd /",
+                NSRange(location: 3, length: 1),
+                "/",
+                "[/sample-skill](/tmp/sample-skill/SKILL.md)",
+                "cd [/sample-skill](/tmp/sample-skill/SKILL.md) "
+            ),
+            (
+                "echo $",
+                NSRange(location: 5, length: 1),
+                "$",
+                "$sample-skill",
+                "echo $sample-skill "
+            )
+        ]
+
+        for scenario in scenarios {
+            let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+            textView.string = scenario.text
+            textView.setSelectedRange(NSRange(location: (scenario.text as NSString).length, length: 0))
+            textView.debugSetMentionCompletionState(
+                query: TextBoxMentionQuery(
+                    kind: .skill,
+                    range: scenario.range,
+                    query: "",
+                    trigger: scenario.trigger
+                ),
+                suggestions: [
+                    TextBoxMentionSuggestion(
+                        id: "\(scenario.trigger):/tmp/sample-skill/SKILL.md",
+                        title: "\(scenario.trigger)sample-skill",
+                        subtitle: "/tmp/sample-skill/SKILL.md",
+                        insertionText: scenario.insertionText,
+                        systemImageName: "sparkle.magnifyingglass"
+                    )
+                ]
+            )
+
+            textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+
+            XCTAssertEqual(textView.string, scenario.expected)
             XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
         }
     }

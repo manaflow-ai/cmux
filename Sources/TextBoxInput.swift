@@ -5530,12 +5530,11 @@ final class TextBoxInputTextView: NSTextView {
         case kVK_Return, kVK_ANSI_KeypadEnter:
             guard !flags.contains(.shift) else { return false }
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if shouldBypassMentionCompletionKeyboardAcceptance() { return false }
+            if shouldBypassMentionCompletionReturnAcceptance() { return false }
             if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case kVK_Tab:
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if shouldBypassMentionCompletionKeyboardAcceptance() { return false }
             if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case kVK_Escape:
@@ -5562,10 +5561,13 @@ final class TextBoxInputTextView: NSTextView {
             guard mentionCompletionController.hasCurrentSuggestions else { return false }
             mentionCompletionController.moveSelection(delta: 1)
             return true
-        case #selector(NSResponder.insertNewline(_:)),
-             #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.insertNewline(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            if shouldBypassMentionCompletionKeyboardAcceptance() { return false }
+            if shouldBypassMentionCompletionReturnAcceptance() { return false }
+            if mentionCompletionController.hasStaleSuggestions { return true }
+            return acceptMentionCompletion()
+        case #selector(NSResponder.insertTab(_:)):
+            if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
             if mentionCompletionController.hasStaleSuggestions { return true }
             return acceptMentionCompletion()
         case #selector(NSResponder.cancelOperation(_:)):
@@ -5590,7 +5592,7 @@ final class TextBoxInputTextView: NSTextView {
         return false
     }
 
-    private func shouldBypassMentionCompletionKeyboardAcceptance() -> Bool {
+    private func shouldBypassMentionCompletionReturnAcceptance() -> Bool {
         guard let query = mentionCompletionController.activeQuery,
               query.kind == .skill,
               query.query.isEmpty else {
@@ -5715,6 +5717,7 @@ final class TextBoxInputTextView: NSTextView {
             backing: .buffered,
             defer: false
         )
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.textbox.mentionCompletionPanel")
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = true
         panel.becomesKeyOnlyIfNeeded = true
