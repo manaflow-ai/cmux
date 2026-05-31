@@ -403,6 +403,20 @@ const state = {
     deferred: 0,
     flushed: 0
   },
+  paneCreateStats: {
+    count: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0,
+    failures: 0,
+    lastType: ""
+  },
+  terminalConnectStats: {
+    count: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0
+  },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
   performanceGuardStartedAt: performance.now(),
@@ -4450,6 +4464,7 @@ function ensureTerminal(panel, body) {
     searchResultDisposable: null,
     focusDisposable: null,
     connectionStatusTimer: 0,
+    createdAt: performance.now(),
     hasOutput: false
   };
   session.searchOverlay = createTerminalSearchOverlay(panel, session);
@@ -4471,6 +4486,7 @@ function ensureTerminal(panel, body) {
   });
 
   socket.addEventListener("open", () => {
+    recordTerminalConnectDuration(performance.now() - session.createdAt);
     setTerminalConnectionStatus(session, "ready", "Shell ready", 650);
     scheduleFitTerminal(session, true);
   });
@@ -7411,6 +7427,27 @@ function formatBytes(value) {
   return `${Math.round(bytes)} B`;
 }
 
+function recordDurationStats(stats, durationMs) {
+  const value = Math.max(0, Number(durationMs) || 0);
+  stats.count += 1;
+  stats.lastMs = value;
+  stats.avgMs = stats.avgMs ? (stats.avgMs * 0.82) + (value * 0.18) : value;
+  stats.maxMs = Math.max(stats.maxMs, value);
+}
+
+function recordPaneCreateDuration(type, durationMs) {
+  state.paneCreateStats.lastType = type === "browser" ? "browser" : "terminal";
+  recordDurationStats(state.paneCreateStats, durationMs);
+}
+
+function recordTerminalConnectDuration(durationMs) {
+  recordDurationStats(state.terminalConnectStats, durationMs);
+}
+
+function durationMetric(stats, key = "lastMs") {
+  return stats.count ? formatMs(stats[key]) : "--";
+}
+
 function performanceMetrics() {
   const workspaces = state.data?.workspaces || [];
   const panels = allPanels();
@@ -7435,6 +7472,13 @@ function performanceMetrics() {
     ["Trim events", String(state.terminalOutputStats.trimmedEvents || 0)],
     ["Fit defers", String(state.terminalFitStats.deferred || 0)],
     ["Fit flushes", String(state.terminalFitStats.flushed || 0)],
+    ["Last pane add", durationMetric(state.paneCreateStats)],
+    ["Avg pane add", durationMetric(state.paneCreateStats, "avgMs")],
+    ["Max pane add", durationMetric(state.paneCreateStats, "maxMs")],
+    ["Pane add failures", String(state.paneCreateStats.failures || 0)],
+    ["Last shell connect", durationMetric(state.terminalConnectStats)],
+    ["Max shell connect", durationMetric(state.terminalConnectStats, "maxMs")],
+    ["Pending panes", String(state.pendingPanels.size)],
     ["Suspended browsers", String([...state.browserViews.values()].filter((session) => session.suspended).length)],
     ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
@@ -7660,6 +7704,8 @@ function performanceDiagnosticsPayload() {
     renderStats: { ...state.renderStats },
     terminalOutputStats: { ...state.terminalOutputStats },
     terminalFitStats: { ...state.terminalFitStats },
+    paneCreateStats: { ...state.paneCreateStats },
+    terminalConnectStats: { ...state.terminalConnectStats },
     performanceGuard: {
       enabled: state.settings.performanceMode,
       adaptive: state.settings.adaptivePerformance,
@@ -8139,6 +8185,20 @@ function resetRenderStats() {
   state.terminalFitStats = {
     deferred: 0,
     flushed: 0
+  };
+  state.paneCreateStats = {
+    count: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0,
+    failures: 0,
+    lastType: ""
+  };
+  state.terminalConnectStats = {
+    count: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0
   };
   state.performanceGuardTriggered = false;
   state.performanceGuardReason = "";
@@ -10869,6 +10929,7 @@ async function createPanel(type, direction = "right", options = {}) {
     toast("Pane is still being added.");
     return null;
   }
+  const createStartedAt = performance.now();
   const addPanel = async () => {
     const workspace = options.workspaceId
       ? state.data?.workspaces.find((candidate) => candidate.id === options.workspaceId)
@@ -10907,6 +10968,7 @@ async function createPanel(type, direction = "right", options = {}) {
         })
       });
     } catch (error) {
+      state.paneCreateStats.failures += 1;
       if (pendingPanel) {
         removePendingPanel(pendingPanel.id);
         state.canceledPendingPanelIds.delete(pendingPanel.id);
@@ -10923,6 +10985,7 @@ async function createPanel(type, direction = "right", options = {}) {
       optimisticAddPanel(createdPanel, workspace.id, { direction, focus: options.focus });
     }
     if (type === "browser" && createdPanel?.url) rememberRecentBrowserPage(createdPanel.url);
+    recordPaneCreateDuration(type, performance.now() - createStartedAt);
     return createdPanel;
   };
   if (options.operation === false) return addPanel();
