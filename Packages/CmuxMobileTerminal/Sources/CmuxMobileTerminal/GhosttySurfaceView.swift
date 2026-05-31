@@ -1019,6 +1019,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
+            #if DEBUG
+            // `ghostty_surface_read_text` takes the same internal surface lock as
+            // `process_output`. Reading it on the MAIN thread per-output (to feed
+            // the XCUITest accessibility label) contended that lock against the
+            // off-main renderer/IO during a fast render storm and wedged the main
+            // thread on libghostty's futex until the scene-update watchdog
+            // (0x8BADF00D) froze the app. Read it HERE on the serial output queue
+            // instead — already serialized with `process_output`, so the two are
+            // never concurrent — throttled, and hand only the finished string to
+            // main. Off-main reads can never trip the main-thread watchdog.
+            var accessibilityText: String?
+            let a11yNow = CACurrentMediaTime()
+            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
+                Self.lastAccessibilityTextTime = a11yNow
+                accessibilityText = Self.accessibilitySurfaceText(surface)
+            }
+            #endif
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.needsDraw = true
@@ -1035,9 +1052,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
                 #if DEBUG
-                if let renderedText = self.accessibilityRenderedTextForTesting(),
-                   !renderedText.isEmpty {
-                    self.accessibilityLabel = renderedText
+                if let accessibilityText, !accessibilityText.isEmpty {
+                    self.accessibilityLabel = accessibilityText
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
@@ -1137,6 +1153,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return candidates.max { lhs, rhs in
             lhs.utf8.count < rhs.utf8.count
         }
+    }
+
+    /// Throttle stamp for the off-main accessibility-label read in
+    /// `processOutput`. Accessed only on the serial `outputQueue`, so the
+    /// unchecked mutation is safe.
+    nonisolated(unsafe) fileprivate static var lastAccessibilityTextTime: CFTimeInterval = 0
+
+    /// Off-main equivalent of ``accessibilityRenderedTextForTesting()`` that
+    /// reads via the raw surface handle so it can run on the serial output queue
+    /// (alongside `process_output`) instead of the main thread. See the call
+    /// site in `processOutput` for why a main-thread read deadlocks the watchdog.
+    nonisolated static func accessibilitySurfaceText(_ surface: ghostty_surface_t) -> String? {
+        let candidates = [
+            surfaceText(surface, pointTag: GHOSTTY_POINT_SURFACE),
+            surfaceText(surface, pointTag: GHOSTTY_POINT_SCREEN),
+            surfaceText(surface, pointTag: GHOSTTY_POINT_ACTIVE),
+            surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
+        ].compactMap { $0 }
+        return candidates.max { $0.utf8.count < $1.utf8.count }
+    }
+
+    /// Read the surface text for `pointTag` from the raw handle. Pure libghostty
+    /// C calls, safe to run off the main actor on the serial output queue.
+    nonisolated static func surfaceText(_ surface: ghostty_surface_t, pointTag: ghostty_point_tag_e) -> String? {
+        let topLeft = ghostty_point_s(tag: pointTag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0)
+        let bottomRight = ghostty_point_s(tag: pointTag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0)
+        let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
     }
     #endif
 
