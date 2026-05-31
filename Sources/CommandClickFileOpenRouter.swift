@@ -49,9 +49,14 @@ enum CommandClickFileOpenRouter {
     }
 
     private nonisolated static func action(for path: String, defaults: UserDefaults) -> Action {
+        let normalizedExtension = normalizedExtension(forPath: path)
         if let behavior = FileExtensionOpenBehaviorSettings.behavior(forPath: path, defaults: defaults) {
             switch behavior {
             case .automatic:
+                if let normalizedExtension,
+                   FileExtensionOpenBehavior.defaultOpeners[normalizedExtension] != nil {
+                    return .unhandled
+                }
                 break
             case .cmuxPreview:
                 return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path) ? .cmuxPreview : .unhandled
@@ -75,38 +80,43 @@ enum CommandClickFileOpenRouter {
         return .unhandled
     }
 
+    private nonisolated static func normalizedExtension(forPath path: String) -> String? {
+        FileExtensionOpenBehavior.normalizedExtension((path as NSString).pathExtension)
+    }
+
     @MainActor
     static func openCommandClickFile(
         workspace: Workspace,
         sourcePanelId: UUID,
         filePath: String,
+        fileURL: URL? = nil,
         fallback: Fallback
     ) -> Bool {
-        let fileURL = URL(fileURLWithPath: filePath)
+        let routedURL = fileURL ?? URL(fileURLWithPath: filePath)
         switch action(for: filePath, defaults: .standard) {
         case .markdownViewer:
             if workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
                 return true
             }
-            fallback.open(fileURL)
+            fallback.open(routedURL)
             return true
         case .cmuxPreview:
             if workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil {
                 return true
             }
-            fallback.open(fileURL)
+            fallback.open(routedURL)
             return true
         case .cmuxBrowser:
-            if workspace.openOrFocusBrowserSplit(from: sourcePanelId, url: fileURL) != nil {
+            if workspace.openOrFocusBrowserSplit(from: sourcePanelId, url: routedURL) != nil {
                 return true
             }
-            fallback.open(fileURL)
+            fallback.open(routedURL)
             return true
         case .preferredEditor:
-            PreferredEditorSettings.open(fileURL)
+            PreferredEditorSettings.open(routedURL)
             return true
         case .systemDefault:
-            NSWorkspace.shared.open(fileURL)
+            NSWorkspace.shared.open(routedURL)
             return true
         case .unhandled:
             return false
@@ -149,24 +159,27 @@ enum CommandClickFileOpenRouter {
         preferredWorkspaceId: UUID,
         surfaceId: UUID,
         filePath: String,
+        fileURL: URL? = nil,
         fallback: Fallback
     ) {
         Task { @MainActor in
+            let routedURL = fileURL ?? URL(fileURLWithPath: filePath)
             let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId
             )?.workspace ?? workspace
             guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
-                fallback.open(URL(fileURLWithPath: filePath))
+                fallback.open(routedURL)
                 return
             }
             guard openCommandClickFile(
                 workspace: resolvedWorkspace,
                 sourcePanelId: surfaceId,
                 filePath: filePath,
+                fileURL: routedURL,
                 fallback: fallback
             ) else {
-                fallback.open(URL(fileURLWithPath: filePath))
+                fallback.open(routedURL)
                 return
             }
         }

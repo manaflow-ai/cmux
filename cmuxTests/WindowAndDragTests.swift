@@ -3315,6 +3315,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
 
         XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: fileURL.path, defaults: defaults), .automatic)
+        XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
         XCTAssertFalse(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
         XCTAssertFalse(CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path, defaults: defaults))
     }
@@ -3381,6 +3382,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
               ".CSS": "cmuxBrowser",
               "json": "systemDefault",
               "tsx": "preferredEditor",
+              "pdf": 123,
               "bad": "notARealBehavior"
             },
             "openSupportedFilesInCmux": false
@@ -3398,6 +3400,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(stored?["css"], "cmuxBrowser")
         XCTAssertEqual(stored?["json"], "systemDefault")
         XCTAssertEqual(stored?["tsx"], "preferredEditor")
+        XCTAssertNil(stored?["pdf"])
         XCTAssertNil(stored?["bad"])
         XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/styles.css", defaults: defaults), .cmuxBrowser)
         XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: "/tmp/package.json", defaults: defaults), .systemDefault)

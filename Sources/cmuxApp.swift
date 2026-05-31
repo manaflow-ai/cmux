@@ -5061,9 +5061,14 @@ enum CmdClickSupportedFileRouteSettings {
     }
 
     static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
+        let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension((path as NSString).pathExtension)
         if let behavior = FileExtensionOpenBehaviorSettings.behavior(forPath: path, defaults: defaults) {
             switch behavior {
             case .automatic:
+                if let normalizedExtension,
+                   FileExtensionOpenBehavior.defaultOpeners[normalizedExtension] != nil {
+                    return false
+                }
                 break
             case .cmuxPreview:
                 return isReadableRegularFile(path: path)

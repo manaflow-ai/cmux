@@ -4805,12 +4805,10 @@ class GhosttyApp {
                 return false
             }
             // Route local file URLs into cmux when the file-routing toggle is on.
-            // URL fragments/queries are stripped (the panel only needs the file
-            // path), so links emitted by tools like Claude Code (`foo.md#L42`)
-            // still route into the viewer. Anything else (toggle off, hosted
-            // file URL, remote workspace, unreadable file, split creation
-            // failure) falls through to the existing NSWorkspace path below so
-            // URL semantics are preserved.
+            // The file panel receives the path, while browser-routed extensions
+            // keep the original file URL so fragments and queries survive.
+            // Anything else falls through to the existing NSWorkspace path below
+            // so URL semantics are preserved.
             let fileURLHost = target.url.host
             if target.url.isFileURL,
                fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
@@ -4827,6 +4825,7 @@ class GhosttyApp {
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
                         filePath: fileURL.path,
+                        fileURL: fileURL,
                         fallback: .systemDefault
                     )
                     return true
