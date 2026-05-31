@@ -2768,6 +2768,9 @@ function recordRenderDuration(durationMs) {
     : value;
   state.renderStats.maxMs = Math.max(state.renderStats.maxMs, value);
   if (value >= renderSlowFrameMs) state.renderStats.slowCount += 1;
+  if (state.inspectorMode === "settings" && (state.settingsCategory === "performance" || normalizeSettingsQuery(state.settingsQuery))) {
+    refreshPerformanceMetricsGrid();
+  }
   if (!performanceGuardCanUseRenderSignal()) return;
   if (value >= renderSlowFrameMs) state.performanceGuardSlowRenderCount += 1;
   if (value >= renderVerySlowFrameMs || state.performanceGuardSlowRenderCount >= renderSlowFrameTriggerCount) {
@@ -5631,7 +5634,9 @@ function renderSettingsInspector(options = {}) {
     && signature === state.settingsInspectorSignature
     && elements.inspectorBody.querySelector(".settings-react-host")
   ) {
+    refreshPerformanceMetricsGrid();
     if (resetScroll) resetSettingsScroll();
+    if (normalizeSettingsQuery(state.settingsQuery)) scheduleSettingsFilter();
     return;
   }
   state.settingsInspectorSignature = signature;
@@ -6047,7 +6052,9 @@ function renderSettingsInspector(options = {}) {
 
   if (shouldBuildSection("performance")) {
     const performanceSection = settingsSection("Performance", "speed smooth lag render diagnostics optimize preset");
-    performanceSection.append(settingsMetricGrid(performanceMetrics()));
+    const performanceMetricGrid = settingsMetricGrid(performanceMetrics());
+    performanceMetricGrid.dataset.performanceMetrics = "true";
+    performanceSection.append(performanceMetricGrid);
     performanceSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked })), false, "speed smooth lag effects reduce animation"));
     performanceSection.append(settingRow("Adaptive guard", toggleInput(state.settings.adaptivePerformance, (checked) => updateSettings({ adaptivePerformance: checked })), false, "adaptive automatic performance guard lag slow output tune"));
     performanceSection.append(settingRow("Reduce motion", toggleInput(state.settings.reduceMotion, (checked) => updateSettings({ reduceMotion: checked })), false, "motion animation transition smooth reduce accessibility"));
@@ -6308,9 +6315,6 @@ function settingsInspectorSignature() {
   }
   if (searching || ["blueprints", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.workspaceBlueprints));
-  }
-  if (searching || category === "performance") {
-    parts.push(stableJson(state.renderStats), stableJson(state.terminalOutputStats), String(state.performanceGuardTriggered));
   }
   return parts.join("\u001e");
 }
@@ -7759,15 +7763,42 @@ function settingsMetricGrid(metrics, searchPrefix = "performance diagnostics met
   const grid = document.createElement("div");
   grid.className = "settings-metric-grid";
   for (const [label, value] of metrics) {
-    const card = document.createElement("div");
-    card.className = "settings-metric";
-    card.dataset.settingsSearch = normalizeSettingsQuery(`${searchPrefix} ${label} ${value}`);
-    card.innerHTML = `<span class="settings-metric-value"></span><span class="settings-metric-label"></span>`;
-    card.querySelector(".settings-metric-value").textContent = value;
-    card.querySelector(".settings-metric-label").textContent = label;
-    grid.append(card);
+    grid.append(settingsMetricCard(label, value, searchPrefix));
   }
   return grid;
+}
+
+function settingsMetricCard(label, value, searchPrefix = "performance diagnostics metric") {
+  const card = document.createElement("div");
+  card.className = "settings-metric";
+  card.dataset.settingsSearch = normalizeSettingsQuery(`${searchPrefix} ${label} ${value}`);
+  card.innerHTML = `<span class="settings-metric-value"></span><span class="settings-metric-label"></span>`;
+  card.querySelector(".settings-metric-value").textContent = value;
+  card.querySelector(".settings-metric-label").textContent = label;
+  return card;
+}
+
+function refreshPerformanceMetricsGrid() {
+  const grid = elements.inspectorBody.querySelector('[data-performance-metrics="true"]');
+  if (!grid) return false;
+  const metrics = performanceMetrics();
+  const cards = [...grid.querySelectorAll(".settings-metric")];
+  if (cards.length !== metrics.length) {
+    replaceChildrenIfChanged(grid, metrics.map(([label, value]) => settingsMetricCard(label, value)));
+    return true;
+  }
+  let changed = false;
+  for (const [index, [label, value]] of metrics.entries()) {
+    const card = cards[index];
+    const search = normalizeSettingsQuery(`performance diagnostics metric ${label} ${value}`);
+    if (card.dataset.settingsSearch !== search) {
+      card.dataset.settingsSearch = search;
+      changed = true;
+    }
+    changed = setTextIfChanged(card.querySelector(".settings-metric-value"), value) || changed;
+    changed = setTextIfChanged(card.querySelector(".settings-metric-label"), label) || changed;
+  }
+  return changed;
 }
 
 function paneShapePanel(workspace = activeWorkspace()) {
