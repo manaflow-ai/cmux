@@ -10775,6 +10775,16 @@ struct VerticalTabsSidebar: View {
             ) { _ in
                 refreshExtensionSidebarSnapshot()
             }
+            // Fade the extension's content out at the bottom so it dissolves behind the
+            // sidebar footer instead of overlapping it sharply, matching the default
+            // workspace sidebar's bottom scrim. Top stays sharp so the control strip
+            // remains crisp.
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: 0,
+                    bottomHeight: sidebarBottomScrimHeight
+                )
+            )
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
                 let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
