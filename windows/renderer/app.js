@@ -206,6 +206,7 @@ const terminalWheelZoomThreshold = 120;
 const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
 const deferredTerminalInitIdleTimeoutMs = 700;
+const paneResizeFitThrottleMs = 90;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
 const maxConcurrentPaneCreations = 4;
@@ -3674,6 +3675,7 @@ function startPaneResize(event, splitter) {
     previousSize,
     nextSize,
     frame: 0,
+    lastFitAt: 0,
     panelIds: [
       ...new Set([
         ...paneElementPanelIds(previousPane),
@@ -3712,6 +3714,9 @@ function applyPaneResize(resize = state.resizing) {
   previousPane.style.flex = `0 0 ${nextPrevious}px`;
   nextPane.style.flex = `0 0 ${nextNext}px`;
   setSplitterResizePercent(resize.splitter, Math.round((nextPrevious / pairTotal) * 100), vertical ? "down" : "right");
+  const now = performance.now();
+  if (now - resize.lastFitAt < paneResizeFitThrottleMs) return;
+  resize.lastFitAt = now;
   for (const panelId of panelIds) {
     const terminal = state.terminals.get(panelId);
     if (terminal) scheduleFitTerminal(terminal);
@@ -3766,6 +3771,7 @@ function finishPaneResize(event) {
       renderPaneLayoutStylesForVisiblePanes(direction);
       clearVisiblePaneInlineFlex();
     }
+    fitWorkspaceTerminals(workspaceId);
   });
 }
 
