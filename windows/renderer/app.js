@@ -313,6 +313,7 @@ const state = {
   surfaceTabButtons: new Map(),
   workspaceListSignature: "",
   surfaceTabsSignature: "",
+  paneRenderSignature: "",
   newTabButton: null,
   paletteOpen: false,
   paletteIndex: 0,
@@ -3326,13 +3327,23 @@ function getNewSurfaceTab(workspace) {
 function renderPanes(workspace) {
   const panels = workspace?.panels || [];
   if (!workspace) {
+    state.paneRenderSignature = "";
     renderEmptyWorkspace(null);
     updateBrowserPaneActivity(new Set());
     return;
   }
-  toggleClassIfChanged(elements.paneGrid, "direction-down", false);
   const zoomedPanel = zoomedPanelForWorkspace(workspace);
   const visiblePanels = zoomedPanel ? [zoomedPanel] : panels;
+  const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
+  const signature = paneRenderSignature(workspace, visiblePanels, tree);
+  const liveVisiblePanelIds = new Set(visiblePanels.filter((panel) => !isPanelMinimized(panel)).map((panel) => panel.id));
+  if (signature === state.paneRenderSignature && paneGridContainsPanels(visiblePanels)) {
+    updateBrowserPaneActivity(liveVisiblePanelIds);
+    resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
+    scheduleVisibleTerminalFits(visiblePanels);
+    return;
+  }
+  toggleClassIfChanged(elements.paneGrid, "direction-down", false);
   elements.paneLayoutStyle.textContent = "";
   toggleClassIfChanged(elements.paneGrid, "is-zoomed", Boolean(zoomedPanel));
   const panelIds = new Set(visiblePanels.map((panel) => panel.id));
@@ -3344,18 +3355,32 @@ function renderPanes(workspace) {
     }
   }
   if (panels.length === 0) {
+    state.paneRenderSignature = "";
     renderEmptyWorkspace(workspace);
     updateBrowserPaneActivity(new Set());
     return;
   }
 
   const panelById = new Map(visiblePanels.map((panel) => [panel.id, panel]));
-  const tree = zoomedPanel ? paneTreeLeaf(zoomedPanel.id) : paneTreeForWorkspace(workspace, visiblePanels);
   const node = renderPaneTreeNode(tree, workspace, panelById, visiblePanels.length);
   replaceChildrenIfChanged(elements.paneGrid, node ? [node] : []);
-  const liveVisiblePanelIds = new Set(visiblePanels.filter((panel) => !isPanelMinimized(panel)).map((panel) => panel.id));
+  state.paneRenderSignature = signature;
   updateBrowserPaneActivity(liveVisiblePanelIds);
   resumeTerminalOutputAfterActivityChange(liveVisiblePanelIds);
+  scheduleVisibleTerminalFits(visiblePanels);
+}
+
+function paneGridContainsPanels(panels) {
+  if (!panels.length) return false;
+  const paneNodes = elements.paneGrid.querySelectorAll(".pane[data-panel-id]");
+  if (paneNodes.length !== panels.length) return false;
+  return panels.every((panel) => {
+    const pane = state.paneCache.get(panel.id);
+    return pane?.isConnected && elements.paneGrid.contains(pane);
+  });
+}
+
+function scheduleVisibleTerminalFits(visiblePanels) {
   requestAnimationFrame(() => {
     for (const panel of visiblePanels) {
       if (isPanelMinimized(panel)) continue;
@@ -3363,6 +3388,39 @@ function renderPanes(workspace) {
       if (terminal) scheduleFitTerminal(terminal);
     }
   });
+}
+
+function paneRenderSignature(workspace, visiblePanels, tree) {
+  return stableJson([
+    workspace.id,
+    workspace.activePanelId || "",
+    workspace.color || "",
+    Boolean(zoomedPanelIdForWorkspace(workspace)),
+    state.settings.titleDetailMode,
+    state.settings.browserSuspendInactive,
+    state.settings.browserHomeUrl,
+    state.settings.terminalProfile,
+    tree,
+    visiblePanels.map((panel) => ([
+      panel.id,
+      panel.type,
+      panelDisplayTitle(panel, false),
+      panel.title || "",
+      panel.titleLocked || false,
+      panel.color || "",
+      panel.cwd || "",
+      panel.cwdShort || "",
+      panel.url || "",
+      panel.shellProfile || "",
+      panel.shellPath || "",
+      terminalFontSizeForPanel(panel),
+      Boolean(panel.needsAttention),
+      isPanelMinimized(panel),
+      isPendingPanel(panel),
+      state.terminals.has(panel.id),
+      state.browserViews.has(panel.id)
+    ]))
+  ]);
 }
 
 function renderPaneTreeNode(node, workspace, panelById, visibleCount) {
