@@ -2366,9 +2366,13 @@ function actionPanelFromEvent(event) {
   return panelFromEvent(event) || hoveredPanel() || panelFromActiveElement() || focusedPanel();
 }
 
+function activePaneActionTarget() {
+  return panelFromActiveElement() || hoveredPanel() || focusedPanel();
+}
+
 function keyboardPanelFromEvent(event) {
-  // Keyboard shortcuts follow focus, not hover, so pane actions stay scoped.
-  return panelFromEvent(event) || panelFromActiveElement() || focusedPanel();
+  // If focus falls back to chrome/body, keep pane shortcuts scoped to the pane under the pointer.
+  return panelFromEvent(event) || panelFromActiveElement() || hoveredPanel() || focusedPanel();
 }
 
 function api(path, options = {}) {
@@ -10835,7 +10839,7 @@ function setPaneMinimized(panelId, minimized = true) {
   return true;
 }
 
-function togglePaneMinimized(panelId = focusedPanel()?.id) {
+function togglePaneMinimized(panelId = activePaneActionTarget()?.id) {
   if (!panelId) return false;
   return setPaneMinimized(panelId, !state.minimizedPanelIds.has(panelId));
 }
@@ -10845,7 +10849,7 @@ function restorePane(panelId) {
 }
 
 function minimizeActivePane() {
-  const panel = focusedPanel();
+  const panel = activePaneActionTarget();
   if (!panel) return false;
   return setPaneMinimized(panel.id, true);
 }
@@ -10873,7 +10877,7 @@ function restoreMinimizedPanes(workspace = activeWorkspace()) {
   return true;
 }
 
-function togglePaneZoom(panelId = focusedPanel()?.id) {
+function togglePaneZoom(panelId = activePaneActionTarget()?.id) {
   if (!panelId) return;
   const found = findPanelState(panelId);
   if (!found) return;
@@ -11123,7 +11127,7 @@ function setPaneTerminalFontSizeOverride(panelId, fontSize, options = {}) {
 }
 
 function changeTerminalFontSize(delta, options = {}) {
-  const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || activePaneActionTarget());
   if (!panel) return false;
   markInteractedPanel(panel.id);
   const currentSize = terminalFontSizeForPanel(panel);
@@ -11149,7 +11153,7 @@ function changePaneTerminalFontSize(panelId, delta) {
 }
 
 function resetTerminalFontSize(options = {}) {
-  const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || focusedPanel());
+  const panel = resolveTerminalPanel(options.panel || (options.event ? keyboardPanelFromEvent(options.event) : null) || activePaneActionTarget());
   if (!panel) return false;
   markInteractedPanel(panel.id);
   if (!panelHasTerminalFontSize(panel)) {
