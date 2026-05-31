@@ -618,6 +618,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// container so every attached device renders at the same grid. When
     /// nil, the surface fills the container's natural capacity.
     private var effectiveGrid: (cols: Int, rows: Int)?
+    /// True while a pinch-zoom gesture is in flight (`.began` → `.ended`). The
+    /// pinch holds the surface pixel size stable and reflows the font in place;
+    /// the effective-grid letterbox is suppressed for the gesture's duration and
+    /// re-pinned once on end. Without this, every mid-gesture effective-grid echo
+    /// (which lags the rapidly-changing font) re-pins to a stale grid, so the
+    /// letterbox oscillates and the render visibly garbles during a fast pinch.
+    private var isZoomGestureActive = false
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
@@ -837,6 +844,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         switch gesture.state {
         case .began:
             pinchAccumulatedScale = 1.0
+            isZoomGestureActive = true
         case .changed:
             let delta = gesture.scale - pinchAccumulatedScale
             if abs(delta) >= 0.15 {
@@ -846,7 +854,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
         case .ended, .cancelled:
-            // Final sync to make sure the last font change is applied.
+            // Gesture finished: re-pin the effective-grid letterbox once at the
+            // settled font. It was suppressed during the gesture so a stale
+            // mid-pinch echo could not oscillate the letterbox (the garble).
+            isZoomGestureActive = false
             setNeedsGeometrySync()
         default:
             break
@@ -1558,6 +1569,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
         let eff = effectiveGrid
+        // While a pinch is in flight the surface px is held stable and the font
+        // reflows in place; pinning to a mid-gesture (stale) effective grid here
+        // would resize the IOSurface every echo and oscillate the letterbox. Let
+        // the gesture render at its natural grid; `.ended` re-pins once.
+        let suppressEffLetterbox = isZoomGestureActive
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
 
@@ -1577,7 +1593,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
+            if let eff, !suppressEffLetterbox, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
                 let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale

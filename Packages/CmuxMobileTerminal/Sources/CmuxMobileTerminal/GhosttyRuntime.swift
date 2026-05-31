@@ -372,6 +372,20 @@ public final class GhosttyRuntime {
             return true
         }
 
+        #if DEBUG
+        // TEMP bug-2 (scrollback) diagnostic probe. `total` = scrollback rows
+        // available, `offset` = current viewport position from the top, `len` =
+        // visible rows. If `total` stays ~= `len`, there is nothing to scroll
+        // into (replay budget / no accumulated history); if `total` > `len` but
+        // `offset` never changes on a pan, ghostty is not moving the viewport.
+        // Remove before merge.
+        if action.tag == GHOSTTY_ACTION_SCROLLBAR {
+            let sb = action.action.scrollbar
+            liveAnchormuxLog("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
+            return true
+        }
+        #endif
+
         return false
     }
 
