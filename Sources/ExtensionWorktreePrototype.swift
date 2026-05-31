@@ -3,7 +3,48 @@ import Foundation
 struct CmuxExtensionWorktreeCreationResult: Sendable {
     let worktreePath: String
     let workspaceTitle: String
-    let initialCommand: String
+    /// A convenience command (e.g. a sample dev-server launcher) that should run
+    /// inside the new workspace's interactive shell. This is *setup*, never the
+    /// workspace's primary process.
+    let setupCommand: String
+}
+
+/// Arguments for spawning a workspace in a freshly created worktree.
+///
+/// A workspace closes the moment its main process exits, so the worktree
+/// `setupCommand` must be delivered as terminal *input* typed into the
+/// interactive login shell — never as `initialTerminalCommand` (the surface's
+/// primary process). Routing setup through `initialTerminalCommand` makes the
+/// tab flash and disappear the instant the setup command finishes or fails.
+struct CmuxExtensionWorktreeWorkspaceSpawnArgs: Sendable, Equatable {
+    let title: String
+    let workingDirectory: String
+    /// The workspace's primary process. Always `nil` so the main process stays
+    /// the user's login shell and the tab survives setup completion.
+    let initialTerminalCommand: String?
+    /// Setup command typed into the interactive shell after spawn (with a
+    /// trailing newline so it executes).
+    let initialTerminalInput: String?
+    let inheritWorkingDirectory: Bool
+}
+
+extension CmuxExtensionWorktreeCreationResult {
+    /// Builds the workspace spawn arguments for this worktree.
+    ///
+    /// The returned arguments always leave the workspace's main process as the
+    /// login shell and deliver ``setupCommand`` as terminal input.
+    func workspaceSpawnArgs() -> CmuxExtensionWorktreeWorkspaceSpawnArgs {
+        // NOTE: this intentionally reproduces the original (buggy) behavior so
+        // the regression test can prove it fails; the fix follows in a separate
+        // commit.
+        CmuxExtensionWorktreeWorkspaceSpawnArgs(
+            title: workspaceTitle,
+            workingDirectory: worktreePath,
+            initialTerminalCommand: setupCommand.isEmpty ? nil : setupCommand,
+            initialTerminalInput: nil,
+            inheritWorkingDirectory: false
+        )
+    }
 }
 
 final class CmuxExtensionProcessTermination: @unchecked Sendable {
@@ -66,7 +107,7 @@ enum CmuxExtensionWorktreePrototype {
             return CmuxExtensionWorktreeCreationResult(
                 worktreePath: worktree.path,
                 workspaceTitle: branchName,
-                initialCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
             )
         }.value
     }
