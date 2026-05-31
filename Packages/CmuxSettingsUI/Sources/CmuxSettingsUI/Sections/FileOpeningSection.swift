@@ -1,6 +1,7 @@
 import CmuxSettings
 import SwiftUI
 
+/// Settings section for file drops, file editor fallback, and command-click file extension routing.
 @MainActor
 public struct FileOpeningSection: View {
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
@@ -9,6 +10,7 @@ public struct FileOpeningSection: View {
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
 
+    /// Creates the file-opening settings section backed by the supplied defaults store and settings catalog.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog
@@ -22,6 +24,7 @@ public struct FileOpeningSection: View {
 
     private static let columnWidth: CGFloat = 196
 
+    /// The SwiftUI content for the file-opening settings section.
     public var body: some View {
         Group {
             SettingsSectionHeader(
