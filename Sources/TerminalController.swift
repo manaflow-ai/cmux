@@ -21683,6 +21683,20 @@ class TerminalController {
             surfaceId = nil
         }
 
+        // A session-restored / never-foregrounded terminal has its libghostty
+        // surface created lazily — today only on the first keystroke (via the
+        // input path's `requestBackgroundSurfaceStartIfNeeded`). The mobile
+        // render-grid producer only reads a *live* surface, so such a terminal
+        // shows blank on the phone until the user types. When a mobile client
+        // resolves a terminal to read or drive, materialize the surface
+        // headlessly so attaching alone loads it. Idempotent and a no-op once
+        // the surface exists.
+        if requireTerminal,
+           let surfaceId,
+           let panel = workspace.terminalPanel(for: surfaceId) {
+            panel.surface.requestBackgroundSurfaceStartIfNeeded()
+        }
+
         return (tabManager, workspace, surfaceId)
     }
 
