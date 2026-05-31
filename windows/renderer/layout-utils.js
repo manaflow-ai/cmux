@@ -1,5 +1,5 @@
-export const paneLayoutPercentMin = 5;
-export const paneLayoutPercentMax = 95;
+export const paneLayoutPercentMin = 1;
+export const paneLayoutPercentMax = 99;
 
 export function clampPaneLayoutPercent(value) {
   const percent = Math.round(Number(value) || 0);

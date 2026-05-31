@@ -1318,13 +1318,27 @@ body.reduce-motion *::after {
 }
 
 .pane-splitter {
-  flex: 0 0 10px;
+  flex: 0 0 8px;
   position: relative;
   z-index: 4;
-  background: color-mix(in oklch, var(--color-terminal-gutter) 86%, var(--color-line) 14%);
+  background: transparent;
   cursor: col-resize;
   outline: 0;
   touch-action: none;
+}
+
+.pane-splitter:hover,
+.pane-splitter:focus-visible,
+.pane-splitter.is-dragging {
+  background: color-mix(in oklch, var(--color-terminal-gutter) 54%, transparent);
+}
+
+.pane-splitter[data-orientation="right"] {
+  cursor: col-resize;
+}
+
+.pane-splitter[data-orientation="down"] {
+  cursor: row-resize;
 }
 
 .pane-grid.direction-down .pane-splitter {
@@ -1338,10 +1352,10 @@ body.reduce-motion *::after {
 .pane-splitter::before {
   content: "";
   position: absolute;
-  inset: 18% 3px;
+  inset: 14% calc(50% - .5px);
   border-radius: 999px;
-  background: color-mix(in oklch, var(--color-line) 68%, transparent);
-  opacity: .6;
+  background: color-mix(in oklch, var(--color-line-strong) 76%, transparent);
+  opacity: .72;
   transition:
     background var(--dur-fast) var(--ease-out),
     opacity var(--dur-fast) var(--ease-out),
@@ -1350,7 +1364,7 @@ body.reduce-motion *::after {
 
 .pane-split.direction-down > .pane-splitter::before,
 .pane-grid.direction-down > .pane-splitter::before {
-  inset: 3px 18%;
+  inset: calc(50% - .5px) 14%;
 }
 
 .pane-splitter:hover::before,
@@ -1358,7 +1372,7 @@ body.reduce-motion *::after {
 .pane-splitter.is-dragging::before {
   background: var(--color-accent);
   opacity: 1;
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 36%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-accent) 28%, transparent);
 }
 
 .pane-splitter:focus-visible {
