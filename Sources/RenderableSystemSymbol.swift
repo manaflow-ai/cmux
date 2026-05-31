@@ -1,8 +1,38 @@
 import AppKit
 
+private final class RenderableSystemSymbolCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: Bool] = [:]
+
+    func value(for symbol: String, compute: () -> Bool) -> Bool {
+        lock.lock()
+        if let cached = values[symbol] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let resolved = compute()
+
+        lock.lock()
+        values[symbol] = resolved
+        lock.unlock()
+        return resolved
+    }
+
+    #if DEBUG
+    func removeAll() {
+        lock.lock()
+        values.removeAll()
+        lock.unlock()
+    }
+    #endif
+}
+
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
+    private static let cache = RenderableSystemSymbolCache()
 
     static func trimmed(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -35,6 +65,14 @@ enum RenderableSystemSymbol {
     }
 
     static func isRenderable(_ symbol: String) -> Bool {
-        NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
+        cache.value(for: symbol) {
+            NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
+        }
     }
+
+    #if DEBUG
+    static func resetRenderabilityCacheForTesting() {
+        cache.removeAll()
+    }
+    #endif
 }
