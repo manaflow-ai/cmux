@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
@@ -94,7 +95,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     surfaceID: self.surfaceID,
                     columns: size.columns,
                     rows: size.rows
-                ) else { return }
+                ) else {
+                    // No effective grid came back (RPC timed out or returned
+                    // nil). The render stays pinned to the prior effective grid,
+                    // which can look like a frozen / letterboxed terminal even
+                    // though the main thread is fine. Surfaced so the dogfood
+                    // log distinguishes this from a true wedge.
+                    liveAnchormuxLog("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
+                    return
+                }
                 surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
             }
         }

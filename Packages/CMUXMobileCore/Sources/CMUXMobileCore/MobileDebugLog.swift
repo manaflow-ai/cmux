@@ -53,13 +53,33 @@ public final class MobileDebugLog: Sendable {
         buffer.withLock { $0.removeAll(keepingCapacity: true) }
     }
 
+    /// Identifies the running build so a pasted log proves which reload it came
+    /// from: the bundle name (carries the `--tag`, e.g. "cmux DEV grid") plus
+    /// the executable's build timestamp (changes on every rebuild). All dev
+    /// builds share `CFBundleVersion = 1`, so the exec mtime is the only signal
+    /// that distinguishes one reload from the next.
+    static let buildStamp: String = {
+        var parts: [String] = []
+        if let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String {
+            parts.append(name)
+        }
+        if let exec = Bundle.main.executableURL,
+           let mtime = (try? FileManager.default.attributesOfItem(atPath: exec.path))?[.modificationDate] as? Date {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+            parts.append("built \(formatter.string(from: mtime))")
+        }
+        return parts.isEmpty ? "build ?" : parts.joined(separator: " · ")
+    }()
+
     /// Copy the buffer to the system pasteboard, optionally prefixed with a
     /// section (e.g. the visible terminal text). Returns the line count copied.
     @MainActor
     @discardableResult
     public func copyToPasteboard(prepending: String? = nil) -> Int {
         let (count, body) = buffer.withLock { ($0.count, $0.joined(separator: "\n")) }
-        let header = "cmux iOS debug log — \(count) lines\n" + String(repeating: "=", count: 40) + "\n"
+        let header = "cmux iOS debug log — \(count) lines · \(Self.buildStamp)\n"
+            + String(repeating: "=", count: 40) + "\n"
         var out = ""
         if let prepending, !prepending.isEmpty {
             out += prepending + "\n\n"

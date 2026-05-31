@@ -575,6 +575,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `needsAnotherRender` and re-enqueue exactly one when it completes.
     private var renderInFlight: Bool = false
     private var needsAnotherRender: Bool = false
+    #if DEBUG
+    /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
+    /// per-frame callback runs on the main thread, so a steady heartbeat proves
+    /// main is alive; if it stops while the screen looks frozen, the main
+    /// thread wedged (vs. an idle terminal or a stuck letterbox pin, where the
+    /// heartbeat keeps ticking). Distinguishes the three on the next dogfood.
+    private var lastHeartbeatTime: CFTimeInterval = 0
+    #endif
     /// Set by any geometry trigger (resize/zoom/keyboard/effective-grid pin);
     /// the display link applies geometry at most once per frame. Coalescing
     /// prevents the fast-zoom geometry storm that thrashed the grid (jumbled
@@ -1307,6 +1315,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc func handleDisplayLinkFire() {
         guard let surface else { return }
+        #if DEBUG
+        // Main-thread liveness heartbeat. Time-gated, no behavior change.
+        let nowHeartbeat = CACurrentMediaTime()
+        if nowHeartbeat - lastHeartbeatTime >= 2.0 {
+            lastHeartbeatTime = nowHeartbeat
+            liveAnchormuxLog("tick.alive win=\(window != nil) renderInFlight=\(renderInFlight)")
+        }
+        #endif
         // Apply at most one coalesced zoom per frame. This only changes the
         // font; the geometry resync is deferred until zoom settles.
         let appliedZoom = applyPendingFontSizeIfNeeded()
