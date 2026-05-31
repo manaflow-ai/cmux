@@ -17060,6 +17060,12 @@ struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
         cmuxDebugLog("sidebar.dropExited target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
 #endif
+        guard dragState.draggedTabId == nil else {
+            // Animated previews can move rows under the pointer and fire an
+            // exit from the row that currently owns the insertion indicator.
+            // Let drop updates and drag end own active insertion state.
+            return
+        }
         if dragState.dropIndicator?.tabId == targetTabId {
             dragState.clearDropIndicator()
         }
