@@ -365,6 +365,41 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
     }
 
+    func testFileOpenHonorsDockPaneDestination() throws {
+        let url = try temporaryTextFile(contents: "dock target", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        workspace.dockLayout.openEdge(.left)
+        let dockPane = try XCTUnwrap(dock.controller.allPaneIds.first)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let result = TerminalController.shared.v2FileOpen(params: [
+            "paths": [url.path],
+            "workspace_id": workspace.id.uuidString,
+            "pane_id": dockPane.id.uuidString,
+            "focus": false
+        ])
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let openedPanelIdString = payload["surface_id"] as? String,
+              let openedPanelId = UUID(uuidString: openedPanelIdString) else {
+            XCTFail("Expected file.open to succeed for dock pane, got \(result)")
+            return
+        }
+
+        XCTAssertEqual(payload["pane_id"] as? String, dockPane.id.uuidString)
+        XCTAssertEqual(workspace.paneId(forPanelId: openedPanelId)?.id, dockPane.id)
+        XCTAssertTrue(dock.controller.allTabIds.contains { workspace.panelIdFromSurfaceId($0) == openedPanelId })
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains { workspace.panelIdFromSurfaceId($0) == openedPanelId })
+    }
+
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

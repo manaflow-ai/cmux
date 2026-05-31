@@ -1,4 +1,5 @@
 import XCTest
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -195,5 +196,91 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(destinationWorkspace.panels.count, 2)
         XCTAssertEqual(manager.selectedWorkspace?.id, destinationWorkspace.id)
         XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
+    }
+
+    func testMoveSurfaceToExistingWorkspaceUsesDestinationFocusedDockPane() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+        let destinationMainPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
+        let dock = destinationWorkspace.dockLayout.addDock(edge: .right)
+        destinationWorkspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            destinationWorkspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        destinationWorkspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        XCTAssertEqual(destinationWorkspace.focusedPanelId, dockPanel.id)
+        XCTAssertTrue(app.moveSurface(
+            panelId: movedPanelId,
+            toWorkspace: destinationWorkspace.id,
+            focus: true,
+            focusWindow: false
+        ))
+
+        XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
+        XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
+        XCTAssertNotNil(destinationWorkspace.panels[destinationMainPanelId])
+        XCTAssertNotNil(destinationWorkspace.panels[dockPanel.id])
+        XCTAssertEqual(destinationWorkspace.paneId(forPanelId: movedPanelId), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains { destinationWorkspace.panelIdFromSurfaceId($0) == movedPanelId })
+        XCTAssertFalse(destinationWorkspace.bonsplitController.allTabIds.contains {
+            destinationWorkspace.panelIdFromSurfaceId($0) == movedPanelId
+        })
+        XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
+    }
+
+    func testExternalTabDropToDifferentWindowFocusesDestinationWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let sourceWindowId = UUID()
+        let sourceManager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: sourceWindowId, tabManager: sourceManager)
+
+        let destinationWindowId = UUID()
+        let destinationManager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: destinationWindowId, tabManager: destinationManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: sourceWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: destinationWindowId)
+        }
+
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId))
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.paneId(forPanelId: movedPanelId))
+
+        let initiallySelectedDestinationWorkspace = try XCTUnwrap(destinationManager.selectedWorkspace)
+        let targetWorkspace = destinationManager.addWorkspace(title: "Drop Target", select: false)
+        let targetPaneId = try XCTUnwrap(targetWorkspace.bonsplitController.focusedPaneId)
+
+        XCTAssertEqual(destinationManager.selectedWorkspace?.id, initiallySelectedDestinationWorkspace.id)
+        XCTAssertTrue(targetWorkspace.handleExternalTabDrop(
+            BonsplitController.ExternalTabDropRequest(
+                tabId: movedTabId,
+                sourcePaneId: sourcePaneId,
+                destination: .insert(targetPane: targetPaneId, targetIndex: nil)
+            ),
+            destinationController: targetWorkspace.bonsplitController
+        ))
+
+        XCTAssertEqual(destinationManager.selectedWorkspace?.id, targetWorkspace.id)
+        XCTAssertEqual(targetWorkspace.focusedPanelId, movedPanelId)
+        XCTAssertEqual(targetWorkspace.paneId(forPanelId: movedPanelId), targetPaneId)
+        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
     }
 }

@@ -5404,13 +5404,6 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    // Dogfood: first @AppStorage call site converted to the new
-    // CmuxSettings/CmuxSettingsUI primitives. Resolves the
-    // SettingsRuntime injected on the Settings Window scene and
-    // routes reads/writes through UserDefaultsSettingsStore actor +
-    // DefaultsValueModel observation. UserDefaults key is the same
-    // ("rightSidebar.beta.dock.enabled") so existing values round-trip.
-    @Setting(\.betaFeatures.rightSidebarDock) private var rightSidebarDockEnabled
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -7384,10 +7377,6 @@ struct SettingsView: View {
                         .disabled(sidebarHideAllDetails)
                     }
 
-                    BetaFeaturesSettingsView(
-                        dockEnabled: $rightSidebarDockEnabled
-                    )
-
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .automation))
                     SettingsCard {
@@ -8407,7 +8396,6 @@ struct SettingsView: View {
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-        rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist

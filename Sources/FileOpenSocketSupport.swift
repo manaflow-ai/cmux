@@ -107,10 +107,10 @@ extension TerminalController {
             let requestedPaneUUID = v2UUID(params, "pane_id")
             let requestedSurfaceUUID = v2UUID(params, "surface_id")
             let hasExplicitPaneDestination = requestedPaneUUID != nil || requestedSurfaceUUID != nil
-            let paneId: PaneID?
+            let paneDestination: (controller: BonsplitController, paneId: PaneID)?
             if let paneUUID = requestedPaneUUID {
-                paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
-                if paneId == nil {
+                paneDestination = v2ResolvePane(in: ws, paneUUID: paneUUID)
+                if paneDestination == nil {
                     result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
                     return
                 }
@@ -123,18 +123,28 @@ extension TerminalController {
                     )
                     return
                 }
-                paneId = ws.paneId(forPanelId: surfaceId)
+                let surfaceTabId = ws.surfaceIdFromPanelId(surfaceId)
+                let surfacePaneId = ws.paneId(forPanelId: surfaceId)
+                let controller = surfaceTabId.flatMap { ws.bonsplitController(containingTab: $0) }
+                    ?? surfacePaneId.flatMap { ws.bonsplitController(containingPane: $0) }
+                paneDestination = surfacePaneId.flatMap { paneId in
+                    controller.map { ($0, paneId) }
+                }
             } else {
-                paneId = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
+                paneDestination = ws.focusedBonsplitPaneForCommands()
+                    ?? ws.allBonsplitControllers.lazy.compactMap { controller in
+                        controller.allPaneIds.first.map { (controller, $0) }
+                    }.first
             }
 
-            guard let paneId else {
+            guard let paneDestination else {
                 result = .err(code: "not_found", message: "Pane not found", data: nil)
                 return
             }
 
             let openedPanels = ws.openFileSurfaces(
-                inPane: paneId,
+                inPane: paneDestination.paneId,
+                controller: paneDestination.controller,
                 filePaths: filePaths,
                 focus: shouldFocus,
                 reuseExisting: filePaths.count == 1 && !hasExplicitPaneDestination

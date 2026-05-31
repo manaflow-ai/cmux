@@ -378,9 +378,13 @@ func tmuxEnrichContextWithGeometry(ctx map[string]string, pane map[string]any, c
 		ctx["pane_top"] = fmt.Sprintf("%d", int(py)/cellH)
 	}
 
-	if containerFrame != nil {
-		cw := floatFromAny(containerFrame["width"])
-		ch := floatFromAny(containerFrame["height"])
+	effectiveContainerFrame := containerFrame
+	if paneContainerFrame, ok := pane["container_frame"].(map[string]any); ok {
+		effectiveContainerFrame = paneContainerFrame
+	}
+	if effectiveContainerFrame != nil {
+		cw := floatFromAny(effectiveContainerFrame["width"])
+		ch := floatFromAny(effectiveContainerFrame["height"])
 		ww := int(cw) / cellW
 		wh := int(ch) / cellH
 		if ww < 1 {

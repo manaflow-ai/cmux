@@ -9,9 +9,7 @@ import XCTest
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
-        try withSavedBetaFeatureDefaults {
-            let defaults = UserDefaults.standard
-            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        try withSavedRemovedDockDefaults {
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = ContentView.CommandPaletteContextSnapshot()
@@ -42,11 +40,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     }
 
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
-        withSavedBetaFeatureDefaults {
-            let defaults = UserDefaults.standard
-            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
-
-            for mode in RightSidebarMode.allCases {
+        withSavedRemovedDockDefaults {
+            for mode in RightSidebarMode.availableModes() {
                 XCTAssertEqual(
                     ContentView.commandPaletteShortcutAction(
                         forCommandID: ContentView.commandPaletteRightSidebarModeCommandID(mode)
@@ -68,12 +63,13 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
-    private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
+    private func withSavedRemovedDockDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
-        let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousDock = defaults.object(forKey: "rightSidebar.beta.dock.enabled")
         defer {
-            restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousDock, forKey: "rightSidebar.beta.dock.enabled")
         }
+        defaults.set(true, forKey: "rightSidebar.beta.dock.enabled")
         try body()
     }
 

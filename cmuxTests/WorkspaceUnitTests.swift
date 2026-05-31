@@ -3103,6 +3103,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
+            dockConfiguration: CmuxWorkspaceDockConfiguration?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -3113,6 +3114,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
+                dockConfiguration: dockConfiguration,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -3402,6 +3404,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             workingDirectory: String?,
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
+            dockConfiguration: CmuxWorkspaceDockConfiguration?,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String]
@@ -3412,6 +3415,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 workingDirectory: workingDirectory,
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
+                dockConfiguration: dockConfiguration,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -4477,6 +4481,810 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         return nil
     }
 
+    func testNoOpFocusNavigationKeepsCurrentTerminalActive() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+
+        panel.hostedView.setActive(true)
+        workspace.moveFocus(direction: .left)
+
+        XCTAssertEqual(workspace.focusedPanelId, panelId)
+        XCTAssertTrue(
+            panel.hostedView.debugRenderStats().isActive,
+            "No-op pane navigation should not unfocus the current terminal"
+        )
+    }
+
+    func testClosedDockDoesNotRemainFocusedForCommands() {
+        let workspace = Workspace()
+        guard let mainPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial main panel")
+            return
+        }
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        let mainTabCountBefore = workspace.bonsplitController.allTabIds.count
+        let dockTabCountBefore = dock.controller.allTabIds.count
+        workspace.dockLayout.closeEdge(.left)
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+
+        guard let createdPanel = workspace.newTerminalSurfaceInFocusedPane(focus: true) else {
+            XCTFail("Expected focused-pane terminal creation to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.bonsplitController.allTabIds.count, mainTabCountBefore + 1)
+        XCTAssertEqual(dock.controller.allTabIds.count, dockTabCountBefore)
+        XCTAssertEqual(workspace.paneId(forPanelId: createdPanel.id), workspace.bonsplitController.focusedPaneId)
+        XCTAssertEqual(workspace.focusedPanelId, createdPanel.id)
+    }
+
+    func testFocusedEmptyDockDoesNotReportMainPanelFocus() throws {
+        let workspace = Workspace()
+        XCTAssertNotNil(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        XCTAssertNil(workspace.focusedPanelId)
+        let commandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(commandPane.controller === dock.controller)
+        XCTAssertEqual(commandPane.paneId, dockPaneId)
+    }
+
+    func testRemovingFocusedEmptyDockRestoresMainFocus() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+
+        workspace.dockLayout.removeDock(dock)
+
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+    }
+
+    func testReducingDockCountRemovesFocusedEmptyDockAndRestoresMainFocus() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.dockLayout.setDockCount(edge: .right, count: 2)
+        let docks = workspace.dockLayout.docksSnapshot(for: .right)
+        XCTAssertEqual(docks.count, 2)
+        let focusedDock = try XCTUnwrap(docks.last)
+        let focusedDockPaneId = try XCTUnwrap(focusedDock.controller.allPaneIds.first)
+
+        workspace.focusBonsplitPane(focusedDockPaneId, controller: focusedDock.controller)
+        XCTAssertNil(workspace.focusedPanelId)
+
+        workspace.dockLayout.setDockCount(edge: .right, count: 1)
+
+        XCTAssertEqual(workspace.dockLayout.dockCount(for: .right), 1)
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+    }
+
+    func testClosedDockTerminalPortalIsHidden() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        dockPanel.hostedView.setVisibleInUI(true)
+        XCTAssertTrue(dockPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.dockLayout.closeEdge(.right)
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+
+        XCTAssertFalse(
+            dockPanel.hostedView.debugPortalVisibleInUI,
+            "Closed dock terminal portals should not remain visible over the main workspace"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testSplitZoomDoesNotShowFocusedPanelOutsideZoomedPane() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let zoomedPanelId = workspace.focusedPanelId,
+              let zoomedPanel = workspace.terminalPanel(for: zoomedPanelId),
+              let otherPanel = workspace.newTerminalSplit(
+                  from: zoomedPanelId,
+                  orientation: .horizontal,
+                  focus: false
+              ),
+              let zoomedPaneId = workspace.paneId(forPanelId: zoomedPanelId),
+              let otherPaneId = workspace.paneId(forPanelId: otherPanel.id) else {
+            XCTFail("Expected split terminal setup")
+            return
+        }
+
+        XCTAssertNotEqual(zoomedPaneId, otherPaneId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: zoomedPanelId))
+        XCTAssertEqual(workspace.bonsplitController.zoomedPaneId, zoomedPaneId)
+
+        workspace.focusPanel(otherPanel.id)
+        zoomedPanel.hostedView.setVisibleInUI(true)
+        otherPanel.hostedView.setVisibleInUI(true)
+
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+
+        XCTAssertEqual(workspace.focusedPanelId, otherPanel.id)
+        XCTAssertTrue(zoomedPanel.hostedView.debugPortalVisibleInUI)
+        XCTAssertFalse(
+            otherPanel.hostedView.debugPortalVisibleInUI,
+            "Focused terminals outside the zoomed pane should not be marked visible"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testDockPanelPinStateUpdatesDockController() {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ),
+              let dockTabId = workspace.surfaceIdFromPanelId(dockPanel.id) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        workspace.setPanelPinned(panelId: dockPanel.id, pinned: true)
+
+        XCTAssertTrue(workspace.isPanelPinned(dockPanel.id))
+        XCTAssertTrue(dock.controller.tab(dockTabId)?.isPinned == true)
+        XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
+
+        workspace.setPanelPinned(panelId: dockPanel.id, pinned: false)
+
+        XCTAssertFalse(workspace.isPanelPinned(dockPanel.id))
+        XCTAssertTrue(dock.controller.tab(dockTabId)?.isPinned == false)
+    }
+
+    func testDockPanelTitleUpdateUsesDockController() {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: false
+              ),
+              let dockTabId = workspace.surfaceIdFromPanelId(dockPanel.id) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: dockPanel.id, title: "Dock Terminal"))
+
+        XCTAssertEqual(dock.controller.tab(dockTabId)?.title, "Dock Terminal")
+        XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
+    }
+
+    func testDockTabZoomToggleUsesWorkspaceRouting() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        let dockTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(dockPanel.id))
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertTrue(dock.controller.onTabZoomToggleRequest?(dockTabId, dockPaneId) == true)
+
+        XCTAssertTrue(dock.controller.isSplitZoomed)
+        XCTAssertEqual(dock.controller.zoomedPaneId, dockPaneId)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+    }
+
+    func testFocusedBonsplitPaneForCommandsUsesWorkspaceFocusOwner() throws {
+        let workspace = Workspace()
+        let leftDock = workspace.dockLayout.addDock(edge: .left)
+        let rightDock = workspace.dockLayout.addDock(edge: .right)
+        let leftPaneId = try XCTUnwrap(leftDock.controller.allPaneIds.first)
+        let rightPaneId = try XCTUnwrap(rightDock.controller.allPaneIds.first)
+        let initialRevision = workspace.focusedBonsplitControllerRevision
+
+        workspace.focusBonsplitPane(leftPaneId, controller: leftDock.controller)
+        rightDock.controller.focusPane(rightPaneId)
+
+        XCTAssertTrue(
+            workspace.isFocusedBonsplitPaneForCommands(leftPaneId, controller: leftDock.controller)
+        )
+        XCTAssertFalse(
+            workspace.isFocusedBonsplitPaneForCommands(rightPaneId, controller: rightDock.controller)
+        )
+        XCTAssertGreaterThan(workspace.focusedBonsplitControllerRevision, initialRevision)
+
+        let leftFocusedRevision = workspace.focusedBonsplitControllerRevision
+        workspace.focusBonsplitPane(rightPaneId, controller: rightDock.controller)
+
+        XCTAssertFalse(
+            workspace.isFocusedBonsplitPaneForCommands(leftPaneId, controller: leftDock.controller)
+        )
+        XCTAssertTrue(
+            workspace.isFocusedBonsplitPaneForCommands(rightPaneId, controller: rightDock.controller)
+        )
+        XCTAssertGreaterThan(workspace.focusedBonsplitControllerRevision, leftFocusedRevision)
+    }
+
+    func testClearSplitZoomCanTargetCapturedControllerAfterFocusMoves() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let zoomedPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: zoomedPanel.id))
+        let captured = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+
+        workspace.focusPanel(mainPanelId)
+        XCTAssertFalse(captured.controller === workspace.focusedBonsplitControllerForCommands())
+        XCTAssertTrue(dock.controller.isSplitZoomed)
+
+        workspace.clearSplitZoom(in: captured.controller)
+
+        XCTAssertFalse(dock.controller.isSplitZoomed)
+    }
+
+    func testHasSplitsForCommandsUsesFocusedDockController() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+
+        XCTAssertFalse(
+            workspace.hasSplitsForCommands(),
+            "A single focused dock pane should not expose split-only commands"
+        )
+
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+        workspace.focusPanel(mainPanelId)
+
+        XCTAssertFalse(
+            workspace.hasSplitsForCommands(),
+            "Main-focused commands should not be enabled by an unrelated dock split"
+        )
+
+        workspace.focusPanel(dockPanel.id)
+
+        XCTAssertTrue(workspace.focusedBonsplitControllerForCommands() === dock.controller)
+        XCTAssertTrue(
+            workspace.hasSplitsForCommands(),
+            "Command palette split actions should be available when the focused dock is split"
+        )
+    }
+
+    func testFocusedBonsplitPaneForCommandsKeepsFocusedEmptyPaneWithSiblingSelection() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let mainPanel = try XCTUnwrap(workspace.terminalPanel(for: mainPanelId))
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let emptyPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let terminalPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: emptyPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: false
+            )
+        )
+        let terminalPaneId = try XCTUnwrap(workspace.paneId(forPanelId: terminalPanel.id))
+
+        XCTAssertNotEqual(terminalPaneId, emptyPaneId)
+        XCTAssertNil(dock.controller.selectedTab(inPane: emptyPaneId))
+        XCTAssertNotNil(dock.controller.selectedTab(inPane: terminalPaneId))
+
+        mainPanel.hostedView.setActive(true)
+        workspace.focusBonsplitPane(emptyPaneId, controller: dock.controller)
+
+        let commandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(commandPane.controller === dock.controller)
+        XCTAssertEqual(commandPane.paneId, emptyPaneId)
+        XCTAssertTrue(workspace.isFocusedBonsplitPaneForCommands(emptyPaneId, controller: dock.controller))
+        XCTAssertFalse(workspace.isFocusedBonsplitPaneForCommands(terminalPaneId, controller: dock.controller))
+        XCTAssertFalse(mainPanel.hostedView.debugRenderStats().isActive)
+
+#if DEBUG
+        workspace.debugReconcileFocusStateForTesting()
+
+        let reconciledCommandPane = try XCTUnwrap(workspace.focusedBonsplitPaneForCommands())
+        XCTAssertTrue(reconciledCommandPane.controller === dock.controller)
+        XCTAssertEqual(reconciledCommandPane.paneId, emptyPaneId)
+        XCTAssertNil(workspace.focusedPanelId)
+        XCTAssertEqual(dock.controller.focusedPaneId, emptyPaneId)
+#endif
+    }
+
+    func testDockTargetTerminalSplitUpdatesWorkspaceFocus() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        _ = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        workspace.focusPanel(mainPanelId)
+
+        let splitPanel = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil,
+                focus: true
+            )
+        )
+        let splitTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(splitPanel.id))
+        let splitPaneId = try XCTUnwrap(workspace.paneId(forPanelId: splitPanel.id))
+
+        XCTAssertEqual(workspace.focusedPanelId, splitPanel.id)
+        XCTAssertEqual(dock.controller.focusedPaneId, splitPaneId)
+        XCTAssertEqual(dock.controller.selectedTab(inPane: splitPaneId)?.id, splitTabId)
+    }
+
+    func testDockControllersReceiveAndInheritTabBarLeadingInset() {
+        let workspace = Workspace()
+        let existingDock = workspace.dockLayout.addDock(edge: .left)
+
+        workspace.applyTabBarLeadingInset(80)
+
+        XCTAssertEqual(workspace.bonsplitController.configuration.appearance.tabBarLeadingInset, 80)
+        XCTAssertEqual(existingDock.controller.configuration.appearance.tabBarLeadingInset, 80)
+
+        let newDock = workspace.dockLayout.addDock(edge: .left)
+        XCTAssertEqual(newDock.controller.configuration.appearance.tabBarLeadingInset, 80)
+    }
+
+    func testDockControllersReceiveSurfaceTabBarButtonConfiguration() {
+        let workspace = Workspace()
+        let existingDock = workspace.dockLayout.addDock(edge: .left)
+        let buttons: [CmuxSurfaceTabBarButton] = [
+            .builtIn(.newTerminal),
+            .builtIn(.newWorkspace, title: "Workspace")
+        ]
+
+        workspace.applySurfaceTabBarButtons(
+            buttons,
+            sourcePath: nil,
+            globalConfigPath: "/tmp/cmux-global.json",
+            terminalCommandSourcePaths: [:],
+            workspaceCommands: [:]
+        )
+
+        let expectedButtonIds = buttons.map(\.id)
+        XCTAssertEqual(
+            workspace.bonsplitController.configuration.appearance.splitButtons.map(\.id),
+            expectedButtonIds
+        )
+        XCTAssertEqual(
+            existingDock.controller.configuration.appearance.splitButtons.map(\.id),
+            expectedButtonIds
+        )
+
+        let newDock = workspace.dockLayout.addDock(edge: .right)
+        XCTAssertEqual(
+            newDock.controller.configuration.appearance.splitButtons.map(\.id),
+            expectedButtonIds
+        )
+    }
+
+    func testDockPortalFileDropResolvesDockController() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-drop-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("notes.txt")
+        try "dock file\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        let handled = workspace.handleExternalFileDrop(
+            BonsplitController.ExternalFileDropRequest(
+                urls: [fileURL],
+                destination: .insert(targetPane: dockPaneId, targetIndex: nil)
+            )
+        )
+
+        XCTAssertTrue(handled)
+        let dockPanelIds = dock.controller.allTabIds.compactMap { workspace.panelIdFromSurfaceId($0) }
+        let previewPanelId = try XCTUnwrap(
+            dockPanelIds.first { workspace.filePreviewPanel(for: $0)?.filePath == fileURL.path }
+        )
+        XCTAssertNotNil(workspace.filePreviewPanel(for: previewPanelId))
+        XCTAssertFalse(
+            workspace.bonsplitController.allTabIds.contains {
+                workspace.panelIdFromSurfaceId($0) == previewPanelId
+            }
+        )
+    }
+
+    func testDockTargetFilePreviewSplitUpdatesWorkspaceFocus() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-preview-split-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("notes.txt")
+        try "dock file\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        _ = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        workspace.focusPanel(mainPanelId)
+
+        let previewPanel = try XCTUnwrap(
+            workspace.splitPaneWithFilePreview(
+                targetPane: dockPaneId,
+                controller: dock.controller,
+                orientation: .horizontal,
+                insertFirst: false,
+                filePath: fileURL.path
+            )
+        )
+        let previewTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(previewPanel.id))
+        let previewPaneId = try XCTUnwrap(workspace.paneId(forPanelId: previewPanel.id))
+
+        XCTAssertEqual(workspace.focusedPanelId, previewPanel.id)
+        XCTAssertEqual(dock.controller.focusedPaneId, previewPaneId)
+        XCTAssertEqual(dock.controller.selectedTab(inPane: previewPaneId)?.id, previewTabId)
+    }
+
+    func testDockControllerProvidesTabMoveDestinations() throws {
+        let previousShared = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let manager = TabManager()
+        let windowId = UUID()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panel.id))
+
+        let destinations = dock.controller.tabContextMoveDestinationsProvider?(tabId, dockPaneId) ?? []
+
+        XCTAssertTrue(destinations.contains { $0.id == "new-workspace" })
+    }
+
+    func testDockControllerProvidesDirectFileDropHandler() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+
+        XCTAssertNotNil(dock.controller.onFileDrop)
+        XCTAssertEqual(
+            workspace.terminalPanelForDirectFileDrop(inPane: dockPaneId)?.id,
+            dockPanel.id
+        )
+        XCTAssertEqual(
+            workspace.terminalPanelForDirectFileDrop(
+                inPane: dockPaneId,
+                controller: dock.controller
+            )?.id,
+            dockPanel.id
+        )
+    }
+
+    func testConfiguredDocksDefaultOpenUnlessExplicitlyClosed() throws {
+        let workspace = Workspace(
+            dockConfiguration: CmuxWorkspaceDockConfiguration(
+                left: [CmuxWorkspaceDockDefinition(width: 260)],
+                right: [CmuxWorkspaceDockDefinition(open: false, width: 260)]
+            )
+        )
+
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .left).count, 1)
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .right).count, 1)
+        XCTAssertTrue(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.right))
+    }
+
+    func testOpeningMissingDockEdgeCreatesVisibleDock() {
+        let workspace = Workspace()
+
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .left).count, 0)
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.left))
+
+        workspace.dockLayout.openEdge(.left)
+
+        XCTAssertEqual(workspace.dockLayout.docksSnapshot(for: .left).count, 1)
+        XCTAssertTrue(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertEqual(workspace.dockLayout.openDocksSnapshot(for: .left).count, 1)
+    }
+
+    func testDockFilePreviewTextDropTargetUsesOwningController() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let filePanel = try XCTUnwrap(
+            workspace.newFilePreviewSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                filePath: "/tmp/cmux-dock-text-drop.txt",
+                focus: true
+            )
+        )
+
+        let dropTarget = PaneDropTargetView(frame: .zero)
+        let destination = dropTarget.debugFileDropTextDestinationKind(
+            context: PaneDropContext(
+                workspaceId: workspace.id,
+                panelId: filePanel.id,
+                paneId: dockPaneId
+            ),
+            workspace: workspace
+        )
+
+        XCTAssertEqual(destination, .editor)
+    }
+
+    func testDockFilePreviewTextDropPerformUsesOwningController() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let filePanel = try XCTUnwrap(
+            workspace.newFilePreviewSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                filePath: "/tmp/cmux-dock-text-drop.txt",
+                focus: true
+            )
+        )
+        let textView = NSTextView()
+        filePanel.attachTextView(textView)
+
+        let dropURL = URL(fileURLWithPath: "/tmp/cmux dropped/path with spaces.txt")
+        let dropTarget = PaneDropTargetView(frame: .zero)
+        XCTAssertTrue(
+            dropTarget.debugHandleFileDropAsText(
+                [dropURL],
+                context: PaneDropContext(
+                    workspaceId: workspace.id,
+                    panelId: filePanel.id,
+                    paneId: dockPaneId
+                ),
+                workspace: workspace
+            )
+        )
+
+        XCTAssertEqual(
+            textView.string,
+            TerminalImageTransferPlanner.insertedText(forFileURLs: [dropURL])
+        )
+        XCTAssertEqual(workspace.focusedPanelId, filePanel.id)
+    }
+
+    func testDockLastPanelReplacementFocusUsesReplacementController() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let mainTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(mainPanelId))
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        let dockTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(dockPanel.id))
+
+        XCTAssertTrue(workspace.requestCloseTab(mainTabId, force: true))
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        XCTAssertTrue(dock.controller.closeTab(dockTabId))
+
+        XCTAssertEqual(workspace.panels.count, 1)
+        let replacementPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let replacementTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(replacementPanelId))
+        XCTAssertTrue(workspace.bonsplitController.allTabIds.contains(replacementTabId))
+        XCTAssertFalse(dock.controller.allTabIds.contains(replacementTabId))
+        XCTAssertEqual(workspace.bonsplitController.tab(replacementTabId)?.id, replacementTabId)
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: try XCTUnwrap(workspace.paneId(forPanelId: replacementPanelId)))?.id,
+            replacementTabId
+        )
+    }
+
+    func testCurrentBonsplitFocusTargetResolvesDockController() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: dockPanel.id))
+        XCTAssertFalse(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+
+        workspace.focusPanel(mainPanelId)
+
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+        XCTAssertFalse(workspace.isCurrentBonsplitFocusTarget(panelId: dockPanel.id))
+    }
+
+    func testDockPaneConfigInheritancePrefersDockTerminal() {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        guard let mainPanelId = workspace.focusedPanelId,
+              let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: false
+              ) else {
+            XCTFail("Expected main and dock terminal panels")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+        XCTAssertEqual(workspace.terminalPanelForConfigInheritance(inPane: dockPaneId)?.id, dockPanel.id)
+    }
+
+    func testDockFocusedTerminalSurvivesFocusReconcile() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let mainPanelId = workspace.focusedPanelId,
+              let mainPanel = workspace.terminalPanel(for: mainPanelId),
+              let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected main and dock terminal panels")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        mainPanel.hostedView.setActive(false)
+        dockPanel.hostedView.setActive(true)
+
+        workspace.debugReconcileFocusStateForTesting()
+
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+        XCTAssertTrue(dockPanel.hostedView.debugRenderStats().isActive)
+        XCTAssertFalse(mainPanel.hostedView.debugRenderStats().isActive)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
@@ -5477,6 +6285,154 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             1
         )
         XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
+    }
+
+    func testOpenOrFocusRightSidebarToolSurfaceInFocusedPaneUsesDockPane() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        let toolPanel = try XCTUnwrap(
+            workspace.openOrFocusRightSidebarToolSurfaceInFocusedPane(mode: .files, focus: true)
+        )
+        let toolTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(toolPanel.id))
+
+        XCTAssertEqual(workspace.paneId(forPanelId: toolPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(toolTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(toolTabId))
+        XCTAssertEqual(workspace.focusedPanelId, toolPanel.id)
+    }
+
+    func testOpenFileSurfacesInFocusedPaneUsesDockPane() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        workspace.dockLayout.openEdge(.bottom)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        let filePath = "/tmp/cmux-dock-focused-preview.txt"
+        let panels = workspace.openFileSurfacesInFocusedPane(
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        )
+        let previewPanel = try XCTUnwrap(panels.first as? FilePreviewPanel)
+        let previewTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(previewPanel.id))
+
+        XCTAssertEqual(previewPanel.filePath, filePath)
+        XCTAssertEqual(workspace.paneId(forPanelId: previewPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(previewTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(previewTabId))
+        XCTAssertEqual(workspace.focusedPanelId, previewPanel.id)
+    }
+
+    func testRightSidebarToolFilePreviewOpensInOwningDockPane() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        workspace.dockLayout.openEdge(.right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let toolPanel = try XCTUnwrap(
+            workspace.newRightSidebarToolSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                mode: .files,
+                focus: true
+            )
+        )
+
+        let filePath = "/tmp/cmux-dock-preview.txt"
+        toolPanel.openFilePreview(filePath)
+
+        let previewPanel = try XCTUnwrap(
+            workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.first { $0.filePath == filePath }
+        )
+        let previewTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(previewPanel.id))
+        XCTAssertEqual(workspace.paneId(forPanelId: previewPanel.id), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(previewTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(previewTabId))
+    }
+
+    func testRightSidebarToolSessionResumeOpensInOwningDockPane() throws {
+        let cwd = FileManager.default.temporaryDirectory.path
+        let manager = TabManager(initialWorkingDirectory: cwd)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        workspace.dockLayout.openEdge(.bottom)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let toolPanel = try XCTUnwrap(
+            workspace.newRightSidebarToolSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                mode: .sessions,
+                focus: true
+            )
+        )
+        let terminalIdsBefore = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+        let entry = SessionEntry(
+            id: "dock-resume-entry",
+            agent: .codex,
+            sessionId: "session-123",
+            title: "Dock Resume",
+            cwd: cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        )
+
+        toolPanel.resumeSession(entry, tabManager: manager)
+
+        let resumedTerminalIds = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+            .subtracting(terminalIdsBefore)
+        let resumedPanelId = try XCTUnwrap(resumedTerminalIds.first)
+        let resumedTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(resumedPanelId))
+        XCTAssertEqual(workspace.paneId(forPanelId: resumedPanelId), dockPaneId)
+        XCTAssertTrue(dock.controller.allTabIds.contains(resumedTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(resumedTabId))
+    }
+
+    func testSessionIndexResumeIgnoresUnownedPreferredController() throws {
+        let cwd = FileManager.default.temporaryDirectory.path
+        let manager = TabManager(initialWorkingDirectory: cwd)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.currentDirectory = cwd
+        let workspacePaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let staleController = BonsplitController()
+        let stalePaneId = try XCTUnwrap(staleController.focusedPaneId)
+        XCTAssertFalse(workspace.allBonsplitControllers.contains { $0 === staleController })
+        let terminalIdsBefore = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+        let entry = SessionEntry(
+            id: "stale-controller-resume-entry",
+            agent: .codex,
+            sessionId: "session-stale-controller",
+            title: "Stale Controller Resume",
+            cwd: cwd,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: nil,
+            specifics: .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        )
+
+        SessionEntryResumeCoordinator.resume(
+            entry,
+            tabManager: manager,
+            preferredWorkspace: workspace,
+            preferredPane: stalePaneId,
+            preferredController: staleController
+        )
+
+        let resumedTerminalIds = Set(workspace.panels.values.compactMap { ($0 as? TerminalPanel)?.id })
+            .subtracting(terminalIdsBefore)
+        let resumedPanelId = try XCTUnwrap(resumedTerminalIds.first)
+        let resumedTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(resumedPanelId))
+        XCTAssertEqual(manager.tabs.map(\.id), [workspace.id])
+        XCTAssertEqual(workspace.paneId(forPanelId: resumedPanelId), workspacePaneId)
+        XCTAssertTrue(workspace.bonsplitController.allTabIds.contains(resumedTabId))
+        XCTAssertFalse(staleController.allTabIds.contains(resumedTabId))
     }
 
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
@@ -6792,6 +7748,48 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.bonsplitController.allPaneIds.count,
             1,
             "Configured New Tab default should keep the fork in the source pane"
+        )
+    }
+
+    func testDockForkConversationContextMenuProviderAndActionUseDockController() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let sourcePanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+        let sourceTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanel.id))
+        let snapshot = makeForkableClaudeSnapshot()
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanel.id)
+
+        XCTAssertTrue(
+            dock.controller.tabContextForkConversationAvailabilityProvider?(sourceTabId, dockPaneId) ?? false,
+            "Dock tab context menu should advertise Fork Conversation for forkable agent tabs"
+        )
+
+        let anchorTab = try XCTUnwrap(
+            dock.controller.tabs(inPane: dockPaneId).first { $0.id == sourceTabId }
+        )
+        workspace.splitTabBar(
+            dock.controller,
+            didRequestTabContextAction: .forkConversation,
+            for: anchorTab,
+            inPane: dockPaneId
+        )
+
+        let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let forkTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(forkPanelId))
+        XCTAssertNotEqual(forkPanelId, sourcePanel.id)
+        XCTAssertTrue(dock.controller.allTabIds.contains(forkTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(forkTabId))
+        XCTAssertEqual(workspace.paneId(forPanelId: forkPanelId), dockPaneId)
+        XCTAssertEqual(
+            workspace.terminalPanel(for: forkPanelId)?.surface.initialInput,
+            snapshot.forkCommand.map { $0 + "\n" }
         )
     }
 }

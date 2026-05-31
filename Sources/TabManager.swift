@@ -1332,9 +1332,12 @@ class TabManager: ObservableObject {
                 "tabCount": tabs.count
             ])
             let previousTabId = oldValue
-            if let previousTabId,
-               let previousPanelId = focusedPanelId(for: previousTabId) {
-                lastFocusedPanelByTab[previousTabId] = previousPanelId
+            if let previousTabId {
+                if let previousPanelId = focusedPanelId(for: previousTabId) {
+                    lastFocusedPanelByTab[previousTabId] = previousPanelId
+                } else {
+                    lastFocusedPanelByTab.removeValue(forKey: previousTabId)
+                }
             }
             if shouldRecordFocusHistory {
                 if let previousTabId {
@@ -2691,6 +2694,7 @@ class TabManager: ObservableObject {
         workingDirectory: String?,
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
+        dockConfiguration: CmuxWorkspaceDockConfiguration? = nil,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String]
@@ -2700,6 +2704,7 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
+            dockConfiguration: dockConfiguration,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment
@@ -2728,9 +2733,7 @@ class TabManager: ObservableObject {
     }
 
     private func applyTabBarLeadingInset(_ inset: CGFloat, to workspace: Workspace) {
-        if workspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-            workspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
-        }
+        workspace.applyTabBarLeadingInset(inset)
     }
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
@@ -2772,6 +2775,7 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
+        dockConfiguration: CmuxWorkspaceDockConfiguration? = nil,
         autoWelcomeIfNeeded: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true
     ) -> Workspace {
@@ -2817,6 +2821,7 @@ class TabManager: ObservableObject {
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
+                dockConfiguration: dockConfiguration,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -7677,13 +7682,13 @@ class TabManager: ObservableObject {
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let target = workspace.focusedBonsplitPaneForCommands() else {
             return nil
         }
 
-        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
+        let tabsInPane = target.controller.tabs(inPane: target.paneId)
         guard !tabsInPane.isEmpty else { return nil }
-        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
+        guard let selectedTabId = target.controller.selectedTab(inPane: target.paneId)?.id ?? tabsInPane.first?.id else {
             return nil
         }
 
@@ -7969,21 +7974,28 @@ class TabManager: ObservableObject {
             return focusedPanelId
         }
 
+        if let target = workspace.focusedBonsplitPaneForCommands() {
+            if let selectedTabId = target.controller.selectedTab(inPane: target.paneId)?.id
+                    ?? target.controller.tabs(inPane: target.paneId).first?.id,
+               let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
+               workspace.panels[panelId] != nil {
+                return panelId
+            }
+            return nil
+        }
+
         if workspace.panels.count == 1 {
             return workspace.panels.keys.first
         }
 
-        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
-        if let candidatePane,
-           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
-                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
-           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
-           workspace.panels[panelId] != nil {
-            return panelId
-        }
-
         return nil
     }
+
+#if DEBUG
+    func debugShortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
+        shortcutCloseTargetPanelId(in: workspace)
+    }
+#endif
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
@@ -8176,7 +8188,7 @@ class TabManager: ObservableObject {
         }
 
         if workspace.focusedPanelId != browserPanel.id {
-            workspace.clearSplitZoom()
+            workspace.clearSplitZoom(containingPanelId: browserPanel.id)
             workspace.focusPanel(browserPanel.id)
         }
 
@@ -8212,6 +8224,10 @@ class TabManager: ObservableObject {
 
     func rememberFocusedSurface(tabId: UUID, surfaceId: UUID) {
         lastFocusedPanelByTab[tabId] = surfaceId
+    }
+
+    func forgetFocusedSurface(tabId: UUID) {
+        lastFocusedPanelByTab.removeValue(forKey: tabId)
     }
 
     func applyWindowBackgroundForSelectedTab() {
@@ -8677,7 +8693,11 @@ class TabManager: ObservableObject {
 #endif
         // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
         // state active around it.
-        tab.clearSplitZoom()
+        if let desiredPanelId {
+            tab.clearSplitZoom(containingPanelId: desiredPanelId)
+        } else {
+            tab.clearSplitZoom()
+        }
         suppressFocusFlash = true
         focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
         suppressFocusFlash = false
@@ -8940,7 +8960,7 @@ class TabManager: ObservableObject {
     func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               tab.panels[surfaceId] != nil else { return nil }
-        tab.clearSplitZoom()
+        tab.clearSplitZoom(containingPanelId: surfaceId)
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
@@ -8951,7 +8971,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
-        tab.clearSplitZoom()
+        tab.clearSplitZoom(containingPanelId: focusedPanelId)
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
@@ -9415,13 +9435,14 @@ class TabManager: ObservableObject {
               let paneId = tab.paneId(forPanelId: surfaceId) else { return false }
 
         let paneUUID = paneId.id
-        guard tab.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
+        let controller = tab.bonsplitController(containingPane: paneId) ?? tab.bonsplitController
+        guard controller.allPaneIds.contains(where: { $0.id == paneUUID }) else {
             return false
         }
 
         var candidates: [ResizeSplitCandidate] = []
         let trace = resizeSplitCollectCandidates(
-            node: tab.bonsplitController.treeSnapshot(),
+            node: controller.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
@@ -9439,7 +9460,7 @@ class TabManager: ObservableObject {
         let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+        return controller.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
     /// Toggle zoom on a panel.
@@ -9632,14 +9653,12 @@ class TabManager: ObservableObject {
             }
         }
 
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
-                  inPane: paneId,
-                  url: url,
-                  focus: true,
-                  insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
-              ) else {
+        guard let browserPanel = workspace.newBrowserSurfaceInFocusedPane(
+            url: url,
+            focus: true,
+            insertAtEnd: insertAtEnd,
+            preferredProfileID: preferredProfileID
+        ) else {
             return nil
         }
         rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
@@ -9908,14 +9927,15 @@ class TabManager: ObservableObject {
         _ snapshot: ClosedBrowserPanelRestoreSnapshot,
         in workspace: Workspace
     ) -> UUID? {
-        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
+        if let originalTarget = browserRestoreTargetPane(snapshot.originalPaneId, in: workspace),
            let browserPanel = workspace.newBrowserSurface(
-               inPane: originalPane,
+               inPane: originalTarget.paneId,
+               controller: originalTarget.controller,
                url: snapshot.url,
                focus: true,
                preferredProfileID: snapshot.profileID
            ) {
-            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+            let tabCount = originalTarget.controller.tabs(inPane: originalTarget.paneId).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
             _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
@@ -9924,8 +9944,8 @@ class TabManager: ObservableObject {
 
         if let orientation = snapshot.fallbackSplitOrientation,
            let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
-           let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
-           let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
+           let fallbackTarget = browserRestoreTargetPane(fallbackAnchorPaneId, in: workspace),
+           let anchorTab = fallbackTarget.controller.selectedTab(inPane: fallbackTarget.paneId) ?? fallbackTarget.controller.tabs(inPane: fallbackTarget.paneId).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
            let browserPanelId = workspace.newBrowserSplit(
                from: anchorPanelId,
@@ -9937,15 +9957,30 @@ class TabManager: ObservableObject {
             return browserPanelId
         }
 
-        guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let focusedTarget = workspace.focusedBonsplitPaneForCommands()
+            ?? workspace.allBonsplitControllers.first.flatMap({ controller in
+                controller.allPaneIds.first.map { (controller: controller, paneId: $0) }
+            }) else {
             return nil
         }
         return workspace.newBrowserSurface(
-            inPane: focusedPane,
+            inPane: focusedTarget.paneId,
+            controller: focusedTarget.controller,
             url: snapshot.url,
             focus: true,
             preferredProfileID: snapshot.profileID
         )?.id
+    }
+
+    private func browserRestoreTargetPane(
+        _ paneUUID: UUID,
+        in workspace: Workspace
+    ) -> (controller: BonsplitController, paneId: PaneID)? {
+        let paneId = PaneID(id: paneUUID)
+        guard let controller = workspace.bonsplitController(containingPane: paneId) else {
+            return nil
+        }
+        return (controller, paneId)
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
@@ -11234,6 +11269,7 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+            workspace.hashSessionDockState(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(

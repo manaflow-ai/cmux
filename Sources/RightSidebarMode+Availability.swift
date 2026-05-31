@@ -11,31 +11,21 @@ extension RightSidebarMode {
             return .sessions
         case "feed":
             return .feed
-        case "dock":
-            return .dock
         default:
             return nil
         }
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults))
+        allCases.filter { $0.isAvailable(defaults: defaults) }
     }
 
-    static func availableModes(dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0.isAvailable(dockEnabled: dockEnabled) }
-    }
-
-    func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults))
-    }
-
-    func isAvailable(dockEnabled: Bool) -> Bool {
+    func isAvailable(defaults _: UserDefaults = .standard) -> Bool {
         switch self {
         case .files, .find, .sessions, .feed:
             return true
         case .dock:
-            return dockEnabled
+            return false
         }
     }
 }

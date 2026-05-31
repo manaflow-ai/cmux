@@ -174,7 +174,12 @@ extension TerminalController {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.sourcePaneNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard ws.bonsplitController.tabs(inPane: sourcePane).count > 1 else {
+            guard let sourceController = ws.bonsplitController(containingTab: bonsplitTabId)
+                    ?? ws.bonsplitController(containingPane: sourcePane) else {
+                result = .err(code: "not_found", message: SurfaceSplitOffMessage.sourcePaneNotFound, data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard sourceController.tabs(inPane: sourcePane).count > 1 else {
                 result = .err(code: "invalid_state", message: SurfaceSplitOffMessage.wouldEmptySourcePane, data: [
                     "surface_id": surfaceId.uuidString,
                     "pane_id": sourcePane.id.uuidString
@@ -182,7 +187,7 @@ extension TerminalController {
                 return
             }
             let previousFocusedPanelId = ws.focusedPanelId
-            guard let newPaneId = ws.bonsplitController.splitPane(
+            guard let newPaneId = sourceController.splitPane(
                 orientation: orientation,
                 movingTab: bonsplitTabId,
                 insertFirst: insertFirst

@@ -98,7 +98,7 @@ extension TerminalController {
     }
 
     func v2SetAbsolutePaneSize(
-        workspace: Workspace,
+        controller: BonsplitController,
         paneUUID: UUID,
         axis: String,
         targetPixels: CGFloat
@@ -116,7 +116,7 @@ extension TerminalController {
 
         var candidates: [V2PaneResizeCandidate] = []
         let trace = v2PaneResizeCollectCandidates(
-            node: workspace.bonsplitController.treeSnapshot(),
+            node: controller.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
             candidates: &candidates
         )
@@ -128,7 +128,7 @@ extension TerminalController {
         let targetFraction = targetPixels / candidate.axisPixels
         let requested = candidate.paneInFirstChild ? targetFraction : (1 - targetFraction)
         let clamped = min(max(requested, 0.1), 0.9)
-        guard workspace.bonsplitController.setDividerPosition(
+        guard controller.setDividerPosition(
             clamped,
             forSplit: candidate.splitId,
             fromExternal: true

@@ -10,6 +10,7 @@ extension CodingUserInfoKey {
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
+    var newWorkspace: CmuxWorkspaceDefinition?
     var notifications: CmuxNotificationConfigDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
@@ -18,12 +19,13 @@ struct CmuxConfigFile: Codable, Sendable {
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, newWorkspace, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
         actions: [String: CmuxConfigActionDefinition] = [:],
         ui: CmuxConfigUIDefinition? = nil,
+        newWorkspace: CmuxWorkspaceDefinition? = nil,
         notifications: CmuxNotificationConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
@@ -33,6 +35,7 @@ struct CmuxConfigFile: Codable, Sendable {
     ) {
         self.actions = actions
         self.ui = ui
+        self.newWorkspace = newWorkspace
         self.notifications = notifications
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
@@ -52,6 +55,7 @@ struct CmuxConfigFile: Codable, Sendable {
             codingPath: decoder.codingPath + [CodingKeys.actions]
         )
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
+        newWorkspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .newWorkspace)
         notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
 
         if let rawNewWorkspaceCommand = try container.decodeIfPresent(String.self, forKey: .newWorkspaceCommand) {
@@ -1903,6 +1907,7 @@ final class CmuxConfigStore: ObservableObject {
     private(set) var surfaceTabBarButtonSourcePath: String?
     private(set) var surfaceTabBarCommandSourcePaths: [String: String] = [:]
     private(set) var newWorkspaceActionSourcePath: String?
+    private(set) var newWorkspaceDefinitionSourcePath: String?
 
     private(set) var localConfigPath: String?
     private weak var tabManager: TabManager?
@@ -1961,6 +1966,7 @@ final class CmuxConfigStore: ObservableObject {
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
+    private var resolvedNewWorkspaceDefinitionCache: CmuxWorkspaceDefinition?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
@@ -2149,6 +2155,8 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
+        var configuredNewWorkspaceDefinition: CmuxWorkspaceDefinition?
+        var configuredNewWorkspaceDefinitionSourcePath: String?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -2186,6 +2194,19 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenuSourcePath = localPath
             }
             if configuredNewWorkspaceActionID == nil,
+               let newWorkspace = localConfig.newWorkspace {
+                if let globalNewWorkspace = globalConfig?.newWorkspace {
+                    configuredNewWorkspaceDefinition = Self.mergedNewWorkspaceDefinition(
+                        primary: newWorkspace,
+                        fallback: globalNewWorkspace
+                    )
+                } else {
+                    configuredNewWorkspaceDefinition = newWorkspace
+                }
+                configuredNewWorkspaceDefinitionSourcePath = localPath
+            }
+            if configuredNewWorkspaceActionID == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
                 configuredNewWorkspaceCommandSourcePath = localPath
@@ -2209,6 +2230,7 @@ final class CmuxConfigStore: ObservableObject {
         if let globalConfig {
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspaceActionID = globalConfig.ui?.newWorkspace?.action {
                 configuredNewWorkspaceActionID = newWorkspaceActionID
                 configuredNewWorkspaceActionSourcePath = globalConfigPath
@@ -2220,6 +2242,14 @@ final class CmuxConfigStore: ObservableObject {
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
+               configuredNewWorkspaceDefinition == nil,
+               let newWorkspace = globalConfig.newWorkspace {
+                configuredNewWorkspaceDefinition = newWorkspace
+                configuredNewWorkspaceDefinitionSourcePath = globalConfigPath
+            }
+            if configuredNewWorkspaceActionID == nil,
+               configuredNewWorkspaceCommandName == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspaceCommand = globalConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
                 configuredNewWorkspaceCommandSourcePath = globalConfigPath
@@ -2297,6 +2327,7 @@ final class CmuxConfigStore: ObservableObject {
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
+        newWorkspaceDefinitionSourcePath = configuredNewWorkspaceDefinitionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
@@ -2317,6 +2348,7 @@ final class CmuxConfigStore: ObservableObject {
         notificationHooks = resolvedNotificationHooks
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
+        resolvedNewWorkspaceDefinitionCache = configuredNewWorkspaceDefinition
         if let issue = resolvedNewWorkspaceAction.issue {
             issues.append(issue)
         }
@@ -2418,6 +2450,30 @@ final class CmuxConfigStore: ObservableObject {
         fallback: [String: ActionEntry]
     ) -> [String: ActionEntry] {
         fallback.merging(primary) { _, primary in primary }
+    }
+
+    private static func mergedNewWorkspaceDefinition(
+        primary: CmuxWorkspaceDefinition,
+        fallback: CmuxWorkspaceDefinition
+    ) -> CmuxWorkspaceDefinition {
+        CmuxWorkspaceDefinition(
+            name: primary.name ?? fallback.name,
+            cwd: primary.cwd ?? fallback.cwd,
+            color: primary.color ?? fallback.color,
+            layout: primary.layout ?? fallback.layout,
+            docks: {
+                switch (fallback.docks, primary.docks) {
+                case let (fallbackDocks?, primaryDocks?):
+                    return fallbackDocks.merging(primary: primaryDocks)
+                case let (_, primaryDocks?):
+                    return primaryDocks
+                case let (fallbackDocks?, nil):
+                    return fallbackDocks
+                case (nil, nil):
+                    return nil
+                }
+            }()
+        )
     }
 
     private func sanitizeConfigText(_ text: String) -> String {
@@ -2630,6 +2686,10 @@ final class CmuxConfigStore: ObservableObject {
 
     func resolvedNewWorkspaceAction() -> CmuxResolvedConfigAction? {
         resolvedNewWorkspaceActionCache
+    }
+
+    func resolvedNewWorkspaceDefinition() -> CmuxWorkspaceDefinition? {
+        resolvedNewWorkspaceDefinitionCache
     }
 
     func resolvedAction(id: String) -> CmuxResolvedConfigAction? {

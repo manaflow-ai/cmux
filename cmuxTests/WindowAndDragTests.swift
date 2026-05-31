@@ -31,6 +31,58 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
 }
 
 @MainActor
+final class WorkspaceDockRevealStateTests: XCTestCase {
+    func testTransientRevealClosesWhenDragEndsWithoutDockingTab() {
+        var state = WorkspaceDockRevealState()
+        let tabId = UUID()
+
+        XCTAssertTrue(state.beginTargeting(edge: .left, isEdgeOpen: false, transferTabId: tabId))
+        XCTAssertTrue(state.hasTransientlyOpenedEdges)
+
+        state.endTargeting(edge: .left)
+        let edgesToClose = state.transientEdgesToCloseAfterDragEnd { _, _ in false }
+
+        XCTAssertEqual(edgesToClose, [.left])
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+        XCTAssertTrue(state.targetedEdges.isEmpty)
+    }
+
+    func testTransientRevealStaysOpenWhenDraggedTabLandsInDock() {
+        var state = WorkspaceDockRevealState()
+        let tabId = UUID()
+
+        XCTAssertTrue(state.beginTargeting(edge: .right, isEdgeOpen: false, transferTabId: tabId))
+        state.endTargeting(edge: .right)
+        let edgesToClose = state.transientEdgesToCloseAfterDragEnd { edge, landedTabId in
+            edge == .right && landedTabId == tabId
+        }
+
+        XCTAssertTrue(edgesToClose.isEmpty)
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+    }
+
+    func testAlreadyOpenEdgeIsNotClosedAfterRevealTargetEnds() {
+        var state = WorkspaceDockRevealState()
+
+        XCTAssertFalse(state.beginTargeting(edge: .bottom, isEdgeOpen: true, transferTabId: UUID()))
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+
+        state.endTargeting(edge: .bottom)
+        let edgesToClose = state.transientEdgesToCloseAfterDragEnd { _, _ in false }
+
+        XCTAssertTrue(edgesToClose.isEmpty)
+    }
+
+    func testRevealTargetWithoutTransferDoesNotOpenTransientDock() {
+        var state = WorkspaceDockRevealState()
+
+        XCTAssertFalse(state.beginTargeting(edge: .left, isEdgeOpen: false, transferTabId: nil))
+        XCTAssertFalse(state.hasTransientlyOpenedEdges)
+        XCTAssertEqual(state.targetedEdges, [.left])
+    }
+}
+
+@MainActor
 final class WindowGlassEffectTests: XCTestCase {
     func testRemoveRestoresOriginalContentHierarchy() {
         _ = NSApplication.shared
@@ -199,6 +251,62 @@ final class MainWindowFocusRedrawTests: XCTestCase {
             contentView.needsDisplay,
             "Regaining key focus must invalidate the root content view."
         )
+    }
+}
+
+@MainActor
+final class CmuxMainWindowDockTitlebarHitTests: XCTestCase {
+    func testDockTitlebarHitRegionUsesMeasuredControlFrame() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+        }
+
+        window.workspaceDockTitlebarControlFrameInWindow = NSRect(x: 700, y: 470, width: 58, height: 18)
+
+        XCTAssertEqual(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 705, y: 479)), .left)
+        XCTAssertEqual(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 729, y: 479)), .bottom)
+        XCTAssertEqual(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 750, y: 479)), .right)
+        XCTAssertNil(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 790, y: 479)))
+        XCTAssertNil(window.debugWorkspaceDockTitlebarEdge(at: NSPoint(x: 729, y: 455)))
+    }
+
+    func testStaleDockTitlebarBinderDoesNotClearCurrentBinding() {
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
+        let window = CmuxMainWindow(
+            contentRect: contentView.bounds,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+        defer {
+            window.orderOut(nil)
+        }
+
+        let firstLayout = WorkspaceDockLayout(configuration: .default)
+        let secondLayout = WorkspaceDockLayout(configuration: .default)
+        let staleBinder = WorkspaceDockTitlebarStateBinder.BinderView(layout: firstLayout)
+        let currentBinder = WorkspaceDockTitlebarStateBinder.BinderView(layout: secondLayout)
+
+        staleBinder.frame = NSRect(x: 700, y: 470, width: 58, height: 18)
+        currentBinder.frame = NSRect(x: 700, y: 470, width: 58, height: 18)
+        contentView.addSubview(staleBinder)
+        staleBinder.bindToWindow()
+        contentView.addSubview(currentBinder)
+        currentBinder.bindToWindow()
+
+        XCTAssertTrue(window.workspaceDockTitlebarLayout === secondLayout)
+
+        staleBinder.removeFromSuperview()
+
+        XCTAssertTrue(window.workspaceDockTitlebarLayout === secondLayout)
+        XCTAssertEqual(window.workspaceDockTitlebarControlFrameInWindow, currentBinder.convert(currentBinder.bounds, to: nil))
     }
 }
 

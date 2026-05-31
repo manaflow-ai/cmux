@@ -2287,7 +2287,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault", "OK", ""),
             ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions", "OK", ""),
             ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed", "OK", ""),
-            ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock", "OK", ""),
             ("mode", ["right-sidebar", "mode"], "right_sidebar mode", #"{"visible":true,"mode":"find"}"#, #"{"visible":true,"mode":"find"}"# + "\n"),
         ]
 
@@ -2327,14 +2326,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
-        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        let socketPath = makeSocketPath("rs-bad-command")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["right-sidebar", "unknown", "--workspace", "workspace:2"],
+            arguments: ["right-sidebar", "unknown"],
             environment: environment,
             timeout: 5
         )
@@ -2346,16 +2350,68 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testRightSidebarDockAliasValidatesBeforeTargetResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let aliasSocketPath = makeSocketPath("rs-dock-alias")
+        let aliasListenerFD = try bindUnixSocket(at: aliasSocketPath)
+        defer {
+            Darwin.close(aliasListenerFD)
+            unlink(aliasSocketPath)
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = aliasSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let aliasResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["right-sidebar", "dock"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(aliasResult.timedOut, aliasResult.stderr)
+        XCTAssertEqual(aliasResult.status, 1, aliasResult.stderr)
+        XCTAssertTrue(aliasResult.stdout.isEmpty, aliasResult.stdout)
+        XCTAssertTrue(aliasResult.stderr.contains("Unknown right-sidebar command 'dock'"), aliasResult.stderr)
+        XCTAssertFalse(aliasResult.stderr.contains("Socket"), aliasResult.stderr)
+
+        let setSocketPath = makeSocketPath("rs-dock-set")
+        let setListenerFD = try bindUnixSocket(at: setSocketPath)
+        defer {
+            Darwin.close(setListenerFD)
+            unlink(setSocketPath)
+        }
+        environment["CMUX_SOCKET_PATH"] = setSocketPath
+
+        let setResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["right-sidebar", "set", "dock"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(setResult.timedOut, setResult.stderr)
+        XCTAssertEqual(setResult.status, 1, setResult.stderr)
+        XCTAssertTrue(setResult.stdout.isEmpty, setResult.stdout)
+        XCTAssertTrue(setResult.stderr.contains("Unknown right-sidebar mode 'dock'"), setResult.stderr)
+        XCTAssertFalse(setResult.stderr.contains("Socket"), setResult.stderr)
+    }
+
     func testRightSidebarInvalidSetModeValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
-        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        let socketPath = makeSocketPath("rs-bad-mode")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
         var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["right-sidebar", "set", "unknown", "--workspace", "workspace:2"],
+            arguments: ["right-sidebar", "set", "unknown"],
             environment: environment,
             timeout: 5
         )

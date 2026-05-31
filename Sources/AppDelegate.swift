@@ -2768,7 +2768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let attemptReveal: () -> Void = { [weak self] in
             guard let self else { return }
             let result = self.debugRevealRightSidebarInActiveMainWindow(
-                mode: .dock,
+                mode: .feed,
                 focusFirstItem: false,
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
             )
@@ -4591,10 +4591,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        let focusedDestinationPane = targetPane == nil ? destinationWorkspace.focusedBonsplitPaneForCommands() : nil
+        let destinationController = targetPane.flatMap { destinationWorkspace.bonsplitController(containingPane: $0) }
+            ?? focusedDestinationPane?.controller
+            ?? destinationWorkspace.bonsplitController
         let resolvedTargetPane = targetPane.flatMap { pane in
-            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? destinationWorkspace.bonsplitController.focusedPaneId
-            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+            destinationController.allPaneIds.first(where: { $0 == pane })
+        } ?? focusedDestinationPane.flatMap { focusedPane in
+            focusedPane.controller === destinationController ? focusedPane.paneId : nil
+        } ?? destinationController.focusedPaneId
+            ?? destinationController.allPaneIds.first
 
         guard let resolvedTargetPane else {
 #if DEBUG
@@ -4607,51 +4613,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if destinationWorkspace.id == sourceWorkspace.id {
-            if let splitTarget {
-                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
-                        resolvedTargetPane,
-                        orientation: splitTarget.orientation,
-                        movingTab: sourceTabId,
-                        insertFirst: splitTarget.insertFirst
-                      ) != nil else {
-#if DEBUG
-                    cmuxDebugLog(
-                        "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sameWorkspaceSplitFailed " +
-                        "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) split=\(splitLabel) " +
-                        "elapsedMs=\(elapsedMs(since: moveStart))"
-                    )
-#endif
-                    return false
-                }
-                if focus {
-                    source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
-                }
+            guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId) else {
 #if DEBUG
                 cmuxDebugLog(
-                    "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=sameWorkspaceSplit moved=1 " +
-                    "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+                    "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sourceTabMissing " +
+                    "elapsedMs=\(elapsedMs(since: moveStart))"
                 )
 #endif
-                return true
+                return false
             }
-
-            let moved = sourceWorkspace.moveSurface(
-                panelId: panelId,
-                toPane: resolvedTargetPane,
-                atIndex: targetIndex,
+            let moved = sourceWorkspace.moveBonsplitTabFromAnyController(
+                tabId: sourceTabId,
+                to: destinationController,
+                targetPane: resolvedTargetPane,
+                targetIndex: targetIndex,
+                splitTarget: splitTarget,
                 focus: focus
             )
+            if moved, focus {
+                source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
+            }
 #if DEBUG
             cmuxDebugLog(
                 "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=sameWorkspaceMove moved=\(moved ? 1 : 0) " +
                 "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) targetIndex=\(targetIndex.map(String.init) ?? "nil") " +
-                "elapsedMs=\(elapsedMs(since: moveStart))"
+                "split=\(splitLabel) elapsedMs=\(elapsedMs(since: moveStart))"
             )
 #endif
             return moved
         }
 
+        let sourceTabIdForRollback = sourceWorkspace.surfaceIdFromPanelId(panelId)
+        let sourceControllerForRollback = sourceTabIdForRollback.flatMap {
+            sourceWorkspace.bonsplitController(containingTab: $0)
+        }
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
 #if DEBUG
@@ -4674,12 +4669,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard destinationWorkspace.attachDetachedSurface(
             detached,
             inPane: resolvedTargetPane,
+            controller: destinationController,
             atIndex: targetIndex,
             focus: focus
         ) != nil else {
             rollbackDetachedSurface(
                 detached,
                 to: sourceWorkspace,
+                sourceController: sourceControllerForRollback,
                 sourcePane: sourcePane,
                 sourceIndex: sourceIndex,
                 focus: focus
@@ -4702,7 +4699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  destinationController.splitPane(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,
@@ -4712,6 +4709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     rollbackDetachedSurface(
                         detachedFromDestination,
                         to: sourceWorkspace,
+                        sourceController: sourceControllerForRollback,
                         sourcePane: sourcePane,
                         sourceIndex: sourceIndex,
                         focus: focus
@@ -4744,20 +4742,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if focus {
-            let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
-            if let destinationWindowId {
-                _ = focusMainWindow(windowId: destinationWindowId)
-            }
-            destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
-            if let destinationWindowId {
-                reassertCrossWindowSurfaceMoveFocusIfNeeded(
-                    destinationWindowId: destinationWindowId,
-                    sourceWindowId: source.windowId,
-                    destinationWorkspaceId: targetWorkspaceId,
-                    destinationPanelId: panelId,
-                    destinationManager: destinationManager
-                )
-            }
+            focusDestinationSurfaceAfterMove(
+                destinationManager: destinationManager,
+                destinationWorkspaceId: targetWorkspaceId,
+                destinationPanelId: panelId,
+                sourceWindowId: source.windowId,
+                focusWindow: focusWindow
+            )
         }
 #if DEBUG
         let focusMs = elapsedMs(since: focusStart)
@@ -5522,18 +5513,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func rollbackDetachedSurface(
         _ detached: Workspace.DetachedSurfaceTransfer,
         to workspace: Workspace,
+        sourceController: BonsplitController? = nil,
         sourcePane: PaneID?,
         sourceIndex: Int?,
         focus: Bool
     ) {
+        let controller = sourceController
+            ?? sourcePane.flatMap { workspace.bonsplitController(containingPane: $0) }
+            ?? workspace.bonsplitController
         let rollbackPane = sourcePane.flatMap { pane in
-            workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
+            controller.allPaneIds.first(where: { $0 == pane })
+        } ?? controller.focusedPaneId
+            ?? controller.allPaneIds.first
         guard let rollbackPane else { return }
         _ = workspace.attachDetachedSurface(
             detached,
             inPane: rollbackPane,
+            controller: controller,
             atIndex: sourceIndex,
             focus: focus
         )
@@ -5551,6 +5547,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)
         } else {
             _ = closeMainWindow(windowId: sourceWindowId, recordHistory: false)
+        }
+    }
+
+    func focusDestinationSurfaceAfterMove(
+        destinationManager: TabManager,
+        destinationWorkspaceId: UUID,
+        destinationPanelId: UUID,
+        sourceWindowId: UUID,
+        focusWindow: Bool
+    ) {
+        let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
+        if let destinationWindowId {
+            _ = focusMainWindow(windowId: destinationWindowId)
+        }
+        destinationManager.focusTab(
+            destinationWorkspaceId,
+            surfaceId: destinationPanelId,
+            suppressFlash: true
+        )
+        if let destinationWindowId {
+            reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                destinationWindowId: destinationWindowId,
+                sourceWindowId: sourceWindowId,
+                destinationWorkspaceId: destinationWorkspaceId,
+                destinationPanelId: destinationPanelId,
+                destinationManager: destinationManager
+            )
         }
     }
 
@@ -6070,6 +6093,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspaceId: workspaceId,
             panelId: panelId
         )
+    }
+
+    private func shouldUseFocusedTerminalShortcutContext(_ context: FocusedTerminalShortcutContext) -> Bool {
+        guard let workspace = context.tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
+            return true
+        }
+        guard let responderTabId = workspace.surfaceIdFromPanelId(context.panelId),
+              let responderController = workspace.bonsplitController(containingTab: responderTabId) else {
+            return true
+        }
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            guard let focusedTarget = workspace.focusedBonsplitPaneForCommands(),
+                  let responderPaneId = workspace.paneId(forPanelId: context.panelId) else {
+                return true
+            }
+            return focusedTarget.controller === responderController &&
+                focusedTarget.paneId == responderPaneId
+        }
+        guard focusedPanelId != context.panelId else {
+            return true
+        }
+        guard let focusedPaneId = workspace.paneId(forPanelId: focusedPanelId),
+              let focusedController = workspace.bonsplitController(containingPane: focusedPaneId) else {
+            return true
+        }
+        return focusedController === responderController
     }
 
     private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
@@ -6886,79 +6935,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         replacingInitialWorkspace initialWorkspace: Workspace? = nil,
         workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
     ) -> Bool {
-        guard let cmuxConfigStore = context.cmuxConfigStore,
-              let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
+        guard let cmuxConfigStore = context.cmuxConfigStore else {
             return false
         }
         guard let window = resolvedWindow(for: context) else {
             discardOrphanedMainWindowContext(context)
             return false
         }
+        if let action = cmuxConfigStore.resolvedNewWorkspaceAction() {
 #if DEBUG
-        cmuxDebugLog(
-            "newWorkspace.configCommand source=\(debugSource) " +
-            "action=\(action.id) windowId=\(String(context.windowId.uuidString.prefix(8)))"
-        )
+            cmuxDebugLog(
+                "newWorkspace.configCommand source=\(debugSource) " +
+                "action=\(action.id) windowId=\(String(context.windowId.uuidString.prefix(8)))"
+            )
 #endif
-        let initialWorkspaceId = initialWorkspace?.id
-        if let workspaceGroupTarget,
-           case .builtIn(.newWorkspace) = action.action {
-            return context.tabManager.createWorkspaceInGroup(
-                groupId: workspaceGroupTarget.groupId,
-                placement: workspaceGroupTarget.placement,
-                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
-            ) != nil
-        }
+            let initialWorkspaceId = initialWorkspace?.id
+            if let workspaceGroupTarget,
+               case .builtIn(.newWorkspace) = action.action {
+                return context.tabManager.createWorkspaceInGroup(
+                    groupId: workspaceGroupTarget.groupId,
+                    placement: workspaceGroupTarget.placement,
+                    referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                ) != nil
+            }
 
-        let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
-        var asyncObserverId: UUID?
-        let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
-            if let context,
-               let workspaceGroupTarget,
-               let beforeIds {
-                let afterIds = context.tabManager.tabs.map(\.id)
-                var newlyCreatedId: UUID?
-                for id in afterIds where !beforeIds.contains(id) {
-                    context.tabManager.addWorkspaceToGroup(
-                        workspaceId: id,
-                        groupId: workspaceGroupTarget.groupId,
-                        placement: workspaceGroupTarget.placement,
-                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
-                    )
-                    newlyCreatedId = id
-                    break
+            let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+            var asyncObserverId: UUID?
+            let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+                if let context,
+                   let workspaceGroupTarget,
+                   let beforeIds {
+                    let afterIds = context.tabManager.tabs.map(\.id)
+                    var newlyCreatedId: UUID?
+                    for id in afterIds where !beforeIds.contains(id) {
+                        context.tabManager.addWorkspaceToGroup(
+                            workspaceId: id,
+                            groupId: workspaceGroupTarget.groupId,
+                            placement: workspaceGroupTarget.placement,
+                            referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                        )
+                        newlyCreatedId = id
+                        break
+                    }
+                    if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
+                        asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
+                            tabManager: context.tabManager,
+                            groupId: workspaceGroupTarget.groupId,
+                            knownIds: Set(afterIds),
+                            placement: workspaceGroupTarget.placement,
+                            referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                        )
+                    }
                 }
-                if newlyCreatedId == nil, case .builtIn(.cloudVM) = action.action {
-                    asyncObserverId = ConfiguredGroupActionAsyncWorkspaceObserver.install(
-                        tabManager: context.tabManager,
-                        groupId: workspaceGroupTarget.groupId,
-                        knownIds: Set(afterIds),
-                        placement: workspaceGroupTarget.placement,
-                        referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
+                if action.workspaceCommandName != nil {
+                    self?.closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspaceId,
+                        in: context
                     )
                 }
             }
-            if action.workspaceCommandName != nil {
-                self?.closeInitialWorkspaceIfNeeded(
-                    initialWorkspaceId: initialWorkspaceId,
-                    in: context
+            let onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] completion in
+                guard let context, let asyncObserverId else { return }
+                ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
+                    tabManager: context.tabManager,
+                    observerId: asyncObserverId,
+                    workspaceId: completion.succeeded ? completion.workspaceId : nil
                 )
             }
-        }
-        let onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] completion in
-            guard let context, let asyncObserverId else { return }
-            ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
-                tabManager: context.tabManager,
-                observerId: asyncObserverId,
-                workspaceId: completion.succeeded ? completion.workspaceId : nil
+            return executeConfiguredCmuxAction(
+                action,
+                context: context,
+                preferredWindow: window,
+                onExecuted: onExecuted,
+                onCloudVMCompletion: onCloudVMCompletion
             )
         }
-        return executeConfiguredCmuxAction(
-            action,
-            context: context,
-            preferredWindow: window,
-            onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+
+        guard let workspaceDefinition = cmuxConfigStore.resolvedNewWorkspaceDefinition() else {
+            return false
+        }
+        let initialWorkspaceId = initialWorkspace?.id
+        let onExecuted: (() -> Void)? = { [weak self, weak context] in
+            self?.closeInitialWorkspaceIfNeeded(
+                initialWorkspaceId: initialWorkspaceId,
+                in: context
+            )
+        }
+        let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+        let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+            : FileManager.default.homeDirectoryForCurrentUser.path
+#if DEBUG
+        cmuxDebugLog(
+            "newWorkspace.configTemplate source=\(debugSource) " +
+            "windowId=\(String(context.windowId.uuidString.prefix(8)))"
+        )
+#endif
+        return CmuxConfigExecutor.executeNewWorkspaceTemplate(
+            workspace: workspaceDefinition,
+            tabManager: context.tabManager,
+            baseCwd: baseCwd,
+            configSourcePath: cmuxConfigStore.newWorkspaceDefinitionSourcePath,
+            globalConfigPath: cmuxConfigStore.globalConfigPath,
+            presentingWindow: window,
+            onExecuted: onExecuted
         )
     }
 
@@ -13987,7 +14066,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         let didCreateSplit: Bool = {
-            if let terminalContext {
+            if let terminalContext,
+               shouldUseFocusedTerminalShortcutContext(terminalContext) {
                 return terminalContext.tabManager.createSplit(
                     tabId: terminalContext.workspaceId,
                     surfaceId: terminalContext.panelId,
@@ -14610,6 +14690,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
+                if let cmuxConfigStore = context.cmuxConfigStore,
+                   cmuxConfigStore.resolvedNewWorkspaceAction() == nil,
+                   let workspaceDefinition = cmuxConfigStore.resolvedNewWorkspaceDefinition() {
+                    let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
+                    let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+                        : FileManager.default.homeDirectoryForCurrentUser.path
+                    return CmuxConfigExecutor.executeNewWorkspaceTemplate(
+                        workspace: workspaceDefinition,
+                        tabManager: context.tabManager,
+                        baseCwd: baseCwd,
+                        configSourcePath: cmuxConfigStore.newWorkspaceDefinitionSourcePath,
+                        globalConfigPath: cmuxConfigStore.globalConfigPath,
+                        presentingWindow: preferredWindow,
+                        onExecuted: onExecuted
+                    )
+                }
                 context.tabManager.addWorkspace()
                 onExecuted?()
                 return true

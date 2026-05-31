@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 
 extension TabManager {
@@ -5,7 +6,8 @@ extension TabManager {
     func equalizeSplits(tabId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
 
-        let result = equalizeSplitsOnce(in: tab)
+        let controller = tab.focusedBonsplitControllerForCommands()
+        let result = equalizeSplitsOnce(controller: controller)
         if result.foundSplit {
             tab.didProgrammaticallyChangeSplitGeometry()
         }
@@ -13,10 +15,10 @@ extension TabManager {
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> SplitEqualizer.Result {
+    private func equalizeSplitsOnce(controller: BonsplitController) -> SplitEqualizer.Result {
         SplitEqualizer.equalize(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController
+            in: controller.treeSnapshot(),
+            controller: controller
         )
     }
 }

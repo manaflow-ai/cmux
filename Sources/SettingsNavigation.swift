@@ -6,7 +6,6 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case terminal
     case textBox
     case sidebarAppearance
-    case betaFeatures
     case automation
     case browser
     case browserImport
@@ -32,8 +31,6 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
             return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
-        case .betaFeatures:
-            return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .browser:
@@ -65,8 +62,6 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "paintpalette"
         case .sidebarAppearance:
             return "sidebar.left"
-        case .betaFeatures:
-            return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
         case .browser:
@@ -98,8 +93,6 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) palette tabs"
         case .sidebarAppearance:
             return "\(title) sidebar details branches badges material terminal background"
-        case .betaFeatures:
-            return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini"
         case .browser:
@@ -366,7 +359,6 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "show-log", String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"), "status message"),
         setting(.sidebarAppearance, "show-progress", String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"), "progress bar"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
-        setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
@@ -413,7 +405,6 @@ enum SettingsSearchIndex {
     )
 
     private static let settingsPathAnchorIDs: [String: String] = [
-        "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .app, idSuffix: "appearance"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),

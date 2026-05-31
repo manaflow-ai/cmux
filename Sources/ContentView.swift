@@ -2334,33 +2334,39 @@ struct ContentView: View {
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
         return ZStack {
-            // Enable window dragging from the titlebar strip without making the entire content
-            // view draggable (which breaks drag gestures like tab reordering).
-            WindowDragHandleView()
-
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
                 .allowsHitTesting(false)
 
             HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
-                    fullscreenControls
+                HStack(spacing: 8) {
+                    if isFullScreen && !sidebarState.isVisible {
+                        fullscreenControls
+                    }
+
+                    // Draggable folder icon + focused command name
+                    if let directory = focusedDirectory {
+                        DetachedFolderDragIcon(directory: directory)
+                            .frame(width: 16, height: 16)
+                            .padding(.leading, -6)
+                    }
+
+                    Text(titlebarText)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Enable window dragging from the titlebar strip without making the entire content
+                // view draggable (which breaks drag gestures like tab reordering). Keep this out
+                // from under the dock buttons so their normal hit testing stays intact.
+                .background(WindowDragHandleView())
 
-                // Draggable folder icon + focused command name
-                if let directory = focusedDirectory {
-                    DetachedFolderDragIcon(directory: directory)
-                        .frame(width: 16, height: 16)
-                        .padding(.leading, -6)
+                if let selectedWorkspace = tabManager.selectedWorkspace {
+                    WorkspaceDockToggleCluster(layout: selectedWorkspace.dockLayout)
                 }
-
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
-
-                Spacer()
-
             }
             .frame(height: titlebarContentHeight)
             .padding(.top, 2)
@@ -2502,30 +2508,47 @@ struct ContentView: View {
 
     func openRightSidebarToolPane(_ mode: RightSidebarMode) {
         guard mode.canOpenAsPane,
-              let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+              let workspace = tabManager.selectedWorkspace else {
             NSSound.beep()
             return
         }
 
+        guard let target = workspace.focusedBonsplitPaneForCommands() else {
+            NSSound.beep()
+            return
+        }
         sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
+        workspace.clearSplitZoom(in: target.controller)
+        guard workspace.openOrFocusRightSidebarToolSurface(
+            inPane: target.paneId,
+            controller: target.controller,
+            mode: mode,
+            focus: true
+        ) != nil else {
+            NSSound.beep()
+            return
+        }
     }
 
     private func openFilePreviewFromSidebar(filePath: String) {
         guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+
+        guard let target = workspace.focusedBonsplitPaneForCommands() else {
+            NSSound.beep()
             return
         }
-
-        sidebarSelectionState.selection = .tabs
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
+        let panels = workspace.openFileSurfaces(
+            inPane: target.paneId,
+            controller: target.controller,
             filePaths: [filePath],
             focus: true,
             reuseExisting: true
         )
+        guard !panels.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        sidebarSelectionState.selection = .tabs
     }
 
     private func syncFileExplorerDirectory() {
@@ -6451,7 +6474,7 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
-                workspace.bonsplitController.allPaneIds.count > 1
+                workspace.hasSplitsForCommands()
             )
             let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)

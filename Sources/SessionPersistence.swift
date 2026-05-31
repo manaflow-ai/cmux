@@ -1749,6 +1749,13 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionWorkspaceDockSnapshot: Codable, Sendable {
+    var edge: WorkspaceDockEdge
+    var isOpen: Bool
+    var preferredSize: Double
+    var layout: SessionWorkspaceLayoutSnapshot
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
@@ -1767,6 +1774,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    var docks: [SessionWorkspaceDockSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]
