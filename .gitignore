@@ -57,3 +57,18 @@ tmp-*/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
+
+# Apple code-signing & notarization credentials — NEVER commit (public repo).
+# Signing runs in a private repo / self-hosted runner; creds live only there
+# or in the macOS Keychain. See docs/panecho-signing.md.
+*.p12
+*.p8
+*.cer
+*.pem
+*.eds
+*.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
+AuthKey*.p8
+build_assets/
