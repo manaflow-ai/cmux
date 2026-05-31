@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppearance
 import SwiftUI
 
 enum GhosttyTerminalBackdropRenderingMode {
@@ -106,31 +107,21 @@ struct SidebarBackdropSettingsSnapshot {
     let colorScheme: ColorScheme
 
     var materialPolicy: SidebarBackdropMaterialPolicy {
-        let materialOption = SidebarMaterialOption(rawValue: materialRawValue)
+        // Aurean "opaque chrome": the sidebar is a solid surfaceOff fill rather than a
+        // translucent vibrancy material, so it reads as part of the opaque Aurean chrome and
+        // never lets the desktop wallpaper bleed through. `material` is nil so no vibrancy is
+        // built; the opaque tint overlay (see ContentView.backdrop) paints the surface.
         let blendingMode = SidebarBlendModeOption(rawValue: blendModeRawValue)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: stateRawValue)?.state ?? .active
-        let resolvedHex: String
-        if colorScheme == .dark, let tintHexDark {
-            resolvedHex = tintHexDark
-        } else if colorScheme == .light, let tintHexLight {
-            resolvedHex = tintHexLight
-        } else {
-            resolvedHex = tintHex
-        }
-        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: tintHex) ?? .black)
-            .withAlphaComponent(tintOpacity)
-        let preferLiquidGlass = materialOption?.usesLiquidGlass ?? false
-        let usesWindowLevelGlass = preferLiquidGlass && blendingMode == .behindWindow
-
         return SidebarBackdropMaterialPolicy(
-            material: materialOption?.material,
+            material: nil,
             blendingMode: blendingMode,
             state: state,
-            opacity: blurOpacity,
-            tintColor: tintColor,
+            opacity: 1,
+            tintColor: AureanAppearanceSettings.activePalette.surfaceOff.nsColor,
             cornerRadius: CGFloat(max(0, cornerRadius)),
-            preferLiquidGlass: preferLiquidGlass,
-            usesWindowLevelGlass: usesWindowLevelGlass
+            preferLiquidGlass: false,
+            usesWindowLevelGlass: false
         )
     }
 
