@@ -393,7 +393,30 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
             browserPanel: browserPanel,
             rightSidebarFocused: false
         )
-        defer { AppDelegate.shared = previousShared }
+        defer {
+            appDelegate.debugShortcutEventFocusContextOverride = nil
+            teardownTabManagerForTesting(manager)
+            drainMainActorTasksForTesting()
+            AppDelegate.shared = previousShared
+        }
         body(appDelegate, manager)
+    }
+
+    private func teardownTabManagerForTesting(_ manager: TabManager) {
+        for workspace in Array(manager.tabs) {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
+    }
+
+    private func drainMainActorTasksForTesting() {
+        var didDrain = false
+        Task { @MainActor in
+            didDrain = true
+        }
+        let deadline = Date(timeIntervalSinceNow: 1.0)
+        while !didDrain && Date() < deadline {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 }
