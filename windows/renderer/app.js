@@ -2073,7 +2073,7 @@ function applyActivePaneLayoutPercent(percent, options = {}) {
       ...split,
       ratio
     })));
-    savePaneTreeLayouts(state.paneTrees);
+    if (options.save) savePaneTreeLayouts(state.paneTrees);
     clearZoomedPanelForWorkspace(workspace);
     render();
     requestAnimationFrame(() => {
@@ -6207,28 +6207,6 @@ function renderSettingsInspector(options = {}) {
     );
     layoutSection.append(layoutActions);
     layoutSection.append(settingRow("Pane presets", paneLayoutPresetGrid(), true, "split layout pane presets side by side stacked active wide tall equal"));
-    const activePanePercent = activePaneLayoutPercent(workspace);
-    const activePaneRange = document.createElement("input");
-    activePaneRange.className = "setting-control";
-    activePaneRange.type = "range";
-    activePaneRange.min = String(paneLayoutPercentMin);
-    activePaneRange.max = String(paneLayoutPercentMax);
-    activePaneRange.step = "1";
-    activePaneRange.value = String(activePanePercent);
-    activePaneRange.disabled = !workspace || workspace.panels.length <= 1;
-    const activePaneRow = settingRow(`Active pane ${activePanePercent}%`, activePaneRange, false, "split layout pane resize percent active pane size width height custom");
-    activePaneRange.oninput = () => {
-      const nextPercent = applyActivePaneLayoutPercent(activePaneRange.value);
-      activePaneRow.querySelector(".setting-label").textContent = `Active pane ${nextPercent}%`;
-      setTextIfChanged(elements.inspectorBody.querySelector("[data-layout-preview-active-pane]"), `${nextPercent}%`);
-    };
-    activePaneRange.onchange = () => {
-      const nextPercent = applyActivePaneLayoutPercent(activePaneRange.value, { save: true, toast: true });
-      activePaneRange.value = String(nextPercent);
-      activePaneRow.querySelector(".setting-label").textContent = `Active pane ${nextPercent}%`;
-      setTextIfChanged(elements.inspectorBody.querySelector("[data-layout-preview-active-pane]"), `${nextPercent}%`);
-    };
-    layoutSection.append(activePaneRow);
     layoutSection.append(settingRow("Surface tabs", toggleInput(state.settings.showTabs, (checked) => updateSettings({ showTabs: checked }))));
     layoutSection.append(settingRow("Status bar", toggleInput(state.settings.showStatusbar, (checked) => updateSettings({ showStatusbar: checked }))));
     layoutSection.append(settingRow("Performance mode", toggleInput(state.settings.performanceMode, (checked) => updateSettings({ performanceMode: checked }))));
@@ -8012,7 +7990,7 @@ function paneShapePanel(workspace = activeWorkspace()) {
   const panelTitle = panel ? panelDisplayTitle(panel, true) : t("paneShape.noPane");
   const wrapper = document.createElement("div");
   wrapper.className = "pane-shape-panel";
-  wrapper.dataset.settingsSearch = normalizeSettingsQuery("pane shape split layout resize active pane percent exact smaller bigger equal side by side stacked rows columns");
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("pane shape split layout resize active pane percent range slider exact smaller bigger equal side by side stacked rows columns");
   wrapper.innerHTML = `
     <span class="pane-shape-meter" aria-hidden="true">
       <span class="pane-shape-meter-fill"></span>
@@ -8022,20 +8000,50 @@ function paneShapePanel(workspace = activeWorkspace()) {
       <span class="pane-shape-title"></span>
       <span class="pane-shape-meta"></span>
     </span>
+    <label class="pane-shape-slider">
+      <span class="pane-shape-slider-label"></span>
+      <input class="setting-control pane-shape-range" type="range">
+      <span class="pane-shape-slider-value"></span>
+    </label>
     <span class="pane-shape-actions"></span>
   `;
-  wrapper.style.setProperty("--pane-shape-fill", `${percent}%`);
+  const titleNode = wrapper.querySelector(".pane-shape-title");
+  const valueNode = wrapper.querySelector(".pane-shape-slider-value");
+  const updatePercentView = (nextPercent) => {
+    wrapper.style.setProperty("--pane-shape-fill", `${nextPercent}%`);
+    titleNode.textContent = multiPane
+      ? formatMessage("paneShape.titlePercent", { title: panelTitle, percent: nextPercent })
+      : hasPendingPane
+        ? t("paneShape.pendingTitle")
+        : t("paneShape.emptyTitle");
+    valueNode.textContent = multiPane ? `${nextPercent}%` : "--";
+    setTextIfChanged(elements.inspectorBody?.querySelector("[data-layout-preview-active-pane]"), `${nextPercent}%`);
+  };
   wrapper.querySelector(".pane-shape-kicker").textContent = t("paneShape.kicker");
-  wrapper.querySelector(".pane-shape-title").textContent = multiPane
-    ? formatMessage("paneShape.titlePercent", { title: panelTitle, percent })
-    : hasPendingPane
-      ? t("paneShape.pendingTitle")
-      : t("paneShape.emptyTitle");
   wrapper.querySelector(".pane-shape-meta").textContent = multiPane
     ? formatMessage("paneShape.metaReady", { direction: directionLabel })
     : hasPendingPane
       ? t("paneShape.metaPending")
       : t("paneShape.metaEmpty");
+  wrapper.querySelector(".pane-shape-slider-label").textContent = t("paneShape.size");
+  const range = wrapper.querySelector(".pane-shape-range");
+  range.min = String(paneLayoutPercentMin);
+  range.max = String(paneLayoutPercentMax);
+  range.step = "1";
+  range.value = String(percent);
+  range.disabled = !multiPane;
+  range.setAttribute("aria-label", t("paneShape.sizeAria"));
+  range.oninput = () => {
+    const nextPercent = applyActivePaneLayoutPercent(range.value);
+    range.value = String(nextPercent);
+    updatePercentView(nextPercent);
+  };
+  range.onchange = () => {
+    const nextPercent = applyActivePaneLayoutPercent(range.value, { save: true, toast: true });
+    range.value = String(nextPercent);
+    updatePercentView(nextPercent);
+  };
+  updatePercentView(percent);
   const actions = wrapper.querySelector(".pane-shape-actions");
   const smaller = settingsActionButton(t("paneShape.smaller"), () => adjustActivePaneLayoutPercent(-5), "", "pane shape smaller reduce active pane size");
   smaller.disabled = !multiPane || percent <= paneLayoutPercentMin;

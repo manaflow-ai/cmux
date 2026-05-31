@@ -3281,6 +3281,32 @@ body.reduce-motion *::after {
   font-size: 11px;
 }
 
+.pane-shape-slider {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(34px, auto);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pane-shape-slider-label,
+.pane-shape-slider-value {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.pane-shape-slider-value {
+  color: var(--color-text);
+  text-align: right;
+}
+
+.pane-shape-range {
+  width: 100%;
+  min-width: 0;
+}
+
 .pane-shape-actions {
   grid-column: 1 / -1;
   display: grid;
