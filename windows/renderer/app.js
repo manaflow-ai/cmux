@@ -2480,6 +2480,7 @@ function markInteractedPanel(panelId) {
   if (!wasActive) {
     found.workspace.activePanelId = panelId;
     queueFocusSync({ type: "panel", panelId });
+    updateBrowserPaneActivity(visiblePanePanelIds());
   }
   if (zoomChanged) render();
   return found.panel;
@@ -4709,8 +4710,12 @@ function newBrowserTabFromPanel(panel = focusedPanel()) {
 }
 
 function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
+  const activePanelId = activeWorkspace()?.activePanelId || "";
   for (const [panelId, session] of state.browserViews.entries()) {
     const visible = visiblePanelIds.has(panelId);
+    if (visible && (!state.settings.browserSuspendInactive || panelId === activePanelId)) {
+      loadDeferredBrowserSession(session);
+    }
     if (session.visible === visible && session.suspendInactive === state.settings.browserSuspendInactive) continue;
     session.visible = visible;
     session.suspendInactive = state.settings.browserSuspendInactive;
@@ -4722,6 +4727,47 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
 
 function activeBrowserTab(session) {
   return session?.tabs?.find((tab) => tab.id === session.activeTabId) || session?.tabs?.[0] || null;
+}
+
+function browserSessionTargetUrl(session) {
+  return normalizeUrl(
+    session?.address?.value || activeBrowserTab(session)?.url || state.settings.browserHomeUrl,
+    state.settings.browserHomeUrl
+  );
+}
+
+function loadDeferredBrowserSession(session) {
+  if (!session?.loadDeferred) return false;
+  const targetUrl = browserSessionTargetUrl(session);
+  clearDeferredBrowserSession(session);
+  if (session.view.src !== targetUrl) {
+    session.setLoading?.(true);
+    session.setStatus?.("Loading");
+    session.view.src = targetUrl;
+  }
+  session.updateNavState?.();
+  return true;
+}
+
+function clearDeferredBrowserSession(session) {
+  if (!session) return;
+  session.loadDeferred = false;
+  if (session.deferredPane) session.deferredPane.hidden = true;
+  session.shell?.classList.remove("is-browser-deferred");
+}
+
+function shouldDeferInitialBrowserLoad(panel) {
+  const workspace = activeWorkspace();
+  if (!state.settings.browserSuspendInactive || !workspace || panel.id === workspace.activePanelId) return false;
+  const browserPanels = workspace.panels.filter((candidate) => (
+    candidate.type === "browser" && !isPanelMinimized(candidate) && !isPendingPanel(candidate)
+  ));
+  if (browserPanels.length <= 1) return false;
+  const activeBrowserPanelId = workspace.panels.find((candidate) =>
+    candidate.id === workspace.activePanelId && candidate.type === "browser"
+  )?.id;
+  const eagerBrowserPanelId = activeBrowserPanelId || browserPanels[0]?.id;
+  return panel.id !== eagerBrowserPanelId;
 }
 
 function saveBrowserSessionTabs(session) {
@@ -4931,6 +4977,7 @@ function activateBrowserTab(session, tabId) {
   if (!tab) return false;
   session.activeTabId = tab.id;
   session.address.value = tab.url;
+  clearDeferredBrowserSession(session);
   if (session.view.src !== tab.url) {
     session.view.src = tab.url;
     session.setLoading?.(true);
@@ -5079,7 +5126,16 @@ function ensureBrowser(panel, body) {
     <span class="browser-loading-title"></span>
     <span class="browser-loading-url"></span>
   `;
-  content.append(view, errorPane, loadingPane);
+  const deferredPane = document.createElement("button");
+  deferredPane.className = "browser-deferred";
+  deferredPane.type = "button";
+  deferredPane.hidden = true;
+  deferredPane.innerHTML = `
+    <span class="browser-deferred-title">Browser paused</span>
+    <span class="browser-deferred-url"></span>
+    <span class="browser-deferred-action">Select pane to load</span>
+  `;
+  content.append(view, errorPane, loadingPane, deferredPane);
   const isWebview = view.tagName.toLowerCase() === "webview";
   let webviewReady = !isWebview;
   let loadingStatusTimer = 0;
@@ -5124,6 +5180,16 @@ function ensureBrowser(panel, body) {
     errorPane.hidden = false;
     setStatus("");
   };
+  const showDeferredBrowser = () => {
+    const targetUrl = normalizeUrl(address.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+    setLoading(false);
+    hideBrowserError();
+    deferredPane.querySelector(".browser-deferred-url").textContent = targetUrl;
+    deferredPane.querySelector(".browser-deferred-url").title = targetUrl;
+    deferredPane.hidden = false;
+    shell.classList.add("is-browser-deferred");
+    setStatus("Paused");
+  };
 
   const updateNavState = () => {
     try {
@@ -5149,6 +5215,7 @@ function ensureBrowser(panel, body) {
     if (!findPanelState(panel.id)) return;
     const next = normalizeUrl(address.value, state.settings.browserHomeUrl);
     address.value = next;
+    clearDeferredBrowserSession(session);
     view.src = next;
     browserLoadFailed = false;
     hideBrowserError();
@@ -5168,6 +5235,10 @@ function ensureBrowser(panel, body) {
   go.onclick = navigate;
   external.onclick = () => openBrowserPanelExternally(panel);
   tabNew.onclick = () => createBrowserTab(session, state.settings.browserHomeUrl);
+  deferredPane.onclick = () => {
+    focusPanel(panel.id);
+    loadDeferredBrowserSession(session);
+  };
   tabNew.addEventListener("dragover", (event) => {
     if (!session?.dragBrowserTabId) return;
     event.preventDefault();
@@ -5308,7 +5379,9 @@ function ensureBrowser(panel, body) {
     tabButtons: new Map(),
     setStatus,
     setLoading,
+    updateNavState,
     view,
+    deferredPane,
     address,
     back,
     forward,
@@ -5316,14 +5389,20 @@ function ensureBrowser(panel, body) {
     home,
     external,
     visible: true,
-    suspendInactive: state.settings.browserSuspendInactive
+    suspendInactive: state.settings.browserSuspendInactive,
+    loadDeferred: false
   };
   state.browserViews.set(panel.id, session);
   renderBrowserTabs(session);
   const activeUrl = activeBrowserTab(session)?.url;
   if (activeUrl && activeUrl !== panel.url) queueBrowserUrlSync(panel.id, activeUrl);
-  setLoading(true);
-  view.src = initialBrowserUrl;
+  if (shouldDeferInitialBrowserLoad(panel)) {
+    session.loadDeferred = true;
+    showDeferredBrowser();
+  } else {
+    setLoading(true);
+    view.src = initialBrowserUrl;
+  }
   updateNavState();
 }
 
