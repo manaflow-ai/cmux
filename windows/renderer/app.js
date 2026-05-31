@@ -2098,6 +2098,7 @@ const commands = [
   { id: "notifications.open", label: "Show Notifications", shortcut: "Ctrl+I", run: () => openInspector("notifications") },
   { id: "session.tools", label: "Show Session Tools", shortcut: "", run: () => openInspector("session") },
   { id: "settings.open", label: "Open Settings", shortcut: "Ctrl+,", run: () => openInspector("settings") },
+  { id: "settings.simplePreset", label: "Apply Simple Preset", shortcut: "", run: () => applySettingsPresetById("simple") },
   { id: "settings.performance", label: "Open Performance Settings", shortcut: "", run: () => openSettingsCategory("performance") },
   { id: "settings.performancePreset", label: "Apply Performance Preset", shortcut: "", run: () => applySettingsPresetById("performance") },
   { id: "settings.tunePerformance", label: "Tune Performance Now", shortcut: "", run: () => tunePerformanceNow() },
