@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,7 +13,7 @@ struct PrivacyUsageDescriptionBundleTests {
     @Test
     func appBundleDeclaresSpeechRecognitionUsageDescription() throws {
         let usageDescription = try #require(Bundle(for: AppDelegate.self)
-            .object(forInfoDictionaryKey: "NSSpeechRecognitionUsageDescription") as? String
+            .infoDictionary?["NSSpeechRecognitionUsageDescription"] as? String
         )
 
         #expect(usageDescription == "A program running within cmux would like to use speech recognition.")
