@@ -7535,6 +7535,32 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
     }
 
+    func testTextBoxMentionRefreshOpensPopoverImmediatelyForBareFileTrigger() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-loading-file-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.completionRootDirectory = root.path
+        textView.string = "@"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+
+        textView.refreshMentionCompletions()
+
+        XCTAssertTrue(textView.debugMentionCompletionsShouldShowPopover())
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+    }
+
     func testTextBoxMentionEscapeFallsThroughWhenQueryHasNoSuggestions() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "@missing"
@@ -7558,6 +7584,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         textView.keyDown(with: escapeEvent)
         XCTAssertEqual(escapeCount, 1)
+    }
+
+    func testTextBoxMentionEscapeDismissesLoadingPopover() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 1), query: ""),
+            suggestions: [],
+            isLoading: true
+        )
+        var escapeCount = 0
+        textView.onEscape = { escapeCount += 1 }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+        textView.keyDown(with: escapeEvent)
+        XCTAssertEqual(escapeCount, 0)
+        XCTAssertFalse(textView.debugMentionCompletionsShouldShowPopover())
     }
 
     func testTextBoxMentionBareSkillTriggerReturnSubmitsInsteadOfAcceptingFirstSuggestion() {

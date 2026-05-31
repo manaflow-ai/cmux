@@ -1733,9 +1733,11 @@ actor TextBoxMentionIndexStore {
     private struct CachedIndex {
         let index: TextBoxMentionCandidateIndex
         let createdAt: Date
+        let lastAccessedAt: Date
     }
 
     private static let fileIndexTTL: TimeInterval = 30
+    private static let maxCachedFileIndexes = 8
     private static let directorySeedBatchSize = 128
     private static let maxIndexedDirectories = 2000
     private static let maxIndexedFiles = 6000
@@ -1853,10 +1855,16 @@ actor TextBoxMentionIndexStore {
         rootDirectory: String,
         now: Date
     ) -> TextBoxMentionCandidateIndex? {
+        pruneFileIndexCache(now: now)
         guard let cached = fileIndexesByRoot[rootDirectory],
               now.timeIntervalSince(cached.createdAt) < Self.fileIndexTTL else {
             return nil
         }
+        fileIndexesByRoot[rootDirectory] = CachedIndex(
+            index: cached.index,
+            createdAt: cached.createdAt,
+            lastAccessedAt: now
+        )
         return cached.index
     }
 
@@ -1917,7 +1925,36 @@ actor TextBoxMentionIndexStore {
             return
         }
         fileIndexRefreshTasks[rootDirectory] = nil
-        fileIndexesByRoot[rootDirectory] = CachedIndex(index: index, createdAt: createdAt)
+        let storedAt = Date()
+        fileIndexesByRoot[rootDirectory] = CachedIndex(
+            index: index,
+            createdAt: createdAt,
+            lastAccessedAt: storedAt
+        )
+        pruneFileIndexCache(now: storedAt)
+    }
+
+    private func pruneFileIndexCache(now: Date) {
+        let expiredRoots = fileIndexesByRoot.compactMap { rootDirectory, cached in
+            now.timeIntervalSince(cached.createdAt) >= Self.fileIndexTTL ? rootDirectory : nil
+        }
+        for rootDirectory in expiredRoots {
+            fileIndexesByRoot[rootDirectory] = nil
+        }
+
+        guard fileIndexesByRoot.count > Self.maxCachedFileIndexes else { return }
+        let rootsToRemove = fileIndexesByRoot
+            .sorted { lhs, rhs in
+                if lhs.value.lastAccessedAt != rhs.value.lastAccessedAt {
+                    return lhs.value.lastAccessedAt < rhs.value.lastAccessedAt
+                }
+                return lhs.key < rhs.key
+            }
+            .prefix(fileIndexesByRoot.count - Self.maxCachedFileIndexes)
+            .map(\.key)
+        for rootDirectory in rootsToRemove {
+            fileIndexesByRoot[rootDirectory] = nil
+        }
     }
 
     private func skillIndex(rootDirectory: String?) -> TextBoxMentionCandidateIndex {
@@ -2550,6 +2587,7 @@ actor TextBoxMentionIndexStore {
 private final class TextBoxMentionCompletionController {
     private(set) var suggestions: [TextBoxMentionSuggestion] = []
     private(set) var selectionIndex: Int = 0
+    private(set) var isLoadingSuggestions = false
 
     @ObservationIgnored
     private(set) var activeQuery: TextBoxMentionQuery?
@@ -2570,6 +2608,10 @@ private final class TextBoxMentionCompletionController {
 
     var isActive: Bool {
         activeQuery != nil
+    }
+
+    var shouldShowPopover: Bool {
+        isActive && (hasSuggestions || isLoadingSuggestions)
     }
 
     var hasCurrentSuggestions: Bool {
@@ -2602,6 +2644,7 @@ private final class TextBoxMentionCompletionController {
         activeQuery = query
         activeRootDirectory = rootDirectory
         selectionIndex = 0
+        isLoadingSuggestions = true
         // Editing within the same trigger keeps the current rows on screen until
         // the async lookup returns, avoiding a per-keystroke popover flicker.
         // Switching triggers is a different completion kind, so drop stale rows
@@ -2628,6 +2671,7 @@ private final class TextBoxMentionCompletionController {
                 self.suggestions = suggestions
                 self.suggestionsQuery = query
                 self.suggestionsRootDirectory = rootDirectory
+                self.isLoadingSuggestions = false
                 self.selectionIndex = suggestions.isEmpty ? 0 : min(self.selectionIndex, suggestions.count - 1)
                 self.onStateChanged?()
             }
@@ -2647,6 +2691,7 @@ private final class TextBoxMentionCompletionController {
         suggestions = []
         suggestionsQuery = nil
         suggestionsRootDirectory = nil
+        isLoadingSuggestions = false
         selectionIndex = 0
         lookupTask?.cancel()
         lookupTask = nil
@@ -2660,7 +2705,8 @@ private final class TextBoxMentionCompletionController {
 #if DEBUG
     func debugSetState(
         query: TextBoxMentionQuery?,
-        suggestions debugSuggestions: [TextBoxMentionSuggestion]
+        suggestions debugSuggestions: [TextBoxMentionSuggestion],
+        isLoading: Bool = false
     ) {
         lookupTask?.cancel()
         lookupTask = nil
@@ -2669,6 +2715,7 @@ private final class TextBoxMentionCompletionController {
         suggestions = debugSuggestions
         suggestionsQuery = query
         suggestionsRootDirectory = nil
+        isLoadingSuggestions = isLoading
         selectionIndex = suggestions.isEmpty ? 0 : min(selectionIndex, suggestions.count - 1)
         onStateChanged?()
     }
@@ -2680,6 +2727,10 @@ private final class TextBoxMentionCompletionController {
     var debugHasCurrentSuggestions: Bool {
         hasCurrentSuggestions
     }
+
+    var debugShouldShowPopover: Bool {
+        shouldShowPopover
+    }
 #endif
 }
 
@@ -2687,29 +2738,40 @@ private struct TextBoxMentionCompletionPopoverView: View {
     let suggestions: [TextBoxMentionSuggestion]
     let selectionIndex: Int
     let searchTerm: String
+    let isLoading: Bool
     let onSelect: (TextBoxMentionSuggestion) -> Void
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
-                        Button {
-                            onSelect(suggestion)
-                        } label: {
-                            Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
-                                .font(.system(size: 12, weight: .semibold))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .padding(.horizontal, 8)
-                                .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
-                                .background {
-                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                        .fill(index == selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
-                                }
+                    if suggestions.isEmpty, isLoading {
+                        HStack {
+                            Spacer(minLength: 0)
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer(minLength: 0)
                         }
-                        .buttonStyle(.plain)
-                        .id(index)
+                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .center)
+                    } else {
+                        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            Button {
+                                onSelect(suggestion)
+                            } label: {
+                                Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .padding(.horizontal, 8)
+                                    .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                                    .background {
+                                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                            .fill(index == selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .id(index)
+                        }
                     }
                 }
                 .padding(4)
@@ -5478,7 +5540,7 @@ final class TextBoxInputTextView: NSTextView {
             return acceptMentionCompletion()
         case kVK_Escape:
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            guard mentionCompletionController.hasSuggestions else { return false }
+            guard mentionCompletionController.shouldShowPopover else { return false }
             dismissMentionCompletions()
             return true
         default:
@@ -5508,7 +5570,7 @@ final class TextBoxInputTextView: NSTextView {
             return acceptMentionCompletion()
         case #selector(NSResponder.cancelOperation(_:)):
             if shouldBypassHiddenMentionCompletionKeyboardInteraction() { return false }
-            guard mentionCompletionController.hasSuggestions else { return false }
+            guard mentionCompletionController.shouldShowPopover else { return false }
             dismissMentionCompletions()
             return true
         default:
@@ -5586,7 +5648,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func syncMentionCompletionPopover() {
-        guard mentionCompletionController.hasSuggestions else {
+        guard mentionCompletionController.shouldShowPopover else {
             dismissMentionCompletionPopoverOnly()
             return
         }
@@ -5600,7 +5662,9 @@ final class TextBoxInputTextView: NSTextView {
         }
         updateMentionCompletionWindowObservers(for: parentWindow)
 
-        let rowCount = mentionCompletionController.suggestions.count
+        let showsLoadingRow = mentionCompletionController.suggestions.isEmpty &&
+            mentionCompletionController.isLoadingSuggestions
+        let rowCount = showsLoadingRow ? 1 : mentionCompletionController.suggestions.count
         let maxVisibleRows = 12
         let visibleRows = min(rowCount, maxVisibleRows)
         let rowHeight: CGFloat = 25
@@ -5718,7 +5782,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func repositionMentionCompletionPanelIfNeeded() {
-        guard mentionCompletionController.hasSuggestions,
+        guard mentionCompletionController.shouldShowPopover,
               let panel = mentionCompletionPanel,
               panel.isVisible,
               NSApp.isActive,
@@ -5790,6 +5854,7 @@ final class TextBoxInputTextView: NSTextView {
             suggestions: mentionCompletionController.suggestions,
             selectionIndex: mentionCompletionController.selectionIndex,
             searchTerm: mentionCompletionController.activeQuery?.query ?? "",
+            isLoading: mentionCompletionController.isLoadingSuggestions,
             onSelect: { [weak self] suggestion in
                 self?.window?.makeFirstResponder(self)
                 self?.acceptMentionCompletion(suggestion)
@@ -5903,9 +5968,14 @@ final class TextBoxInputTextView: NSTextView {
 #if DEBUG
     func debugSetMentionCompletionState(
         query: TextBoxMentionQuery?,
-        suggestions: [TextBoxMentionSuggestion]
+        suggestions: [TextBoxMentionSuggestion],
+        isLoading: Bool = false
     ) {
-        mentionCompletionController.debugSetState(query: query, suggestions: suggestions)
+        mentionCompletionController.debugSetState(
+            query: query,
+            suggestions: suggestions,
+            isLoading: isLoading
+        )
     }
 
     func debugMentionSuggestionCount() -> Int {
@@ -5914,6 +5984,10 @@ final class TextBoxInputTextView: NSTextView {
 
     func debugMentionSuggestionsAreCurrent() -> Bool {
         mentionCompletionController.debugHasCurrentSuggestions
+    }
+
+    func debugMentionCompletionsShouldShowPopover() -> Bool {
+        mentionCompletionController.debugShouldShowPopover
     }
 
     func debugAcceptMentionCompletion() -> Bool {
