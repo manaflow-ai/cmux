@@ -3275,6 +3275,7 @@ extension CMUXCLI {
                 } else {
                     pageContext.branchBaseRef = nil
                 }
+                let viewerURL = urls[source] ?? try mapper.viewerURL(for: url)
                 try writeDiffViewerStatusHTML(
                     to: url,
                     title: source.title,
@@ -3294,7 +3295,7 @@ extension CMUXCLI {
                     DiffViewerDeferredSourcePage(
                         source: source,
                         url: url,
-                        viewerURL: urls[source] ?? try mapper.viewerURL(for: url),
+                        viewerURL: viewerURL,
                         titleOverride: nil,
                         context: pageContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
@@ -3308,6 +3309,7 @@ extension CMUXCLI {
         for source in DiffSource.allCases {
             for option in repoCandidates where option.repoRoot != repoRoot {
                 guard let url = repoFileURLsBySource[source]?[option.repoRoot] else { continue }
+                let viewerURL = repoURLsBySource[source]?[option.repoRoot] ?? try mapper.viewerURL(for: url)
                 let pageContext = DiffSourceContext(
                     workspaceId: selectedContext.workspaceId,
                     surfaceId: selectedContext.surfaceId,
@@ -3333,7 +3335,7 @@ extension CMUXCLI {
                     DiffViewerDeferredSourcePage(
                         source: source,
                         url: url,
-                        viewerURL: repoURLsBySource[source]?[option.repoRoot] ?? try mapper.viewerURL(for: url),
+                        viewerURL: viewerURL,
                         titleOverride: source == selectedSource ? titleOverride : nil,
                         context: pageContext,
                         sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
@@ -3346,6 +3348,7 @@ extension CMUXCLI {
 
         for option in baseCandidates where !(branchBaseForOptions.map { $0 == option.ref } ?? false) {
             guard let url = baseFileURLs[option.ref] else { continue }
+            let viewerURL = baseURLs[option.ref] ?? try mapper.viewerURL(for: url)
             var pageContext = selectedContext
             pageContext.branchBaseRef = option.ref
             try writeDiffViewerStatusHTML(
@@ -3371,7 +3374,7 @@ extension CMUXCLI {
                 DiffViewerDeferredSourcePage(
                     source: .branch,
                     url: url,
-                    viewerURL: baseURLs[option.ref] ?? try mapper.viewerURL(for: url),
+                    viewerURL: viewerURL,
                     titleOverride: selectedSource == .branch ? titleOverride : nil,
                     context: pageContext,
                     sourceOptions: diffViewerSourceOptions(selected: .branch, urls: urls),
