@@ -2483,7 +2483,7 @@ actor BrowserSearchSuggestionService {
 }
 
 /// BrowserPanel provides a WKWebView-based browser panel.
-/// All browser panels share a WKProcessPool for cookie sharing.
+/// Each browser panel owns a WKProcessPool so WebContent crashes stay isolated.
 private enum BrowserInsecureHTTPNavigationIntent {
     case currentTab
     case newTab
@@ -2853,9 +2853,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    /// Shared process pool for cookie sharing across all browser panels
-    private static let sharedProcessPool = WKProcessPool()
-
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -3004,11 +3001,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    /// Isolate WebKit crashes to this browser panel while keeping popups in the same browsing context.
+    private let processPool: WKProcessPool
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
+    @Published private(set) var hasRecoverableWebContentTermination = false
+    private var pendingWebContentRecoveryURL: URL?
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -3665,7 +3666,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            processPool: processPool
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -3903,12 +3905,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        processPool: WKProcessPool
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            processPool: processPool
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -3928,7 +3932,7 @@ final class BrowserPanel: Panel, ObservableObject {
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
-        processPool: WKProcessPool = BrowserPanel.sharedProcessPool
+        processPool: WKProcessPool
     ) {
         configuration.processPool = processPool
         configuration.mediaTypesRequiringUserActionForPlayback = []
@@ -4114,10 +4118,13 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        let processPool = WKProcessPool()
+        self.processPool = processPool
 
         let webView = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            processPool: processPool
         )
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
@@ -4562,7 +4569,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            processPool: processPool
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -4914,21 +4922,28 @@ final class BrowserPanel: Panel, ObservableObject {
         replaceWebViewPreservingState(
             from: terminatedWebView,
             websiteDataStore: websiteDataStore,
-            reason: "webcontent_process_terminated"
+            reason: "webcontent_process_terminated",
+            waitForManualRecovery: true
         )
     }
 
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
-        reason: String
+        reason: String,
+        waitForManualRecovery: Bool = false
     ) {
         guard oldWebView === webView else { return }
 
         let wasRenderable = shouldRenderWebView
-        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
+        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url)
+            ?? currentURL
+            ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+            ?? navigationDelegate?.lastAttemptedURL
+            ?? resolvedCurrentSessionHistoryURL()
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
+        let shouldShowManualRecovery = waitForManualRecovery && wasRenderable
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
@@ -4962,7 +4977,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            processPool: processPool
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -4982,7 +4998,15 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
-        if shouldRestoreURL, let restoreURL {
+        if shouldShowManualRecovery {
+            pendingWebContentRecoveryURL = restoreURL
+            hasRecoverableWebContentTermination = true
+            refreshNavigationAvailability()
+        } else {
+            clearWebContentTerminationRecovery()
+        }
+
+        if !shouldShowManualRecovery, shouldRestoreURL, let restoreURL {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
                 recordTypedNavigation: false,
@@ -5004,6 +5028,34 @@ final class BrowserPanel: Panel, ObservableObject {
             "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
         )
 #endif
+    }
+
+    @discardableResult
+    func recoverTerminatedWebContent(reason: String = "manual") -> Bool {
+        guard hasRecoverableWebContentTermination else { return false }
+        let recoveryURL = pendingWebContentRecoveryURL
+        clearWebContentTerminationRecovery()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webcontent.recover panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) url=\(recoveryURL?.absoluteString ?? "nil")"
+        )
+#endif
+        guard let recoveryURL else {
+            refreshNavigationAvailability()
+            return true
+        }
+        navigateWithoutInsecureHTTPPrompt(
+            to: recoveryURL,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: true
+        )
+        return true
+    }
+
+    private func clearWebContentTerminationRecovery() {
+        pendingWebContentRecoveryURL = nil
+        hasRecoverableWebContentTermination = false
     }
 
 #if DEBUG
@@ -5552,6 +5604,7 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool
     ) {
         cancelHiddenWebViewDiscard()
+        clearWebContentTerminationRecovery()
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
@@ -5917,7 +5970,8 @@ extension BrowserPanel {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            processPool: processPool
         )
         webViewInstanceID = UUID()
         webView = replacement
@@ -6153,6 +6207,9 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
+        if recoverTerminatedWebContent(reason: "reload") {
+            return
+        }
         if restoreDiscardedWebViewIfNeeded(reason: "reload") {
             return
         }

@@ -409,7 +409,8 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         BrowserPanel.configureWebViewConfiguration(
             config,
-            websiteDataStore: .nonPersistent()
+            websiteDataStore: .nonPersistent(),
+            processPool: WKProcessPool()
         )
 
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
