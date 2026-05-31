@@ -34,14 +34,15 @@ extension CmuxExtensionWorktreeCreationResult {
     /// The returned arguments always leave the workspace's main process as the
     /// login shell and deliver ``setupCommand`` as terminal input.
     func workspaceSpawnArgs() -> CmuxExtensionWorktreeWorkspaceSpawnArgs {
-        // NOTE: this intentionally reproduces the original (buggy) behavior so
-        // the regression test can prove it fails; the fix follows in a separate
-        // commit.
+        // The main process must stay the login shell so the tab survives setup
+        // completion. Worktree creation already ran as a pre-spawn step, so the
+        // setup command is delivered as interactive shell input (with a trailing
+        // newline so it executes) rather than as the surface's primary process.
         CmuxExtensionWorktreeWorkspaceSpawnArgs(
             title: workspaceTitle,
             workingDirectory: worktreePath,
-            initialTerminalCommand: setupCommand.isEmpty ? nil : setupCommand,
-            initialTerminalInput: nil,
+            initialTerminalCommand: nil,
+            initialTerminalInput: setupCommand.isEmpty ? nil : setupCommand + "\n",
             inheritWorkingDirectory: false
         )
     }
