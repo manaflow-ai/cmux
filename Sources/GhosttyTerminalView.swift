@@ -7130,7 +7130,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             events.append(.rawBytes(Data([0x0D])))
         }
 
-        for scalar in text.unicodeScalars {
+        let scalars = Array(text.unicodeScalars)
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
             switch scalar.value {
             case 0x0A:
                 if !previousWasCR {
@@ -7138,29 +7141,86 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     appendRawReturn()
                 }
                 previousWasCR = false
+                index += 1
             case 0x0D:
                 flushBufferedText()
                 appendRawReturn()
                 previousWasCR = true
+                index += 1
             case 0x09:
                 flushBufferedText()
                 appendKey(UInt32(kVK_Tab), label: "tab")
                 previousWasCR = false
+                index += 1
             case 0x1B:
-                flushBufferedText()
-                appendKey(UInt32(kVK_Escape), label: "escape")
+                // A bare ESC is the Escape key. But a full CSI/SS3 navigation
+                // sequence arriving as raw input (the iOS on-screen arrows send
+                // ESC[B, etc.) must stay one key press, or the terminal receives
+                // Escape followed by literal "[B". Re-issue recognized sequences
+                // as key events so libghostty encodes them for the surface's
+                // current cursor-key mode, exactly like a hardware arrow press.
+                if let nav = navigationEscapeKey(scalars, from: index) {
+                    flushBufferedText()
+                    appendKey(nav.keycode, label: nav.label)
+                    index += nav.length
+                } else {
+                    flushBufferedText()
+                    appendKey(UInt32(kVK_Escape), label: "escape")
+                    index += 1
+                }
                 previousWasCR = false
             case 0x08, 0x7F:
                 flushBufferedText()
                 appendKey(UInt32(kVK_Delete), label: "backspace")
                 previousWasCR = false
+                index += 1
             default:
                 bufferedText.unicodeScalars.append(scalar)
                 previousWasCR = false
+                index += 1
             }
         }
         flushBufferedText()
         return events
+    }
+
+    /// Match a CSI (`ESC [ …`) or SS3 (`ESC O …`) cursor/navigation escape
+    /// sequence beginning at `start` (which points at the ESC, 0x1B). Returns
+    /// the equivalent macOS key code and how many scalars the sequence consumed,
+    /// or nil for a bare ESC or an unrecognized sequence (which stays the
+    /// Escape key). Only unmodified navigation keys are mapped; the surface
+    /// re-encodes them for its current DECCKM cursor-key mode.
+    private static func navigationEscapeKey(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> (keycode: UInt32, label: String, length: Int)? {
+        guard start + 2 < scalars.count else { return nil }
+        let introducer = scalars[start + 1].value
+        guard introducer == 0x5B || introducer == 0x4F else { return nil } // '[' CSI or 'O' SS3
+        let final = scalars[start + 2].value
+        switch final {
+        case 0x41: return (UInt32(kVK_UpArrow), "up", 3)        // A
+        case 0x42: return (UInt32(kVK_DownArrow), "down", 3)    // B
+        case 0x43: return (UInt32(kVK_RightArrow), "right", 3)  // C
+        case 0x44: return (UInt32(kVK_LeftArrow), "left", 3)    // D
+        case 0x48: return (UInt32(kVK_Home), "home", 3)         // H
+        case 0x46: return (UInt32(kVK_End), "end", 3)           // F
+        default:
+            break
+        }
+        // CSI tilde sequences: ESC [ N ~
+        if introducer == 0x5B, start + 3 < scalars.count, scalars[start + 3].value == 0x7E {
+            switch final {
+            case 0x31: return (UInt32(kVK_Home), "home", 4)               // 1~
+            case 0x33: return (UInt32(kVK_ForwardDelete), "forwardDelete", 4) // 3~
+            case 0x34: return (UInt32(kVK_End), "end", 4)                 // 4~
+            case 0x35: return (UInt32(kVK_PageUp), "pageUp", 4)           // 5~
+            case 0x36: return (UInt32(kVK_PageDown), "pageDown", 4)       // 6~
+            default:
+                break
+            }
+        }
+        return nil
     }
 
     private static func committedTextInputChunks(from text: String) -> [Data] {
