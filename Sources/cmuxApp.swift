@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
 import SwiftUI
@@ -109,7 +110,7 @@ struct cmuxApp: App {
         if !SocketControlSettings.isDebugLikeBundleIdentifier(bundleID)
             && !SocketControlSettings.isStagingBundleIdentifier(bundleID) {
             StartupBreadcrumbLog.append("app.init.keychainMigration.begin")
-            SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
+            SocketControlPasswordStore().migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
             StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
@@ -5993,7 +5994,7 @@ struct SettingsView: View {
     }
 
     private var hasSocketPasswordConfigured: Bool {
-        SocketControlPasswordStore.hasConfiguredPassword()
+        SocketControlPasswordStore().hasConfiguredPassword()
     }
 
     private var browserHistorySubtitle: String {
@@ -6325,7 +6326,7 @@ struct SettingsView: View {
         }
 
         do {
-            try SocketControlPasswordStore.savePassword(trimmed)
+            try SocketControlPasswordStore().savePassword(trimmed)
             draftState.socketPasswordDraft = ""
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.saved", defaultValue: "Password saved.")
             socketPasswordStatusIsError = false
@@ -6337,7 +6338,7 @@ struct SettingsView: View {
 
     private func clearSocketPassword() {
         do {
-            try SocketControlPasswordStore.clearPassword()
+            try SocketControlPasswordStore().clearPassword()
             draftState.socketPasswordDraft = ""
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.cleared", defaultValue: "Password cleared.")
             socketPasswordStatusIsError = false

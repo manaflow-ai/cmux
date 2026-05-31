@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSettings
+import CmuxSocketControl
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream

@@ -1,4 +1,6 @@
 import XCTest
+import CmuxSettings
+import CmuxSocketControl
 import AppKit
 import Combine
 import CoreText

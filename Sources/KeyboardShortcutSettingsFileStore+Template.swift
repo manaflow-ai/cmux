@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {

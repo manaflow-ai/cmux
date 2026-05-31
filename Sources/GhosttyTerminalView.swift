@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSocketControl
 import SwiftUI
 import AppKit
 import Metal
