@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("cmuxNative", {
   electron: true,
@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld("cmuxNative", {
   },
   pickBackgroundImage() {
     return ipcRenderer.invoke("background:pick-image");
+  },
+  filePath(file) {
+    return webUtils?.getPathForFile?.(file) || file?.path || "";
   },
   pickWorkspaceFolder() {
     return ipcRenderer.invoke("workspace:pick-folder");

@@ -726,6 +726,72 @@ async function applyCustomBackgroundImage(value, options = {}) {
   return changed;
 }
 
+function isSupportedBackgroundFileName(name) {
+  return /\.(avif|bmp|gif|jpe?g|png|webp)$/i.test(String(name || ""));
+}
+
+function firstDroppedBackgroundFile(dataTransfer) {
+  for (const file of [...(dataTransfer?.files || [])]) {
+    if (file.type?.startsWith("image/") || isSupportedBackgroundFileName(file.name)) return file;
+  }
+  return null;
+}
+
+function droppedBackgroundText(dataTransfer) {
+  const uri = dataTransfer?.getData("text/uri-list")
+    ?.split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("#"));
+  if (uri) return uri;
+  return dataTransfer?.getData("text/plain")?.trim() || "";
+}
+
+function droppedBackgroundValue(dataTransfer) {
+  const file = firstDroppedBackgroundFile(dataTransfer);
+  if (file) {
+    const filePath = window.cmuxNative?.filePath?.(file) || file.path || "";
+    const fileUrl = localPathToFileUrl(filePath);
+    if (fileUrl) return fileUrl;
+  }
+  return droppedBackgroundText(dataTransfer);
+}
+
+function hasBackgroundDropData(dataTransfer) {
+  if (state.dragPanelId || state.dragWorkspaceId) return false;
+  const items = [...(dataTransfer?.items || [])];
+  if (items.some((item) => item.kind === "file" && (!item.type || item.type.startsWith("image/")))) return true;
+  const types = [...(dataTransfer?.types || [])];
+  return types.includes("text/uri-list") || types.includes("text/plain");
+}
+
+function installBackgroundDropTarget(target, options = {}) {
+  if (!target) return;
+  const setDropping = (dropping) => target.classList.toggle("is-drop-target", dropping);
+  target.addEventListener("dragover", (event) => {
+    if (!hasBackgroundDropData(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDropping(true);
+  });
+  target.addEventListener("dragleave", () => setDropping(false));
+  target.addEventListener("drop", async (event) => {
+    if (!hasBackgroundDropData(event.dataTransfer)) return;
+    event.preventDefault();
+    setDropping(false);
+    const value = droppedBackgroundValue(event.dataTransfer);
+    if (!value) {
+      toast("Drop a supported image file or image URL.");
+      return;
+    }
+    if (options.input) options.input.value = value;
+    if (options.save) {
+      await applyAndSaveCustomBackgroundImage({ url: value });
+      return;
+    }
+    await applyCustomBackgroundImage(value, { toast: true });
+  });
+}
+
 function terminalFontStack(value = state.settings.terminalFontFamily) {
   return terminalFontStacks.get(value) || terminalFontStacks.get(defaultSettings.terminalFontFamily);
 }
@@ -6282,6 +6348,7 @@ function activeBackgroundPanel() {
     </span>
     <span class="active-background-actions"></span>
   `;
+  installBackgroundDropTarget(panel);
   panel.querySelector(".active-background-preview").onclick = () => chooseBackgroundImage();
   panel.querySelector(".active-background-title").textContent = label;
   panel.querySelector(".active-background-title").title = label;
@@ -8090,6 +8157,7 @@ function savedBackgroundImagesPanel() {
     settingsActionButton("Choose + save", () => chooseBackgroundImage({ save: true }), "", "saved background image choose local file wallpaper")
   );
   panel.append(actions);
+  installBackgroundDropTarget(panel, { input, save: true });
 
   if (state.savedBackgroundImages.length === 0) {
     const empty = document.createElement("div");
