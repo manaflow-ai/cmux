@@ -10056,8 +10056,9 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 /// Transient sidebar drag/drop state, owned by `VerticalTabsSidebar` and passed
 /// by reference into rows and drop delegates. `@Observable` gives per-property
 /// tracking: writing `draggedTabId` or `dropIndicator` during drag invalidates
-/// only the views that read those properties (the dragged row's opacity and the
-/// drop-indicator overlays), never the sidebar body or the `LazyVStack` itself.
+/// only the views that read those properties (the dragged row's opacity, the
+/// drop-indicator overlays, and the cursor-following drag overlay), never the
+/// sidebar body or the `LazyVStack` itself.
 /// That invariant is what prevents the layout-invalidation loop that caused
 /// https://github.com/manaflow-ai/cmux/issues/2586.
 @MainActor
@@ -10067,6 +10068,7 @@ final class SidebarDragState {
     var dropIndicator: SidebarDropIndicator?
     var dropIndicatorUsesTopLevelRows = false
     var groupDropPreview: SidebarWorkspaceGroupDropPreview?
+    var dragLocationInDocument: CGPoint?
     /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
     /// driving the drag state. The lifecycle observers honor this by not
     /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
@@ -10079,7 +10081,13 @@ final class SidebarDragState {
 
     func beginDragging(tabId: UUID) {
         draggedTabId = tabId
+        dragLocationInDocument = nil
         clearDropIndicator()
+    }
+
+    func setDragLocationInDocument(_ location: CGPoint?) {
+        guard dragLocationInDocument != location else { return }
+        dragLocationInDocument = location
     }
 
     func setDropIndicator(_ indicator: SidebarDropIndicator?, usesTopLevelRows: Bool = false) {
@@ -10103,6 +10111,7 @@ final class SidebarDragState {
 
     func clearDrag() {
         draggedTabId = nil
+        dragLocationInDocument = nil
         clearDropIndicator()
     }
 }
@@ -10197,6 +10206,11 @@ struct SidebarWorkspaceTopDropIndicator: View {
         }
         .animation(.easeOut(duration: 0.12), value: isVisible)
     }
+}
+
+enum SidebarWorkspaceRowRenderRole {
+    case list
+    case dragFollower
 }
 
 /// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
@@ -10618,6 +10632,7 @@ struct VerticalTabsSidebar: View {
                 .background(
                     SidebarScrollViewResolver { scrollView in
                         dragAutoScrollController.attach(scrollView: scrollView)
+                        dragAutoScrollController.attach(dragState: dragState)
                     }
                     .frame(width: 0, height: 0)
                 )
@@ -10847,6 +10862,7 @@ struct VerticalTabsSidebar: View {
             .background(
                 SidebarScrollViewResolver { scrollView in
                     dragAutoScrollController.attach(scrollView: scrollView)
+                    dragAutoScrollController.attach(dragState: dragState)
                 }
                 .frame(width: 0, height: 0)
             )
@@ -11417,6 +11433,7 @@ struct VerticalTabsSidebar: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag({
             dragState.beginDragging(tabId: row.workspaceId)
+            dragAutoScrollController.recordDragLocation()
             return SidebarTabDragPayload.provider(for: row.workspaceId)
         }, preview: {
             SidebarWorkspaceInvisibleDragPreview()
@@ -11497,6 +11514,7 @@ struct VerticalTabsSidebar: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag({
             dragState.beginDragging(tabId: row.workspaceId)
+            dragAutoScrollController.recordDragLocation()
             return SidebarTabDragPayload.provider(for: row.workspaceId)
         }, preview: {
             SidebarWorkspaceInvisibleDragPreview()
@@ -11866,64 +11884,92 @@ struct VerticalTabsSidebar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
             GeometryReader { proxy in
-                SidebarBonsplitTabWorkspaceDropOverlay(
-                    currentSelectedTabId: {
-                        tabManager.selectedTabId
-                    },
-                    sidebarIndexForTabId: { workspaceId in
-                        tabManager.tabs.firstIndex { $0.id == workspaceId }
-                    },
-                    moveToExistingWorkspace: { workspaceId, transfer in
-                        guard let app = AppDelegate.shared else {
-                            return false
-                        }
-                        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-                           source.workspaceId == workspaceId {
-                            return true
-                        }
-                        return app.moveBonsplitTab(
-                            tabId: transfer.tab.id,
-                            toWorkspace: workspaceId,
-                            focus: true,
-                            focusWindow: true
-                        )
-                    },
-                    moveToNewWorkspace: { insertionIndex, transfer in
-                        guard let app = AppDelegate.shared,
-                              let result = app.moveBonsplitTabToNewWorkspace(
+                ZStack(alignment: .topLeading) {
+                    SidebarBonsplitTabWorkspaceDropOverlay(
+                        currentSelectedTabId: {
+                            tabManager.selectedTabId
+                        },
+                        sidebarIndexForTabId: { workspaceId in
+                            tabManager.tabs.firstIndex { $0.id == workspaceId }
+                        },
+                        moveToExistingWorkspace: { workspaceId, transfer in
+                            guard let app = AppDelegate.shared else {
+                                return false
+                            }
+                            if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+                               source.workspaceId == workspaceId {
+                                return true
+                            }
+                            return app.moveBonsplitTab(
                                 tabId: transfer.tab.id,
-                                destinationManager: tabManager,
+                                toWorkspace: workspaceId,
                                 focus: true,
-                                focusWindow: true,
-                                insertionIndexOverride: insertionIndex
-                              ) else {
-                            return nil
+                                focusWindow: true
+                            )
+                        },
+                        moveToNewWorkspace: { insertionIndex, transfer in
+                            guard let app = AppDelegate.shared,
+                                  let result = app.moveBonsplitTabToNewWorkspace(
+                                    tabId: transfer.tab.id,
+                                    destinationManager: tabManager,
+                                    focus: true,
+                                    focusWindow: true,
+                                    insertionIndexOverride: insertionIndex
+                                  ) else {
+                                return nil
+                            }
+                            return result.destinationWorkspaceId
+                        },
+                        selectedTabIds: $selectedTabIds,
+                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                        dropIndicator: dropIndicatorBinding,
+                        updateAutoscroll: {
+                            dragAutoScrollController.updateFromDragLocation()
+                        },
+                        targets: renderContext.tabs.compactMap { tab in
+                            guard let anchor = anchors[tab.id] else { return nil }
+                            return SidebarDropPlanner.WorkspaceDropTarget(
+                                workspaceId: tab.id,
+                                isPinned: tab.isPinned,
+                                frame: proxy[anchor]
+                            )
                         }
-                        return result.destinationWorkspaceId
-                    },
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dropIndicator: dropIndicatorBinding,
-                    updateAutoscroll: {
-                        dragAutoScrollController.updateFromDragLocation()
-                    },
-                    targets: renderContext.tabs.compactMap { tab in
-                        guard let anchor = anchors[tab.id] else { return nil }
-                        return SidebarDropPlanner.WorkspaceDropTarget(
-                            workspaceId: tab.id,
-                            isPinned: tab.isPinned,
-                            frame: proxy[anchor]
-                        )
-                    }
-                )
+                    )
+                    SidebarWorkspaceDragFollowerOverlay(
+                        dragState: dragState,
+                        renderItems: renderItems,
+                        anchors: anchors,
+                        proxy: proxy,
+                        rowContent: { item in
+                            switch item {
+                            case .groupHeader(let group, let memberWorkspaceIds):
+                                AnyView(sidebarWorkspaceGroupHeader(
+                                    group: group,
+                                    memberWorkspaceIds: memberWorkspaceIds,
+                                    renderContext: renderContext,
+                                    role: .dragFollower
+                                ))
+                            case .workspace(let tab, let effectiveGroupId):
+                                AnyView(workspaceRow(
+                                    tab,
+                                    renderContext: renderContext,
+                                    effectiveGroupId: effectiveGroupId,
+                                    role: .dragFollower
+                                ))
+                            }
+                        }
+                    )
+                }
             }
         }
     }
 
+    @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
-        effectiveGroupId: UUID?
+        effectiveGroupId: UUID?,
+        role: SidebarWorkspaceRowRenderRole = .list
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -11986,7 +12032,7 @@ struct VerticalTabsSidebar: View {
         // value snapshots are what get passed to the row. The row's
         // Equatable conformance ignores closures, so rows whose snapshot is
         // unchanged skip re-render when drag state moves.
-        let isBeingDragged = dragState.draggedTabId == tab.id
+        let isBeingDragged = role == .list && dragState.draggedTabId == tab.id
         let sidebarReorderIds = renderContext.sidebarReorderIds
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: tab.id,
@@ -11999,6 +12045,7 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
             #endif
             dragState.beginDragging(tabId: tabId)
+            dragAutoScrollController.recordDragLocation()
             return SidebarTabDragPayload.provider(for: tabId)
         }
         let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
@@ -12017,7 +12064,7 @@ struct VerticalTabsSidebar: View {
             )
         }
 
-        return TabItemView(
+        let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
             tab: tab,
@@ -12054,13 +12101,22 @@ struct VerticalTabsSidebar: View {
             onContextMenuDisappear: onContextMenuDisappear
         )
         .equatable()
-        .id(tab.id)
-        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
-        .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-            [tab.id: anchor]
+
+        if role == .dragFollower {
+            row
+                .padding(.leading, effectiveGroupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            row
+                .id(tab.id)
+                .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
+                .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
+                .anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+                    [tab.id: anchor]
+                }
+                .padding(.leading, effectiveGroupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         }
-        .padding(.leading, effectiveGroupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -12082,6 +12138,34 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
+    }
+}
+
+@MainActor
+private struct SidebarWorkspaceDragFollowerOverlay: View {
+    let dragState: SidebarDragState
+    let renderItems: [SidebarWorkspaceRenderItem]
+    let anchors: [UUID: Anchor<CGRect>]
+    let proxy: GeometryProxy
+    let rowContent: (SidebarWorkspaceRenderItem) -> AnyView
+
+    var body: some View {
+        if let draggedWorkspaceId = dragState.draggedTabId,
+           let dragLocation = dragState.dragLocationInDocument,
+           let item = renderItems.first(where: { $0.representedWorkspaceId == draggedWorkspaceId }),
+           let anchor = anchors[draggedWorkspaceId] {
+            let frame = proxy[anchor]
+            rowContent(item)
+                .frame(width: max(frame.width, 1), alignment: .topLeading)
+                .position(x: frame.midX, y: dragLocation.y)
+                .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 4)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(1000)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+        }
     }
 }
 
@@ -15177,8 +15261,7 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
-        .opacity(isBeingDragged ? 0.6 : 1)
-        .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: isBeingDragged)
+        .opacity(isBeingDragged ? 0.001 : 1)
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
@@ -16710,6 +16793,7 @@ enum SidebarDragAutoScrollPlanner {
 @MainActor
 final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
+    private weak var dragState: SidebarDragState?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
 
@@ -16717,11 +16801,26 @@ final class SidebarDragAutoScrollController: ObservableObject {
         self.scrollView = scrollView
     }
 
+    func attach(dragState: SidebarDragState?) {
+        self.dragState = dragState
+    }
+
+    @discardableResult
+    func recordDragLocation() -> CGPoint? {
+        guard let scrollView else {
+            dragState?.setDragLocationInDocument(nil)
+            return nil
+        }
+        return recordDragLocation(in: scrollView)
+    }
+
     func updateFromDragLocation() {
         guard let scrollView else {
+            dragState?.setDragLocationInDocument(nil)
             stop()
             return
         }
+        recordDragLocation(in: scrollView)
         guard let plan = plan(for: scrollView) else {
             stop()
             return
@@ -16756,10 +16855,12 @@ final class SidebarDragAutoScrollController: ObservableObject {
             stop()
             return
         }
+        recordDragLocation(in: scrollView)
 
         // AppKit drag/drop autoscroll guidance recommends autoscroll(with:)
         // when periodic drag updates are available; use it first.
         if applyNativeAutoscroll(to: scrollView) {
+            recordDragLocation(in: scrollView)
             activePlan = plan(for: scrollView)
             if activePlan == nil {
                 stop()
@@ -16837,7 +16938,37 @@ final class SidebarDragAutoScrollController: ObservableObject {
 
         clipView.scroll(to: CGPoint(x: clipView.bounds.origin.x, y: targetY))
         scrollView.reflectScrolledClipView(clipView)
+        recordDragLocation(in: scrollView)
         return true
+    }
+
+    @discardableResult
+    private func recordDragLocation(in scrollView: NSScrollView) -> CGPoint? {
+        guard let location = dragLocationInDocument(for: scrollView) else {
+            dragState?.setDragLocationInDocument(nil)
+            return nil
+        }
+        dragState?.setDragLocationInDocument(location)
+        return location
+    }
+
+    private func dragLocationInDocument(for scrollView: NSScrollView) -> CGPoint? {
+        guard let documentView = scrollView.documentView,
+              let window = scrollView.window else {
+            return nil
+        }
+        let mouseInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let point = documentView.convert(mouseInWindow, from: nil)
+        guard documentView.bounds.width.isFinite,
+              documentView.bounds.height.isFinite,
+              point.x.isFinite,
+              point.y.isFinite else {
+            return nil
+        }
+        if documentView.isFlipped {
+            return point
+        }
+        return CGPoint(x: point.x, y: documentView.bounds.height - point.y)
     }
 }
 
