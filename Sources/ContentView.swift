@@ -1581,8 +1581,21 @@ struct ContentView: View {
     private static let maximumRightSidebarWidth: CGFloat = 1200
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
+    /// Gap kept between the rightmost titlebar shortcut-hint tooltip and the sidebar's
+    /// trailing edge, so the last tooltip never sits flush against (or spills over) the
+    /// sidebar divider.
+    private static let sidebarTooltipClearance: CGFloat = 8
+
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        let userFloor = CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        // The sidebar must be at least as wide as everything in the leading titlebar
+        // accessory area (traffic lights + controls + the shortcut-hint tooltips) plus a
+        // small gap, so the rightmost tooltip stays within the sidebar column instead of
+        // spilling past the divider. `titlebarLeadingInset` is measured at runtime as the
+        // traffic-light inset plus every leading accessory's width, and the accessory's
+        // width now reserves the tooltip extent (see TitlebarControlsLayoutMetrics.contentSize).
+        let tooltipFloor = titlebarLeadingInset + Self.sidebarTooltipClearance
+        return max(userFloor, tooltipFloor)
     }
 
     private enum SidebarResizerHandle: Hashable {
