@@ -10174,13 +10174,17 @@ struct SidebarWorkspaceTopDropIndicator: View {
     let rowSpacing: CGFloat
 
     var body: some View {
-        if isVisible {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
+        ZStack {
+            if isVisible {
+                Rectangle()
+                    .fill(cmuxAccentColor())
+                    .frame(height: 2)
+                    .padding(.horizontal, 8)
+                    .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
+            }
         }
+        .animation(.easeOut(duration: 0.12), value: isVisible)
     }
 }
 
@@ -10256,6 +10260,7 @@ struct VerticalTabsSidebar: View {
     let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
+    private static let workspaceReorderAnimation = Animation.snappy(duration: 0.24, extraBounce: 0.02)
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -11812,14 +11817,20 @@ struct VerticalTabsSidebar: View {
     }
 
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let renderItems = SidebarWorkspaceRenderItem.renderItems(
+        let baseRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: renderContext.tabs,
             groupsById: renderContext.workspaceGroupById
         )
-        // LazyVStack is safe here because `dragState` is @Observable:
-        // drag mutations at 60fps invalidate only the rows/overlays that
-        // read them, never this sidebar body. See SidebarDragState and
-        // https://github.com/manaflow-ai/cmux/issues/2586.
+        let renderItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseRenderItems,
+            draggedWorkspaceId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            reorderWorkspaceIds: renderContext.sidebarReorderIds
+        )
+        // Drop hover updates set a new indicator only when the insertion
+        // position changes, so the list animates between stable reorder
+        // previews without rebuilding on every drag-location tick. Keep row
+        // subtrees snapshot-based; see https://github.com/manaflow-ai/cmux/issues/2586.
         return LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
@@ -11834,6 +11845,7 @@ struct VerticalTabsSidebar: View {
                 }
             }
         }
+        .animation(Self.workspaceReorderAnimation, value: renderItems.map(\.id))
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlayPreferenceValue(SidebarWorkspaceRowFramePreferenceKey.self) { anchors in
@@ -14280,13 +14292,11 @@ private struct SidebarEmptyArea: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .overlay(alignment: .top) {
-                if topDropIndicatorVisible {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
+                SidebarWorkspaceTopDropIndicator(
+                    isVisible: topDropIndicatorVisible,
+                    isFirstRow: false,
+                    rowSpacing: rowSpacing
+                )
             }
     }
 }
@@ -15151,6 +15161,7 @@ struct TabItemView: View, Equatable {
         .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
+        .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: isBeingDragged)
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }

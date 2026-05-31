@@ -215,6 +215,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
+        .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: isBeingDragged)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,

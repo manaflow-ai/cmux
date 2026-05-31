@@ -18,6 +18,17 @@ struct WorkspaceGroupTests {
         return manager
     }
 
+    private func renderItems(_ manager: TabManager) -> [SidebarWorkspaceRenderItem] {
+        SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+    }
+
+    private func renderedWorkspaceIds(_ items: [SidebarWorkspaceRenderItem]) -> [UUID] {
+        items.map(\.representedWorkspaceId)
+    }
+
     @Test func createGroupInsertsFreshAnchorAndGroupsChildren() throws {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
@@ -238,6 +249,152 @@ struct WorkspaceGroupTests {
             dropIndicator: indicator,
             tabIds: forcedTopLevelIds
         ))
+    }
+
+    @Test func dragPreviewMovesWorkspaceAfterExpandedGroupAsBlock() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Expanded", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let baseItems = renderItems(manager)
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[0],
+            targetWorkspaceId: group.anchorWorkspaceId
+        )
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: originalIds[0],
+            dropIndicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .bottom),
+            reorderWorkspaceIds: reorderIds
+        )
+
+        #expect(renderedWorkspaceIds(previewItems) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            originalIds[0],
+            originalIds[3],
+        ])
+    }
+
+    @Test func dragPreviewReordersWorkspaceInsideExpandedGroupFlatScope() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Expanded", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let baseItems = renderItems(manager)
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[2],
+            targetWorkspaceId: originalIds[1]
+        )
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: originalIds[2],
+            dropIndicator: SidebarDropIndicator(tabId: originalIds[1], edge: .top),
+            reorderWorkspaceIds: reorderIds
+        )
+
+        #expect(renderedWorkspaceIds(previewItems) == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[1],
+            originalIds[3],
+        ])
+    }
+
+    @Test func dragPreviewMovesCollapsedGroupHeaderAsVisibleRow() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Collapsed", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let baseItems = renderItems(manager)
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: group.anchorWorkspaceId
+        )
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: group.anchorWorkspaceId,
+            dropIndicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            reorderWorkspaceIds: reorderIds
+        )
+
+        #expect(renderedWorkspaceIds(previewItems) == [
+            originalIds[0],
+            originalIds[3],
+            group.anchorWorkspaceId,
+        ])
+    }
+
+    @Test func dragPreviewPromotesGroupedMemberWithoutMovingSiblings() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Expanded", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let baseItems = renderItems(manager)
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: originalIds[1],
+            targetWorkspaceId: group.anchorWorkspaceId
+        )
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: originalIds[1],
+            dropIndicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .top),
+            reorderWorkspaceIds: reorderIds
+        )
+
+        #expect(renderedWorkspaceIds(previewItems) == [
+            originalIds[0],
+            originalIds[1],
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[3],
+        ])
+    }
+
+    @Test func dragPreviewIgnoresMissingDropIndicator() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let baseItems = renderItems(manager)
+
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseItems,
+            draggedWorkspaceId: originalIds[0],
+            dropIndicator: nil,
+            reorderWorkspaceIds: manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: originalIds[0])
+        )
+
+        #expect(renderedWorkspaceIds(previewItems) == renderedWorkspaceIds(baseItems))
     }
 
     @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
