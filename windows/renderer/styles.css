@@ -191,10 +191,6 @@ button {
   opacity: var(--background-opacity, .16);
 }
 
-.shell.performance-mode::before {
-  opacity: 0;
-}
-
 .shell.performance-mode *,
 .shell.performance-mode *::before,
 .shell.performance-mode *::after {
