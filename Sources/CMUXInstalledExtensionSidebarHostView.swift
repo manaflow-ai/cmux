@@ -1,5 +1,6 @@
 @_spi(CmuxHostTransport) import CMUXExtensionClient
 @_spi(CmuxHostTransport) import CmuxExtensionKit
+import AppKit
 import ExtensionFoundation
 import Observation
 import SwiftUI
@@ -668,9 +669,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     private func presentExtensionBrowser() {
-        guard let browserAnchorView else { return }
-        CMUXSidebarExtensionBrowserPresenter.present(
-            from: browserAnchorView,
+        guard let anchorView = browserAnchorView
+            ?? NSApp.keyWindow?.contentView
+            ?? NSApp.mainWindow?.contentView else { return }
+        AppDelegate.shared?.openSidebarExtensionBrowser(
+            from: anchorView,
             title: String(
                 localized: "sidebar.extensions.browser.title",
                 defaultValue: "Sidebar Extensions"
@@ -990,15 +993,21 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             let continuationBox = MonitorContinuationBox()
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    continuationBox.set(continuation)
+                    Task {
+                        await continuationBox.set(continuation)
+                    }
                     withObservationTracking {
                         applyModernExtensionState(monitor.state)
                     } onChange: {
-                        continuationBox.resume()
+                        Task {
+                            await continuationBox.resume()
+                        }
                     }
                 }
             } onCancel: {
-                continuationBox.cancel()
+                Task {
+                    await continuationBox.cancel()
+                }
             }
             if Task.isCancelled {
                 break
@@ -1008,37 +1017,28 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     #endif
 }
 
-private final class MonitorContinuationBox: @unchecked Sendable {
-    private let lock = NSLock()
+private actor MonitorContinuationBox {
     private var continuation: CheckedContinuation<Void, Never>?
-    private var isCancelled = false
+    private var isResolved = false
 
     func set(_ continuation: CheckedContinuation<Void, Never>) {
-        lock.lock()
-        if isCancelled {
-            lock.unlock()
+        if isResolved {
             continuation.resume()
             return
         }
         self.continuation = continuation
-        lock.unlock()
     }
 
     func resume() {
-        lock.lock()
+        guard !isResolved else { return }
+        isResolved = true
         let continuation = continuation
         self.continuation = nil
-        lock.unlock()
         continuation?.resume()
     }
 
     func cancel() {
-        lock.lock()
-        isCancelled = true
-        let continuation = continuation
-        self.continuation = nil
-        lock.unlock()
-        continuation?.resume()
+        resume()
     }
 }
 
