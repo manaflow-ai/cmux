@@ -11,6 +11,7 @@ export const defaultSettings = {
   browserSuspendInactive: true,
   density: "comfortable",
   paneHeaderMode: "compact",
+  paneActionMode: "essential",
   sidebarDetailMode: "compact",
   sidebarFooterMode: "workspace",
   toolbarMode: "compact",
@@ -256,6 +257,11 @@ export const paneHeaderOptions = [
   ["hidden", "Content only"]
 ];
 
+export const paneActionOptions = [
+  ["essential", "Essential"],
+  ["full", "Full"]
+];
+
 export const tabSizeOptions = [
   ["compact", "Compact"],
   ["balanced", "Balanced"],
@@ -355,6 +361,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       density: "comfortable",
       paneHeaderMode: "compact",
+      paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "workspace",
       toolbarMode: "compact",
@@ -393,6 +400,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       density: "compact",
       paneHeaderMode: "hidden",
+      paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "workspace",
       toolbarMode: "compact",
@@ -431,6 +439,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       density: "compact",
       paneHeaderMode: "hidden",
+      paneActionMode: "essential",
       sidebarDetailMode: "compact",
       sidebarFooterMode: "workspace",
       toolbarMode: "compact",
@@ -469,6 +478,7 @@ export const settingsPresets = [
       backgroundPosition: "center",
       density: "comfortable",
       paneHeaderMode: "full",
+      paneActionMode: "full",
       sidebarDetailMode: "detailed",
       sidebarFooterMode: "compact",
       toolbarMode: "standard",

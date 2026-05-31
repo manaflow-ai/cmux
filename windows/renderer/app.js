@@ -6,6 +6,7 @@ import {
   browserHomePresets,
   browserLaunchModeOptions,
   defaultSettings,
+  paneActionOptions,
   paneHeaderOptions,
   settingsCategories,
   settingsPresets,
@@ -138,6 +139,7 @@ const terminalSettingsPreviewKeys = new Set([
 ]);
 const layoutSettingsPreviewKeys = new Set([
   "density",
+  "paneActionMode",
   "paneHeaderMode",
   "sidebarDetailMode",
   "sidebarFooterMode",
@@ -485,6 +487,7 @@ function normalizeSettings(input = {}, legacyFontSize = 0) {
   next.accent = normalizeUiColor(next.accent, defaultSettings.accent);
   if (!["comfortable", "compact"].includes(next.density)) next.density = defaultSettings.density;
   if (!paneHeaderOptions.some(([id]) => id === next.paneHeaderMode)) next.paneHeaderMode = defaultSettings.paneHeaderMode;
+  if (!paneActionOptions.some(([id]) => id === next.paneActionMode)) next.paneActionMode = defaultSettings.paneActionMode;
   if (!sidebarDetailOptions.some(([id]) => id === next.sidebarDetailMode)) next.sidebarDetailMode = defaultSettings.sidebarDetailMode;
   if (!sidebarFooterOptions.some(([id]) => id === next.sidebarFooterMode)) next.sidebarFooterMode = defaultSettings.sidebarFooterMode;
   if (!toolbarModeOptions.some(([id]) => id === next.toolbarMode)) {
@@ -1184,10 +1187,12 @@ function settingsProfileSummary(settings) {
   const normalized = normalizeSettings(settings);
   const theme = themeOptions.find(([id]) => id === normalized.theme)?.[1] || normalized.theme;
   const toolbar = toolbarModeOptions.find(([id]) => id === normalized.toolbarMode)?.[1] || normalized.toolbarMode;
+  const actions = paneActionOptions.find(([id]) => id === normalized.paneActionMode)?.[1] || normalized.paneActionMode;
   return [
     theme,
     normalized.density,
     toolbar,
+    `${actions} pane controls`,
     normalized.performanceMode ? "performance" : normalized.reduceMotion ? "reduced motion" : "balanced",
     normalized.terminalPauseInactiveOutput ? "paused output" : "live output",
     `${normalized.terminalFontSize}px`
@@ -1485,6 +1490,7 @@ function settingsRenderSignature(settings = state.settings) {
     settings.performanceMode,
     settings.reduceMotion,
     settings.paneHeaderMode,
+    settings.paneActionMode,
     settings.sidebarDetailMode,
     settings.sidebarFooterMode,
     settings.sidebarWidth,
@@ -1514,6 +1520,8 @@ function applySettings() {
   toggleClassIfChanged(elements.shell, "pane-header-compact", state.settings.paneHeaderMode === "compact");
   toggleClassIfChanged(elements.shell, "pane-header-full", state.settings.paneHeaderMode === "full");
   toggleClassIfChanged(elements.shell, "pane-header-hidden", state.settings.paneHeaderMode === "hidden");
+  toggleClassIfChanged(elements.shell, "pane-actions-essential", state.settings.paneActionMode === "essential");
+  toggleClassIfChanged(elements.shell, "pane-actions-full", state.settings.paneActionMode === "full");
   toggleClassIfChanged(elements.shell, "workspace-detail-compact", state.settings.sidebarDetailMode === "compact");
   toggleClassIfChanged(elements.shell, "workspace-detail-balanced", state.settings.sidebarDetailMode === "balanced");
   toggleClassIfChanged(elements.shell, "workspace-detail-detailed", state.settings.sidebarDetailMode === "detailed");
@@ -3026,7 +3034,7 @@ function renderPanes(workspace) {
     for (const panel of visiblePanels) {
       if (isPanelMinimized(panel)) continue;
       const terminal = state.terminals.get(panel.id);
-      if (terminal) scheduleFitTerminal(terminal, true);
+      if (terminal) scheduleFitTerminal(terminal);
     }
   });
 }
@@ -5147,6 +5155,17 @@ function renderSettingsInspector(options = {}) {
     paneHeaderSelect.value = state.settings.paneHeaderMode;
     paneHeaderSelect.onchange = () => updateSettings({ paneHeaderMode: paneHeaderSelect.value });
     layoutSection.append(settingRow("Pane headers", paneHeaderSelect, false, "terminal pane header chrome compact hidden content only toolbar"));
+    const paneActionSelect = document.createElement("select");
+    paneActionSelect.className = "setting-select";
+    for (const [value, label] of paneActionOptions) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      paneActionSelect.append(option);
+    }
+    paneActionSelect.value = state.settings.paneActionMode;
+    paneActionSelect.onchange = () => updateSettings({ paneActionMode: paneActionSelect.value });
+    layoutSection.append(settingRow("Pane controls", paneActionSelect, false, "pane controls buttons actions essential full toolbar clean clutter"));
     const sidebarDetailSelect = document.createElement("select");
     sidebarDetailSelect.className = "setting-select";
     for (const [value, label] of sidebarDetailOptions) {
@@ -5841,6 +5860,7 @@ function layoutSettingsPreviewPanel() {
     "layout-settings-preview",
     `density-${settings.density}`,
     `pane-header-${settings.paneHeaderMode}`,
+    `pane-actions-${settings.paneActionMode}`,
     `toolbar-${settings.toolbarMode}`,
     `tab-size-${settings.tabSize}`,
     settings.focusMode ? "focus-mode" : "",
@@ -5882,6 +5902,7 @@ function layoutSettingsPreviewPanel() {
       <span><b>Mode</b><em data-layout-preview-mode></em></span>
       <span><b>Tabs</b><em data-layout-preview-tabs></em></span>
       <span><b>Header</b><em data-layout-preview-header></em></span>
+      <span><b>Controls</b><em data-layout-preview-actions></em></span>
       <span><b>Sidebar</b><em data-layout-preview-sidebar></em></span>
       <span><b>Settings</b><em data-layout-preview-settings></em></span>
       <span><b>Status</b><em data-layout-preview-status></em></span>
@@ -5892,6 +5913,7 @@ function layoutSettingsPreviewPanel() {
   panel.querySelector("[data-layout-preview-mode]").textContent = settings.focusMode ? "Focus" : "Standard";
   panel.querySelector("[data-layout-preview-tabs]").textContent = settings.focusMode || !settings.showTabs ? "Hidden" : optionLabel(tabSizeOptions, settings.tabSize, settings.tabSize);
   panel.querySelector("[data-layout-preview-header]").textContent = settings.focusMode ? "Hidden" : optionLabel(paneHeaderOptions, settings.paneHeaderMode, settings.paneHeaderMode);
+  panel.querySelector("[data-layout-preview-actions]").textContent = optionLabel(paneActionOptions, settings.paneActionMode, settings.paneActionMode);
   panel.querySelector("[data-layout-preview-sidebar]").textContent = settings.focusMode ? "Hidden" : `${settings.sidebarWidth}px`;
   panel.querySelector("[data-layout-preview-settings]").textContent = `${settings.inspectorWidth}px`;
   panel.querySelector("[data-layout-preview-status]").textContent = settings.focusMode || !settings.showStatusbar ? "Off" : "On";
@@ -6156,7 +6178,7 @@ const settingsCategorySearchAliases = new Map([
   ["appearance", "look appearance background image wallpaper file local color colour theme accent"],
   ["workspace", "workspace workshop folder directory cwd rename color colour"],
   ["browser", "browser web url page home profile chrome edge brave external system"],
-  ["layout", "layout split pane tab sidebar footer reset header resize"],
+  ["layout", "layout split pane tab sidebar footer reset header resize actions controls"],
   ["performance", "performance lag slow smooth speed motion"],
   ["terminal", "terminal term shell font cursor color colour profile"],
   ["commands", "commands snippets shell gh github cli"],
@@ -6534,6 +6556,7 @@ function performanceDiagnosticsPayload() {
       density: state.settings.density,
       toolbarMode: state.settings.toolbarMode,
       paneHeaderMode: state.settings.paneHeaderMode,
+      paneActionMode: state.settings.paneActionMode,
       sidebarDetailMode: state.settings.sidebarDetailMode,
       sidebarFooterMode: state.settings.sidebarFooterMode,
       tabSize: state.settings.tabSize,
@@ -6834,6 +6857,7 @@ function tunePerformanceNow({ automatic = false, reason = "manual tune" } = {}) 
     backgroundOpacity: Math.min(state.settings.backgroundOpacity, 8),
     density: "compact",
     toolbarMode: "compact",
+    paneActionMode: "essential",
     showStatusbar: false,
     terminalPadding: Math.min(state.settings.terminalPadding, 4),
     terminalScrollback: Math.min(state.settings.terminalScrollback, 6000),
@@ -10309,6 +10333,7 @@ function clearActiveTerminal() {
 const workspaceChromeSettings = [
   "density",
   "paneHeaderMode",
+  "paneActionMode",
   "sidebarDetailMode",
   "sidebarFooterMode",
   "toolbarMode",
