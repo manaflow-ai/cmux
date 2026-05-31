@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -639,9 +640,17 @@ func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T
 	}
 
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
-	_, _, err := conn.Read(ctx)
-	if err == nil {
-		t.Fatal("client connection stayed open after server write failure")
+	closeCtx, cancelClose := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelClose()
+	for {
+		_, _, err := conn.Read(closeCtx)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("client connection stayed open after server write failure")
+		}
+		break
 	}
 }
 
