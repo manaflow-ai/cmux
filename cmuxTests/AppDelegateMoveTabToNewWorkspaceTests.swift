@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -85,15 +86,17 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         try withRegisteredMoveContext { app, _, manager in
             let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
             let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
-            let browserPanel = try XCTUnwrap(
-                sourceWorkspace.newBrowserSurface(
-                    inPane: sourcePaneId,
-                    url: try XCTUnwrap(URL(string: "https://example.com")),
-                    focus: false
-                )
+            let browserPanel = LightweightMovePanel(
+                panelType: .browser,
+                displayTitle: "Browser",
+                displayIcon: "globe",
+                preferredFocusIntent: .browser(.webView)
             )
-            let browserTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(browserPanel.id)?.uuid)
-            browserPanel.noteWebViewFocused()
+            let browserTabId = try insertLightweightSurfaceForMoveTesting(
+                browserPanel,
+                in: sourceWorkspace,
+                paneId: sourcePaneId
+            )
             XCTAssertEqual(browserPanel.preferredFocusIntentForActivation(), .browser(.webView))
 
             let result = try XCTUnwrap(app.moveBonsplitTabToNewWorkspace(
@@ -103,9 +106,10 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
             ))
 
             let destinationWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == result.destinationWorkspaceId })
-            let movedBrowserPanel = try XCTUnwrap(destinationWorkspace.panels[browserPanel.id] as? BrowserPanel)
+            let movedBrowserPanel = try XCTUnwrap(destinationWorkspace.panels[browserPanel.id] as? LightweightMovePanel)
             XCTAssertEqual(destinationWorkspace.panels.count, 1)
             XCTAssertFalse(destinationWorkspace.panels.values.contains { $0 is TerminalPanel })
+            XCTAssertEqual(movedBrowserPanel.panelType, .browser)
             XCTAssertEqual(destinationWorkspace.focusedPanelId, movedBrowserPanel.id)
             XCTAssertEqual(movedBrowserPanel.preferredFocusIntentForActivation(), .browser(.addressBar))
         }
@@ -202,5 +206,63 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         while !didDrain && Date() < deadline {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
+    }
+
+    private func insertLightweightSurfaceForMoveTesting(
+        _ panel: LightweightMovePanel,
+        in workspace: Workspace,
+        paneId: PaneID
+    ) throws -> UUID {
+        let tabId = try XCTUnwrap(workspace.bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            kind: Workspace.SurfaceKind.browser,
+            isDirty: panel.isDirty,
+            inPane: paneId
+        ))
+        workspace.panels[panel.id] = panel
+        workspace.panelTitles[panel.id] = panel.displayTitle
+        workspace.surfaceIdToPanelId[tabId] = panel.id
+        return tabId.uuid
+    }
+}
+
+@MainActor
+private final class LightweightMovePanel: Panel, ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
+    let id = UUID()
+    let panelType: PanelType
+    let displayTitle: String
+    let displayIcon: String?
+    private var preferredFocusIntent: PanelFocusIntent
+
+    init(
+        panelType: PanelType,
+        displayTitle: String,
+        displayIcon: String? = nil,
+        preferredFocusIntent: PanelFocusIntent = .panel
+    ) {
+        self.panelType = panelType
+        self.displayTitle = displayTitle
+        self.displayIcon = displayIcon
+        self.preferredFocusIntent = preferredFocusIntent
+    }
+
+    func close() {}
+
+    func focus() {}
+
+    func unfocus() {}
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        preferredFocusIntent
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        preferredFocusIntent = intent
     }
 }

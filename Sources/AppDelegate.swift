@@ -1457,17 +1457,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
-                if NSApp.windows.isEmpty {
-                    self.openNewMainWindow(nil)
+                if env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" {
+                    self.prepareDisplayResolutionUITestWindowIfNeeded(stage: "afterForceWindow")
+                } else {
+                    if NSApp.windows.isEmpty {
+                        self.openNewMainWindow(nil)
+                    }
+                    self.moveUITestWindowToTargetDisplayIfNeeded()
+                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    // On headless CI runners, activate() silently fails (no GUI session).
+                    // Force windows visible so the terminal surface starts rendering.
+                    for window in NSApp.windows {
+                        window.orderFrontRegardless()
+                    }
+                    self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
                 }
-                self.moveUITestWindowToTargetDisplayIfNeeded()
-                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-                // On headless CI runners, activate() silently fails (no GUI session).
-                // Force windows visible so the terminal surface starts rendering.
-                for window in NSApp.windows {
-                    window.orderFrontRegardless()
-                }
-                self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
@@ -1688,7 +1692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == targetDisplayID }) else {
-            if attempt < 20 {
+            if attempt < 80 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
                 }
@@ -1698,7 +1702,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard let window = NSApp.windows.first else {
-            if attempt < 20 {
+            if attempt < 80 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
                 }
@@ -1720,13 +1724,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.setFrame(frame, display: true, animate: false)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        if window.screen?.cmuxDisplayID != targetDisplayID, attempt < 20 {
+        if window.screen?.cmuxDisplayID != targetDisplayID, attempt < 80 {
+            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayMovePending")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
             }
             return
         }
         self.writeUITestDiagnosticsIfNeeded(stage: "afterMoveToTargetDisplay")
+    }
+
+    private func prepareDisplayResolutionUITestWindowIfNeeded(stage: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else {
+            writeUITestDiagnosticsIfNeeded(stage: stage)
+            return
+        }
+
+        if NSApp.windows.isEmpty {
+            _ = bootstrapInitialMainWindowIfNeeded(
+                debugSource: "displayResolutionUITest.\(stage)",
+                suppressWelcome: true
+            )
+        }
+
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        for window in NSApp.windows {
+            window.orderFrontRegardless()
+        }
+        moveUITestWindowToTargetDisplayIfNeeded()
+        writeUITestDiagnosticsIfNeeded(stage: stage)
     }
 #endif
 
@@ -2779,7 +2806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         observe(.terminalSurfaceDidBecomeReady, "displayUITest.terminalSurfaceDidBecomeReady")
         observe(.terminalPortalVisibilityDidChange, "displayUITest.terminalPortalVisibilityDidChange")
 
-        writeUITestDiagnosticsIfNeeded(stage: "displayUITest.setup")
+        prepareDisplayResolutionUITestWindowIfNeeded(stage: "displayUITest.setup")
     }
 
     private func setupPortalStatsUITestDiagnosticsIfNeeded() {

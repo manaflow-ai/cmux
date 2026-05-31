@@ -160,7 +160,7 @@ extension AppDelegate {
     }
 
     private func focusIntentForNewWorkspaceMove(panel: any Panel) -> PanelFocusIntent {
-        if panel is BrowserPanel {
+        if panel.panelType == .browser {
             // Moving a browser tab into a standalone workspace should expose browser chrome,
             // even if web content was the last in-panel responder before the drag.
             return .browser(.addressBar)
