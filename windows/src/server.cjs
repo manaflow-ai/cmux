@@ -466,7 +466,7 @@ class CmuxWindowsRuntime {
     this.wss = new WebSocketServer({ noServer: true });
     this.eventSockets = new Set();
     this.terminals = new Map();
-    this.pendingTerminalPrewarms = new Set();
+    this.pendingTerminalPrewarms = new Map();
     this.terminalMetadataTimer = null;
     this.launchToken = String(options.launchToken || crypto.randomBytes(32).toString("base64url"));
     this.closed = false;
@@ -682,17 +682,20 @@ class CmuxWindowsRuntime {
   scheduleTerminalPrewarm(panel) {
     if (this.closed || !panel || panel.type !== "terminal" || !this.hasRendererEventSocket()) return;
     if (this.terminals.has(panel.id) || this.pendingTerminalPrewarms.has(panel.id)) return;
-    this.pendingTerminalPrewarms.add(panel.id);
-    try {
-      const found = this.findPanel(panel.id);
-      if (!found || found.panel.type !== "terminal" || this.terminals.has(panel.id)) return;
-      this.ensureTerminalProcess(found.panel);
-    } catch (error) {
-      console.error("terminal prewarm failed");
-      console.error(error);
-    } finally {
-      this.pendingTerminalPrewarms.delete(panel.id);
-    }
+    const panelId = panel.id;
+    const handle = setImmediate(() => {
+      this.pendingTerminalPrewarms.delete(panelId);
+      if (this.closed) return;
+      try {
+        const found = this.findPanel(panelId);
+        if (!found || found.panel.type !== "terminal" || this.terminals.has(panelId)) return;
+        this.ensureTerminalProcess(found.panel);
+      } catch (error) {
+        console.error("terminal prewarm failed");
+        console.error(error);
+      }
+    });
+    this.pendingTerminalPrewarms.set(panelId, handle);
   }
 
   createWorkspace(title) {
@@ -1296,6 +1299,7 @@ class CmuxWindowsRuntime {
       clearTimeout(this.terminalMetadataTimer);
       this.terminalMetadataTimer = null;
     }
+    for (const handle of this.pendingTerminalPrewarms.values()) clearImmediate(handle);
     this.pendingTerminalPrewarms.clear();
     for (const terminal of this.terminals.values()) terminal.close();
     this.terminals.clear();

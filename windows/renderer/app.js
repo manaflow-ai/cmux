@@ -206,6 +206,7 @@ const terminalWheelZoomIdleResetMs = 450;
 const terminalWheelZoomMaxSteps = 3;
 const panePointerDragThreshold = 6;
 const closedPanelLimit = 12;
+const maxConcurrentPaneCreations = 4;
 const terminalCursorMigrationStorageKey = "cmux.terminalCursorBarMigration";
 const browserHomeMigrationStorageKey = "cmux.browserHomeGoogleMigration";
 const launchToken = new URLSearchParams(location.search).get("token") || "";
@@ -2715,12 +2716,12 @@ function currentUiOperationLabel() {
   return [...state.uiOperations.values()].at(-1)?.label || "";
 }
 
-function hasUiOperationKind(kind) {
-  return [...state.uiOperations.values()].some((operation) => operation.kind === kind);
-}
-
 function paneCreationButtonsDisabled() {
-  return hasUiOperationKind("create-panel");
+  let count = 0;
+  for (const operation of state.uiOperations.values()) {
+    if (operation.kind === "create-panel") count += 1;
+  }
+  return count >= maxConcurrentPaneCreations;
 }
 
 function isUiOperationActive(key) {
