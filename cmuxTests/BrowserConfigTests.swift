@@ -3066,8 +3066,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private func closeBrowserPanel(_ panel: BrowserPanel) {
-        panel.close()
         BrowserWindowPortalRegistry.detach(webView: panel.webView)
+        panel.close()
         panel.webView.cmuxSetUnitTestInspector(nil)
         panel.webView.removeFromSuperview()
     }
@@ -3709,13 +3709,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 30, y: 30, width: 180, height: 140))
         window.contentView?.addSubview(anchor)
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
-        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        XCTAssertTrue(BrowserWindowPortalRegistry.isWebView(panel.webView, boundTo: anchor))
         XCTAssertNotNil(panel.webView.superview)
 
         let representable = WebViewRepresentable(
@@ -3735,6 +3733,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         coordinator.webView = panel.webView
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
+        XCTAssertTrue(BrowserWindowPortalRegistry.isWebView(panel.webView, boundTo: anchor))
         XCTAssertNotNil(panel.webView.superview)
     }
 
@@ -3753,13 +3752,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeWindow(window) }
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 150))
         window.contentView?.addSubview(anchor)
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
-        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+        XCTAssertTrue(BrowserWindowPortalRegistry.isWebView(panel.webView, boundTo: anchor))
         XCTAssertNotNil(panel.webView.superview)
 
         let representable = WebViewRepresentable(
@@ -3779,6 +3776,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         coordinator.webView = panel.webView
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
+        XCTAssertTrue(BrowserWindowPortalRegistry.isWebView(panel.webView, boundTo: anchor))
         XCTAssertNotNil(panel.webView.superview)
     }
 
