@@ -150,6 +150,29 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
 
   const initialTerminal = workspace.panels[0];
   assert(initialTerminal?.type === "terminal", "workspace should start with a terminal panel");
+  const titleResponse = await fetch(`${info.url}api/panels/${initialTerminal.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Pinned Pane" })
+  });
+  assert(titleResponse.ok, "terminal title update failed");
+  const titleStateResponse = await fetch(`${info.url}api/state`);
+  const titleState = await titleStateResponse.json();
+  const titleWorkspace = titleState.workspaces.find((candidate) => candidate.id === workspace.id);
+  const titledTerminal = titleWorkspace.panels.find((panel) => panel.id === initialTerminal.id);
+  assert(titledTerminal.title === "Pinned Pane", "manual terminal title should update");
+  assert(titledTerminal.titleLocked === true, "manual terminal title should be locked");
+
+  const restartTitleResponse = await fetch(`${info.url}api/panels/${initialTerminal.id}/restart`, {
+    method: "POST"
+  });
+  assert(restartTitleResponse.ok, "terminal restart failed");
+  const restartedTitleStateResponse = await fetch(`${info.url}api/state`);
+  const restartedTitleState = await restartedTitleStateResponse.json();
+  const restartedTitleWorkspace = restartedTitleState.workspaces.find((candidate) => candidate.id === workspace.id);
+  const restartedTitledTerminal = restartedTitleWorkspace.panels.find((panel) => panel.id === initialTerminal.id);
+  assert(restartedTitledTerminal.title === "Pinned Pane", "manual terminal title should survive restart");
+
   const firstFontResponse = await fetch(`${info.url}api/panels/${initialTerminal.id}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },

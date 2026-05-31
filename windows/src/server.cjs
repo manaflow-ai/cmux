@@ -394,7 +394,7 @@ class TerminalProcess {
   emitOutput(data) {
     this.backlog = (this.backlog + data).slice(-200000);
     const titleMatch = data.match(/\x1b\]0;([^\x07\x1b]+)\x07/);
-    if (titleMatch?.[1]) {
+    if (titleMatch?.[1] && !this.panel.titleLocked) {
       const nextTitle = cleanTerminalTitle(titleMatch[1]);
       if (nextTitle && this.panel.title !== nextTitle) {
         this.panel.title = nextTitle;
@@ -489,6 +489,7 @@ class CmuxWindowsRuntime {
           panels: Array.isArray(workspace.panels) && workspace.panels.length > 0
             ? workspace.panels.map((panel) => ({
               ...panel,
+              titleLocked: Boolean(panel.titleLocked),
               color: panel.color || "",
               cwd: sanitizeDirectoryPath(panel.cwd || workspace.cwd),
               shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
@@ -539,6 +540,7 @@ class CmuxWindowsRuntime {
           workspaceId: panel.workspaceId,
           type: panel.type,
           title: panel.title,
+          titleLocked: Boolean(panel.titleLocked),
           color: panel.color || "",
           cwd: panel.cwd,
           shellProfile: panel.type === "terminal" ? sanitizeShellProfile(panel.shellProfile) : "",
@@ -573,12 +575,14 @@ class CmuxWindowsRuntime {
 
   newPanel(type, workspaceId, options = {}) {
     const defaultTitle = type === "browser" ? "Browser" : "Terminal";
-    const title = String(options.title || defaultTitle).trim().slice(0, 80) || defaultTitle;
+    const explicitTitle = String(options.title || "").trim();
+    const title = String(explicitTitle || defaultTitle).trim().slice(0, 80) || defaultTitle;
     const panel = {
       id: id(type === "browser" ? "browser" : "surface"),
       workspaceId,
       type,
       title,
+      titleLocked: Boolean(explicitTitle || options.titleLocked),
       color: isSafeColorValue(options.color) ? options.color : "",
       cwd: options.cwd || process.cwd(),
       shellProfile: type === "terminal" ? sanitizeShellProfile(options.shellProfile) : "",
@@ -629,6 +633,7 @@ class CmuxWindowsRuntime {
       workspaceId: panel.workspaceId,
       type: panel.type,
       title: panel.title,
+      titleLocked: Boolean(panel.titleLocked),
       color: panel.color || "",
       cwd: panel.cwd,
       cwdShort: shortPath(panel.cwd),
@@ -785,7 +790,10 @@ class CmuxWindowsRuntime {
     if (!found) return false;
     if (Object.hasOwn(updates, "title")) {
       const title = String(updates.title || "").trim();
-      if (title) found.panel.title = title.slice(0, 80);
+      if (title) {
+        found.panel.title = title.slice(0, 80);
+        found.panel.titleLocked = true;
+      }
     }
     if (Object.hasOwn(updates, "color")) {
       const color = String(updates.color || "").trim();
@@ -810,7 +818,7 @@ class CmuxWindowsRuntime {
     if (!found || found.panel.type !== "terminal") return false;
     this.terminals.get(found.panel.id)?.close();
     this.terminals.delete(found.panel.id);
-    found.panel.title = "Terminal";
+    if (!found.panel.titleLocked) found.panel.title = "Terminal";
     found.panel.needsAttention = false;
     found.panel.notificationText = "";
     this.persistAndBroadcast();

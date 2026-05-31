@@ -2745,6 +2745,71 @@ body.reduce-motion *::after {
   gap: var(--space-2);
 }
 
+.active-pane-panel {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: color-mix(in oklch, var(--color-pane) 86%, var(--color-rail) 14%);
+}
+
+.active-pane-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.active-pane-color {
+  width: 10px;
+  height: 34px;
+  border-radius: var(--radius-1);
+  background: var(--active-pane-color, var(--color-accent));
+}
+
+.active-pane-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.active-pane-kind {
+  color: var(--color-faint);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.active-pane-title,
+.active-pane-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.active-pane-title {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.active-pane-meta,
+.active-pane-empty {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.active-pane-actions {
+  grid-template-columns: repeat(auto-fit, minmax(min(112px, 100%), 1fr));
+}
+
 .appearance-preview {
   min-width: 0;
   display: grid;

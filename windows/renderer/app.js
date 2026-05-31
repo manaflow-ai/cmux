@@ -4936,6 +4936,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("workspace")) {
     const workspaceSection = settingsSection("Workspace");
     workspaceSection.append(workspaceSettingsPreviewPanel(workspace));
+    workspaceSection.append(settingRow("Active pane", activePaneSettingsPanel(workspace), true, "active pane tab terminal browser rename color text split duplicate"));
     const titleInput = document.createElement("input");
     titleInput.className = "setting-control";
     titleInput.value = workspace?.title || "";
@@ -5585,6 +5586,7 @@ function activeWorkspaceSettingsSignature() {
       id: panel.id,
       type: panel.type,
       title: panel.title,
+      titleLocked: Boolean(panel.titleLocked),
       color: panel.color,
       cwd: panel.cwd,
       cwdShort: panel.cwdShort,
@@ -6146,6 +6148,144 @@ function workspaceSettingsPreviewPanel(workspace) {
   preview.querySelector("[data-workspace-preview-panes]").textContent = panelSummary;
   preview.querySelector("[data-workspace-preview-active]").textContent = active ? `${panelType} / ${panelPath}` : "None";
   return preview;
+}
+
+function activePaneSettingsPanel(workspace = activeWorkspace()) {
+  const panel = workspace?.panels.find((candidate) => candidate.id === workspace.activePanelId)
+    || focusedPanel()
+    || workspace?.panels[0]
+    || null;
+  const wrapper = document.createElement("div");
+  wrapper.className = "active-pane-panel";
+  wrapper.dataset.settingsSearch = normalizeSettingsQuery("active pane tab terminal browser rename color text size split duplicate focus controls");
+  if (!panel) {
+    wrapper.innerHTML = `<div class="active-pane-empty">Open a terminal or browser pane to customize it here.</div>`;
+    return wrapper;
+  }
+
+  const typeLabel = panel.type === "browser" ? "Browser" : "Terminal";
+  const title = panelDisplayTitle(panel, false);
+  const meta = panel.type === "browser"
+    ? browserPanelUrl(panel) || panel.url || state.settings.browserHomeUrl
+    : `${panel.cwdShort || workspace?.cwdShort || "~"} / ${optionLabel(terminalProfiles, panel.shellProfile || state.settings.terminalProfile, "Shell")}`;
+  const summary = document.createElement("div");
+  summary.className = "active-pane-summary";
+  summary.innerHTML = `
+    <span class="active-pane-color"></span>
+    <span class="active-pane-copy">
+      <span class="active-pane-kind"></span>
+      <span class="active-pane-title"></span>
+      <span class="active-pane-meta"></span>
+    </span>
+  `;
+  summary.style.setProperty("--active-pane-color", panel.color || workspace?.color || state.settings.accent);
+  summary.querySelector(".active-pane-kind").textContent = typeLabel;
+  summary.querySelector(".active-pane-title").textContent = title;
+  summary.querySelector(".active-pane-title").title = title;
+  summary.querySelector(".active-pane-meta").textContent = meta;
+  summary.querySelector(".active-pane-meta").title = meta;
+  wrapper.append(summary);
+
+  const titleInput = document.createElement("input");
+  titleInput.className = "setting-control";
+  titleInput.value = panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
+  titleInput.placeholder = "Pane name";
+  titleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") titleInput.blur();
+  });
+  titleInput.addEventListener("blur", () => {
+    const nextTitle = titleInput.value.trim();
+    if (!nextTitle) {
+      titleInput.value = panel.title || (panel.type === "browser" ? hostnameOf(panel.url) : "Terminal");
+      return;
+    }
+    if (nextTitle !== panel.title) updatePanel(panel.id, { title: nextTitle });
+  });
+  wrapper.append(settingRow("Pane name", titleInput, false, "active pane rename tab title"));
+
+  wrapper.append(settingRow(
+    "Pane color",
+    swatchGrid(workspaceColorPalette(), panel.color || workspace?.color, (color) => updatePanel(panel.id, { color })),
+    true,
+    "active pane color tab custom"
+  ));
+  wrapper.append(settingRow(
+    "Custom pane color",
+    colorPicker(panel.color || workspace?.color, (color) => updatePanel(panel.id, { color })),
+    false,
+    "active pane custom color hex picker"
+  ));
+
+  if (panel.type === "terminal") {
+    const paneFontSize = terminalFontSizeForPanel(panel);
+    const fontRange = document.createElement("input");
+    fontRange.className = "setting-control";
+    fontRange.type = "range";
+    fontRange.min = String(terminalFontSizeMin);
+    fontRange.max = String(terminalFontSizeMax);
+    fontRange.value = String(paneFontSize);
+    const fontRow = settingRow(`Pane text ${paneFontSize}px`, fontRange, false, "active pane terminal text size font zoom");
+    fontRange.oninput = () => {
+      const nextSize = setPaneTerminalFontSizeOverride(panel.id, Number(fontRange.value), { toast: false });
+      fontRow.querySelector(".setting-label").textContent = `Pane text ${nextSize || terminalFontSizeForPanel(panel)}px`;
+      const resetButton = wrapper.querySelector("[data-active-pane-reset-text]");
+      if (resetButton) resetButton.disabled = false;
+    };
+    fontRange.onchange = () => {
+      toast(`Pane text ${terminalFontSizeForPanel(panel)}px.`);
+    };
+    wrapper.append(fontRow);
+  } else {
+    const urlInput = document.createElement("input");
+    urlInput.className = "setting-control";
+    urlInput.value = browserPanelUrl(panel) || panel.url || state.settings.browserHomeUrl;
+    urlInput.placeholder = "https://www.google.com";
+    urlInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") urlInput.blur();
+    });
+    urlInput.addEventListener("blur", () => {
+      const nextUrl = normalizeUrl(urlInput.value || state.settings.browserHomeUrl, state.settings.browserHomeUrl);
+      urlInput.value = nextUrl;
+      const session = state.browserViews.get(panel.id);
+      if (session) {
+        session.address.value = nextUrl;
+        updateActiveBrowserTabUrl(session, nextUrl);
+        if (session.view.src !== nextUrl) {
+          session.view.src = nextUrl;
+          session.setStatus?.("Loading");
+        }
+      }
+      updatePanel(panel.id, { url: nextUrl });
+    });
+    wrapper.append(settingRow("Browser URL", urlInput, true, "active pane browser url address page"));
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "settings-actions active-pane-actions";
+  actions.dataset.settingsSearch = normalizeSettingsQuery("active pane focus duplicate split reset color text browser terminal actions");
+  actions.append(
+    settingsActionButton("Focus pane", () => focusPanel(panel.id), "", "active pane focus"),
+    settingsActionButton("Duplicate", () => duplicatePanel(panel), "", "active pane duplicate"),
+    settingsActionButton("Split right", () => splitPanel(panel, "right"), "", "active pane split right"),
+    settingsActionButton("Split down", () => splitPanel(panel, "down"), "", "active pane split down"),
+    settingsActionButton("Clear color", () => updatePanel(panel.id, { color: "" }), "danger", "active pane clear color")
+  );
+  if (panel.type === "terminal") {
+    const resetText = settingsActionButton("Use default text", () => {
+      if (setPaneTerminalFontSizeOverride(panel.id, 0)) renderSettingsInspector();
+      else toast(`Pane already uses ${state.settings.terminalFontSize}px default.`);
+    }, "", "active pane terminal text size reset default");
+    resetText.dataset.activePaneResetText = "1";
+    resetText.disabled = !panelHasTerminalFontSize(panel);
+    actions.append(resetText, settingsActionButton("Restart", () => restartPanel(panel.id), "", "active pane terminal restart"));
+  } else {
+    actions.append(
+      settingsActionButton("New tab", () => newBrowserTabFromPanel(panel), "", "active pane browser new tab"),
+      settingsActionButton("Open external", () => openBrowserPanelExternally(panel), "", "active pane browser external")
+    );
+  }
+  wrapper.append(actions);
+  return wrapper;
 }
 
 function settingsSection(title, searchTerms = "") {
@@ -9425,6 +9565,7 @@ function createPendingPanel(type, workspace, options = {}) {
     workspaceId: workspace.id,
     type,
     title: options.title || (isBrowser ? "Opening browser" : "Starting terminal"),
+    titleLocked: Boolean(options.title || options.titleLocked),
     color: options.color || "",
     cwd: options.cwd || workspace.cwd || "",
     cwdShort: workspace.cwdShort || "~",
@@ -9829,7 +9970,10 @@ function optimisticUpdatePanel(panelId, updates = {}) {
   }
   if (Object.hasOwn(updates, "title")) {
     const title = String(updates.title || "").trim();
-    if (title) found.panel.title = title.slice(0, 80);
+    if (title) {
+      found.panel.title = title.slice(0, 80);
+      found.panel.titleLocked = true;
+    }
   }
   if (Object.hasOwn(updates, "color")) {
     const color = String(updates.color || "").trim();
@@ -9894,6 +10038,7 @@ function closedPanelSnapshot(panelId) {
     workspaceTitle: found.workspace.title || "Workspace",
     type: found.panel.type,
     title: found.panel.title || (isBrowser ? "Browser" : "Terminal"),
+    titleLocked: Boolean(found.panel.titleLocked),
     color: found.panel.color || "",
     cwd: found.panel.cwd || found.workspace.cwd || "",
     shellProfile: found.panel.shellProfile || state.settings.terminalProfile,
@@ -10676,6 +10821,29 @@ async function flushTerminalFontSizeSync() {
       // The pane may have been closed before the debounce fired.
     }
   }));
+}
+
+function setPaneTerminalFontSizeOverride(panelId, fontSize, options = {}) {
+  const found = findPanelState(panelId);
+  if (!found || found.panel.type !== "terminal") return 0;
+  const override = Number(fontSize) <= 0
+    ? 0
+    : normalizeTerminalFontSize(fontSize, terminalFontSizeForPanel(found.panel));
+  const currentOverride = normalizeTerminalFontSize(found.panel.terminalFontSize, 0);
+  if (currentOverride === override) return terminalFontSizeForPanel(found.panel);
+  found.panel.terminalFontSize = override;
+  const nextSize = terminalFontSizeForPanel(found.panel);
+  const session = state.terminals.get(panelId);
+  if (session) {
+    session.fontSize = nextSize;
+    session.term.options.fontSize = nextSize;
+    scheduleFitTerminal(session, true);
+  }
+  queueTerminalFontSizeSync(panelId, override);
+  if (options.toast !== false) {
+    toast(override ? `Pane text ${nextSize}px.` : `Pane text reset to ${nextSize}px.`);
+  }
+  return nextSize;
 }
 
 function changeTerminalFontSize(delta, options = {}) {
