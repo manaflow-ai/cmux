@@ -346,6 +346,7 @@ const state = {
   settingsSaveTimer: 0,
   settingsSavePending: false,
   terminalAppearanceFrame: 0,
+  deferredTerminalFitFrame: 0,
   appearancePreviewFrame: 0,
   terminalSettingsPreviewFrame: 0,
   layoutSettingsPreviewFrame: 0,
@@ -370,6 +371,10 @@ const state = {
     pausedFlushes: 0,
     trimmedBytes: 0,
     trimmedEvents: 0
+  },
+  terminalFitStats: {
+    deferred: 0,
+    flushed: 0
   },
   performanceGuardTriggered: false,
   performanceGuardReason: "",
@@ -3923,6 +3928,7 @@ function ensureTerminal(panel, body) {
     lastHostWidth: 0,
     lastHostHeight: 0,
     forceFit: false,
+    fitDeferred: false,
     fontSize,
     searchOverlay: null,
     searchTerm: "",
@@ -4228,6 +4234,12 @@ function updateTerminalOutputBacklog() {
 function scheduleFitTerminal(session, force = false) {
   if (session.disposed) return;
   if (force) session.forceFit = true;
+  if (!terminalFitCanRun(session)) {
+    if (!session.fitDeferred) state.terminalFitStats.deferred += 1;
+    session.fitDeferred = true;
+    return;
+  }
+  session.fitDeferred = false;
   if (session.fitFrame) return;
   session.fitFrame = requestAnimationFrame(() => {
     session.fitFrame = 0;
@@ -4236,7 +4248,13 @@ function scheduleFitTerminal(session, force = false) {
 }
 
 function fitTerminal(session) {
-  if (session.disposed || !isTerminalHostVisible(session)) return;
+  if (session.disposed) return;
+  if (!terminalFitCanRun(session)) {
+    if (!session.fitDeferred) state.terminalFitStats.deferred += 1;
+    session.fitDeferred = true;
+    return;
+  }
+  session.fitDeferred = false;
   const width = session.host.clientWidth;
   const height = session.host.clientHeight;
   if (
@@ -4267,6 +4285,28 @@ function fitTerminal(session) {
     }
   } catch {
     // xterm can reject fit during first layout; later resize observer calls repair it.
+  }
+}
+
+function terminalFitCanRun(session) {
+  return !document.hidden && isTerminalHostVisible(session);
+}
+
+function scheduleDeferredTerminalFitFlush() {
+  if (document.hidden || state.deferredTerminalFitFrame) return;
+  state.deferredTerminalFitFrame = requestAnimationFrame(() => {
+    state.deferredTerminalFitFrame = 0;
+    flushDeferredTerminalFits();
+  });
+}
+
+function flushDeferredTerminalFits() {
+  if (document.hidden) return;
+  for (const session of state.terminals.values()) {
+    if (session.disposed || !session.fitDeferred || !terminalFitCanRun(session)) continue;
+    session.fitDeferred = false;
+    state.terminalFitStats.flushed += 1;
+    scheduleFitTerminal(session, true);
   }
 }
 
@@ -6508,6 +6548,8 @@ function performanceMetrics() {
     ["Paused output", String(pausedTerminals)],
     ["Pause hits", String(state.terminalOutputStats.pausedFlushes)],
     ["Trim events", String(state.terminalOutputStats.trimmedEvents || 0)],
+    ["Fit defers", String(state.terminalFitStats.deferred || 0)],
+    ["Fit flushes", String(state.terminalFitStats.flushed || 0)],
     ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
     ["Panes", String(panels.length)],
@@ -6731,6 +6773,7 @@ function performanceDiagnosticsPayload() {
     metrics: Object.fromEntries(performanceMetrics()),
     renderStats: { ...state.renderStats },
     terminalOutputStats: { ...state.terminalOutputStats },
+    terminalFitStats: { ...state.terminalFitStats },
     performanceGuard: {
       enabled: state.settings.performanceMode,
       adaptive: state.settings.adaptivePerformance,
@@ -7079,6 +7122,10 @@ function resetRenderStats() {
     pausedFlushes: 0,
     trimmedBytes: 0,
     trimmedEvents: 0
+  };
+  state.terminalFitStats = {
+    deferred: 0,
+    flushed: 0
   };
   state.performanceGuardTriggered = false;
   state.performanceGuardReason = "";
@@ -11512,6 +11559,10 @@ window.addEventListener("keydown", (event) => {
 }, true);
 
 window.addEventListener("wheel", handleWindowWheelZoom, { passive: false, capture: true });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) scheduleDeferredTerminalFitFlush();
+});
+window.addEventListener("focus", scheduleDeferredTerminalFitFlush);
 
 elements.sidebar.addEventListener("pointerdown", startSidebarResize);
 elements.inspector.addEventListener("pointerdown", startInspectorResize);
