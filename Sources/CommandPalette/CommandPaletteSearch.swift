@@ -467,9 +467,20 @@ enum CommandPaletteFuzzyMatcher {
                 continue
             }
 
-            guard token.characters.count <= 3 else { continue }
-            if let subsequence = subsequenceMatchIndices(token: token, candidate: preparedCandidate) {
-                matched.formUnion(subsequence)
+            if token.characters.count <= 3 {
+                if let subsequence = subsequenceMatchIndices(token: token, candidate: preparedCandidate) {
+                    matched.formUnion(subsequence)
+                }
+                continue
+            }
+
+            if !token.containsTokenBoundaryCharacter,
+               let features = CommandPaletteRankingContext(
+                   tokenChars: token.characters,
+                   candidateChars: candidateChars,
+                   segments: preparedCandidate.wordSegments
+               ).scoredFeatures() {
+                matched.formUnion(features.matchedIndices)
             }
         }
 
@@ -583,6 +594,15 @@ enum CommandPaletteFuzzyMatcher {
 
         if tokenChars.count <= 3, let subsequence = subsequenceScore(token: token, candidate: candidate) {
             bestScore = max(bestScore ?? subsequence, subsequence)
+        }
+
+        if tokenChars.count >= 4, !token.containsTokenBoundaryCharacter,
+           let boundaryFuzzy = CommandPaletteRankingContext(
+               tokenChars: tokenChars,
+               candidateChars: candidateChars,
+               segments: candidate.wordSegments
+           ).score() {
+            bestScore = max(bestScore ?? boundaryFuzzy, boundaryFuzzy)
         }
 
         guard let bestScore else { return nil }
