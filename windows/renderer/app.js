@@ -4971,15 +4971,23 @@ function updateBrowserPaneActivity(visiblePanelIds = new Set()) {
   const activePanelId = activeWorkspace()?.activePanelId || "";
   for (const [panelId, session] of state.browserViews.entries()) {
     const visible = visiblePanelIds.has(panelId);
-    if (visible && (!state.settings.browserSuspendInactive || panelId === activePanelId)) {
+    const active = visible && panelId === activePanelId;
+    const suspended = state.settings.browserSuspendInactive && !active;
+    if (active || (visible && !state.settings.browserSuspendInactive)) {
       loadDeferredBrowserSession(session);
     }
-    if (session.visible === visible && session.suspendInactive === state.settings.browserSuspendInactive) continue;
+    if (
+      session.visible === visible
+      && session.active === active
+      && session.suspendInactive === state.settings.browserSuspendInactive
+    ) continue;
     session.visible = visible;
+    session.active = active;
+    session.suspended = suspended;
     session.suspendInactive = state.settings.browserSuspendInactive;
-    session.shell?.classList.toggle("is-browser-suspended", !visible && state.settings.browserSuspendInactive);
-    setBrowserAudioMuted(session.view, !visible && state.settings.browserSuspendInactive);
-    if (!visible && state.settings.browserSuspendInactive) stopBrowserLoading(session.view);
+    session.shell?.classList.toggle("is-browser-suspended", suspended);
+    setBrowserAudioMuted(session.view, suspended);
+    if (suspended) stopBrowserLoading(session.view);
   }
 }
 
@@ -5672,6 +5680,8 @@ function ensureBrowser(panel, body) {
     home,
     external,
     visible: true,
+    active: panel.id === activeWorkspace()?.activePanelId,
+    suspended: false,
     suspendInactive: state.settings.browserSuspendInactive,
     loadDeferred: false
   };
@@ -7401,6 +7411,7 @@ function performanceMetrics() {
     ["Trim events", String(state.terminalOutputStats.trimmedEvents || 0)],
     ["Fit defers", String(state.terminalFitStats.deferred || 0)],
     ["Fit flushes", String(state.terminalFitStats.flushed || 0)],
+    ["Suspended browsers", String([...state.browserViews.values()].filter((session) => session.suspended).length)],
     ["Guard", state.settings.performanceMode ? "On" : state.settings.adaptivePerformance ? "Watching" : "Off"],
     ["Workspaces", String(workspaces.length)],
     ["Panes", String(panels.length)],
@@ -8042,6 +8053,7 @@ function resetRenderStats() {
     avgMs: 0,
     maxMs: 0,
     slowCount: 0,
+    coalescedRenders: 0,
     skippedRenders: 0,
     browserUrlRenderSkips: 0,
     guardActivations: 0
