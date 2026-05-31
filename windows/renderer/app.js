@@ -3186,7 +3186,10 @@ function scheduleSurfaceTabsOverflowRefresh() {
 
 function updateSurfaceTabsOverflow() {
   if (!elements.surfaceTabs) return;
-  toggleClassIfChanged(elements.surfaceTabs, "has-overflow", elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1);
+  const overflow = elements.surfaceTabs.scrollWidth > elements.surfaceTabs.clientWidth + 1;
+  const tabCount = Math.max(0, elements.surfaceTabs.querySelectorAll(".surface-tab:not(.surface-new-tab)").length);
+  toggleClassIfChanged(elements.surfaceTabs, "has-overflow", overflow);
+  toggleClassIfChanged(elements.surfaceTabs, "is-crowded", overflow || tabCount >= 6);
 }
 
 function commandStripContentWidth() {
