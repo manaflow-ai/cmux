@@ -9,17 +9,7 @@ import WebKit
 import Combine
 import ObjectiveC.runtime
 import Darwin
-
-func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
-    guard let value else { return nil }
-    // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
-    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-          let arrayLiteral = String(data: data, encoding: .utf8),
-          arrayLiteral.count >= 2 else {
-        return nil
-    }
-    return String(arrayLiteral.dropFirst().dropLast())
-}
+import CmuxFoundation
 
 private struct MultiWindowRouteCLIResult {
     let status: String
@@ -10524,7 +10514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         awaitingInputId: String? = nil,
         completion: @escaping ([String: String]) -> Void
     ) {
-        let expectedInputIdLiteral = cmuxJavaScriptStringLiteral(awaitingInputId) ?? "null"
+        let expectedInputIdLiteral = awaitingInputId?.javaScriptStringLiteral ?? "null"
         let script = """
         (() => {
           const expectedInputId = \(expectedInputIdLiteral);

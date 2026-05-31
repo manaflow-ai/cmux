@@ -26,6 +26,9 @@
          location = "group:CmuxExtensionKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxFoundation">
+      </FileRef>
+      <FileRef
          location = "group:CMUXPasteboardFidelity">
       </FileRef>
       <FileRef
