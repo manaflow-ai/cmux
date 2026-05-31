@@ -1,6 +1,54 @@
 import AppKit
 import SwiftUI
 
+enum RenderableSystemSymbol {
+    static func trimmed(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    static func normalized(_ raw: String?) -> String? {
+        guard let trimmed = trimmed(raw),
+              isRenderable(trimmed) else {
+            return nil
+        }
+        return trimmed
+    }
+
+    static func isRenderable(_ symbol: String) -> Bool {
+        NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
+    }
+}
+
+enum WorkspaceGroupIconSymbol {
+    static let defaultSymbol = "folder.fill"
+
+    static func normalized(_ raw: String?) -> String? {
+        RenderableSystemSymbol.trimmed(raw)
+    }
+
+    static func resolved(explicit: String?, configured: String?) -> String {
+        for candidate in [explicit, configured] {
+            guard let normalized = RenderableSystemSymbol.normalized(candidate) else { continue }
+            return normalized
+        }
+        return defaultSymbol
+    }
+}
+
+enum SurfaceTabIconSymbol {
+    static let defaultSymbol = "doc.text"
+
+    static func resolved(_ raw: String?, fallback: String = defaultSymbol) -> String {
+        RenderableSystemSymbol.normalized(raw)
+            ?? RenderableSystemSymbol.normalized(fallback)
+            ?? defaultSymbol
+    }
+}
+
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     // Closures and delegate factories are excluded because they are recreated
@@ -74,6 +122,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return .secondary
     }
 
+    private var displayedIconSymbol: String {
+        WorkspaceGroupIconSymbol.resolved(explicit: iconSymbol, configured: nil)
+    }
+
     private var shortcutHintPillText: String? {
         guard showsShortcutHint,
               let shortcutDigit,
@@ -111,9 +163,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                Image(systemName: iconSymbol)
-                    .font(.system(size: 11))
+                Image(systemName: displayedIconSymbol)
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(iconColor)
+                    .frame(width: 14, height: 14)
+                    .accessibilityHidden(true)
                 Text(name)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
