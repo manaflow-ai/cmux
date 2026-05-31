@@ -319,6 +319,21 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "fileExtensionOpeners": {
+          "type": "object",
+          "default": {
+            "htm": "cmuxBrowser",
+            "html": "cmuxBrowser"
+          },
+          "propertyNames": {
+            "pattern": "^\\.?[A-Za-z0-9][A-Za-z0-9_+-]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["automatic", "cmuxPreview", "markdownViewer", "cmuxBrowser", "preferredEditor", "systemDefault"]
+          },
+          "description": "Map file extensions to their Cmd-click opener. Values are automatic, cmuxPreview, markdownViewer, cmuxBrowser, preferredEditor, and systemDefault. Keys may include or omit the leading dot."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,

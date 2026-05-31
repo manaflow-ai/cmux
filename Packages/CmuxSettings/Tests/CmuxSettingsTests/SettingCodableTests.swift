@@ -37,4 +37,11 @@ struct SettingCodableTests {
         let encoded = value.encodeForJSON()
         #expect([String: Int].decodeFromJSON(encoded) == value)
     }
+
+    @Test func fileExtensionOpenBehaviorDictionaryRoundTrips() {
+        let value: [String: FileExtensionOpenBehavior] = ["html": .cmuxBrowser, "md": .markdownViewer]
+        let encoded = value.encodeForUserDefaults()
+        #expect([String: FileExtensionOpenBehavior].decodeFromUserDefaults(encoded) == value)
+        #expect([String: FileExtensionOpenBehavior].decodeFromJSON(encoded) == value)
+    }
 }

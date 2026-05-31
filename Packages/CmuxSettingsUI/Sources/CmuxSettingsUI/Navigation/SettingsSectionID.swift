@@ -73,7 +73,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
-        case .app: return "appearance language workspace notifications menu bar telemetry"
+        case .app: return "appearance language workspace notifications menu bar telemetry file extensions"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sidebarAppearance: return "sidebar details branches material terminal background"

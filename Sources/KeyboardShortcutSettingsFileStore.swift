@@ -1,4 +1,5 @@
 import Combine
+import CmuxSettings
 import Foundation
 import os
 
@@ -431,6 +432,20 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
+        }
+        if let values = jsonStringDictionary(section["fileExtensionOpeners"]) {
+            var normalized: [String: String] = [:]
+            for (rawExtension, rawBehavior) in values {
+                guard let normalizedExtension = FileExtensionOpenBehavior.normalizedExtension(rawExtension),
+                      let behavior = FileExtensionOpenBehavior(rawValue: rawBehavior) else {
+                    logInvalid("app.fileExtensionOpeners", sourcePath: sourcePath)
+                    return
+                }
+                normalized[normalizedExtension] = behavior.rawValue
+            }
+            snapshot.managedUserDefaults[FileExtensionOpenBehaviorSettings.key] = .stringDictionary(normalized)
+        } else if section.keys.contains("fileExtensionOpeners") {
+            logInvalid("app.fileExtensionOpeners", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["openSupportedFilesInCmux"]) {
             snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)
@@ -1607,6 +1622,17 @@ final class CmuxSettingsFileStore {
         for value in values {
             guard let string = value as? String else { return nil }
             strings.append(string)
+        }
+        return strings
+    }
+
+    private func jsonStringDictionary(_ rawValue: Any?) -> [String: String]? {
+        guard let values = rawValue as? [String: Any] else { return nil }
+        var strings: [String: String] = [:]
+        strings.reserveCapacity(values.count)
+        for (key, value) in values {
+            guard let string = value as? String else { return nil }
+            strings[key] = string
         }
         return strings
     }

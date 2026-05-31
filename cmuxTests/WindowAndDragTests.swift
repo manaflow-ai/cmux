@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import CmuxSettings
 import Darwin
 import PDFKit
 import SwiftUI
@@ -3265,6 +3266,48 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         XCTAssertFalse(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickFileExtensionOpenersDefaultHTMLToBrowser() throws {
+        let suiteName = "cmux.html-browser-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "<!doctype html>", encoding: .utf8, pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: fileURL.path, defaults: defaults), .cmuxBrowser)
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickFileExtensionOpenersCanOverrideHTMLToPreview() throws {
+        let suiteName = "cmux.html-preview-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "<!doctype html>", encoding: .utf8, pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        FileExtensionOpenBehaviorSettings.setOpeners(["html": .cmuxPreview], defaults: defaults)
+
+        XCTAssertEqual(FileExtensionOpenBehaviorSettings.behavior(forPath: fileURL.path, defaults: defaults), .cmuxPreview)
+        XCTAssertTrue(CmdClickSupportedFileRouteSettings.shouldRoute(path: fileURL.path, defaults: defaults))
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
+    }
+
+    func testCmdClickFileExtensionOpenersCanUsePreferredEditorWithoutCmuxRoute() throws {
+        let suiteName = "cmux.preferred-editor-routing.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fileURL = try temporaryTextFile(contents: "notes", encoding: .utf8, pathExtension: "txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        FileExtensionOpenBehaviorSettings.setOpeners(["txt": .preferredEditor], defaults: defaults)
+
+        XCTAssertFalse(CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path, defaults: defaults))
+        XCTAssertTrue(CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path, defaults: defaults))
     }
 
     func testCmdClickMarkdownRoutingDoesNotRequireSupportedFileRoutingSetting() throws {

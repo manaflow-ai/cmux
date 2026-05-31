@@ -4775,21 +4775,19 @@ class GhosttyApp {
                     guard let resolvedPath = cmuxResolveTerminalOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
                         return (false, nil)
                     }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
+                    guard CommandClickFileOpenRouter.shouldHandleCommandClick(path: resolvedPath) else {
                         return (false, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
                     #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    CommandClickFileOpenRouter.deferredOpenCommandClickFile(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: resolvedPath
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
+                        filePath: resolvedPath,
+                        fallback: .systemDefault
+                    )
                     return (true, resolvedPath)
                 }
                 if let fallbackPath = filePathResolution.fallbackPath {
@@ -4821,17 +4819,16 @@ class GhosttyApp {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          CommandClickFileOpenRouter.shouldHandleCommandClick(path: fileURL.path) else {
                         return false
                     }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    CommandClickFileOpenRouter.deferredOpenCommandClickFile(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: fileURL.path
-                    ) {
-                        NSWorkspace.shared.open(fileURL)
-                    }
+                        filePath: fileURL.path,
+                        fallback: .systemDefault
+                    )
                     return true
                 }
                 if routed {
@@ -10236,10 +10233,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
            !workspace.isRemoteTerminalSurface(termSurface.id),
-           CommandClickFileOpenRouter.openInCmux(
+           CommandClickFileOpenRouter.openCommandClickFile(
                workspace: workspace,
                sourcePanelId: termSurface.id,
-               filePath: resolution.path
+               filePath: resolution.path,
+               fallback: .preferredEditor
            ) {
             return resolution
         }

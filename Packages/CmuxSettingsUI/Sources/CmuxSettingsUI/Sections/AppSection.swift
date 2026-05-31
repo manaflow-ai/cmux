@@ -35,6 +35,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var fileExtensionOpeners: DefaultsValueModel<[String: FileExtensionOpenBehavior]>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
     @State private var dockBadge: DefaultsValueModel<Bool>
@@ -75,6 +76,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _fileExtensionOpeners = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileExtensionOpeners))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
@@ -269,6 +271,14 @@ public struct AppSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
             }
+            SettingsCardDivider()
+
+            FileExtensionOpenersEditor(
+                openers: Binding(
+                    get: { fileExtensionOpeners.current },
+                    set: { fileExtensionOpeners.set($0) }
+                )
+            )
             SettingsCardDivider()
 
             // Open Supported Files in cmux

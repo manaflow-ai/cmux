@@ -14158,6 +14158,39 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func openOrFocusBrowserSplit(
+        from panelId: UUID,
+        url: URL
+    ) -> BrowserPanel? {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            return nil
+        }
+
+        let targetURLString = url.standardizedFileURL.absoluteString
+        for (existingId, panel) in panels {
+            guard let browser = panel as? BrowserPanel,
+                  browser.preferredURLStringForOmnibar() == targetURLString else {
+                continue
+            }
+            focusPanel(existingId)
+            return browser
+        }
+
+        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+            return newBrowserSurface(inPane: targetPane, url: url, focus: true)
+        }
+
+        guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
+        return newBrowserSplit(
+            from: panelId,
+            orientation: .horizontal,
+            url: url,
+            focus: true,
+            initialDividerPosition: nil
+        ) ?? newBrowserSurface(inPane: sourcePaneId, url: url, focus: true)
+    }
+
+    @discardableResult
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,

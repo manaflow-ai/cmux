@@ -5061,6 +5061,16 @@ enum CmdClickSupportedFileRouteSettings {
     }
 
     static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
+        if let behavior = FileExtensionOpenBehaviorSettings.behavior(forPath: path, defaults: defaults) {
+            switch behavior {
+            case .automatic:
+                break
+            case .cmuxPreview:
+                return isReadableRegularFile(path: path)
+            case .markdownViewer, .cmuxBrowser, .preferredEditor, .systemDefault:
+                return false
+            }
+        }
         guard isEnabled(defaults: defaults) else { return false }
         return isReadableRegularFile(path: path)
     }
@@ -6572,6 +6582,11 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
                         }
+
+                        SettingsCardDivider()
+
+                        FileExtensionOpenersSettingsCard()
+                            .settingsSearchAnchor(SettingsSearchIndex.settingID(for: .app, idSuffix: "file-extension-openers"))
 
                         SettingsCardDivider()
 
@@ -8395,6 +8410,7 @@ struct SettingsView: View {
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
         CmdClickMarkdownRouteSettings.setEnabled(CmdClickMarkdownRouteSettings.defaultValue)
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+        FileExtensionOpenBehaviorSettings.setOpeners(FileExtensionOpenBehaviorSettings.defaultValue)
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserCustomSearchEngineName = BrowserSearchSettings.defaultCustomSearchEngineName
         browserCustomSearchEngineURLTemplate = BrowserSearchSettings.defaultCustomSearchEngineURLTemplate

@@ -43,6 +43,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.iMessageMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.language",
+        "app.fileExtensionOpeners",
         "app.menuBarOnly",
         "app.minimalMode",
         "app.newWorkspacePlacement",
