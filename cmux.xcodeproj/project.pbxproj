@@ -3196,10 +3196,10 @@
 		};
 		C0DE5EDEC0DE5EDE00000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
+			repositoryURL = "https://github.com/manaflow-ai/CodeEditSourceEditor";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.15.2;
+				kind = revision;
+				revision = c8bcf1970551394eb82153725f97c5b4d985dc13;
 			};
 		};
 		C0DE5EDEC0DE5EDE00000011 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {

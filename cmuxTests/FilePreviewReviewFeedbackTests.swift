@@ -199,6 +199,33 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === focusTarget)
     }
 
+    // Regression for the highlighted file-preview crash on macOS 26: CodeEditSourceEditor
+    // reads `theme.background.brightnessComponent` without a colorspace conversion, and
+    // that selector traps (SIGILL) for catalog/dynamic/`.clear` colors — which crashed the
+    // editor the moment a preview opened. The resolved theme background must always be a
+    // concrete color whose brightnessComponent is valid.
+    func testHighlightedPreviewThemeBackgroundIsBrightnessSafe() {
+        for drawsBackground in [true, false] {
+            let resolved = HighlightedSourceEditorCore.resolvedThemeBackground(
+                background: .textBackgroundColor, // dynamic catalog color, as a real theme supplies
+                drawsBackground: drawsBackground
+            )
+            // Reading brightnessComponent is exactly what crashed; it must return a real
+            // value instead of trapping.
+            XCTAssertTrue(
+                resolved.brightnessComponent.isFinite,
+                "resolved theme background must be brightness-safe (drawsBackground=\(drawsBackground))"
+            )
+        }
+
+        // The transparent path (drawsBackground == false collapses to .clear) must also be safe.
+        let clearResolved = HighlightedSourceEditorCore.resolvedThemeBackground(
+            background: .clear,
+            drawsBackground: false
+        )
+        XCTAssertTrue(clearResolved.brightnessComponent.isFinite)
+    }
+
     func testSyntaxLanguageDetectorReevaluatesWhenFileGrowsPastHighlightLimit() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

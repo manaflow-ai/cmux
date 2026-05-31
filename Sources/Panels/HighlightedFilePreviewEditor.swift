@@ -142,6 +142,24 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
         installLocalEventMonitor(scrollView: sv)
     }
 
+    /// Install the zoom/save event monitor once the controller's scroll view exists.
+    ///
+    /// prepareCoordinator runs inside TextViewController.init, before loadView()
+    /// assigns the `scrollView` IUO, so we cannot read it synchronously there. Hop to
+    /// the next main-runloop tick (loadView() has run by then) and install with the
+    /// real scroll view; if it still isn't ready or the coordinator was torn down, do
+    /// nothing rather than crash.
+    func scheduleEventMonitorInstall() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard !self.isCoordinatorDestroyed(),
+                      let scrollView = self.textController?.scrollView else { return }
+                self.installLocalEventMonitor(scrollView: scrollView)
+            }
+        }
+    }
+
     func setVisibleInUI(_ visible: Bool) {
         guard isVisibleInUI != visible else {
             if visible { reinstallLocalEventMonitorIfNeeded() }
@@ -313,7 +331,14 @@ extension HighlightedEditorBridge: TextViewCoordinator {
         MainActor.assumeIsolated {
             guard !isCoordinatorDestroyed() else { return }
             textController = controller
-            installLocalEventMonitor(scrollView: controller.scrollView)
+            // `controller.scrollView` is an implicitly-unwrapped optional that
+            // TextViewController only assigns in loadView(). prepareCoordinator is
+            // invoked from inside TextViewController.init — before loadView() runs —
+            // so the scroll view is still nil here, and force-unwrapping it crashes
+            // the moment a highlighted preview opens. Defer the event-monitor install
+            // to the next main-runloop tick, by which point loadView() has created the
+            // scroll view and the view hierarchy exists.
+            scheduleEventMonitorInstall()
         }
     }
 
@@ -404,8 +429,17 @@ struct HighlightedSourceEditorCore: View {
     }
 
     private func makeSyntaxTheme() -> EditorTheme {
-        let fg = bridge.themeForeground
-        let bg = bridge.drawsBackground ? bridge.themeBackground : .clear
+        // CodeEditSourceEditor (MinimapView.setTheme, ReformattingGuideView) reads
+        // `theme.background.brightnessComponent` with no colorspace conversion, and
+        // `-[NSColor brightnessComponent]` throws for catalog/dynamic colors such as
+        // .textColor / .textBackgroundColor / .clear. Resolve every theme color into
+        // sRGB up front so brightness extraction is always valid and the editor can't
+        // crash while applying the theme.
+        let fg = bridge.themeForeground.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let bg = Self.resolvedThemeBackground(
+            background: bridge.themeBackground,
+            drawsBackground: bridge.drawsBackground
+        )
         // Always derive light/dark from the actual theme background, never from the
         // resolved clear color, otherwise transparent dark terminals would get the
         // light syntax palette.
@@ -455,6 +489,19 @@ struct HighlightedSourceEditorCore: View {
         guard let rgb = color.usingColorSpace(.sRGB) else { return true }
         let luminance = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
         return luminance < 0.5
+    }
+
+    /// Resolve the editor's background color into a colorspace where
+    /// `brightnessComponent` is valid.
+    ///
+    /// CodeEditSourceEditor (MinimapView.setTheme / ReformattingGuideView) reads
+    /// `theme.background.brightnessComponent` without converting first, and that selector
+    /// traps for catalog/dynamic/`.clear` colors — which crashed the highlighted preview
+    /// the moment it opened. Always hand the editor a concrete sRGB color. `internal
+    /// static` so it can be covered by a regression test.
+    static func resolvedThemeBackground(background: NSColor, drawsBackground: Bool) -> NSColor {
+        let raw = drawsBackground ? background : NSColor.clear
+        return raw.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0)
     }
 }
 
