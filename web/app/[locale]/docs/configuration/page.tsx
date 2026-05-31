@@ -128,6 +128,11 @@ function localizedText(text: LocalizedText, locale: string) {
   return locale.startsWith("ja") ? text.ja : text.en;
 }
 
+function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
+  if (shortcut.configValue) return shortcut.configValue;
+  return shortcutComboToConfig(shortcut.combos[0] ?? []);
+}
+
 function shortcutComboToConfig(combo: string[]) {
   const modifierMap: Record<string, string> = {
     "⌘": "cmd",
@@ -425,7 +430,7 @@ working-directory = ~/code`}</CodeBlock>
                 </div>
                 <div className="text-sm text-muted">
                   <div className="font-medium text-foreground">Default file value</div>
-                  <code>{shortcutComboToConfig(shortcut.combos[0] ?? [])}</code>
+                  <code>{shortcutToConfig(shortcut)}</code>
                 </div>
               </div>
             ))}

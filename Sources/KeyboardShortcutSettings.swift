@@ -146,6 +146,11 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
         case toggleReactGrab
+        case diffViewerScrollDown
+        case diffViewerScrollUp
+        case diffViewerScrollToBottom
+        case diffViewerScrollToTop
+        case diffViewerOpenFileSearch
 
         var id: String { rawValue }
 
@@ -230,6 +235,11 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
+            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
+            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
+            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+            case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
             }
         }
 
@@ -419,6 +429,19 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .diffViewerScrollDown:
+                return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
+            case .diffViewerScrollUp:
+                return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
+            case .diffViewerScrollToBottom:
+                return StoredShortcut(key: "g", command: false, shift: true, option: false, control: false)
+            case .diffViewerScrollToTop:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false)
+                )
+            case .diffViewerOpenFileSearch:
+                return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
             }
         }
 
@@ -429,6 +452,32 @@ enum KeyboardShortcutSettings {
         var usesNumberedDigitMatching: Bool {
             switch self {
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var allowsBareFirstStroke: Bool {
+            switch self {
+            case .diffViewerScrollDown,
+                 .diffViewerScrollUp,
+                 .diffViewerScrollToBottom,
+                 .diffViewerScrollToTop,
+                 .diffViewerOpenFileSearch:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var isBrowserContentShortcut: Bool {
+            switch self {
+            case .diffViewerScrollDown,
+                 .diffViewerScrollUp,
+                 .diffViewerScrollToBottom,
+                 .diffViewerScrollToTop,
+                 .diffViewerOpenFileSearch:
                 return true
             default:
                 return false
@@ -2293,14 +2342,14 @@ extension ShortcutStroke {
 }
 
 extension StoredShortcut {
-    static func parseConfig(_ rawValue: String) -> StoredShortcut? {
+    static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
         if isUnboundConfigToken(rawValue) {
             return .unbound
         }
-        return parseConfig(strokes: [rawValue])
+        return parseConfig(strokes: [rawValue], allowBareFirstStroke: allowBareFirstStroke)
     }
 
-    static func parseConfig(strokes: [String]) -> StoredShortcut? {
+    static func parseConfig(strokes: [String], allowBareFirstStroke: Bool = false) -> StoredShortcut? {
         guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
         if strokes.count == 1, let rawValue = strokes.first, isUnboundConfigToken(rawValue) {
             return .unbound
@@ -2309,7 +2358,7 @@ extension StoredShortcut {
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }
-        guard !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
+        guard allowBareFirstStroke || !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
     }
