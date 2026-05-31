@@ -683,8 +683,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let firstContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: false
+        )
+        let secondContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: false
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
@@ -932,8 +938,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
         UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let firstContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: false
+        )
+        let secondContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: false
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
@@ -1472,8 +1484,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let previousWelcomeShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
         UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
-        let firstContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
-        let secondContext = makeRegisteredLightweightMainWindowContext(appDelegate: appDelegate)
+        let firstContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: false
+        )
+        let secondContext = makeRegisteredLightweightMainWindowContext(
+            appDelegate: appDelegate,
+            createInitialWorkspace: false
+        )
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: firstContext.windowId)
             appDelegate.unregisterMainWindowContextForTesting(windowId: secondContext.windowId)
@@ -9929,11 +9947,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
     private func makeRegisteredLightweightMainWindowContext(
-        appDelegate: AppDelegate
+        appDelegate: AppDelegate,
+        createInitialWorkspace: Bool = true
     ) -> (windowId: UUID, window: NSWindow, tabManager: TabManager) {
         let windowId = UUID()
         let window = makeRegisteredShortcutRoutingWindow(id: windowId)
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let tabManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            debugCreateInitialWorkspace: createInitialWorkspace
+        )
         let registeredWindowId = appDelegate.registerMainWindowContextForTesting(
             windowId: windowId,
             tabManager: tabManager,
