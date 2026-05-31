@@ -1770,6 +1770,22 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             isRunningUnderAutomatedTests: false
         ))
 
+        let restoredAttachPanelId = UUID()
+        var restoredAttachTerminal = Self.terminalPanelSnapshot(id: restoredAttachPanelId)
+        restoredAttachTerminal.terminal?.isRemoteTerminal = false
+        restoredAttachTerminal.terminal?.remotePTYSessionID = " ssh-restored-session "
+        var browserAndRestoredAttachSnapshot = browserOnlySnapshot
+        browserAndRestoredAttachSnapshot.panels.append(restoredAttachTerminal)
+        if case .pane(var pane) = browserAndRestoredAttachSnapshot.layout {
+            pane.panelIds.append(restoredAttachPanelId)
+            browserAndRestoredAttachSnapshot.layout = .pane(pane)
+        }
+        XCTAssertFalse(Workspace.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: "token-a",
+            snapshot: browserAndRestoredAttachSnapshot,
+            isRunningUnderAutomatedTests: false
+        ))
+
         XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
             foregroundAuthToken: nil,
             snapshot: terminalSnapshot,

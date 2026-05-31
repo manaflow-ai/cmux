@@ -888,7 +888,12 @@ extension Workspace {
         guard normalizedForegroundAuthToken?.isEmpty == false else { return true }
         let hasTerminalThatWillAuthenticateReconnect = snapshot.panels.contains {
             guard let terminal = $0.terminal else { return false }
-            return terminal.isRemoteTerminal != false
+            if terminal.isRemoteTerminal != false {
+                return true
+            }
+            let remotePTYSessionID = terminal.remotePTYSessionID?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return remotePTYSessionID?.isEmpty == false
         }
         return !hasTerminalThatWillAuthenticateReconnect
     }
