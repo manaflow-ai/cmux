@@ -24,12 +24,18 @@ if (args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
   process.exit(0);
 }
 const command = args.length > 0 ? args.join(" ") : "ping";
+const launchToken = process.env.CMUX_WINDOWS_TOKEN || "";
+
+if (!launchToken) {
+  process.stderr.write("cmuxw: missing CMUX_WINDOWS_TOKEN\n");
+  process.exit(1);
+}
 
 const socket = net.createConnection(pipeName);
 let output = "";
 
 socket.on("connect", () => {
-  socket.write(command + "\n");
+  socket.write(`auth ${launchToken}\n${command}\n`);
 });
 
 socket.on("data", (chunk) => {

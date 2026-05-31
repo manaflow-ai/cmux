@@ -309,6 +309,12 @@ function shellArgs(shellPath) {
   return [];
 }
 
+function tokensMatch(expected, actual) {
+  const left = Buffer.from(String(expected || ""));
+  const right = Buffer.from(String(actual || ""));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
 class TerminalProcess {
   constructor(panel, options = {}) {
     this.panel = panel;
@@ -338,6 +344,8 @@ class TerminalProcess {
           TERM: "xterm-256color",
           COLORTERM: "truecolor",
           CMUX_WINDOWS: "1",
+          CMUX_WINDOWS_PIPE: this.panel.runtime?.pipeName || defaultPipeName,
+          CMUX_WINDOWS_TOKEN: this.panel.runtime?.launchToken || "",
           CMUX_WORKSPACE_ID: this.panel.workspaceId,
           CMUX_PANEL_ID: this.panel.id
         }
@@ -355,6 +363,8 @@ class TerminalProcess {
       env: {
         ...process.env,
         CMUX_WINDOWS: "1",
+        CMUX_WINDOWS_PIPE: this.panel.runtime?.pipeName || defaultPipeName,
+        CMUX_WINDOWS_TOKEN: this.panel.runtime?.launchToken || "",
         CMUX_WORKSPACE_ID: this.panel.workspaceId,
         CMUX_PANEL_ID: this.panel.id
       },
@@ -1203,12 +1213,23 @@ class CmuxWindowsRuntime {
       }
       this.pipeServer = net.createServer((socket) => {
         let buffer = "";
+        let authenticated = false;
         socket.on("data", (chunk) => {
           buffer += chunk.toString("utf8");
           let index = buffer.indexOf("\n");
           while (index >= 0) {
             const line = buffer.slice(0, index).trim();
             buffer = buffer.slice(index + 1);
+            if (!authenticated) {
+              if (this.authenticatePipeLine(line)) {
+                authenticated = true;
+                index = buffer.indexOf("\n");
+                continue;
+              }
+              socket.write("ERROR unauthorized\n");
+              socket.end();
+              return;
+            }
             this.handlePipeLine(line).then((reply) => {
               socket.write(reply + "\n");
             }).catch((error) => {
@@ -1226,6 +1247,19 @@ class CmuxWindowsRuntime {
       });
       this.pipeServer.listen(this.pipeName);
     });
+  }
+
+  authenticatePipeLine(line) {
+    if (!line) return false;
+    if (tokensMatch(this.launchToken, line)) return true;
+    if (line.startsWith("auth ")) return tokensMatch(this.launchToken, line.slice(5).trim());
+    if (!line.startsWith("{")) return false;
+    try {
+      const request = JSON.parse(line);
+      return tokensMatch(this.launchToken, request.token || request.params?.token);
+    } catch {
+      return false;
+    }
   }
 
   async handlePipeLine(line) {

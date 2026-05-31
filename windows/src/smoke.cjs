@@ -15,11 +15,14 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function pipeRoundTrip(command) {
+function pipeRoundTrip(command, launchToken) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(pipeName);
     let output = "";
-    socket.on("connect", () => socket.write(command + "\n"));
+    socket.on("connect", () => {
+      if (launchToken) socket.write(`auth ${launchToken}\n`);
+      socket.write(command + "\n");
+    });
     socket.on("data", (chunk) => {
       output += chunk.toString("utf8");
       if (output.includes("\n")) {
@@ -330,7 +333,9 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
   const emptyWorkspace = emptyState.workspaces.find((candidate) => candidate.id === emptyState.activeWorkspaceId);
   assert(emptyWorkspace.panels.length === 0, "workspace should allow zero open panels");
 
-  const ping = await pipeRoundTrip("ping");
+  const unauthenticatedPing = await pipeRoundTrip("ping");
+  assert(unauthenticatedPing === "ERROR unauthorized", `unauthenticated pipe command should fail: ${unauthenticatedPing}`);
+  const ping = await pipeRoundTrip("ping", info.launchToken);
   assert(ping === "OK", `pipe ping failed: ${ping}`);
 
   runtime.close();
