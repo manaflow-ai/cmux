@@ -4917,6 +4917,7 @@ function renderSettingsInspector(options = {}) {
   if (shouldBuildSection("quick")) {
     const quickSection = settingsSection("Quick setup");
     quickSection.append(quickSetupOverviewPanel());
+    quickSection.append(quickSetupActionGrid());
     quickSection.append(quickSettingsShortcutGrid());
     quickSection.append(settingsPresetGrid());
     nodes.push(quickSection);
@@ -6840,6 +6841,65 @@ const quickSettingsShortcuts = [
   ["profiles", "Profiles", "Save and reuse setups.", () => `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
   ["data", "Data", "Import, export, cleanup.", () => `${state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length} recent`]
 ];
+
+function quickSetupActionGrid() {
+  const actions = [
+    {
+      label: "Clean UI",
+      body: "Apply compact chrome and quieter pane controls.",
+      meta: activeSettingsPresetLabel,
+      search: "simple clean compact ui chrome pane controls preset",
+      run: () => applySettingsPresetById("simple")
+    },
+    {
+      label: "Tune speed",
+      body: "Reduce effects, pause hidden output, and lighten history.",
+      meta: performanceModeLabel,
+      search: "performance tune speed lag smooth reduce effects",
+      run: () => {
+        tunePerformanceNow();
+        if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+      }
+    },
+    {
+      label: state.settings.focusMode ? "Leave focus" : "Focus mode",
+      body: "Hide extra chrome when you want only the workspace.",
+      meta: () => state.settings.focusMode ? "On" : "Off",
+      search: "focus mode hide chrome simple clean workspace",
+      run: () => {
+        toggleFocusMode();
+        if (state.inspectorMode === "settings" && state.settingsCategory === "quick") renderSettingsInspector();
+      }
+    },
+    {
+      label: "Background",
+      body: "Choose a local image for the workspace backdrop.",
+      meta: () => appearanceBackgroundLabel(state.settings.backgroundImage),
+      search: "background image wallpaper choose local file appearance",
+      run: () => chooseBackgroundImage()
+    }
+  ];
+  const grid = document.createElement("div");
+  grid.className = "quick-settings-shortcut-grid quick-action-grid";
+  grid.dataset.settingsSearch = normalizeSettingsQuery("quick actions clean ui speed tune focus mode background image wallpaper");
+  for (const action of actions) {
+    const button = document.createElement("button");
+    button.className = "quick-settings-shortcut quick-action";
+    button.type = "button";
+    button.dataset.settingsSearch = normalizeSettingsQuery(`quick action ${action.label} ${action.body} ${action.search}`);
+    button.innerHTML = `
+      <span class="quick-settings-shortcut-title"></span>
+      <span class="quick-settings-shortcut-body"></span>
+      <span class="quick-settings-shortcut-meta"></span>
+    `;
+    button.querySelector(".quick-settings-shortcut-title").textContent = action.label;
+    button.querySelector(".quick-settings-shortcut-body").textContent = action.body;
+    button.querySelector(".quick-settings-shortcut-meta").textContent = action.meta();
+    button.onclick = action.run;
+    grid.append(button);
+  }
+  return grid;
+}
 
 function quickSettingsShortcutGrid() {
   const grid = document.createElement("div");
