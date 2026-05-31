@@ -8236,10 +8236,12 @@ class TabManager: ObservableObject {
     func applyWindowBackdropModeForAllTabs(reason: String) {
         let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
         let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+        let splitDividerColor = GhosttyConfig.load().splitDividerColor
         for tab in tabs {
             tab.applyGhosttyChrome(
                 backgroundColor: backgroundColor,
                 backgroundOpacity: backgroundOpacity,
+                splitDividerColor: splitDividerColor,
                 reason: reason
             )
         }
