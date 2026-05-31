@@ -199,6 +199,7 @@ const paneLayoutMaxWeight = 10000;
 const paneResizeMinWidth = 32;
 const paneResizeMinHeight = 28;
 const settingsSaveDelay = 140;
+const browserTabSnapshotSaveDelay = 180;
 const terminalFontSizeMin = 10;
 const terminalFontSizeMax = 22;
 const terminalWheelZoomThreshold = 120;
@@ -343,6 +344,7 @@ const state = {
   eventSocketReconnectTimer: 0,
   pendingBrowserUrlSync: new Map(),
   browserUrlSyncTimer: 0,
+  browserTabSnapshotSaveTimer: 0,
   pendingTerminalFontSizeSync: new Map(),
   terminalFontSizeSyncTimer: 0,
   resizing: null,
@@ -3984,6 +3986,8 @@ function cleanupPanel(panelId) {
     terminal.term?.dispose();
     state.terminals.delete(panelId);
   }
+  const browserSession = state.browserViews.get(panelId);
+  if (browserSession?.tabRenderFrame) cancelAnimationFrame(browserSession.tabRenderFrame);
   const pane = state.paneCache.get(panelId);
   pane?.remove();
   state.paneCache.delete(panelId);
@@ -4655,6 +4659,28 @@ function saveBrowserSessionTabs(session) {
     activeTabId: session.activeTabId,
     tabs: session.tabs
   }, state.settings.browserHomeUrl));
+  scheduleBrowserTabSnapshotsSave();
+}
+
+function saveBrowserSessionTabsNow(session) {
+  if (!session?.panelId) return;
+  state.browserTabSnapshots.set(session.panelId, normalizeBrowserTabSnapshot({
+    activeTabId: session.activeTabId,
+    tabs: session.tabs
+  }, state.settings.browserHomeUrl));
+  flushBrowserTabSnapshotsSave();
+}
+
+function scheduleBrowserTabSnapshotsSave() {
+  if (state.browserTabSnapshotSaveTimer) return;
+  state.browserTabSnapshotSaveTimer = setTimeout(flushBrowserTabSnapshotsSave, browserTabSnapshotSaveDelay);
+}
+
+function flushBrowserTabSnapshotsSave() {
+  if (state.browserTabSnapshotSaveTimer) {
+    clearTimeout(state.browserTabSnapshotSaveTimer);
+    state.browserTabSnapshotSaveTimer = 0;
+  }
   saveBrowserTabSnapshots(state.browserTabSnapshots);
 }
 
@@ -4671,6 +4697,10 @@ function browserTabSnapshotForPanelId(panelId, fallbackUrl = state.settings.brow
 
 function renderBrowserTabs(session) {
   if (!session?.tabList) return;
+  if (session.tabRenderFrame) {
+    cancelAnimationFrame(session.tabRenderFrame);
+    session.tabRenderFrame = 0;
+  }
   if (!session.tabButtons) session.tabButtons = new Map();
   const validTabIds = new Set(session.tabs.map((tab) => tab.id));
   for (const [tabId, button] of [...session.tabButtons.entries()]) {
@@ -4688,6 +4718,14 @@ function renderBrowserTabs(session) {
     return button;
   });
   replaceChildrenIfChanged(session.tabList, nodes);
+}
+
+function scheduleBrowserTabsRender(session) {
+  if (!session?.tabList || session.tabRenderFrame) return;
+  session.tabRenderFrame = requestAnimationFrame(() => {
+    session.tabRenderFrame = 0;
+    renderBrowserTabs(session);
+  });
 }
 
 function createBrowserTabButton(session) {
@@ -4779,7 +4817,7 @@ function moveBrowserTab(session, tabId, targetTabId, placement = "before") {
   if (insertIndex < 0) insertIndex = session.tabs.length;
   if (placement === "after") insertIndex += 1;
   session.tabs.splice(insertIndex, 0, tab);
-  saveBrowserSessionTabs(session);
+  saveBrowserSessionTabsNow(session);
   renderBrowserTabs(session);
   return true;
 }
@@ -4790,7 +4828,7 @@ function moveBrowserTabToEnd(session, tabId) {
   if (fromIndex < 0 || fromIndex === session.tabs.length - 1) return false;
   const [tab] = session.tabs.splice(fromIndex, 1);
   session.tabs.push(tab);
-  saveBrowserSessionTabs(session);
+  saveBrowserSessionTabsNow(session);
   renderBrowserTabs(session);
   return true;
 }
@@ -4803,7 +4841,7 @@ function updateActiveBrowserTabUrl(session, value) {
   tab.url = url;
   tab.title = browserTabTitle(url);
   saveBrowserSessionTabs(session);
-  renderBrowserTabs(session);
+  scheduleBrowserTabsRender(session);
 }
 
 function updateActiveBrowserTabTitle(session, value) {
@@ -4813,7 +4851,7 @@ function updateActiveBrowserTabTitle(session, value) {
   if (!title || title === tab.title) return;
   tab.title = title;
   saveBrowserSessionTabs(session);
-  renderBrowserTabs(session);
+  scheduleBrowserTabsRender(session);
 }
 
 function activateBrowserTab(session, tabId) {
@@ -4828,7 +4866,7 @@ function activateBrowserTab(session, tabId) {
     session.setStatus?.("Loading");
   }
   queueBrowserUrlSync(session.panelId, tab.url);
-  saveBrowserSessionTabs(session);
+  saveBrowserSessionTabsNow(session);
   renderBrowserTabs(session);
   focusPanel(session.panelId);
   return true;
@@ -4866,7 +4904,7 @@ function closeBrowserTab(session, tabId) {
     session.activeTabId = nextTab.id;
     activateBrowserTab(session, nextTab.id);
   } else {
-    saveBrowserSessionTabs(session);
+    saveBrowserSessionTabsNow(session);
     renderBrowserTabs(session);
   }
   return true;
@@ -12002,7 +12040,10 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("dragend", clearAllDropTargets);
 document.addEventListener("drop", clearAllDropTargets);
-window.addEventListener("beforeunload", flushSettingsSave);
+window.addEventListener("beforeunload", () => {
+  flushSettingsSave();
+  flushBrowserTabSnapshotsSave();
+});
 
 function updateMaximizeButton(maximized) {
   if (!elements.maximizeWindowButton) return;
