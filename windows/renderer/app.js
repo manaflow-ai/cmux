@@ -31,6 +31,7 @@ import {
 import {
   browserTabLimit,
   browserTabSnapshotForPanel,
+  browserTabsStorageKey,
   browserTabTitle,
   loadBrowserTabSnapshots,
   normalizeBrowserTab,
@@ -951,7 +952,12 @@ async function openExternalBrowser(url) {
 }
 
 function hasRecentActivity() {
-  return Boolean(state.recentFolders.length || state.recentCommands.length || state.recentBrowserPages.length);
+  return Boolean(
+    state.recentFolders.length
+    || state.recentCommands.length
+    || state.recentBrowserPages.length
+    || state.browserTabSnapshots.size
+  );
 }
 
 async function clearRecentActivity() {
@@ -961,16 +967,18 @@ async function clearRecentActivity() {
   }
   if (!await showConfirmDialog({
     title: "Clear recent activity",
-    message: "Remove recent folders, terminal commands, and browser pages. Saved profiles, snippets, backgrounds, colors, and blueprints stay.",
+    message: "Remove recent folders, terminal commands, browser pages, and saved browser tabs. Saved profiles, snippets, backgrounds, colors, and blueprints stay.",
     confirmLabel: "Clear",
     danger: true
   })) return false;
   state.recentFolders = [];
   state.recentCommands = [];
   state.recentBrowserPages = [];
+  state.browserTabSnapshots = new Map();
   saveRecentFolders();
   saveRecentCommands();
   saveRecentBrowserPages();
+  saveBrowserTabSnapshots(state.browserTabSnapshots);
   renderSettingsInspector();
   toast("Recent activity cleared.");
   return true;
@@ -5357,7 +5365,7 @@ function renderSettingsInspector(options = {}) {
     actionsSection.append(dataStorageBreakdownPanel());
     const actions = document.createElement("div");
     actions.className = "settings-actions";
-    const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages history");
+    const clearRecent = settingsActionButton("Clear recent activity", clearRecentActivity, "danger", "clear recent activity folders commands browser pages tabs history");
     clearRecent.disabled = !hasRecentActivity();
     const closeEmpty = settingsActionButton("Close empty workspaces", closeEmptyWorkspaces, "danger", "workspace cleanup empty duplicate close remove");
     closeEmpty.disabled = !hasEmptyWorkspaceCleanupTargets();
@@ -5412,7 +5420,7 @@ function settingsInspectorSignature() {
     parts.push(stableJson(state.customColorPalette), stableJson(state.savedBackgroundImages));
   }
   if (searching || ["browser", "data", "actions"].includes(category)) {
-    parts.push(stableJson(state.recentBrowserPages));
+    parts.push(stableJson(state.recentBrowserPages), stableJson(Object.fromEntries(state.browserTabSnapshots)));
   }
   if (searching || ["workspace", "data", "actions"].includes(category)) {
     parts.push(stableJson(state.recentFolders));
@@ -5469,6 +5477,7 @@ function quickSettingsSignature() {
     recentFolders: state.recentFolders.length,
     recentCommands: state.recentCommands.length,
     recentBrowserPages: state.recentBrowserPages.length,
+    browserTabs: browserTabSnapshotCount(),
     commandSnippets: state.customCommandSnippets.length,
     profiles: state.savedSettingsProfiles.length,
     blueprints: state.workspaceBlueprints.length,
@@ -6225,7 +6234,10 @@ function storageEntryBytes(key) {
 }
 
 function recentDataItemCount() {
-  return state.recentFolders.length + state.recentCommands.length + state.recentBrowserPages.length;
+  return state.recentFolders.length
+    + state.recentCommands.length
+    + state.recentBrowserPages.length
+    + browserTabSnapshotCount();
 }
 
 function savedDataItemCount() {
@@ -6234,6 +6246,14 @@ function savedDataItemCount() {
     + state.workspaceBlueprints.length
     + state.customColorPalette.length
     + state.savedBackgroundImages.length;
+}
+
+function browserTabSnapshotCount() {
+  let count = 0;
+  for (const snapshot of state.browserTabSnapshots.values()) {
+    count += Array.isArray(snapshot?.tabs) ? snapshot.tabs.length : 0;
+  }
+  return count;
 }
 
 function emptyWorkspaces() {
@@ -6306,6 +6326,14 @@ function dataStorageEntries() {
       terms: "browser web page history"
     },
     {
+      id: "browserTabs",
+      label: "Browser tabs",
+      key: browserTabsStorageKey,
+      count: `${state.browserTabSnapshots.size} panes / ${browserTabSnapshotCount()} tabs`,
+      category: "browser",
+      terms: "browser tab restore session saved tabs"
+    },
+    {
       id: "commandSnippets",
       label: "Command snippets",
       key: customCommandSnippetsStorageKey,
@@ -6366,6 +6394,7 @@ function settingsDataMetrics() {
     ["Recent folders", `${state.recentFolders.length}/${recentFoldersLimit}`],
     ["Recent commands", `${state.recentCommands.length}/${recentCommandsLimit}`],
     ["Recent pages", `${state.recentBrowserPages.length}/${recentBrowserPagesLimit}`],
+    ["Browser tabs", `${state.browserTabSnapshots.size} panes / ${browserTabSnapshotCount()} tabs`],
     ["Command snippets", `${state.customCommandSnippets.length}/${customCommandSnippetsLimit}`],
     ["Profiles", `${state.savedSettingsProfiles.length}/${savedSettingsProfilesLimit}`],
     ["Blueprints", `${state.workspaceBlueprints.length}/${workspaceBlueprintsLimit}`],
@@ -6562,7 +6591,7 @@ function quickSettingsShortcutGrid() {
 function dataSettingsOverviewPanel() {
   const panel = document.createElement("div");
   panel.className = "data-settings-overview";
-  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved cleanup reset local settings empty workspaces");
+  panel.dataset.settingsSearch = normalizeSettingsQuery("data overview storage backup export import recent saved cleanup reset local settings empty workspaces browser tabs");
   panel.innerHTML = `
     <div class="data-overview-heading">
       <span class="data-overview-title">Local data</span>

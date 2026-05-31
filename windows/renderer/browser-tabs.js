@@ -5,7 +5,7 @@ import {
 } from "./browser-utils.js";
 
 export const browserTabLimit = 12;
-const browserTabsStorageKey = "cmux.browserTabs";
+export const browserTabsStorageKey = "cmux.browserTabs";
 
 function createBrowserTabId() {
   return `tab_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
