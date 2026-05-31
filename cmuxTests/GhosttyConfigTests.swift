@@ -1270,6 +1270,70 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
     }
 
+    func testTelemetryLaunchDisablesUnderXCTest() {
+        let suiteName = "cmux.tests.telemetry-launch.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
+
+        XCTAssertFalse(
+            TelemetrySettings.isEnabledForLaunch(
+                defaults: defaults,
+                environment: ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+    }
+
+    func testXCTestLaunchEnvironmentOnlyBootstrapsWindowsForUITests() {
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertTrue(CmuxXCTestLaunchEnvironment.shouldBootstrapInitialMainWindow([:]))
+    }
+
+    func testXCTestLaunchEnvironmentOnlyUsesWindowFallbackForUITests() {
+        XCTAssertFalse(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                ["XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertTrue(
+            CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback(
+                [
+                    "XCTestConfigurationFilePath": "/tmp/cmux.xctestconfiguration",
+                    "CMUX_SOCKET_PATH": "/tmp/cmux-ui-test.sock"
+                ]
+            )
+        )
+        XCTAssertFalse(CmuxXCTestLaunchEnvironment.shouldUseUITestWindowFallback([:]))
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
