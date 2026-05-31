@@ -961,7 +961,7 @@ class CmuxWindowsRuntime {
   }
 
   requestHasValidToken(request, url) {
-    return this.requestToken(request, url) === this.launchToken;
+    return tokensMatch(this.launchToken, this.requestToken(request, url));
   }
 
   requestHasAllowedOrigin(request) {
@@ -1087,6 +1087,16 @@ class CmuxWindowsRuntime {
   }
 
   serveLocalImage(request, response, url) {
+    if (!this.requestHasAllowedOrigin(request)) {
+      response.writeHead(403);
+      response.end("Forbidden");
+      return;
+    }
+    if (!this.requestHasValidToken(request, url)) {
+      response.writeHead(401);
+      response.end("Unauthorized");
+      return;
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.writeHead(405);
       response.end("Method not allowed");

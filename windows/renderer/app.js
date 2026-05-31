@@ -668,7 +668,12 @@ function isCustomBackgroundImage(value) {
 
 function backgroundImageUrl(value) {
   const url = normalizedImageUrl(value);
-  if (/^file:/i.test(url)) return `/_cmux/local-image?url=${encodeURIComponent(url)}`;
+  if (/^file:/i.test(url)) {
+    const proxyUrl = new URL("/_cmux/local-image", location.origin);
+    proxyUrl.searchParams.set("url", url);
+    if (launchToken) proxyUrl.searchParams.set("token", launchToken);
+    return `${proxyUrl.pathname}${proxyUrl.search}`;
+  }
   return url;
 }
 

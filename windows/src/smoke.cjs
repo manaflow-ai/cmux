@@ -308,7 +308,10 @@ async function waitForCondition(label, probe, timeoutMs = 3000) {
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
     "base64"
   ));
-  const imageResponse = await fetch(`${info.url}_cmux/local-image?url=${encodeURIComponent(pathToFileURL(pngPath).href)}`);
+  const imageUrl = `${info.url}_cmux/local-image?url=${encodeURIComponent(pathToFileURL(pngPath).href)}`;
+  const unauthorizedImageResponse = await rawFetch(imageUrl);
+  assert(unauthorizedImageResponse.status === 401, "local background image endpoint should require launch token");
+  const imageResponse = await rawFetch(`${imageUrl}&token=${encodeURIComponent(info.launchToken)}`);
   assert(imageResponse.ok, "local background image endpoint failed");
   assert((imageResponse.headers.get("content-type") || "").startsWith("image/png"), "local image endpoint should serve png content type");
   assert((await imageResponse.arrayBuffer()).byteLength > 0, "local image endpoint should return bytes");
