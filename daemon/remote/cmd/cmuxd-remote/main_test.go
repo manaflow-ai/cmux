@@ -28,6 +28,13 @@ type notifyingBuffer struct {
 	notify chan struct{}
 }
 
+type persistentTestFrameQueue struct {
+	mu     sync.Mutex
+	frames []map[string]any
+}
+
+var persistentTestPendingFrames sync.Map
+
 func newNotifyingBuffer() *notifyingBuffer {
 	return &notifyingBuffer{notify: make(chan struct{}, 1)}
 }
@@ -114,6 +121,7 @@ func persistentTestRPCCall(t *testing.T, conn net.Conn, reader *bufio.Reader, wr
 	for {
 		frame := readPersistentTestFrame(t, conn, reader)
 		if _, isEvent := frame["event"]; isEvent {
+			enqueuePersistentTestFrame(conn, frame)
 			continue
 		}
 		return frame
@@ -125,6 +133,13 @@ func readPersistentTestEvent(t *testing.T, conn net.Conn, reader *bufio.Reader, 
 	deadline := time.Now().Add(5 * time.Second)
 	var last map[string]any
 	for time.Now().Before(deadline) {
+		if frame, ok := dequeuePersistentTestFrame(conn); ok {
+			last = frame
+			if _, isEvent := frame["event"]; isEvent && matches(frame) {
+				return frame
+			}
+			continue
+		}
 		frame := readPersistentTestFrame(t, conn, reader)
 		last = frame
 		if _, isEvent := frame["event"]; isEvent && matches(frame) {
@@ -133,6 +148,34 @@ func readPersistentTestEvent(t *testing.T, conn net.Conn, reader *bufio.Reader, 
 	}
 	t.Fatalf("timed out waiting for persistent daemon event; last=%v", last)
 	return nil
+}
+
+func enqueuePersistentTestFrame(conn net.Conn, frame map[string]any) {
+	queue := persistentTestQueue(conn)
+	queue.mu.Lock()
+	queue.frames = append(queue.frames, frame)
+	queue.mu.Unlock()
+}
+
+func dequeuePersistentTestFrame(conn net.Conn) (map[string]any, bool) {
+	queue := persistentTestQueue(conn)
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	if len(queue.frames) == 0 {
+		return nil, false
+	}
+	frame := queue.frames[0]
+	queue.frames = queue.frames[1:]
+	return frame, true
+}
+
+func persistentTestQueue(conn net.Conn) *persistentTestFrameQueue {
+	if queue, ok := persistentTestPendingFrames.Load(conn); ok {
+		return queue.(*persistentTestFrameQueue)
+	}
+	queue := &persistentTestFrameQueue{}
+	actual, _ := persistentTestPendingFrames.LoadOrStore(conn, queue)
+	return actual.(*persistentTestFrameQueue)
 }
 
 func writePersistentTestFrame(t *testing.T, writer *bufio.Writer, payload any) {
